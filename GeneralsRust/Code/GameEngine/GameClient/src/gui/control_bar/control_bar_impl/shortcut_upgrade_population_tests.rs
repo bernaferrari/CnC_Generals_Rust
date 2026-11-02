@@ -4,7 +4,7 @@
 #[test]
 fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
     let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
+    { // was owner.with_scope
         use game_engine::common::ini::{ini_command_button, ini_command_set};
         use game_engine::common::thing::receiving_module_content::{
             UpgradeTooltipObservation, UpgradeTooltipSource,
@@ -77,7 +77,7 @@ fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
                 bar.leftover_shortcut_button_name(0),
                 bar.leftover_shortcut_parent_name(0),
             ] {
-                with_window_manager(|manager| {
+                owner.with_manager(|manager| {
                     let window = manager.create_window(None, 0, 0, 32, 32).unwrap();
                     window.borrow_mut().set_name(&name);
                     window.borrow_mut().hide(true).unwrap();
@@ -174,5 +174,5 @@ fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
             ))
             .unwrap();
         assert_row(&owner, true);
-    });
+    }
 }

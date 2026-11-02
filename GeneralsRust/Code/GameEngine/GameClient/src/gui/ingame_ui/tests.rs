@@ -3,6 +3,8 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::test_support::with_receiving_ui;
+
     use super::*;
     use game_engine::common::ini::ini_language::init_global_language;
     use game_engine::common::language::Language;
@@ -922,21 +924,24 @@ mod tests {
 
     #[test]
     fn trigger_double_click_arms_eleven_frame_guard_timer() {
+        with_receiving_ui(|ui| {
         let mut timer = 0;
         InGameUI::arm_double_click_attack_move_guard_timer(&mut timer);
         assert_eq!(timer, 11);
-        TheInGameUI::arm_double_click_attack_move_guard_hint(12.0, 34.0, 5.0);
-        assert_eq!(TheInGameUI::double_click_attack_move_guard_timer(), 11);
+        ui.arm_double_click_attack_move_guard_hint(12.0, 34.0, 5.0);
+        assert_eq!(ui.double_click_attack_move_guard_timer(), 11);
         assert_eq!(
-            TheInGameUI::guard_hint_stashed_position(),
+            ui.guard_hint_stashed_position(),
             (12.0, 34.0, 5.0)
         );
-        assert!(TheInGameUI::consume_double_click_attack_move_guard_hint());
-        assert_eq!(TheInGameUI::double_click_attack_move_guard_timer(), 10);
+        assert!(ui.consume_double_click_attack_move_guard_hint());
+        assert_eq!(ui.double_click_attack_move_guard_timer(), 10);
+        });
     }
 
     #[test]
     fn set_input_enabled_clears_modes_only_on_disable_edge() {
+        with_receiving_ui(|ui| {
         assert!(InGameUI::should_clear_modes_on_input_enable_change(
             true, false
         ));
@@ -950,15 +955,16 @@ mod tests {
             false, true
         ));
 
-        TheInGameUI::set_force_attack_mode(true);
-        TheInGameUI::set_waypoint_mode(true);
-        TheInGameUI::set_prefer_selection_mode(true);
-        TheInGameUI::set_input_enabled(true);
-        TheInGameUI::set_input_enabled(false);
-        assert!(!TheInGameUI::is_in_force_attack_mode());
-        assert!(!TheInGameUI::is_in_waypoint_mode());
-        assert!(!TheInGameUI::is_in_prefer_selection_mode());
-        TheInGameUI::set_input_enabled(true);
+        ui.set_force_attack_mode(true);
+        ui.set_waypoint_mode(true);
+        ui.set_prefer_selection_mode(true);
+        ui.set_input_enabled(true);
+        ui.set_input_enabled(false);
+        assert!(!ui.is_in_force_attack_mode());
+        assert!(!ui.is_in_waypoint_mode());
+        assert!(!ui.is_in_prefer_selection_mode());
+        ui.set_input_enabled(true);
+        });
     }
 
     #[test]
@@ -971,20 +977,23 @@ mod tests {
 
     #[test]
     fn popup_message_appends_diplomacy_briefing_identifier() {
+        with_receiving_ui(|ui| {
         crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text("", true);
-        TheInGameUI::popup_message("SCRIPT:Wave6InGameUIPopup", 10, 20, 80, false, false);
+        ui.popup_message("SCRIPT:Wave6InGameUIPopup", 10, 20, 80, false, false);
         assert!(
             crate::gui::callbacks::diplomacy::get_briefing_text_list()
                 .iter()
                 .any(|line| line.contains("SCRIPT:Wave6InGameUIPopup")),
             "popupMessage must UpdateDiplomacyBriefingText before opening the modal"
         );
+        });
     }
 
     #[test]
     fn live_set_pending_command_enters_gui_command_mouse_mode() {
-        TheInGameUI::clear_pending_command();
-        TheInGameUI::set_pending_command_with_visual(
+        with_receiving_ui(|ui| {
+        ui.clear_pending_command();
+        ui.set_pending_command_with_visual(
             CommandType::PlaceBeacon,
             0x20,
             0,
@@ -992,9 +1001,10 @@ mod tests {
             "GENERIC_INVALID".to_string(),
             "GUARD_AREA".to_string(),
         );
-        assert_eq!(TheInGameUI::get_mouse_mode(), MouseMode::GuiCommand);
-        TheInGameUI::clear_pending_command();
-        assert_eq!(TheInGameUI::get_mouse_mode(), MouseMode::Default);
+        assert_eq!(ui.get_mouse_mode(), MouseMode::GuiCommand);
+        ui.clear_pending_command();
+        assert_eq!(ui.get_mouse_mode(), MouseMode::Default);
+        });
     }
 
     #[test]

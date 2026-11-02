@@ -1625,11 +1625,11 @@ mod tests {
     fn create_win_lose_window_loads_victorious_layout_when_present() {
         // C++ ScriptActions.cpp:204 TheWindowManager->winCreateFromScript("Menus/Victorious.wnd")
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        { // was owner.with_scope
             GameClientScriptActionHandler::new()
                 .create_win_lose_window("Menus/Victorious.wnd")
                 .expect("create Victorious.wnd");
-            crate::gui::with_window_manager(|manager| {
+            owner.with_manager(|manager| {
                 if let Some(window_id) = manager.script_message_window_id_for_test() {
                     assert!(
                         manager.get_window_by_id(window_id).is_some(),
@@ -1640,10 +1640,10 @@ mod tests {
             GameClientScriptActionHandler::new()
                 .destroy_win_lose_window()
                 .expect("destroy Victorious.wnd");
-            crate::gui::with_window_manager(|manager| {
+            owner.with_manager(|manager| {
                 assert_eq!(manager.script_message_window_id_for_test(), None);
             });
-        });
+        }
     }
 
     #[test]

@@ -23,7 +23,7 @@ use crate::gui::callbacks::wol_welcome_menu::populate_player_info_windows;
 use crate::gui::gadgets::{ComboBox, ComboBoxItem, ListBox, ListBoxItemData};
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
-    with_window_manager, write_input_focus_response,
+    write_input_focus_response,
 };
 
 use crate::map_util::get_map_cache_manager;
@@ -861,7 +861,7 @@ pub fn wol_quick_match_menu_init(layout: &WindowLayout, _user_data: Option<&dyn 
     state.combo_box_side_id = name_to_id("WOLQuickMatchMenu.wnd:ComboBoxSide");
     state.combo_box_color_id = name_to_id("WOLQuickMatchMenu.wnd:ComboBoxColor");
 
-    with_window_manager(|manager| {
+    owner.with_manager(|manager| {
         state.parent = manager.get_window_by_id(state.parent_id);
     });
 
@@ -942,7 +942,7 @@ pub fn wol_quick_match_menu_init(layout: &WindowLayout, _user_data: Option<&dyn 
     enable_options_gadgets(&state, true);
     layout.hide(false);
     if let Some(parent) = state.parent.as_ref() {
-        with_window_manager(|manager| {
+        owner.with_manager(|manager| {
             let _ = manager.set_focus(Some(parent));
         });
     }
@@ -1021,7 +1021,7 @@ pub fn wol_quick_match_menu_init(layout: &WindowLayout, _user_data: Option<&dyn 
     update_local_player_stats();
     update_start_button(&state);
 
-    with_window_manager(|manager| manager.transition_set_group("WOLQuickMatchMenuFade", false));
+    owner.with_manager(|manager| manager.transition_set_group("WOLQuickMatchMenuFade", false));
     reset_the_nat();
     if TheGameLogic::get_frame() == 1 {
         signal_ui_interaction(SHELL_SCRIPT_HOOK_GENERALS_ONLINE_ENTERED_FROM_GAME);
@@ -1079,7 +1079,7 @@ pub fn wol_quick_match_menu_shutdown(layout: &WindowLayout, user_data: Option<&d
     }
 
     get_shell().reverse_animate_window();
-    with_window_manager(|manager| manager.transition_reverse("WOLQuickMatchMenuFade"));
+    owner.with_manager(|manager| manager.transition_reverse("WOLQuickMatchMenuFade"));
     raise_gs_message_box();
 }
 
@@ -1091,7 +1091,7 @@ pub fn wol_quick_match_menu_update(
     let state_slot = quickmatch_state();
     let mut state = state_slot.borrow_mut();
     let shell_finished = get_shell().is_anim_finished();
-    let transitions_finished = with_window_manager(|manager| manager.transitions_finished());
+    let transitions_finished = owner.with_manager(|manager| manager.transitions_finished());
     if state.is_shutting_down && shell_finished && transitions_finished {
         shutdown_complete(layout);
         return;
@@ -1152,7 +1152,7 @@ pub fn wol_quick_match_menu_update(
                             saw_important = true;
                             let reason_key =
                                 format!("GUI:GSDisconReason{}", resp.discon_reason as i32);
-                            if let Some(listbox_window) = with_window_manager(|manager| {
+                            if let Some(listbox_window) = owner.with_manager(|manager| {
                                 manager.get_window_by_id(name_to_id(
                                     "ScoreScreen.wnd:ListboxChatWindowScoreScreen",
                                 ))
@@ -1533,7 +1533,7 @@ pub fn wol_quick_match_menu_system(
             let button_options_id = name_to_id("WOLQuickMatchMenu.wnd:ButtonOptions");
             if control_id == button_options_id {
                 if let Some(win) =
-                    with_window_manager(|manager| manager.get_window_by_id(button_options_id))
+                    owner.with_manager(|manager| manager.get_window_by_id(button_options_id))
                 {
                     if is_info_shown(&state) {
                         hide_info_gadgets(&state, true);

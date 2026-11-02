@@ -2,6 +2,8 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::test_support::with_receiving_ui;
+
     use super::*;
     use crate::message_stream::player_state::get_local_player_id;
     use game_engine::common::ini::TimeOfDay as GlobalTimeOfDay;
@@ -76,6 +78,23 @@ mod tests {
         }
     }
 
+    fn noop_display_dispatch(
+        _dispatch: game_engine::common::message_stream::WindowInputDispatch,
+        _messages: &mut Vec<crate::message_stream::GameMessage>,
+        _owner: &mut dyn std::any::Any,
+    ) -> Option<game_engine::common::message_stream::WindowInputDispatchResult> {
+        None
+    }
+
+    fn dispatch_for_test(record: &MetaMapRec) -> Option<GameMessageDisposition> {
+        with_receiving_ui(|ui| {
+            let mut display = noop_display_dispatch;
+            dispatch_map_entry(record, &mut display, ui)
+        })
+    }
+
+
+
     #[test]
     fn test_fast_forward_replay_meta_record_is_kept() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
@@ -83,7 +102,7 @@ mod tests {
         let mut record = alias_record("TOGGLE_FAST_FORWARD_REPLAY");
         record.meta = Some(GameMessageType::MetaToggleFastForwardReplay);
         assert_eq!(
-            dispatch_map_entry(&record),
+            dispatch_for_test(&record),
             Some(GameMessageDisposition::KeepMessage)
         );
     }
@@ -197,15 +216,15 @@ mod tests {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("PLACE_BEACON")),
+            dispatch_for_test(&alias_record("PLACE_BEACON")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DELETE_BEACON")),
+            dispatch_for_test(&alias_record("DELETE_BEACON")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("TOGGLE_LOWER_DETAILS")),
+            dispatch_for_test(&alias_record("TOGGLE_LOWER_DETAILS")),
             Some(GameMessageDisposition::DestroyMessage)
         );
     }
@@ -294,7 +313,7 @@ mod tests {
         apply_demo_camera_adjust_from_mouse_position(&ICoord2D::new(50, 60));
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_BEGIN_ADJUST_FOV")),
+            dispatch_for_test(&alias_record("DEMO_BEGIN_ADJUST_FOV")),
             None
         );
         let state = demo_camera_adjust_state_for_tests();
@@ -303,7 +322,7 @@ mod tests {
         assert_eq!(state.anchor, ICoord2D::new(50, 60));
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_BEGIN_ADJUST_PITCH")),
+            dispatch_for_test(&alias_record("DEMO_BEGIN_ADJUST_PITCH")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         let state = demo_camera_adjust_state_for_tests();
@@ -311,11 +330,11 @@ mod tests {
         assert!(state.is_changing_fov);
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_END_ADJUST_FOV")),
+            dispatch_for_test(&alias_record("DEMO_END_ADJUST_FOV")),
             None
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_END_ADJUST_PITCH")),
+            dispatch_for_test(&alias_record("DEMO_END_ADJUST_PITCH")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         let state = demo_camera_adjust_state_for_tests();
@@ -338,11 +357,11 @@ mod tests {
             GameMessageType::RawMousePosition(ICoord2D::new(100, 100)),
         ));
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_BEGIN_ADJUST_PITCH")),
+            dispatch_for_test(&alias_record("DEMO_BEGIN_ADJUST_PITCH")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_BEGIN_ADJUST_FOV")),
+            dispatch_for_test(&alias_record("DEMO_BEGIN_ADJUST_FOV")),
             None
         );
 
@@ -356,11 +375,11 @@ mod tests {
         assert!((fov_after - 1.1).abs() < 0.001);
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_END_ADJUST_PITCH")),
+            dispatch_for_test(&alias_record("DEMO_END_ADJUST_PITCH")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_END_ADJUST_FOV")),
+            dispatch_for_test(&alias_record("DEMO_END_ADJUST_FOV")),
             None
         );
 
@@ -394,7 +413,7 @@ mod tests {
             "DEMO_DECR_EXTENT_HEIGHT_LARGE",
         ] {
             assert_eq!(
-                dispatch_map_entry(&alias_record(alias)),
+                dispatch_for_test(&alias_record(alias)),
                 Some(GameMessageDisposition::DestroyMessage),
                 "alias {alias} should be consumed"
             );
@@ -458,7 +477,7 @@ mod tests {
         global_data.write().no_draw = 0;
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_NO_DRAW")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_NO_DRAW")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(global_data.read().no_draw, u32::MAX);
@@ -471,14 +490,14 @@ mod tests {
         global_data.write().texture_reduction_factor = 0;
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_LOD_DECREASE")),
+            dispatch_for_test(&alias_record("DEMO_LOD_DECREASE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(global_data.read().texture_reduction_factor, 0);
 
         for _ in 0..6 {
             assert_eq!(
-                dispatch_map_entry(&alias_record("DEMO_LOD_INCREASE")),
+                dispatch_for_test(&alias_record("DEMO_LOD_INCREASE")),
                 Some(GameMessageDisposition::DestroyMessage)
             );
         }
@@ -486,7 +505,7 @@ mod tests {
 
         for _ in 0..6 {
             assert_eq!(
-                dispatch_map_entry(&alias_record("DEMO_LOD_DECREASE")),
+                dispatch_for_test(&alias_record("DEMO_LOD_DECREASE")),
                 Some(GameMessageDisposition::DestroyMessage)
             );
         }
@@ -496,16 +515,16 @@ mod tests {
     #[test]
     fn test_deshroud_aliases_follow_cpp_keep_message_semantics() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
-        assert_eq!(dispatch_map_entry(&alias_record("CHEAT_DESHROUD")), None);
-        assert_eq!(dispatch_map_entry(&alias_record("DEMO_DESHROUD")), None);
-        assert_eq!(dispatch_map_entry(&alias_record("DEMO_ENSHROUD")), None);
+        assert_eq!(dispatch_for_test(&alias_record("CHEAT_DESHROUD")), None);
+        assert_eq!(dispatch_for_test(&alias_record("DEMO_DESHROUD")), None);
+        assert_eq!(dispatch_for_test(&alias_record("DEMO_ENSHROUD")), None);
     }
 
     #[test]
     fn test_help_alias_is_consumed() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
-            dispatch_map_entry(&alias_record("HELP")),
+            dispatch_for_test(&alias_record("HELP")),
             Some(GameMessageDisposition::DestroyMessage)
         );
     }
@@ -517,13 +536,13 @@ mod tests {
         assert!(!is_vtune_enabled_for_tests());
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_VTUNE_ON")),
+            dispatch_for_test(&alias_record("DEMO_VTUNE_ON")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert!(is_vtune_enabled_for_tests());
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_VTUNE_OFF")),
+            dispatch_for_test(&alias_record("DEMO_VTUNE_OFF")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert!(!is_vtune_enabled_for_tests());
@@ -535,13 +554,13 @@ mod tests {
         set_skate_distance_override_for_tests(0.0);
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_INCR_ANIM_SKATE_SPEED")),
+            dispatch_for_test(&alias_record("DEMO_INCR_ANIM_SKATE_SPEED")),
             None
         );
         assert!((adjust_skate_distance_override(0.0) - 0.25).abs() < f32::EPSILON);
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_DECR_ANIM_SKATE_SPEED")),
+            dispatch_for_test(&alias_record("DEMO_DECR_ANIM_SKATE_SPEED")),
             None
         );
         assert!((adjust_skate_distance_override(0.0) - 0.0).abs() < f32::EPSILON);
@@ -555,25 +574,25 @@ mod tests {
         set_bool_state_for_tests(&DEBUG_SELECTION_MODE, false);
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_HAND_OF_GOD_MODE")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_HAND_OF_GOD_MODE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert!(bool_state_for_tests(&HAND_OF_GOD_MODE));
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("CHEAT_TOGGLE_HAND_OF_GOD_MODE")),
+            dispatch_for_test(&alias_record("CHEAT_TOGGLE_HAND_OF_GOD_MODE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert!(!bool_state_for_tests(&HAND_OF_GOD_MODE));
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_HURT_ME_MODE")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_HURT_ME_MODE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert!(bool_state_for_tests(&HURT_ME_MODE));
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_DEBUG_SELECTION")),
+            dispatch_for_test(&alias_record("DEMO_DEBUG_SELECTION")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert!(bool_state_for_tests(&DEBUG_SELECTION_MODE));
@@ -586,7 +605,7 @@ mod tests {
         let _ = fs::remove_file(&output_path);
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_DUMP_ASSETS")),
+            dispatch_for_test(&alias_record("DEMO_DUMP_ASSETS")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert!(output_path.exists());
@@ -657,7 +676,7 @@ mod tests {
                 _ => Some(GameMessageDisposition::DestroyMessage),
             };
             assert_eq!(
-                dispatch_map_entry(&alias_record(alias)),
+                dispatch_for_test(&alias_record(alias)),
                 expected,
                 "alias {alias} should be consumed"
             );
@@ -708,9 +727,9 @@ mod tests {
             list.set_local_player_index(0);
         }
 
-        assert_eq!(dispatch_map_entry(&alias_record("DEMO_ADDCASH")), None);
+        assert_eq!(dispatch_for_test(&alias_record("DEMO_ADDCASH")), None);
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_GIVE_SCIENCEPURCHASEPOINTS")),
+            dispatch_for_test(&alias_record("DEMO_GIVE_SCIENCEPURCHASEPOINTS")),
             Some(GameMessageDisposition::DestroyMessage)
         );
 
@@ -720,7 +739,7 @@ mod tests {
             assert_eq!(local_guard.get_science_purchase_points(), 1);
         }
 
-        assert_eq!(dispatch_map_entry(&alias_record("CHEAT_ADD_CASH")), None);
+        assert_eq!(dispatch_for_test(&alias_record("CHEAT_ADD_CASH")), None);
         assert_eq!(
             local_player
                 .read()
@@ -749,15 +768,15 @@ mod tests {
         }
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_INSTANT_BUILD")),
+            dispatch_for_test(&alias_record("DEMO_INSTANT_BUILD")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_FREE_BUILD")),
+            dispatch_for_test(&alias_record("DEMO_FREE_BUILD")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_REMOVE_PREREQ")),
+            dispatch_for_test(&alias_record("DEMO_REMOVE_PREREQ")),
             Some(GameMessageDisposition::DestroyMessage)
         );
 
@@ -792,15 +811,15 @@ mod tests {
         }
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_GIVE_RANKLEVEL")),
+            dispatch_for_test(&alias_record("DEMO_GIVE_RANKLEVEL")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_GIVE_RANKLEVEL")),
+            dispatch_for_test(&alias_record("DEMO_GIVE_RANKLEVEL")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TAKE_RANKLEVEL")),
+            dispatch_for_test(&alias_record("DEMO_TAKE_RANKLEVEL")),
             Some(GameMessageDisposition::DestroyMessage)
         );
 
@@ -817,24 +836,26 @@ mod tests {
 
     #[test]
     fn test_message_text_aliases_toggle_ingame_ui_message_state() {
+        with_receiving_ui(|ui| {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
-        if !TheInGameUI::is_messages_on() {
-            TheInGameUI::toggle_messages();
+        if !ui.is_messages_on() {
+            ui.toggle_messages();
         }
-        assert!(TheInGameUI::is_messages_on());
+        assert!(ui.is_messages_on());
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_MESSAGE_TEXT")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_MESSAGE_TEXT")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert!(!TheInGameUI::is_messages_on());
+        assert!(!ui.is_messages_on());
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("CHEAT_TOGGLE_MESSAGE_TEXT")),
+            dispatch_for_test(&alias_record("CHEAT_TOGGLE_MESSAGE_TEXT")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert!(TheInGameUI::is_messages_on());
+        assert!(ui.is_messages_on());
+        });
     }
 
     #[test]
@@ -843,7 +864,7 @@ mod tests {
 
         with_tactical_view(|view| view.set_zoom_limited(false));
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_ZOOM_LOCK")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_ZOOM_LOCK")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert!(crate::display::view::with_tactical_view_ref(
@@ -851,7 +872,7 @@ mod tests {
         ));
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_ZOOM_LOCK")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_ZOOM_LOCK")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert!(!crate::display::view::with_tactical_view_ref(
@@ -868,17 +889,17 @@ mod tests {
         }
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_PLAY_OBJECTIVE_MOVIE4")),
+            dispatch_for_test(&alias_record("DEMO_PLAY_OBJECTIVE_MOVIE4")),
             Some(GameMessageDisposition::DestroyMessage)
         );
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_NEXT_OBJECTIVE_MOVIE")),
+            dispatch_for_test(&alias_record("DEMO_NEXT_OBJECTIVE_MOVIE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_NEXT_OBJECTIVE_MOVIE")),
+            dispatch_for_test(&alias_record("DEMO_NEXT_OBJECTIVE_MOVIE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
 
@@ -898,11 +919,11 @@ mod tests {
         }
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_MILITARY_SUBTITLES")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_MILITARY_SUBTITLES")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TIME_OF_DAY")),
+            dispatch_for_test(&alias_record("DEMO_TIME_OF_DAY")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(global_data.read().time_of_day, GlobalTimeOfDay::Evening);
@@ -916,7 +937,7 @@ mod tests {
             logic.set_game_mode(GAME_SINGLE_PLAYER);
         }
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_PLAY_CAMEO_MOVIE")),
+            dispatch_for_test(&alias_record("DEMO_PLAY_CAMEO_MOVIE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         if let Ok(mut logic) = get_game_logic().lock() {
@@ -961,7 +982,7 @@ mod tests {
         set_local_player_id(0);
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("CHEAT_SWITCH_TEAMS")),
+            dispatch_for_test(&alias_record("CHEAT_SWITCH_TEAMS")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
@@ -974,7 +995,7 @@ mod tests {
         assert_eq!(get_local_player_id(), 1);
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_SWITCH_TEAMS_CHINA_USA")),
+            dispatch_for_test(&alias_record("DEMO_SWITCH_TEAMS_CHINA_USA")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
@@ -1025,7 +1046,7 @@ mod tests {
         }
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("CHEAT_SWITCH_TEAMS")),
+            dispatch_for_test(&alias_record("CHEAT_SWITCH_TEAMS")),
             None
         );
         assert_eq!(
@@ -1075,7 +1096,7 @@ mod tests {
         ];
         for alias in aliases {
             assert_eq!(
-                dispatch_map_entry(&alias_record(alias)),
+                dispatch_for_test(&alias_record(alias)),
                 None,
                 "{alias} should keep message in multiplayer"
             );
@@ -1111,7 +1132,7 @@ mod tests {
         }
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_SOUND")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_SOUND")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         {
@@ -1121,7 +1142,7 @@ mod tests {
         }
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_SOUND")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_SOUND")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         {
@@ -1131,7 +1152,7 @@ mod tests {
         }
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_MUSIC")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_MUSIC")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         {
@@ -1141,7 +1162,7 @@ mod tests {
         }
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_MUSIC")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_MUSIC")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         {
@@ -1150,7 +1171,7 @@ mod tests {
         }
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_MUSIC_NEXT_TRACK")),
+            dispatch_for_test(&alias_record("DEMO_MUSIC_NEXT_TRACK")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         {
@@ -1158,7 +1179,7 @@ mod tests {
             assert_eq!(audio.get_music_track_name(), "meta_test_track_2");
         }
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_MUSIC_PREV_TRACK")),
+            dispatch_for_test(&alias_record("DEMO_MUSIC_PREV_TRACK")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         {
@@ -1178,7 +1199,7 @@ mod tests {
             "DEMO_TOGGLE_AVI",
         ] {
             assert_eq!(
-                dispatch_map_entry(&alias_record(alias)),
+                dispatch_for_test(&alias_record(alias)),
                 Some(GameMessageDisposition::DestroyMessage),
                 "alias {alias} should be consumed"
             );
@@ -1199,7 +1220,7 @@ mod tests {
         MOTION_BLUR_ZOOM_SATURATE.set(false);
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_RED_VIEW")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_RED_VIEW")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         with_tactical_view(|view| {
@@ -1207,7 +1228,7 @@ mod tests {
             assert_eq!(view.get_view_filter_mode(), FilterMode::BWRedAndWhite);
         });
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_RED_VIEW")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_RED_VIEW")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         with_tactical_view(|view| {
@@ -1216,7 +1237,7 @@ mod tests {
         });
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_GREEN_VIEW")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_GREEN_VIEW")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         with_tactical_view(|view| {
@@ -1225,7 +1246,7 @@ mod tests {
         });
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_MOTION_BLUR_ZOOM")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_MOTION_BLUR_ZOOM")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         with_tactical_view(|view| {
@@ -1233,7 +1254,7 @@ mod tests {
             assert_eq!(view.get_view_filter_mode(), FilterMode::MBInAndOutAlpha);
         });
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_MOTION_BLUR_ZOOM")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_MOTION_BLUR_ZOOM")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         with_tactical_view(|view| {
@@ -1254,7 +1275,7 @@ mod tests {
         });
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_BW_VIEW")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_BW_VIEW")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(bw_view_mode_for_tests(), 1);
@@ -1263,7 +1284,7 @@ mod tests {
         assert!(wireframe_pending);
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_BW_VIEW")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_BW_VIEW")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(bw_view_mode_for_tests(), 2);
@@ -1275,7 +1296,7 @@ mod tests {
         });
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_BW_VIEW")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_BW_VIEW")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(bw_view_mode_for_tests(), 0);
@@ -1286,7 +1307,7 @@ mod tests {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TOGGLE_NETWORK")),
+            dispatch_for_test(&alias_record("DEMO_TOGGLE_NETWORK")),
             Some(GameMessageDisposition::DestroyMessage)
         );
 
@@ -1295,7 +1316,7 @@ mod tests {
             if let Some(network) = game_network::get_network() {
                 let current = network.is_network_on();
                 assert_eq!(
-                    dispatch_map_entry(&alias_record("DEMO_TOGGLE_NETWORK")),
+                    dispatch_for_test(&alias_record("DEMO_TOGGLE_NETWORK")),
                     Some(GameMessageDisposition::DestroyMessage)
                 );
                 assert_eq!(network.is_network_on(), !current);
@@ -1310,7 +1331,7 @@ mod tests {
 
         for expected in ["High", "Medium", "Low", "VeryHigh"] {
             assert_eq!(
-                dispatch_map_entry(&alias_record("DEMO_CYCLE_LOD_LEVEL")),
+                dispatch_for_test(&alias_record("DEMO_CYCLE_LOD_LEVEL")),
                 Some(GameMessageDisposition::DestroyMessage)
             );
             assert_eq!(game_engine::common::game_lod::get_dynamic_lod(), expected);
@@ -1321,11 +1342,11 @@ mod tests {
     fn test_debug_dump_player_object_aliases_are_consumed() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEBUG_DUMP_PLAYER_OBJECTS")),
+            dispatch_for_test(&alias_record("DEBUG_DUMP_PLAYER_OBJECTS")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEBUG_DUMP_ALL_PLAYER_OBJECTS")),
+            dispatch_for_test(&alias_record("DEBUG_DUMP_ALL_PLAYER_OBJECTS")),
             Some(GameMessageDisposition::DestroyMessage)
         );
     }
@@ -1334,7 +1355,7 @@ mod tests {
     fn test_debug_sleepy_update_performance_alias_keeps_message() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEBUG_SLEEPY_UPDATE_PERFORMANCE")),
+            dispatch_for_test(&alias_record("DEBUG_SLEEPY_UPDATE_PERFORMANCE")),
             None
         );
     }
@@ -1343,11 +1364,11 @@ mod tests {
     fn test_debug_id_performance_aliases_keep_message() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEBUG_OBJECT_ID_PERFORMANCE")),
+            dispatch_for_test(&alias_record("DEBUG_OBJECT_ID_PERFORMANCE")),
             None
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEBUG_DRAWABLE_ID_PERFORMANCE")),
+            dispatch_for_test(&alias_record("DEBUG_DRAWABLE_ID_PERFORMANCE")),
             None
         );
     }
@@ -1359,7 +1380,7 @@ mod tests {
         global_data.write().dump_performance_statistics = false;
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_PERFORM_STATISTICAL_DUMP")),
+            dispatch_for_test(&alias_record("DEMO_PERFORM_STATISTICAL_DUMP")),
             None
         );
         assert!(global_data.read().dump_performance_statistics);
@@ -1383,7 +1404,7 @@ mod tests {
         TheVictoryConditions::set_local_allied_victory(false);
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_WIN")),
+            dispatch_for_test(&alias_record("DEMO_WIN")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert!(TheVictoryConditions::is_local_allied_victory());
@@ -1414,7 +1435,7 @@ mod tests {
     fn test_demo_battle_cry_alias_is_consumed() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_BATTLE_CRY")),
+            dispatch_for_test(&alias_record("DEMO_BATTLE_CRY")),
             Some(GameMessageDisposition::DestroyMessage)
         );
     }
@@ -1432,31 +1453,31 @@ mod tests {
         set_local_player_id(0);
 
         assert_eq!(
-            dispatch_map_entry(&alias_record("CHEAT_KILL_SELECTION")),
+            dispatch_for_test(&alias_record("CHEAT_KILL_SELECTION")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_KILL_SELECTION")),
+            dispatch_for_test(&alias_record("DEMO_KILL_SELECTION")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_KILL_ALL_ENEMIES")),
+            dispatch_for_test(&alias_record("DEMO_KILL_ALL_ENEMIES")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("CHEAT_RUNSCRIPT3")),
+            dispatch_for_test(&alias_record("CHEAT_RUNSCRIPT3")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_RUNSCRIPT7")),
+            dispatch_for_test(&alias_record("DEMO_RUNSCRIPT7")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_GIVE_VETERANCY")),
+            dispatch_for_test(&alias_record("DEMO_GIVE_VETERANCY")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_TAKE_VETERANCY")),
+            dispatch_for_test(&alias_record("DEMO_TAKE_VETERANCY")),
             Some(GameMessageDisposition::DestroyMessage)
         );
     }
@@ -1475,7 +1496,7 @@ mod tests {
 
         with_tactical_view(|view| view.set_camera_lock(Some(42)));
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_LOCK_CAMERA_TO_SELECTION")),
+            dispatch_for_test(&alias_record("DEMO_LOCK_CAMERA_TO_SELECTION")),
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
@@ -1489,7 +1510,7 @@ mod tests {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         set_last_plane_lock_object_id_for_tests(None);
         assert_eq!(
-            dispatch_map_entry(&alias_record("DEMO_LOCK_CAMERA_TO_PLANES")),
+            dispatch_for_test(&alias_record("DEMO_LOCK_CAMERA_TO_PLANES")),
             Some(GameMessageDisposition::DestroyMessage)
         );
     }

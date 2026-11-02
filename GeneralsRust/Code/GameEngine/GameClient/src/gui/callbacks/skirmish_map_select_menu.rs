@@ -958,8 +958,8 @@ mod tests {
     #[test]
     fn os_wnd_skirmish_map_select_hits_select_map_and_ok_then_commits_setup() {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
-            with_window_manager(|manager| {
+        { // was owner.with_scope
+            owner.with_manager(|manager| {
                 let select = manager
                     .create_window(None, 10, 10, 80, 24)
                     .expect("ButtonSelectMap");
@@ -985,7 +985,7 @@ mod tests {
                 .to_string();
             assert_eq!(committed, "maps\\alpine_war.map");
             assert!(!drive_os_wnd_skirmish_map_select_like_cpp(""));
-        });
+        }
     }
 
     #[test]

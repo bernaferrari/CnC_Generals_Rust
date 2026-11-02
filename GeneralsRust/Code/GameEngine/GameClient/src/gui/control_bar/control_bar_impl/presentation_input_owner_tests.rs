@@ -82,7 +82,7 @@ fn presentation_input_owner_constructor_and_reset_are_isolated() {
 #[test]
 fn presentation_input_owner_availability_tick_refreshes_bound_tooltip_without_rebinding() {
     let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
+    { // was owner.with_scope
 
             use crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text;
             let command = CommandButton {
@@ -96,7 +96,7 @@ fn presentation_input_owner_availability_tick_refreshes_bound_tooltip_without_re
                 .unwrap()
                 .new_command_button(command.command_name.clone())
                 .object = command.object.clone();
-            let window = crate::gui::with_window_manager(|wm| {
+            let window = owner.with_manager(|wm| {
                 wm.destroy_all_windows();
                 let win = wm.create_window(None, 0, 0, 10, 10).unwrap();
                 win.borrow_mut().set_name("ControlBar.wnd:ButtonCommand01");
@@ -147,7 +147,7 @@ fn presentation_input_owner_availability_tick_refreshes_bound_tooltip_without_re
                 presentation_input_owner_tooltip_text(&window.borrow()).is_empty(),
                 "missing frozen status must not reuse the previous denial"
             );
-        });
+        }
 }
 
 #[test]

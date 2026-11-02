@@ -12,8 +12,7 @@ mod tests {
     ) -> R {
         let mut client = crate::core::game_client::GameClient::new()
             .expect("create receiving GameClient for MainMenu window test");
-        let owner = client.window_manager_owner();
-        owner.with_scope(|| operation(&mut client))
+        operation(&mut client)
     }
 
     fn with_menu_effects<R>(
@@ -69,10 +68,13 @@ mod tests {
     }
 
     fn install_named_button(name: &str, x: i32, y: i32) {
-        with_window_manager(|manager| {
-            let button = manager.create_window(None, x, y, 80, 24).expect(name);
-            button.borrow_mut().set_name(name);
-            let _ = button.borrow_mut().hide(false);
+        with_game_client_window_owner(|client| {
+            let owner = client.window_manager_owner();
+            owner.with_manager(|manager| {
+                let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
+                button.borrow_mut().set_name(name);
+                let _ = button.borrow_mut().hide_without_manager_side_effects(false);
+            });
         });
     }
 
@@ -587,7 +589,7 @@ mod tests {
                 .1
                 .first_time_running_game = false;
 
-            let (layout, _info) = with_window_manager(|manager| {
+            let (layout, _info) = client.window_manager_owner().with_manager(|manager| {
                 manager
                     .create_layout_with_windows("Menus/MainMenu.wnd")
                     .expect("expected MainMenu.wnd to load")
@@ -599,7 +601,7 @@ mod tests {
             let map_pack_id = NameKeyGenerator::name_to_key("MainMenu.wnd:ButtonGetMapPack") as i32;
 
             let capture_hidden = |id: i32| {
-                with_window_manager(|manager| {
+                client.window_manager_owner().with_manager(|manager| {
                     manager
                         .get_window_by_id(id)
                         .map(|window| window.borrow().is_hidden())
@@ -888,17 +890,16 @@ mod tests {
     #[test]
     fn first_update_hides_overlapping_borders_then_char_reveal_hits_skirmish() {
         with_game_client_window_owner(|client| {
-            use crate::gui::window_manager::with_window_manager;
-
+            
             // C++ MainMenuInit 525-530 hides every dropdown including MapBorder2
             // (DROPDOWN_MAIN). First-run keeps it hidden until GWM_CHAR
             // (MainMenu.cpp:982-1006) winHide(FALSE) MapBorder2 only.
             // Construct already-hidden (Init hide pack owns live retry).
-            with_window_manager(|manager| {
-                manager.reset();
+            client.window_manager_owner().with_manager(|manager| {
+                manager.test_reset();
                 let ids = build_window_ids();
                 let parent = manager
-                    .create_window(None, 0, 0, 800, 600)
+                    .test_create_window(None, 0, 0, 800, 600)
                     .expect("MainMenuParent");
                 parent.borrow_mut().set_name("MainMenu.wnd:MainMenuParent");
                 parent.borrow_mut().set_id(ids.main_menu_id as i32);
@@ -912,26 +913,26 @@ mod tests {
                     "MainMenu.wnd:MapBorder4",
                 ] {
                     let border = manager
-                        .create_window(Some(&parent), 0, 0, 800, 600)
+                        .test_create_window(Some(&parent), 0, 0, 800, 600)
                         .expect(name);
                     border.borrow_mut().set_name(name);
                     border
                         .borrow_mut()
                         .set_id(NameKeyGenerator::name_to_key(name) as i32);
-                    let _ = border.borrow_mut().hide(true);
+                    let _ = border.borrow_mut().hide_without_manager_side_effects(true);
                     if name.ends_with("MapBorder2") {
                         border2 = Some(border);
                     }
                 }
                 let border2 = border2.expect("MapBorder2");
                 let skirmish = manager
-                    .create_window(Some(&border2), 540, 276, 208, 36)
+                    .test_create_window(Some(&border2), 540, 276, 208, 36)
                     .expect("ButtonSkirmish");
                 skirmish
                     .borrow_mut()
                     .set_name("MainMenu.wnd:ButtonSkirmish");
                 skirmish.borrow_mut().set_id(ids.skirmish_id as i32);
-                let _ = skirmish.borrow_mut().hide(false);
+                let _ = skirmish.borrow_mut().hide_without_manager_side_effects(false);
                 let _ = skirmish.borrow_mut().enable(true);
             });
 
@@ -943,7 +944,7 @@ mod tests {
                 state.drop_down = DropdownType::None;
             }
 
-            with_window_manager(|manager| {
+            client.window_manager_owner().with_manager(|manager| {
                 let hidden = |name: &str| {
                     manager
                         .find_window_by_name(name)
@@ -972,7 +973,7 @@ mod tests {
                 "CHAR reveal must unhide MapBorder2 without transition_set_group"
             );
 
-            with_window_manager(|manager| {
+            client.window_manager_owner().with_manager(|manager| {
                 let border2 = manager
                     .find_window_by_name("MainMenu.wnd:MapBorder2")
                     .expect("MapBorder2");
@@ -991,14 +992,13 @@ mod tests {
     #[test]
     fn first_run_char_reveal_makes_named_gadgets_hittable_at_640x480() {
         with_game_client_window_owner(|client| {
-            use crate::gui::window_manager::with_window_manager;
-
-            with_window_manager(|manager| {
-                manager.reset();
+            
+            client.window_manager_owner().with_manager(|manager| {
+                manager.test_reset();
                 manager.set_screen_size(640, 480);
 
                 let parent = manager
-                    .create_window(None, 0, 0, 640, 480)
+                    .test_create_window(None, 0, 0, 640, 480)
                     .expect("MainMenuParent");
                 parent.borrow_mut().set_name("MainMenu.wnd:MainMenuParent");
 
@@ -1012,10 +1012,10 @@ mod tests {
                     "MainMenu.wnd:MapBorder4",
                 ] {
                     let border = manager
-                        .create_window(Some(&parent), 0, 0, 640, 480)
+                        .test_create_window(Some(&parent), 0, 0, 640, 480)
                         .expect(name);
                     border.borrow_mut().set_name(name);
-                    let _ = border.borrow_mut().hide(true);
+                    let _ = border.borrow_mut().hide_without_manager_side_effects(true);
                     if name.ends_with("MapBorder2") {
                         border2 = Some(border);
                     }
@@ -1026,19 +1026,19 @@ mod tests {
                 // 432,93-598,122 and 432,221-598,250. Place them under MapBorder2
                 // so a hidden parent would steal the hit before CHAR reveal.
                 let sp = manager
-                    .create_window(Some(&border2), 432, 93, 166, 29)
+                    .test_create_window(Some(&border2), 432, 93, 166, 29)
                     .expect("ButtonSinglePlayer");
                 sp.borrow_mut().set_name("MainMenu.wnd:ButtonSinglePlayer");
-                let _ = sp.borrow_mut().hide(false);
+                let _ = sp.borrow_mut().hide_without_manager_side_effects(false);
                 let _ = sp.borrow_mut().enable(true);
 
                 let skirmish = manager
-                    .create_window(Some(&border2), 432, 221, 166, 29)
+                    .test_create_window(Some(&border2), 432, 221, 166, 29)
                     .expect("ButtonSkirmish");
                 skirmish
                     .borrow_mut()
                     .set_name("MainMenu.wnd:ButtonSkirmish");
-                let _ = skirmish.borrow_mut().hide(false);
+                let _ = skirmish.borrow_mut().hide_without_manager_side_effects(false);
                 let _ = skirmish.borrow_mut().enable(true);
             });
 
@@ -1060,7 +1060,7 @@ mod tests {
                     .insert(DropdownType::Difficulty, None);
             }
 
-            with_window_manager(|manager| {
+            client.window_manager_owner().with_manager(|manager| {
                 let name_at = |x: i32, y: i32| {
                     manager
                         .get_window_under_cursor(x, y, false)
@@ -1087,7 +1087,7 @@ mod tests {
                 "CHAR visibility must unhide DROPDOWN_MAIN without transition_set_group"
             );
 
-            with_window_manager(|manager| {
+            client.window_manager_owner().with_manager(|manager| {
                 let border2 = manager
                     .find_window_by_name("MainMenu.wnd:MapBorder2")
                     .expect("MapBorder2");
@@ -1134,8 +1134,8 @@ mod tests {
     #[test]
     fn dont_allow_transitions_clears_when_handler_finished_like_cpp() {
         with_game_client_window_owner(|client| {
-            crate::gui::window_manager::with_window_manager(|manager| {
-                manager.reset();
+            client.window_manager_owner().with_manager(|manager| {
+                manager.test_reset();
                 assert!(
                     manager.transitions_finished(),
                     "C++ TheTransitionHandler->isFinished() is TRUE with no current group"
@@ -1170,8 +1170,7 @@ mod tests {
             use crate::gui::game_window::{
                 GWS_MOUSE_TRACK, GWS_PUSH_BUTTON, WindowInputReturnCode, WindowWidget,
             };
-            use crate::gui::window_manager::with_window_manager;
-            use crate::gui::window_script::WindowDefinition;
+                        use crate::gui::window_script::WindowDefinition;
 
             let parent_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MainMenuParent") as i32;
             let border_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MapBorder") as i32;
@@ -1189,8 +1188,8 @@ mod tests {
             }
 
             crate::gui::shell::get_shell().set_shell_active(true);
-            with_window_manager(|manager| {
-                manager.reset();
+            client.window_manager_owner().with_manager(|manager| {
+                manager.test_reset();
                 let parent = manager
                     .create_window_with_id(None, 0, 0, 400, 400, parent_id)
                     .unwrap();
@@ -1247,7 +1246,7 @@ mod tests {
             });
 
             let (down, up) = with_shell_menu_effects(client, |effects| {
-                with_window_manager(|manager| {
+                client.window_manager_owner().with_manager(|manager| {
                     let down = manager.process_mouse_event_with_delta_and_message_sink(
                         WindowMessage::LeftDown,
                         20,
@@ -1270,7 +1269,7 @@ mod tests {
             assert_eq!(down, WindowInputReturnCode::Used);
             assert_eq!(up, WindowInputReturnCode::Used);
             let wrapped = with_shell_menu_effects(client, |effects| {
-                with_window_manager(|manager| {
+                client.window_manager_owner().with_manager(|manager| {
                     manager.process_mouse_event_with_delta_and_message_sink(
                         WindowMessage::LeftDown,
                         20,
@@ -1303,8 +1302,7 @@ mod tests {
             use crate::gui::game_window::{
                 GWS_MOUSE_TRACK, GWS_PUSH_BUTTON, WindowInputReturnCode, WindowStatus, WindowWidget,
             };
-            use crate::gui::window_manager::with_window_manager;
-            use crate::gui::window_script::WindowDefinition;
+                        use crate::gui::window_script::WindowDefinition;
 
             let ids = build_window_ids();
             let parent_id = ids.main_menu_id as i32;
@@ -1326,8 +1324,8 @@ mod tests {
             }
 
             crate::gui::shell::get_shell().set_shell_active(true);
-            with_window_manager(|manager| {
-                manager.reset();
+            client.window_manager_owner().with_manager(|manager| {
+                manager.test_reset();
                 manager.set_screen_size(800, 600);
 
                 let parent = manager
@@ -1362,7 +1360,7 @@ mod tests {
                         },
                     );
                 }
-                let _ = border2.borrow_mut().hide(false);
+                let _ = border2.borrow_mut().hide_without_manager_side_effects(false);
 
                 let solo = manager
                     .create_window_with_id(Some(&border2), 540, 116, 208, 36, solo_id)
@@ -1389,7 +1387,7 @@ mod tests {
                         },
                     );
                 }
-                let _ = solo.borrow_mut().hide(false);
+                let _ = solo.borrow_mut().hide_without_manager_side_effects(false);
                 let _ = solo.borrow_mut().enable(true);
 
                 let border = manager
@@ -1407,7 +1405,7 @@ mod tests {
                         },
                     );
                 }
-                let _ = border.borrow_mut().hide(true);
+                let _ = border.borrow_mut().hide_without_manager_side_effects(true);
 
                 let skirmish = manager
                     .create_window_with_id(Some(&border), 540, 276, 208, 36, skirmish_id)
@@ -1434,7 +1432,7 @@ mod tests {
                         },
                     );
                 }
-                let _ = skirmish.borrow_mut().hide(false);
+                let _ = skirmish.borrow_mut().hide_without_manager_side_effects(false);
                 let _ = skirmish.borrow_mut().enable(true);
 
                 assert!(
@@ -1444,7 +1442,7 @@ mod tests {
             });
 
             let (down, up) = with_shell_menu_effects(client, |effects| {
-                with_window_manager(|manager| {
+                client.window_manager_owner().with_manager(|manager| {
                     let down = manager.process_mouse_event_with_delta_and_message_sink(
                         WindowMessage::LeftDown,
                         644,
@@ -1479,7 +1477,7 @@ mod tests {
                 );
             }
 
-            with_window_manager(|manager| {
+            client.window_manager_owner().with_manager(|manager| {
                 let border = manager
                     .find_window_by_name("MainMenu.wnd:MapBorder")
                     .expect("MapBorder");
@@ -1533,13 +1531,12 @@ mod tests {
             // initialHide, showSelectiveButtons(SHOW_NONE), then 627-629
             // MainMenu.wnd:MainMenuRuler. Dummy WM lookups must not latch.
             use crate::gui::game_window::WindowStatus;
-            use crate::gui::window_manager::with_window_manager;
-
-            with_window_manager(|manager| {
-                manager.reset();
+            
+            client.window_manager_owner().with_manager(|manager| {
+                manager.test_reset();
                 let ids = build_window_ids();
                 let parent = manager
-                    .create_window(None, 0, 0, 800, 600)
+                    .test_create_window(None, 0, 0, 800, 600)
                     .expect("MainMenuParent");
                 {
                     let mut parent = parent.borrow_mut();
@@ -1557,52 +1554,52 @@ mod tests {
                     "MainMenu.wnd:MapBorder4",
                 ] {
                     let border = manager
-                        .create_window(Some(&parent), 0, 0, 800, 600)
+                        .test_create_window(Some(&parent), 0, 0, 800, 600)
                         .expect(name);
                     border.borrow_mut().set_name(name);
                     border
                         .borrow_mut()
                         .set_id(NameKeyGenerator::name_to_key(name) as i32);
-                    let _ = border.borrow_mut().hide(false);
+                    let _ = border.borrow_mut().hide_without_manager_side_effects(false);
                 }
 
                 let border2 = manager
                     .find_window_by_name("MainMenu.wnd:MapBorder2")
                     .expect("MapBorder2");
                 let solo = manager
-                    .create_window(Some(&border2), 540, 116, 208, 36)
+                    .test_create_window(Some(&border2), 540, 116, 208, 36)
                     .expect("ButtonSinglePlayer");
                 solo.borrow_mut()
                     .set_name("MainMenu.wnd:ButtonSinglePlayer");
-                let _ = solo.borrow_mut().hide(false);
+                let _ = solo.borrow_mut().hide_without_manager_side_effects(false);
                 let _ = solo.borrow_mut().enable(true);
 
                 let border = manager
                     .find_window_by_name("MainMenu.wnd:MapBorder")
                     .expect("MapBorder");
                 let skirmish = manager
-                    .create_window(Some(&border), 540, 276, 208, 36)
+                    .test_create_window(Some(&border), 540, 276, 208, 36)
                     .expect("ButtonSkirmish");
                 skirmish
                     .borrow_mut()
                     .set_name("MainMenu.wnd:ButtonSkirmish");
-                let _ = skirmish.borrow_mut().hide(false);
+                let _ = skirmish.borrow_mut().hide_without_manager_side_effects(false);
                 let _ = skirmish.borrow_mut().enable(true);
 
                 let recent = manager
-                    .create_window(Some(&parent), 440, 104, 92, 24)
+                    .test_create_window(Some(&parent), 440, 104, 92, 24)
                     .expect("ButtonUSARecentSave");
                 recent
                     .borrow_mut()
                     .set_name("MainMenu.wnd:ButtonUSARecentSave");
-                let _ = recent.borrow_mut().hide(false);
+                let _ = recent.borrow_mut().hide_without_manager_side_effects(false);
                 let _ = recent.borrow_mut().enable(true);
 
                 let ruler = manager
-                    .create_window(Some(&parent), 0, 0, 800, 600)
+                    .test_create_window(Some(&parent), 0, 0, 800, 600)
                     .expect("MainMenuRuler");
                 ruler.borrow_mut().set_name("MainMenu.wnd:MainMenuRuler");
-                let _ = ruler.borrow_mut().hide(false);
+                let _ = ruler.borrow_mut().hide_without_manager_side_effects(false);
             });
 
             {
@@ -1630,7 +1627,7 @@ mod tests {
                 );
             }
 
-            with_window_manager(|manager| {
+            client.window_manager_owner().with_manager(|manager| {
                 let border2 = manager
                     .find_window_by_name("MainMenu.wnd:MapBorder2")
                     .expect("MapBorder2");
@@ -1676,30 +1673,34 @@ mod tests {
     }
 
     fn install_named_map_borders(names: &[&str], hidden: bool) {
-        use crate::gui::window_manager::with_window_manager;
-        with_window_manager(|manager| {
-            manager.reset();
-            let parent = manager
-                .create_window(None, 0, 0, 800, 600)
-                .expect("MainMenuParent");
-            parent.borrow_mut().set_name("MainMenu.wnd:MainMenuParent");
-            for name in names {
-                let border = manager
-                    .create_window(Some(&parent), 0, 0, 800, 600)
-                    .expect(*name);
-                border.borrow_mut().set_name(*name);
-                let _ = border.borrow_mut().hide(hidden);
-            }
+        with_game_client_window_owner(|client| {
+            let owner = client.window_manager_owner();
+            owner.with_manager(|manager| {
+                manager.test_reset();
+                let parent = manager
+                    .test_create_window(None, 0, 0, 800, 600)
+                    .expect("MainMenuParent");
+                parent.borrow_mut().set_name("MainMenu.wnd:MainMenuParent");
+                for name in names {
+                    let border = manager
+                        .test_create_window(Some(&parent), 0, 0, 800, 600)
+                        .expect(*name);
+                    border.borrow_mut().set_name(*name);
+                    let _ = border.borrow_mut().hide_without_manager_side_effects(hidden);
+                }
+            });
         });
     }
 
     fn border_hidden(name: &str) -> bool {
-        use crate::gui::window_manager::with_window_manager;
-        with_window_manager(|manager| {
-            manager
-                .find_window_by_name(name)
-                .map(|w| w.borrow().is_hidden())
-                .expect(name)
+        with_game_client_window_owner(|client| {
+            let owner = client.window_manager_owner();
+            owner.with_manager_ref(|manager| {
+                manager
+                    .find_window_by_name(name)
+                    .map(|w| w.borrow().is_hidden())
+                    .expect(name)
+            })
         })
     }
 
@@ -1821,8 +1822,7 @@ mod tests {
             // ButtonSkirmish is hittable once the dropdown finishes opening —
             // without any hand-maintained unhide name list.
             use crate::gui::game_window::WindowStatus;
-            use crate::gui::window_manager::with_window_manager;
-
+            
             const GROUP_WINDOWS: &[&str] = &[
                 "MainMenu.wnd:MapBorder",
                 "MainMenu.wnd:ButtonUSA",
@@ -1838,12 +1838,12 @@ mod tests {
                 "MainMenu.wnd:WinFactionGLA",
             ];
 
-            with_window_manager(|manager| {
-                manager.reset();
+            client.window_manager_owner().with_manager(|manager| {
+                manager.test_reset();
                 // Load retail WindowTransitions.ini (MainMenuSinglePlayerMenu).
                 manager.init_with_transition_ini_for_test(RETAIL_WINDOW_TRANSITIONS);
                 let parent = manager
-                    .create_window(None, 0, 0, 800, 600)
+                    .test_create_window(None, 0, 0, 800, 600)
                     .expect("MainMenuParent");
                 parent.borrow_mut().set_name("MainMenu.wnd:MainMenuParent");
                 for (i, name) in GROUP_WINDOWS.iter().enumerate() {
@@ -1860,7 +1860,7 @@ mod tests {
                         )
                         .expect(name);
                     win.borrow_mut().set_name(name);
-                    let _ = win.borrow_mut().hide(false);
+                    let _ = win.borrow_mut().hide_without_manager_side_effects(false);
                     let _ = win.borrow_mut().enable(true);
                 }
                 manager.transition_set_group("MainMenuSinglePlayerMenu", false);
@@ -1873,7 +1873,7 @@ mod tests {
                 }
             });
 
-            with_window_manager(|manager| {
+            client.window_manager_owner().with_manager(|manager| {
                 // Longest window: ButtonSingleBack BUTTONFLASH frameDelay 10 + 15.
                 for _ in 0..64 {
                     manager.update();
@@ -1908,10 +1908,9 @@ mod tests {
     #[test]
     fn transition_calls_inside_nested_wm_borrow_survive_the_queue_drain() {
         with_game_client_window_owner(|client| {
-            use crate::gui::window_manager::with_window_manager;
-
-            with_window_manager(|manager| {
-                manager.reset();
+            
+            client.window_manager_owner().with_manager(|manager| {
+                manager.test_reset();
                 manager.init_with_transition_ini_for_test(RETAIL_WINDOW_TRANSITIONS);
                 let border = manager
                     .create_window_with_id(
@@ -1925,18 +1924,18 @@ mod tests {
                     .expect("MapBorder");
                 border.borrow_mut().set_name("MainMenu.wnd:MapBorder");
                 // Start visible so a silently dropped transition stays visible.
-                let _ = border.borrow_mut().hide(false);
+                let _ = border.borrow_mut().hide_without_manager_side_effects(false);
             });
 
             let menu = MainMenu::new();
             // Gadget-callback conditions: the button handler fires while the WM is
             // already mutably borrowed. The old `with_window_manager` path was a
             // fail-closed no-op here; the queued op must run after the drain.
-            with_window_manager(|_outer| {
+            client.window_manager_owner().with_manager(|_outer| {
                 MainMenu::transition_set_group("MainMenuSinglePlayerMenu", true);
             });
 
-            with_window_manager(|manager| {
+            client.window_manager_owner().with_manager(|manager| {
                 let border = manager
                     .find_window_by_name("MainMenu.wnd:MapBorder")
                     .expect("MapBorder");

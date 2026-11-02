@@ -14,7 +14,7 @@ use crate::gui::callbacks::online_callback_support::{
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
-    with_window_manager, write_input_focus_response,
+    write_input_focus_response,
 };
 use crate::shell_hooks::{SHELL_SCRIPT_HOOK_GENERALS_ONLINE_LOGIN, signal_ui_interaction};
 use crate::w3d_web_browser::W3DWebBrowser;
@@ -595,8 +595,8 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
     let esrb_title_id =
         NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:StaticTextESRBTop") as i32;
     let esrb_parent_id = NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:ParentESRB") as i32;
-    let esrb_title = with_window_manager(|manager| manager.get_window_by_id(esrb_title_id));
-    let esrb_parent = with_window_manager(|manager| manager.get_window_by_id(esrb_parent_id));
+    let esrb_title = owner.with_manager(|manager| manager.get_window_by_id(esrb_title_id));
+    let esrb_parent = owner.with_manager(|manager| manager.get_window_by_id(esrb_parent_id));
     if let (Some(title), Some(parent)) = (esrb_title.as_ref(), esrb_parent.as_ref()) {
         let len = title
             .borrow()
@@ -646,7 +646,7 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
     state.text_entry_year_id =
         NameKeyGenerator::name_to_key("GameSpyLoginProfile.wnd:TextEntryYear") as i32;
 
-    with_window_manager(|manager| {
+    owner.with_manager(|manager| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.button_back = manager.get_window_by_id(state.button_back_id);
         state.button_login = manager.get_window_by_id(state.button_login_id);
@@ -690,7 +690,7 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
             tab_list.push(window.clone());
         }
     }
-    with_window_manager(|manager| {
+    owner.with_manager(|manager| {
         manager.clear_tab_list();
         if !tab_list.is_empty() {
             manager.register_tab_list(tab_list);
@@ -698,7 +698,7 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
     });
 
     if let Some(combo) = state.combo_box_email.as_ref() {
-        let _ = with_window_manager(|manager| manager.set_focus(Some(combo)));
+        let _ = owner.with_manager(|manager| manager.set_focus(Some(combo)));
     }
 
     if let Some(pref) = state.login_pref.as_ref() {
@@ -747,7 +747,7 @@ pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
         show_tos(&mut state);
     }
 
-    with_window_manager(|manager| manager.transition_set_group("GameSpyLoginProfileFade", false));
+    owner.with_manager(|manager| manager.transition_set_group("GameSpyLoginProfileFade", false));
 }
 
 pub fn wol_login_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
@@ -760,7 +760,7 @@ pub fn wol_login_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
     let mut state = state_slot.borrow_mut();
     state.is_shutting_down = true;
     state.logged_in_ok = false;
-    with_window_manager(|manager| manager.clear_tab_list());
+    owner.with_manager(|manager| manager.clear_tab_list());
 
     if state.web_browser_active {
         if let Some(listbox) = state.listbox_tos.as_ref() {
@@ -779,7 +779,7 @@ pub fn wol_login_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
     }
 
     get_shell().reverse_animate_window();
-    with_window_manager(|manager| manager.transition_reverse("GameSpyLoginProfileFade"));
+    owner.with_manager(|manager| manager.transition_reverse("GameSpyLoginProfileFade"));
 }
 
 pub fn wol_login_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
@@ -787,7 +787,7 @@ pub fn wol_login_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
     let mut state = state_slot.borrow_mut();
 
     let shell_finished = get_shell().is_anim_finished();
-    let transitions_finished = with_window_manager(|manager| manager.transitions_finished());
+    let transitions_finished = owner.with_manager(|manager| manager.transitions_finished());
     if state.is_shutting_down && shell_finished && transitions_finished {
         let next = state.next_screen.clone();
         shutdown_complete(layout, &mut state, next);

@@ -2147,3 +2147,58 @@ mod mutable_callback_borrow_tests {
         assert_eq!(window.get_user_data::<Vec<u32>>().unwrap(), &[1, 2, 3]);
     }
 }
+
+
+impl GameWindow {
+    /// Test helper: stack-owned WindowEventEffects for system messages.
+    pub fn test_send_system_message(
+        &mut self,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+    ) -> WindowMsgHandled {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.send_system_message(msg, data1, data2, effects)
+        })
+    }
+
+    pub fn test_send_input_message(
+        &mut self,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+    ) -> WindowMsgHandled {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.send_input_message(msg, data1, data2, effects)
+        })
+    }
+
+    pub fn test_send_routed_input_message(
+        &mut self,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+    ) -> WindowMsgHandled {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.send_routed_input_message(msg, data1, data2, effects)
+        })
+    }
+
+    pub fn test_set_size(&mut self, width: i32, height: i32) -> WindowResult<()> {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.set_size(width, height, effects)
+        })
+    }
+
+    pub fn test_show_tab_pane(&mut self, index: usize) {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.show_tab_pane(index, effects);
+        });
+    }
+
+    pub fn test_update_listbox_scrollbar(&mut self) {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.update_listbox_scrollbar(effects);
+        });
+    }
+}

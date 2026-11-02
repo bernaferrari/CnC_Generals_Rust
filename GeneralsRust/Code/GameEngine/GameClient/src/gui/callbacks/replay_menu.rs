@@ -859,10 +859,9 @@ pub fn drive_os_wnd_replay_menu_copy_like_cpp(
 #[cfg(test)]
 mod os_wnd_tests {
     use super::*;
-    use crate::gui::with_window_manager;
 
     fn install_named_button(name: &str, x: i32, y: i32) {
-        with_window_manager(|manager| {
+        owner.with_manager(|manager| {
             let button = manager.create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
             let _ = button.borrow_mut().hide(false);

@@ -3593,11 +3593,12 @@ pub fn drive_os_wnd_options_menu_firewall_like_cpp(
 
 #[cfg(test)]
 mod options_os_wnd_tests {
+    use crate::test_support::with_receiving_ui;
+
     use super::*;
-    use crate::gui::with_window_manager;
 
     fn install_named_button(name: &str, x: i32, y: i32) {
-        with_window_manager(|manager| {
+        owner.with_manager(|manager| {
             let button = manager.create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
             let _ = button.borrow_mut().hide(false);
@@ -3710,6 +3711,7 @@ mod options_os_wnd_tests {
 
     #[test]
     fn apply_options_from_host_publishes_scroll_anchors() {
+        with_receiving_ui(|ui| {
         match crate::test_process::run_bounded(
             module_path!(),
             "apply_options_from_host_publishes_scroll_anchors",
@@ -3729,8 +3731,8 @@ mod options_os_wnd_tests {
             .as_deref_mut()
             .map(|host| host.options.take_requests())
             .unwrap_or_default();
-        let original_draw = TheInGameUI::get_draw_rmb_scroll_anchor();
-        let original_move = TheInGameUI::get_move_rmb_scroll_anchor();
+        let original_draw = ui.get_draw_rmb_scroll_anchor();
+        let original_move = ui.get_move_rmb_scroll_anchor();
 
         let mut apply = HostOptionsApply::default();
         apply.draw_anchor = true;
@@ -3750,11 +3752,12 @@ mod options_os_wnd_tests {
             reqs.contains(&HostOptionsRequest::MoveRmbScrollAnchor { enabled: true }),
             "{reqs:?}"
         );
-        assert!(TheInGameUI::get_draw_rmb_scroll_anchor());
-        assert!(TheInGameUI::get_move_rmb_scroll_anchor());
+        assert!(ui.get_draw_rmb_scroll_anchor());
+        assert!(ui.get_move_rmb_scroll_anchor());
 
-        TheInGameUI::set_draw_rmb_scroll_anchor(original_draw);
-        TheInGameUI::set_move_rmb_scroll_anchor(original_move);
+        ui.set_draw_rmb_scroll_anchor(original_draw);
+        ui.set_move_rmb_scroll_anchor(original_move);
+        });
     }
 
     #[test]
@@ -3900,13 +3903,12 @@ pub fn drive_os_wnd_credits_menu_prepare_skip_like_cpp(
 #[cfg(test)]
 mod credits_os_wnd_tests {
     use super::*;
-    use crate::gui::with_window_manager;
 
     #[test]
     fn os_wnd_credits_menu_skip_hits_parent_then_latches() {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
-            with_window_manager(|manager| {
+        { // was owner.with_scope
+            owner.with_manager(|manager| {
                 let parent = manager
                     .create_window(None, 10, 10, 200, 120)
                     .expect("ParentCreditsWindow");
@@ -3924,14 +3926,14 @@ mod credits_os_wnd_tests {
                 ResidualCreditsMenuAction::Skip
             );
             assert!(!residual_credits_menu_is_active());
-        });
+        }
     }
 
     #[test]
     fn os_wnd_credits_menu_finished_hits_parent_then_latches() {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
-            with_window_manager(|manager| {
+        { // was owner.with_scope
+            owner.with_manager(|manager| {
                 let parent = manager
                     .create_window(None, 10, 140, 200, 120)
                     .expect("ParentCreditsWindow finished");
@@ -3945,7 +3947,7 @@ mod credits_os_wnd_tests {
                 residual_credits_menu_last_action(),
                 ResidualCreditsMenuAction::Finished
             );
-        });
+        }
     }
 }
 
@@ -4433,12 +4435,13 @@ mod tests {
 
     #[test]
     fn options_checkbox_immediate_effects_match_cpp() {
+        with_receiving_ui(|ui| {
         let mut messages = Vec::new();
         let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
         let mut effects = WindowEventEffects::new(&mut messages);
         effects.menu_host = Some(&mut mailbox);
-        let original_draw_anchor = TheInGameUI::get_draw_rmb_scroll_anchor();
-        let original_move_anchor = TheInGameUI::get_move_rmb_scroll_anchor();
+        let original_draw_anchor = ui.get_draw_rmb_scroll_anchor();
+        let original_move_anchor = ui.get_move_rmb_scroll_anchor();
         let (original_save_camera, original_use_camera) = {
             let global = runtime_global_data::read();
             (global.save_camera_in_replay, global.use_camera_in_replay)
@@ -4455,14 +4458,14 @@ mod tests {
             true,
             &mut effects
         ));
-        assert!(TheInGameUI::get_draw_rmb_scroll_anchor());
+        assert!(ui.get_draw_rmb_scroll_anchor());
 
         assert!(menu.apply_immediate_checkbox_effect(
             menu.check_move_anchor_id,
             true,
             &mut effects
         ));
-        assert!(TheInGameUI::get_move_rmb_scroll_anchor());
+        assert!(ui.get_move_rmb_scroll_anchor());
 
         assert!(menu.apply_immediate_checkbox_effect(
             menu.check_save_camera_id,
@@ -4480,22 +4483,24 @@ mod tests {
 
         assert!(!menu.apply_immediate_checkbox_effect(99, true, &mut effects));
 
-        TheInGameUI::set_draw_rmb_scroll_anchor(original_draw_anchor);
-        TheInGameUI::set_move_rmb_scroll_anchor(original_move_anchor);
+        ui.set_draw_rmb_scroll_anchor(original_draw_anchor);
+        ui.set_move_rmb_scroll_anchor(original_move_anchor);
         let mut global = runtime_global_data::write();
         global.save_camera_in_replay = original_save_camera;
         global.use_camera_in_replay = original_use_camera;
+        });
     }
 
     #[test]
     fn options_move_rmb_scroll_anchor_publishes_only_to_an_enabled_host() {
+        with_receiving_ui(|ui| {
         use crate::gui::options_host_bridge::HostOptionsRequest;
 
         let mut messages = Vec::new();
         let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
         let mut effects = WindowEventEffects::new(&mut messages);
         effects.menu_host = Some(&mut mailbox);
-        let original_move_anchor = TheInGameUI::get_move_rmb_scroll_anchor();
+        let original_move_anchor = ui.get_move_rmb_scroll_anchor();
         let mut menu = OptionsMenu::new();
         menu.check_move_anchor_id = 12;
 
@@ -4512,7 +4517,7 @@ mod tests {
                 .unwrap_or_default(),
             vec![HostOptionsRequest::MoveRmbScrollAnchor { enabled: true }]
         );
-        assert!(TheInGameUI::get_move_rmb_scroll_anchor());
+        assert!(ui.get_move_rmb_scroll_anchor());
 
         effects.menu_host = None;
         assert!(menu.apply_immediate_checkbox_effect(
@@ -4529,22 +4534,24 @@ mod tests {
                 .is_empty()
         );
         assert!(
-            !TheInGameUI::get_move_rmb_scroll_anchor(),
+            !ui.get_move_rmb_scroll_anchor(),
             "disabled host delivery must retain the standalone legacy callback"
         );
 
-        TheInGameUI::set_move_rmb_scroll_anchor(original_move_anchor);
+        ui.set_move_rmb_scroll_anchor(original_move_anchor);
+        });
     }
 
     #[test]
     fn options_draw_rmb_scroll_anchor_publishes_only_to_an_enabled_host() {
+        with_receiving_ui(|ui| {
         use crate::gui::options_host_bridge::HostOptionsRequest;
 
         let mut messages = Vec::new();
         let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
         let mut effects = WindowEventEffects::new(&mut messages);
         effects.menu_host = Some(&mut mailbox);
-        let original_draw_anchor = TheInGameUI::get_draw_rmb_scroll_anchor();
+        let original_draw_anchor = ui.get_draw_rmb_scroll_anchor();
         let mut menu = OptionsMenu::new();
         menu.check_draw_anchor_id = 11;
 
@@ -4561,7 +4568,7 @@ mod tests {
                 .unwrap_or_default(),
             vec![HostOptionsRequest::DrawRmbScrollAnchor { enabled: true }]
         );
-        assert!(TheInGameUI::get_draw_rmb_scroll_anchor());
+        assert!(ui.get_draw_rmb_scroll_anchor());
 
         effects.menu_host = None;
         assert!(menu.apply_immediate_checkbox_effect(
@@ -4578,11 +4585,12 @@ mod tests {
                 .is_empty()
         );
         assert!(
-            !TheInGameUI::get_draw_rmb_scroll_anchor(),
+            !ui.get_draw_rmb_scroll_anchor(),
             "disabled host delivery must retain the standalone legacy callback"
         );
 
-        TheInGameUI::set_draw_rmb_scroll_anchor(original_draw_anchor);
+        ui.set_draw_rmb_scroll_anchor(original_draw_anchor);
+        });
     }
 
     #[test]

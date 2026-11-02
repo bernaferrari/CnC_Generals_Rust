@@ -16,16 +16,16 @@ mod tests {
     #[test]
     fn revealing_control_bar_preserves_authored_parent_position() {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        { // was owner.with_scope
             // ControlBar.cpp:3001-3014 restores the authored default position;
             // showing its command children must not invent another bottom pin.
             for (width, height) in [(640, 480), (1280, 960)] {
                 let authored_y = (416.0 * height as f32 / 600.0) as i32;
-                let parent = crate::gui::with_window_manager(|manager| {
-                    manager.destroy_all_windows();
+                let parent = owner.with_manager(|manager| {
+                    manager.test_destroy_all_windows();
                     manager.set_screen_size(width, height);
                     let parent = manager
-                        .create_window(None, 0, authored_y, width, 100)
+                        .test_create_window(None, 0, authored_y, width, 100)
                         .expect("control bar parent");
                     parent.borrow_mut().set_name(CONTROL_BAR_PARENT);
                     parent
@@ -37,13 +37,13 @@ mod tests {
                     "display {width}x{height}"
                 );
             }
-        });
+        }
     }
 
     #[test]
     fn low_stage_keeps_cpp_default_marker_base_before_first_draw() {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        { // was owner.with_scope
             // Retail ControlBar.wnd at 640x480: the parent starts at 416/600 of
             // the screen, while BackgroundMarker is at 595/600. C++ captures the
             // marker's screen position during ControlBar::init, before Low moves
@@ -52,17 +52,17 @@ mod tests {
                 game_engine::common::ini::ini_control_bar_scheme::ensure_control_bar_scheme_manager(
                 );
             manager.write().clear();
-            crate::gui::with_window_manager(|wm| {
-                wm.destroy_all_windows();
+            owner.with_manager(|wm| {
+                wm.test_destroy_all_windows();
                 wm.set_screen_size(640, 480);
-                let parent = wm.create_window(None, 0, 332, 640, 148).unwrap();
+                let parent = wm.test_create_window(None, 0, 332, 640, 148).unwrap();
                 parent.borrow_mut().set_name(CONTROL_BAR_PARENT);
-                let marker = wm.create_window(Some(&parent), 6, 144, 4, 4).unwrap();
+                let marker = wm.test_create_window(Some(&parent), 6, 144, 4, 4).unwrap();
                 marker
                     .borrow_mut()
                     .set_name("ControlBar.wnd:BackgroundMarker");
             });
-            let (parent, marker) = crate::gui::with_window_manager_ref(|wm| {
+            let (parent, marker) = owner.with_manager_ref(|wm| {
                 (
                     wm.find_window_by_name(CONTROL_BAR_PARENT).unwrap(),
                     wm.find_window_by_name("ControlBar.wnd:BackgroundMarker")
@@ -106,7 +106,7 @@ mod tests {
                 "restoring Default must not send scheme artwork above the HUD"
             );
             manager.write().clear();
-        });
+        }
     }
 
     #[test]
@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn presentation_power_is_owned_by_each_control_bar() {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        { // was owner.with_scope
             if matches!(
                 crate::test_process::run_bounded(
                     module_path!(),
@@ -404,7 +404,7 @@ mod tests {
                 fn drop(&mut self) {
                     *gamelogic::player::player_list().write().unwrap() =
                         std::mem::replace(&mut self.0, gamelogic::player::PlayerList::new());
-                    crate::gui::with_window_manager(|manager| manager.destroy_all_windows());
+                    owner.with_manager(|manager| manager.test_destroy_all_windows());
                 }
             }
             let old = {
@@ -412,9 +412,9 @@ mod tests {
                 std::mem::replace(&mut *players, gamelogic::player::PlayerList::new())
             };
             let _restore = RestorePlayers(old);
-            let power = crate::gui::with_window_manager(|manager| {
-                manager.destroy_all_windows();
-                let power = manager.create_window(None, 0, 0, 80, 24).unwrap();
+            let power = owner.with_manager(|manager| {
+                manager.test_destroy_all_windows();
+                let power = manager.test_create_window(None, 0, 0, 80, 24).unwrap();
                 power.borrow_mut().set_name("ControlBar.wnd:PowerWindow");
                 power
             });
@@ -452,13 +452,13 @@ mod tests {
                 power.borrow().is_hidden(),
                 "no money player hides PowerWindow"
             );
-        });
+        }
     }
 
     #[test]
     fn presentation_money_is_written_after_the_window_appears_and_reappears() {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        { // was owner.with_scope
             // This classic-adapter fixture deliberately replaces Core PlayerList.
             // Keep that process state private; receiving HUD ownership is separate.
             if let crate::test_process::TestProcess::ParentVerified =
@@ -496,12 +496,12 @@ mod tests {
 
             let mut bar = ControlBar::new();
             bar.apply_presentation_money(1250);
-            crate::gui::with_window_manager(|manager| manager.destroy_all_windows());
+            owner.with_manager(|manager| manager.test_destroy_all_windows());
             bar.update_money_and_power_windows(); // Host snapshot arrived before its WND.
             for _ in 0..2 {
-                let win = crate::gui::with_window_manager(|manager| {
-                    manager.destroy_all_windows();
-                    let win = manager.create_window(None, 0, 0, 80, 24).unwrap();
+                let win = owner.with_manager(|manager| {
+                    manager.test_destroy_all_windows();
+                    let win = manager.test_create_window(None, 0, 0, 80, 24).unwrap();
                     win.borrow_mut().set_name("ControlBar.wnd:MoneyDisplay");
                     win.borrow_mut().set_text("$$$").unwrap();
                     win
@@ -516,7 +516,7 @@ mod tests {
             gamelogic::player::player_list().write().unwrap().clear();
             bar.reset().unwrap();
             bar.update_money_and_power_windows();
-            let hidden = crate::gui::with_window_manager_ref(|manager| {
+            let hidden = owner.with_manager_ref(|manager| {
                 manager
                     .find_window_by_name("ControlBar.wnd:MoneyDisplay")
                     .unwrap()
@@ -524,33 +524,33 @@ mod tests {
                     .is_hidden()
             });
             assert!(hidden, "C++ hides MoneyDisplay without a money player");
-            crate::gui::with_window_manager(|manager| manager.destroy_all_windows());
-        });
+            owner.with_manager(|manager| manager.test_destroy_all_windows());
+        }
     }
 
     #[test]
     fn control_bar_update_writes_money_display_window_text() {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        { // was owner.with_scope
 
                 // Live path: ControlBar::update → update_money_and_power_windows writes
                 // ControlBar.wnd:MoneyDisplay via TheWindowManager (C++ InGameUI.cpp:1776-1815).
-                crate::gui::with_window_manager(|manager| {
+                owner.with_manager(|manager| {
                     let win = manager
-                        .create_window(None, 0, 0, 80, 24)
+                        .test_create_window(None, 0, 0, 80, 24)
                         .expect("MoneyDisplay");
                     win.borrow_mut().set_name("ControlBar.wnd:MoneyDisplay");
                     let _ = win.borrow_mut().set_text("PLACEHOLDER");
                 });
                 let mut bar = ControlBar::new();
                 bar.update_money_and_power_windows();
-                let text = crate::gui::with_window_manager_ref(|manager| {
+                let text = owner.with_manager_ref(|manager| {
                     manager
                         .find_window_by_name("ControlBar.wnd:MoneyDisplay")
                         .map(|w| w.borrow().get_text().to_string())
                 });
                 // No local player → hide; placeholder must not remain visible as live money.
-                let hidden = crate::gui::with_window_manager_ref(|manager| {
+                let hidden = owner.with_manager_ref(|manager| {
                     manager
                         .find_window_by_name("ControlBar.wnd:MoneyDisplay")
                         .map(|w| w.borrow().is_hidden())
@@ -561,13 +561,13 @@ mod tests {
                     "MoneyDisplay must be hidden without a player or rewritten from ThePlayerList, got text={text:?} hidden={hidden}"
                 );
 
-        });
+        }
     }
 
     #[test]
     fn default_and_none_context_window_matrix_matches_cpp() {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        { // was owner.with_scope
             // C++ switchToContext hide matrix (ControlBar.cpp:2128-2137): every
             // non-observer context hides CP_OBSERVER_INFO, and CB_CONTEXT_NONE
             // additionally hides CP_COMMAND. ControlBar.wnd authors
@@ -580,14 +580,14 @@ mod tests {
                 ("ControlBar.wnd:ProductionQueueWindow", true),
                 ("ControlBar.wnd:ObserverPlayerInfoWindow", false),
             ] {
-                let _ = crate::gui::with_window_manager(|manager| {
-                    let win = manager.create_window(None, 0, 0, 10, 10).expect("window");
+                let _ = owner.with_manager(|manager| {
+                    let win = manager.test_create_window(None, 0, 0, 10, 10).expect("window");
                     win.borrow_mut().set_name(name);
                     let _ = win.borrow_mut().hide(hidden);
                 });
             }
             let read_hidden = |name: &str| {
-                crate::gui::with_window_manager_ref(|manager| {
+                owner.with_manager_ref(|manager| {
                     manager
                         .find_window_by_name(name)
                         .map(|w| w.borrow().is_hidden())
@@ -611,20 +611,20 @@ mod tests {
                 read_hidden("ControlBar.wnd:ObserverPlayerInfoWindow"),
                 Some(true)
             );
-        });
+        }
     }
 
     #[test]
     fn bind_command_windows_hides_unpopulated_slots_in_every_state() {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        { // was owner.with_scope
             // C++ populateCommand (ControlBarCommand.cpp:262-306): every slot
             // without a populated CommandButton is winHide(TRUE) at population
             // time, in every context; repopulation re-shows populated slots.
             for i in 1..=3 {
-                let _ = crate::gui::with_window_manager(|manager| {
+                let _ = owner.with_manager(|manager| {
                     let win = manager
-                        .create_window(None, 0, 0, 50, 44)
+                        .test_create_window(None, 0, 0, 50, 44)
                         .expect("command slot");
                     win.borrow_mut()
                         .set_name(&format!("ControlBar.wnd:ButtonCommand{i:02}"));
@@ -638,7 +638,7 @@ mod tests {
                 ..ControlBarContext::default()
             };
             ControlBar::new().bind_command_windows(&context);
-            let states = crate::gui::with_window_manager_ref(|manager| {
+            let states = owner.with_manager_ref(|manager| {
                 (1..=3)
                     .map(|i| {
                         manager
@@ -648,13 +648,13 @@ mod tests {
                     .collect::<Vec<_>>()
             });
             assert_eq!(states, vec![Some(false), Some(true), Some(true)]);
-        });
+        }
     }
 
     #[test]
     fn scheme_apply_gives_right_hud_image_status() {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        { // was owner.with_scope
             // C++ ControlBarScheme.cpp:407 -> updateRightHUDImage
             // (winSetEnabledImage raises WIN_STATUS_IMAGE; W3DControlBar.cpp:74-81
             // paints only under that bit).
@@ -662,14 +662,14 @@ mod tests {
             crate::display::image::get_mapped_image_collection()
                 .write()
                 .add_image(crate::display::image::Image::with_name(IMAGE));
-            let _ = crate::gui::with_window_manager(|manager| {
+            let _ = owner.with_manager(|manager| {
                 let win = manager
-                    .create_window(None, 0, 0, 139, 109)
+                    .test_create_window(None, 0, 0, 139, 109)
                     .expect("RightHUD");
                 win.borrow_mut().set_name("ControlBar.wnd:RightHUD");
             });
             apply_scheme_right_hud_image(IMAGE);
-            let (has_image_status, bound_image) = crate::gui::with_window_manager_ref(|manager| {
+            let (has_image_status, bound_image) = owner.with_manager_ref(|manager| {
                 manager
                     .find_window_by_name("ControlBar.wnd:RightHUD")
                     .map(|w| {
@@ -690,7 +690,7 @@ mod tests {
             });
             assert!(has_image_status, "RightHUD must gain WIN_STATUS_IMAGE");
             assert_eq!(bound_image.as_deref(), Some(IMAGE));
-        });
+        }
     }
 
     #[test]
@@ -707,20 +707,20 @@ mod tests {
     #[test]
     fn shortcut_bar_stays_hidden_before_first_purchased_power() {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        { // was owner.with_scope
             // C++ showSpecialPowerShortcut (ControlBar.cpp:3719-3738): without an
             // owned shortcut special power or a populated shortcut selection
             // button, the GenPowersShortcutBar column is never revealed.
-            let _ = crate::gui::with_window_manager(|manager| {
+            let _ = owner.with_manager(|manager| {
                 let win = manager
-                    .create_window(None, 0, 0, 48, 426)
+                    .test_create_window(None, 0, 0, 48, 426)
                     .expect("shortcut tray");
                 win.borrow_mut()
                     .set_name("ControlBar.wnd:GenPowersShortcutBarParent");
                 let _ = win.borrow_mut().hide(true);
             });
             ControlBar::new().show_special_power_shortcut();
-            let hidden = crate::gui::with_window_manager_ref(|manager| {
+            let hidden = owner.with_manager_ref(|manager| {
                 manager
                     .find_window_by_name("ControlBar.wnd:GenPowersShortcutBarParent")
                     .map(|w| w.borrow().is_hidden())
@@ -730,6 +730,6 @@ mod tests {
                 Some(true),
                 "shortcut tray must stay closed until a general's power is purchased"
             );
-        });
+        }
     }
 }

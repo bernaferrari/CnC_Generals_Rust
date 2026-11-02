@@ -22,6 +22,19 @@ fn lock_test_mouse() -> MutexGuard<'static, ()> {
         .unwrap_or_else(|e| e.into_inner())
 }
 
+
+fn with_effects<R>(f: impl FnOnce(&mut WindowManager, &mut WindowEventEffects<'_>) -> R) -> R {
+    let mut messages = Vec::new();
+    let mut manager = WindowManager::new();
+    // effects.manager left unset; callers that need manager+effects together use the pair below.
+    let mut effects = WindowEventEffects::new(&mut messages);
+    f(&mut manager, &mut effects)
+}
+
+fn with_managed_effects<R>(f: impl FnOnce(&mut WindowEventEffects<'_>) -> R) -> R {
+    WindowEventEffects::with_standalone(f)
+}
+
 #[test]
 fn test_window_manager_creation() {
     let manager = WindowManager::new();
@@ -80,7 +93,7 @@ fn bind_none_callback_does_not_overwrite_existing_system_like_cpp() {
     assert_eq!(edit_data.system_callback_string, "[None]");
     assert_eq!(edit_data.input_callback_string, "[None]");
 
-    let _ = window.send_system_message(WindowMessage::GadgetSelected, 1, 0);
+    let _ = window.test_send_system_message(WindowMessage::GadgetSelected, 1, 0);
     assert!(
         hit.get(),
         "C++ createWindow skips winSetSystemFunc when SYSTEMCALLBACK=[None]"
@@ -116,7 +129,7 @@ fn static_text_script_data_applies_cpp_alignment_defaults() {
 #[test]
 fn test_window_creation() {
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
     assert_eq!(manager.window_count, 1);
     assert_eq!(manager.root_windows.len(), 1);
@@ -158,7 +171,7 @@ fn script_child_creation_sends_script_create_input_to_parent_like_cpp() {
     };
 
     manager
-        .create_window_from_definition(&child_def, Some(&parent), &layout, &layout_def, &mut info)
+        .test_create_window_from_definition(&child_def, Some(&parent), &layout, &layout_def, &mut info)
         .unwrap();
 
     assert_eq!(
@@ -188,7 +201,7 @@ fn combo_edit_child_draws_from_start_only_when_non_editable_like_cpp() {
         };
 
         let combo = manager
-            .create_window_from_definition(&combo_def, None, &layout, &layout_def, &mut info)
+            .test_create_window_from_definition(&combo_def, None, &layout, &layout_def, &mut info)
             .unwrap();
         let links = combo.borrow().combobox_links().unwrap();
         let edit = combo.borrow().find_child_by_id(links.edit_box).unwrap();
@@ -245,7 +258,7 @@ fn script_tab_control_shows_first_script_pane_in_cpp_fixup_order() {
     };
 
     manager
-        .create_window_from_definition(&tab_def, None, &layout, &layout_def, &mut info)
+        .test_create_window_from_definition(&tab_def, None, &layout, &layout_def, &mut info)
         .unwrap();
 
     let first = manager
@@ -386,7 +399,7 @@ fn test_focus_management() {
 
     assert!(manager.get_focus().is_none());
 
-    manager.set_focus(Some(&window1)).unwrap();
+    manager.test_set_focus(Some(&window1)).unwrap();
     let focused = manager.get_focus().unwrap();
     assert!(Rc::ptr_eq(&window1, &focused));
 
@@ -528,12 +541,12 @@ fn process_key_event_passes_key_and_state_to_parent_until_handled() {
     manager.test_set_focus(Some(&child)).unwrap();
 
     assert_eq!(
-        manager.process_key_event(13, 0x02),
+        manager.test_process_key_event(13, 0x02),
         WindowInputReturnCode::Used
     );
     assert_eq!(seen.borrow().as_slice(), &[(WindowMessage::Char, 13, 0x02)]);
     assert_eq!(
-        manager.process_key_event(0, 0x02),
+        manager.test_process_key_event(0, 0x02),
         WindowInputReturnCode::NotUsed
     );
 }
@@ -582,7 +595,7 @@ fn mouse_up_does_not_auto_release_capture_like_cpp() {
         });
 
     manager.capture_mouse(&window).unwrap();
-    let result = manager.process_mouse_event(WindowMessage::LeftUp, 10, 10, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::LeftUp, 10, 10, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
     assert!(Rc::ptr_eq(&manager.get_capture().unwrap(), &window));
@@ -975,7 +988,7 @@ fn handled_mouse_down_outside_lone_window_closes_it_like_cpp() {
             _ => WindowMsgHandled::Ignored,
         });
 
-    manager.set_lone_window(Some(&lone));
+    manager.test_set_lone_window(Some(&lone));
     let result = manager.test_process_mouse_event(WindowMessage::LeftDown, 210, 10, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
@@ -1006,7 +1019,7 @@ fn lone_window_itself_is_not_its_own_child_like_cpp() {
             _ => WindowMsgHandled::Ignored,
         });
 
-    manager.set_lone_window(Some(&lone));
+    manager.test_set_lone_window(Some(&lone));
     let result = manager.test_process_mouse_event(WindowMessage::LeftDown, 10, 10, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
@@ -1039,7 +1052,7 @@ fn strict_lone_window_child_keeps_lone_window_open_like_cpp() {
             _ => WindowMsgHandled::Ignored,
         });
 
-    manager.set_lone_window(Some(&lone));
+    manager.test_set_lone_window(Some(&lone));
     let result = manager.test_process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
@@ -1484,7 +1497,7 @@ fn left_drag_moves_grabbed_draggable_window_like_cpp() {
     manager.set_grab_window(Some(&grabbed));
 
     let result =
-        manager.process_mouse_event_with_delta(WindowMessage::LeftDrag, 30, 40, 0, Some((15, -5)));
+        manager.test_process_mouse_event_with_delta(WindowMessage::LeftDrag, 30, 40, 0, Some((15, -5)));
 
     assert_eq!(result, WindowInputReturnCode::Used);
     assert_eq!(grabbed.borrow().get_position(), (25, 15));
@@ -1501,7 +1514,7 @@ fn left_drag_clips_grabbed_draggable_window_to_parent_and_screen_like_cpp() {
     grabbed.borrow_mut().set_status(WindowStatus::DRAGABLE);
     manager.set_grab_window(Some(&grabbed));
 
-    let result = manager.process_mouse_event_with_delta(
+    let result = manager.test_process_mouse_event_with_delta(
         WindowMessage::LeftDrag,
         200,
         160,
@@ -1556,10 +1569,10 @@ fn get_window_by_id_returns_first_traversal_match_like_cpp() {
     let mut manager = WindowManager::new();
     let id = 42;
     let first = manager
-        .create_window_with_id(None, 0, 0, 100, 100, id)
+        .test_create_window_with_id(None, 0, 0, 100, 100, id)
         .unwrap();
     let second = manager
-        .create_window_with_id(None, 100, 0, 100, 100, id)
+        .test_create_window_with_id(None, 100, 0, 100, 100, id)
         .unwrap();
 
     let found = manager.get_window_by_id(id).unwrap();
@@ -1594,10 +1607,10 @@ fn find_window_from_id_continues_through_siblings_like_cpp() {
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let first = manager
-        .create_window_with_id(Some(&parent), 0, 0, 20, 20, 10)
+        .test_create_window_with_id(Some(&parent), 0, 0, 20, 20, 10)
         .unwrap();
     let second = manager
-        .create_window_with_id(Some(&parent), 20, 0, 20, 20, 20)
+        .test_create_window_with_id(Some(&parent), 20, 0, 20, 20, 20)
         .unwrap();
 
     let found = manager.find_window_from_id(&second, 10).unwrap();
@@ -1610,13 +1623,13 @@ fn range_helpers_mutate_first_lookup_match_per_id_like_cpp() {
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let first = manager
-        .create_window_with_id(Some(&parent), 0, 0, 20, 20, 10)
+        .test_create_window_with_id(Some(&parent), 0, 0, 20, 20, 10)
         .unwrap();
     let duplicate = manager
-        .create_window_with_id(Some(&parent), 20, 0, 20, 20, 10)
+        .test_create_window_with_id(Some(&parent), 20, 0, 20, 20, 10)
         .unwrap();
     let next = manager
-        .create_window_with_id(Some(&parent), 40, 0, 20, 20, 11)
+        .test_create_window_with_id(Some(&parent), 40, 0, 20, 20, 11)
         .unwrap();
 
     manager.hide_windows_in_range(&next, 10, 11, true);
@@ -1795,7 +1808,7 @@ fn create_slider_thumb_child_is_enabled_dragable_not_no_input() {
         .set_status_exact(WindowStatus::ENABLED | WindowStatus::ACTIVE);
 
     manager
-        .create_slider_thumb_child(&slider, &WindowLayoutDefinition::default())
+        .test_create_slider_thumb_child(&slider, &WindowLayoutDefinition::default())
         .unwrap();
 
     let thumb_id = slider.borrow().slider_thumb().expect("thumb child");
@@ -1847,7 +1860,7 @@ fn test_window_destruction() {
     assert!(manager.get_window_by_id(window_id).is_some());
 
     manager.destroy_window(window).unwrap();
-    manager.update(); // Process destroy queue
+    manager.test_update(); // Process destroy queue
 
     assert_eq!(manager.window_count, 0);
     assert!(manager.get_window_by_id(window_id).is_none());
@@ -1864,7 +1877,7 @@ fn destroy_window_rejects_editor_edit_data_like_cpp_debug_assert() {
         .set_edit_data(Some(GameWindowEditData::default()));
 
     manager.destroy_window(window).unwrap();
-    manager.update();
+    manager.test_update();
 }
 
 #[test]
@@ -1878,7 +1891,7 @@ fn destroy_window_recursively_destroys_children_like_cpp() {
     let child_id = child.borrow().get_id();
 
     manager.destroy_window(parent.clone()).unwrap();
-    manager.update();
+    manager.test_update();
 
     assert_eq!(manager.window_count, 0);
     assert!(manager.get_window_by_id(parent_id).is_none());
@@ -1928,7 +1941,7 @@ fn destroy_window_sends_parent_destroy_before_child_like_cpp() {
     }
 
     manager.destroy_window(parent).unwrap();
-    manager.update();
+    manager.test_update();
 
     assert_eq!(seen.borrow().as_slice(), &["parent", "child"]);
 }
@@ -1953,7 +1966,7 @@ fn destroy_window_clears_runtime_references_like_cpp() {
     manager.set_grab_window(Some(&window));
 
     manager.destroy_window(window).unwrap();
-    manager.update();
+    manager.test_update();
 
     assert!(manager.get_focus().is_none());
     assert!(manager.get_capture().is_none());
@@ -1973,7 +1986,7 @@ fn destroy_window_removes_window_from_layout_like_cpp() {
     layout.borrow_mut().add_window(window.clone());
 
     manager.destroy_window(window.clone()).unwrap();
-    manager.update();
+    manager.test_update();
 
     assert!(layout.borrow().windows().is_empty());
     assert!(window.borrow().get_layout().is_none());
@@ -2021,21 +2034,21 @@ fn test_tab_navigation() {
     manager.test_set_focus(Some(&window1)).unwrap();
 
     // Navigate forward
-    manager.navigate_tab(TabDirection::Next);
+    manager.test_navigate_tab(TabDirection::Next);
     let focused = manager.get_focus().unwrap();
     assert!(Rc::ptr_eq(&window2, &focused));
 
-    manager.navigate_tab(TabDirection::Next);
+    manager.test_navigate_tab(TabDirection::Next);
     let focused = manager.get_focus().unwrap();
     assert!(Rc::ptr_eq(&window3, &focused));
 
     // Should wrap around
-    manager.navigate_tab(TabDirection::Next);
+    manager.test_navigate_tab(TabDirection::Next);
     let focused = manager.get_focus().unwrap();
     assert!(Rc::ptr_eq(&window1, &focused));
 
     // Navigate backward
-    manager.navigate_tab(TabDirection::Previous);
+    manager.test_navigate_tab(TabDirection::Previous);
     let focused = manager.get_focus().unwrap();
     assert!(Rc::ptr_eq(&window3, &focused));
 }
@@ -2059,7 +2072,7 @@ fn tab_navigation_is_blocked_by_modal_like_cpp() {
     manager.test_set_focus(Some(&window1)).unwrap();
     manager.set_modal(modal).unwrap();
 
-    manager.navigate_tab(TabDirection::Next);
+    manager.test_navigate_tab(TabDirection::Next);
 
     let focused = manager.get_focus().unwrap();
     assert!(Rc::ptr_eq(&window1, &focused));
@@ -2094,9 +2107,9 @@ fn tab_navigation_clears_lone_window_like_cpp() {
 
     manager.register_tab_list(vec![window1.clone(), window2.clone()]);
     manager.test_set_focus(Some(&window1)).unwrap();
-    manager.set_lone_window(Some(&lone));
+    manager.test_set_lone_window(Some(&lone));
 
-    manager.navigate_tab(TabDirection::Next);
+    manager.test_navigate_tab(TabDirection::Next);
 
     let focused = manager.get_focus().unwrap();
     assert!(Rc::ptr_eq(&window2, &focused));
@@ -2122,7 +2135,7 @@ fn prev_tab_without_tab_focus_wraps_to_last_like_cpp() {
     manager.register_tab_list(vec![window1.clone(), window2.clone()]);
     manager.test_set_focus(Some(&outside_focus)).unwrap();
 
-    manager.navigate_tab(TabDirection::Previous);
+    manager.test_navigate_tab(TabDirection::Previous);
 
     let focused = manager.get_focus().unwrap();
     assert!(Rc::ptr_eq(&window2, &focused));
@@ -2264,7 +2277,7 @@ fn layout_load_adds_only_top_level_windows_like_cpp() {
     };
 
     manager
-        .create_window_from_definition(&parent, None, &layout, &layout_def, &mut info)
+        .test_create_window_from_definition(&parent, None, &layout, &layout_def, &mut info)
         .expect("parent+child create");
 
     assert_eq!(

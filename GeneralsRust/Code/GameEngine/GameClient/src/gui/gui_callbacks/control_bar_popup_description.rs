@@ -998,7 +998,7 @@ mod presentation_can_make_popup_tests {
     #[test]
     fn host_popup_shows_bound_denials_without_legacy_player() {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        { // was owner.with_scope
 
                 // C++ ControlBarPopupDescription.cpp:318-354 appends the selected
                 // producer's CanMake denial to this command's actual description.
@@ -1032,7 +1032,7 @@ mod presentation_can_make_popup_tests {
                         .is_kind_of(gamelogic::common::types::KindOf::Structure)
                 );
                 let mut owned_windows = None;
-                with_window_manager(|wm| {
+                owner.with_manager(|wm| {
                     wm.destroy_all_windows();
                     let parent = wm.create_window(None, 0, 0, 500, 150).unwrap();
                     parent.borrow_mut().set_id(NameKeyGenerator::name_to_key(
@@ -1090,7 +1090,7 @@ mod presentation_can_make_popup_tests {
                         ..LiveCommandButton::default()
                     });
                     let (command, frozen_status) = resolve_command_button(&command_window).unwrap();
-                    with_window_manager(|manager| {
+                    owner.with_manager(|manager| {
                         populate_layout_for_command(
                             &layout,
                             &command,
@@ -1111,7 +1111,7 @@ mod presentation_can_make_popup_tests {
                     }
                 }
 
-        });
+        }
     }
 }
 

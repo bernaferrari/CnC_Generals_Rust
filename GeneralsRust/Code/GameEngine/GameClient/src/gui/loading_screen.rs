@@ -808,19 +808,19 @@ pub fn drive_os_wnd_loading_screen_finish_like_cpp(
 #[cfg(test)]
 mod os_wnd_tests {
     use super::*;
-    use crate::gui::with_window_manager;
-
-    fn install_named_button(name: &str, x: i32, y: i32) {
-        with_window_manager(|manager| {
-            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+    
+    fn install_named_button(owner: &crate::gui::window_manager::WindowManagerOwner, name: &str, x: i32, y: i32) {
+        owner.with_manager(|manager| {
+            let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
-            let _ = button.borrow_mut().hide(false);
+            let _ = button.borrow_mut().hide_without_manager_side_effects(false);
         });
     }
 
     #[test]
     fn os_wnd_loading_screen_prepare_hits_progress_load_then_latches_map() {
-        install_named_button("SinglePlayerLoadScreen.wnd:ProgressLoad", 10, 10);
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        install_named_button(&owner, "SinglePlayerLoadScreen.wnd:ProgressLoad", 10, 10);
         assert!(
             drive_os_wnd_loading_screen_prepare_like_cpp("maps\\MD_USA01\\MD_USA01.map", 40),
             "OS WND click on ProgressLoad must prepare map load residual"
@@ -836,7 +836,8 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_loading_screen_finish_hits_shell_progress_gadget() {
-        install_named_button("ShellGameLoadScreen.wnd:ProgressLoad", 10, 40);
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        install_named_button(&owner, "ShellGameLoadScreen.wnd:ProgressLoad", 10, 40);
         assert!(drive_os_wnd_loading_screen_finish_like_cpp());
         assert!(!residual_loading_screen_is_visible());
         assert_eq!(residual_loading_screen_progress(), 100);

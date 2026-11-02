@@ -8,7 +8,7 @@ use std::sync::{Mutex, OnceLock};
 use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
-    with_window_manager, write_input_focus_response,
+    write_input_focus_response,
 };
 use crate::w3d_web_browser::W3DWebBrowser;
 use game_engine::common::ascii_string::AsciiString;
@@ -92,11 +92,11 @@ pub fn wol_ladder_screen_init(layout: &WindowLayout, _user_data: Option<&dyn std
     let button_back_id = name_to_id("WOLLadderScreen.wnd:ButtonBack");
     let window_ladder_id = name_to_id("WOLLadderScreen.wnd:WindowLadder");
 
-    let parent = with_window_manager(|manager| manager.get_window_by_id(parent_id as i32));
+    let parent = owner.with_manager(|manager| manager.get_window_by_id(parent_id as i32));
     let button_back =
-        with_window_manager(|manager| manager.get_window_by_id(button_back_id as i32));
+        owner.with_manager(|manager| manager.get_window_by_id(button_back_id as i32));
     let window_ladder =
-        with_window_manager(|manager| manager.get_window_by_id(window_ladder_id as i32));
+        owner.with_manager(|manager| manager.get_window_by_id(window_ladder_id as i32));
 
     if ensure_webpages_loaded() {
         if let Some(window) = window_ladder.as_ref() {
@@ -111,7 +111,7 @@ pub fn wol_ladder_screen_init(layout: &WindowLayout, _user_data: Option<&dyn std
     layout.hide(false);
 
     if let Some(parent) = parent.as_ref() {
-        let _ = with_window_manager(|manager| manager.set_focus(Some(parent)));
+        let _ = owner.with_manager(|manager| manager.set_focus(Some(parent)));
     }
 
     let state_slot = wol_ladder_state();

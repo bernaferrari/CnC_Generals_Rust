@@ -39,7 +39,7 @@ fn combo_fixture() -> (
         list_box.set_id(3);
         list_box.set_size(120, 40, effects).unwrap();
         list_box.set_widget(WindowWidget::ListBox(ListBox::new(3, 0, 20, 120, 40)));
-        list_box.hide(true, effects).unwrap();
+        list_box.hide_without_manager_side_effects(true).unwrap();
     }
 
     let drop_down = Rc::new(RefCell::new(GameWindow::new()));
@@ -255,11 +255,11 @@ fn static_text_create_destroy_are_consumed_like_cpp_system_callback() {
     window.set_widget(WindowWidget::StaticText(StaticText::new(8, 0, 0, 120, 24)));
 
     assert_eq!(
-        window.send_system_message(WindowMessage::Create, 0, 0),
+        window.test_send_system_message(WindowMessage::Create, 0, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        window.send_system_message(WindowMessage::Destroy, 0, 0),
+        window.test_send_system_message(WindowMessage::Destroy, 0, 0),
         WindowMsgHandled::Handled
     );
 }
@@ -318,7 +318,7 @@ fn test_window_properties() {
     window.set_id(123);
     assert_eq!(window.get_id(), 123);
 
-    window.set_size(100, 200).unwrap();
+    window.test_set_size(100, 200).unwrap();
     assert_eq!(window.get_size(), (100, 200));
 
     window.set_position(10, 20).unwrap();
@@ -368,7 +368,7 @@ fn text_length_counts_characters_like_cpp_unicode_string() {
 fn user_window_focus_does_not_select_hilite_draw_bank() {
     let mut window = GameWindow::new();
     window.set_widget(WindowWidget::User);
-    let _ = window.send_system_message(WindowMessage::InputFocus, 1, 0);
+    let _ = window.test_send_system_message(WindowMessage::InputFocus, 1, 0);
     assert!(
         !window.instance_data().state.contains(WindowState::HILITED),
         "C++ USER callbacks do not set WIN_STATE_HILITED on keyboard focus"
@@ -418,7 +418,7 @@ fn gadget_messages_route_to_owner_not_parent_like_cpp() {
     assert_eq!(
         child
             .borrow_mut()
-            .send_input_message(WindowMessage::LeftDown, 0, 0),
+            .test_send_input_message(WindowMessage::LeftDown, 0, 0),
         WindowMsgHandled::Handled
     );
 
@@ -461,7 +461,7 @@ fn gadget_messages_to_self_owner_do_not_reborrow_window() {
     assert_eq!(
         child
             .borrow_mut()
-            .send_input_message(WindowMessage::LeftDown, 0, 0),
+            .test_send_input_message(WindowMessage::LeftDown, 0, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
@@ -483,7 +483,7 @@ fn set_size_sends_resized_system_message_like_cpp() {
         });
     }
 
-    window.set_size(123, 45).unwrap();
+    window.test_set_size(123, 45).unwrap();
 
     assert_eq!(
         seen.borrow().as_slice(),
@@ -762,7 +762,7 @@ fn combo_box_selection_hides_list_updates_edit_and_notifies_owner_like_cpp() {
             )
         },
     );
-    list_box.borrow_mut().hide(false, effects).unwrap();
+    list_box.borrow_mut().hide_without_manager_side_effects(false).unwrap();
     combo.set_size(120, 80, effects).unwrap();
 
     assert_eq!(
@@ -823,7 +823,7 @@ fn combo_box_edit_update_clears_selection_hides_list_and_notifies_owner_like_cpp
         },
     );
     let _ = combo.send_system_message(WindowMessage::User(GCM_SET_SELECTION), 0, 0, effects);
-    list_box.borrow_mut().hide(false, effects).unwrap();
+    list_box.borrow_mut().hide_without_manager_side_effects(false).unwrap();
     combo.set_size(120, 80, effects).unwrap();
     owner_seen.borrow_mut().clear();
 
@@ -978,11 +978,11 @@ fn show_tab_pane_falls_back_and_updates_active_tab_like_cpp() {
     tab_window.add_child(first_pane.clone());
     tab_window.add_child(second_pane.clone());
 
-    tab_window.show_tab_pane(1);
+    tab_window.test_show_tab_pane(1);
     assert!(first_pane.borrow().is_hidden());
     assert!(!second_pane.borrow().is_hidden());
 
-    tab_window.show_tab_pane(7);
+    tab_window.test_show_tab_pane(7);
     assert!(!first_pane.borrow().is_hidden());
     assert!(second_pane.borrow().is_hidden());
 
@@ -1012,7 +1012,7 @@ fn resizing_tab_control_resizes_panes_like_cpp() {
     tab_window.add_child(first_pane.clone());
     tab_window.add_child(second_pane.clone());
 
-    tab_window.set_size(200, 100).unwrap();
+    tab_window.test_set_size(200, 100).unwrap();
 
     assert_eq!(first_pane.borrow().get_position(), (3, 23));
     assert_eq!(first_pane.borrow().get_size(), (194, 74));
@@ -1033,14 +1033,14 @@ fn progress_bar_system_message_matches_cpp_range_rules() {
     )));
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GPM_SET_PROGRESS), 37, 0),
+        window.test_send_system_message(WindowMessage::User(GPM_SET_PROGRESS), 37, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.progress_bar_mut().unwrap().percentage(), 37.0);
     assert_eq!(window.get_user_data::<i32>(), Some(&37));
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GPM_SET_PROGRESS), 101, 0),
+        window.test_send_system_message(WindowMessage::User(GPM_SET_PROGRESS), 101, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.progress_bar_mut().unwrap().percentage(), 37.0);
@@ -1066,15 +1066,15 @@ fn slider_system_messages_match_cpp_numeric_rules() {
     ));
     let thumb = Rc::new(RefCell::new(GameWindow::new()));
     thumb.borrow_mut().set_id(77);
-    thumb.borrow_mut().set_size(13, 16).unwrap();
+    thumb.borrow_mut().test_set_size(13, 16).unwrap();
     window.add_child(thumb.clone());
     window.set_slider_thumb(77);
 
-    window.set_size(100, 24).unwrap();
+    window.test_set_size(100, 24).unwrap();
     assert_eq!(thumb.borrow().get_size(), (GADGET_SIZE, 24));
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GSM_SET_MIN_MAX), 10, 20),
+        window.test_send_system_message(WindowMessage::User(GSM_SET_MIN_MAX), 10, 20),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.horizontal_slider_mut().unwrap().range(), (10, 20));
@@ -1085,14 +1085,14 @@ fn slider_system_messages_match_cpp_numeric_rules() {
     );
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GSM_SET_SLIDER), 15, 0),
+        window.test_send_system_message(WindowMessage::User(GSM_SET_SLIDER), 15, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.horizontal_slider_mut().unwrap().value(), 15);
     let position_after_valid_set = thumb.borrow().get_position();
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GSM_SET_SLIDER), 21, 0),
+        window.test_send_system_message(WindowMessage::User(GSM_SET_SLIDER), 21, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.horizontal_slider_mut().unwrap().value(), 15);
@@ -1125,7 +1125,7 @@ fn slider_mouse_enter_leave_hilites_thumb_child_like_cpp() {
             .contains(WindowState::HILITED)
     );
     assert_eq!(
-        window.send_input_message(WindowMessage::MouseEntering, 0, 0),
+        window.test_send_input_message(WindowMessage::MouseEntering, 0, 0),
         WindowMsgHandled::Handled
     );
     assert!(
@@ -1136,7 +1136,7 @@ fn slider_mouse_enter_leave_hilites_thumb_child_like_cpp() {
             .contains(WindowState::HILITED)
     );
     assert_eq!(
-        window.send_input_message(WindowMessage::MouseLeaving, 0, 0),
+        window.test_send_input_message(WindowMessage::MouseLeaving, 0, 0),
         WindowMsgHandled::Handled
     );
     assert!(
@@ -1156,20 +1156,20 @@ fn vertical_slider_system_messages_use_cpp_inverted_axis() {
     ));
     let thumb = Rc::new(RefCell::new(GameWindow::new()));
     thumb.borrow_mut().set_id(77);
-    thumb.borrow_mut().set_size(20, 20).unwrap();
+    thumb.borrow_mut().test_set_size(20, 20).unwrap();
     window.add_child(thumb.clone());
     window.set_slider_thumb(77);
-    window.set_size(20, 120).unwrap();
+    window.test_set_size(20, 120).unwrap();
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GSM_SET_SLIDER), 100, 0),
+        window.test_send_system_message(WindowMessage::User(GSM_SET_SLIDER), 100, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.vertical_slider_mut().unwrap().value(), 100);
     assert_eq!(thumb.borrow().get_position(), (0, 0));
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GSM_SET_SLIDER), 0, 0),
+        window.test_send_system_message(WindowMessage::User(GSM_SET_SLIDER), 0, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.vertical_slider_mut().unwrap().value(), 0);
@@ -1202,7 +1202,7 @@ fn radio_set_selection_system_message_matches_cpp_notify_rules() {
     )));
 
     assert_eq!(
-        silent_window.send_system_message(WindowMessage::User(GBM_SET_SELECTION), 0, 0),
+        silent_window.test_send_system_message(WindowMessage::User(GBM_SET_SELECTION), 0, 0),
         WindowMsgHandled::Handled
     );
     assert!(matches!(
@@ -1229,7 +1229,7 @@ fn radio_set_selection_system_message_matches_cpp_notify_rules() {
     )));
 
     assert_eq!(
-        notifying_window.send_system_message(WindowMessage::User(GBM_SET_SELECTION), 1, 0),
+        notifying_window.test_send_system_message(WindowMessage::User(GBM_SET_SELECTION), 1, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
@@ -1244,7 +1244,7 @@ fn radio_set_selection_system_message_matches_cpp_notify_rules() {
     );
 
     assert_eq!(
-        notifying_window.send_system_message(WindowMessage::User(GBM_SET_SELECTION), 1, 0),
+        notifying_window.test_send_system_message(WindowMessage::User(GBM_SET_SELECTION), 1, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(owner_seen.borrow().len(), 1);
@@ -1299,7 +1299,7 @@ fn radio_set_selection_clears_group_peers_like_cpp() {
     assert_eq!(
         second
             .borrow_mut()
-            .send_system_message(WindowMessage::User(GBM_SET_SELECTION), 0, 0),
+            .test_send_system_message(WindowMessage::User(GBM_SET_SELECTION), 0, 0),
         WindowMsgHandled::Handled
     );
 
@@ -1335,11 +1335,11 @@ fn radio_create_destroy_are_consumed_like_cpp_system_callback() {
     )));
 
     assert_eq!(
-        window.send_system_message(WindowMessage::Create, 0, 0),
+        window.test_send_system_message(WindowMessage::Create, 0, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        window.send_system_message(WindowMessage::Destroy, 0, 0),
+        window.test_send_system_message(WindowMessage::Destroy, 0, 0),
         WindowMsgHandled::Handled
     );
 }
@@ -1371,26 +1371,26 @@ fn radio_mouse_track_gate_and_payloads_match_cpp() {
     )));
 
     assert_eq!(
-        window.send_input_message(WindowMessage::MouseEntering, 77, 0),
+        window.test_send_input_message(WindowMessage::MouseEntering, 77, 0),
         WindowMsgHandled::Ignored
     );
     assert!(owner_seen.borrow().is_empty());
 
     window.instance_data_mut().style |= GWS_MOUSE_TRACK;
     assert_eq!(
-        window.send_input_message(WindowMessage::MouseEntering, 77, 0),
+        window.test_send_input_message(WindowMessage::MouseEntering, 77, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        window.send_input_message(WindowMessage::LeftUp, 88, 0),
+        window.test_send_input_message(WindowMessage::LeftUp, 88, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        window.send_input_message(WindowMessage::LeftDrag, 99, 0),
+        window.test_send_input_message(WindowMessage::LeftDrag, 99, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        window.send_input_message(WindowMessage::MouseLeaving, 111, 0),
+        window.test_send_input_message(WindowMessage::MouseLeaving, 111, 0),
         WindowMsgHandled::Handled
     );
 
@@ -1441,11 +1441,11 @@ fn checkbox_set_selection_notifies_owner_even_when_unchanged_like_cpp_helper() {
     window.set_widget(WindowWidget::CheckBox(CheckBox::new(20, 0, 0, 16)));
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GBM_SET_SELECTION), 1, 0),
+        window.test_send_system_message(WindowMessage::User(GBM_SET_SELECTION), 1, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GBM_SET_SELECTION), 1, 0),
+        window.test_send_system_message(WindowMessage::User(GBM_SET_SELECTION), 1, 0),
         WindowMsgHandled::Handled
     );
     assert!(matches!(
@@ -1468,11 +1468,11 @@ fn checkbox_create_destroy_are_consumed_like_cpp_system_callback() {
     window.set_widget(WindowWidget::CheckBox(CheckBox::new(21, 0, 0, 16)));
 
     assert_eq!(
-        window.send_system_message(WindowMessage::Create, 0, 0),
+        window.test_send_system_message(WindowMessage::Create, 0, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        window.send_system_message(WindowMessage::Destroy, 0, 0),
+        window.test_send_system_message(WindowMessage::Destroy, 0, 0),
         WindowMsgHandled::Handled
     );
 }
@@ -1498,22 +1498,22 @@ fn checkbox_mouse_track_gate_and_payloads_match_cpp() {
     window.set_widget(WindowWidget::CheckBox(CheckBox::new(22, 0, 0, 16)));
 
     assert_eq!(
-        window.send_input_message(WindowMessage::MouseEntering, 77, 0),
+        window.test_send_input_message(WindowMessage::MouseEntering, 77, 0),
         WindowMsgHandled::Ignored
     );
     assert!(owner_seen.borrow().is_empty());
 
     window.instance_data_mut().style |= GWS_MOUSE_TRACK;
     assert_eq!(
-        window.send_input_message(WindowMessage::MouseEntering, 77, 0),
+        window.test_send_input_message(WindowMessage::MouseEntering, 77, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        window.send_input_message(WindowMessage::LeftUp, 88, 0),
+        window.test_send_input_message(WindowMessage::LeftUp, 88, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        window.send_input_message(WindowMessage::LeftDrag, 99, 0),
+        window.test_send_input_message(WindowMessage::LeftDrag, 99, 0),
         WindowMsgHandled::Handled
     );
 
@@ -1532,7 +1532,7 @@ fn checkbox_mouse_track_gate_and_payloads_match_cpp() {
     window.sync_state_from_widget();
 
     assert_eq!(
-        window.send_input_message(WindowMessage::RightUp, 111, 0),
+        window.test_send_input_message(WindowMessage::RightUp, 111, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
@@ -1572,7 +1572,7 @@ fn checkbox_right_up_notifies_without_right_click_status_like_cpp() {
         "C++ GadgetCheckBox does not require WIN_STATUS_RIGHT_CLICK"
     );
     assert_eq!(
-        window.send_input_message(WindowMessage::RightUp, 111, 0),
+        window.test_send_input_message(WindowMessage::RightUp, 111, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
@@ -1718,7 +1718,7 @@ fn text_entry_input_focus_sets_selected_and_hilite_like_cpp() {
     window.set_widget(WindowWidget::TextEntry(TextEntry::new(33, 0, 0, 100, 20)));
 
     assert_eq!(
-        window.send_system_message(WindowMessage::InputFocus, 1, 0),
+        window.test_send_system_message(WindowMessage::InputFocus, 1, 0),
         WindowMsgHandled::Handled
     );
     assert!(
@@ -1729,7 +1729,7 @@ fn text_entry_input_focus_sets_selected_and_hilite_like_cpp() {
     );
 
     assert_eq!(
-        window.send_system_message(WindowMessage::InputFocus, 0, 0),
+        window.test_send_system_message(WindowMessage::InputFocus, 0, 0),
         WindowMsgHandled::Handled
     );
     assert!(
@@ -1759,7 +1759,7 @@ fn listbox_delete_system_messages_match_cpp_state_rules() {
     window.set_widget(WindowWidget::ListBox(listbox));
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GLM_DEL_ENTRY), 1, 0),
+        window.test_send_system_message(WindowMessage::User(GLM_DEL_ENTRY), 1, 0),
         WindowMsgHandled::Handled
     );
     let listbox = window.list_box_mut().unwrap();
@@ -1768,13 +1768,13 @@ fn listbox_delete_system_messages_match_cpp_state_rules() {
     assert_eq!(listbox.selected_indices(), &[1]);
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GLM_DEL_ENTRY), 99, 0),
+        window.test_send_system_message(WindowMessage::User(GLM_DEL_ENTRY), 99, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.list_box_mut().unwrap().items().len(), 2);
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GLM_DEL_ALL), 0, 0),
+        window.test_send_system_message(WindowMessage::User(GLM_DEL_ALL), 0, 0),
         WindowMsgHandled::Handled
     );
     let listbox = window.list_box_mut().unwrap();
@@ -1806,7 +1806,7 @@ fn listbox_selection_system_message_notifies_owner_like_cpp() {
     window.set_widget(WindowWidget::ListBox(listbox));
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GLM_SET_SELECTION), 1, 1),
+        window.test_send_system_message(WindowMessage::User(GLM_SET_SELECTION), 1, 1),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.list_box_mut().unwrap().selected_indices(), &[1]);
@@ -1841,7 +1841,7 @@ fn listbox_selection_system_message_notifies_owner_like_cpp() {
 fn titled_listbox_input_maps_title_click_to_first_row_like_cpp() {
     let mut window = GameWindow::new();
     window.set_id(42);
-    window.set_size(100, 60).unwrap();
+    window.test_set_size(100, 60).unwrap();
     window.enable(true).unwrap();
     window.set_text("Title").unwrap();
 
@@ -1853,11 +1853,11 @@ fn titled_listbox_input_maps_title_click_to_first_row_like_cpp() {
     assert_eq!(window.list_box_mut().unwrap().content_top_inset(), 13);
 
     window.set_cursor_position(1, 12).unwrap();
-    let _ = window.send_routed_input_message(WindowMessage::LeftUp, 0, 0);
+    let _ = window.test_send_routed_input_message(WindowMessage::LeftUp, 0, 0);
     assert_eq!(window.list_box_mut().unwrap().selected_indices(), &[0]);
 
     window.set_cursor_position(1, 13).unwrap();
-    let _ = window.send_routed_input_message(WindowMessage::LeftUp, 0, 0);
+    let _ = window.test_send_routed_input_message(WindowMessage::LeftUp, 0, 0);
     assert!(window.list_box_mut().unwrap().selected_indices().is_empty());
 }
 
@@ -1879,7 +1879,7 @@ fn listbox_input_sends_glm_selected_row_to_owner_like_cpp() {
     window.set_id(42);
     window.set_parent(Some(&owner));
     window.set_owner(Some(&owner));
-    window.set_size(100, 40).unwrap();
+    window.test_set_size(100, 40).unwrap();
     window.enable(true).unwrap();
     let mut listbox = ListBox::new(42, 0, 0, 100, 40).with_item_height(10);
     listbox.add_item_with_id(100, "alpha");
@@ -1888,7 +1888,7 @@ fn listbox_input_sends_glm_selected_row_to_owner_like_cpp() {
 
     window.set_cursor_position(1, 11).unwrap();
     assert_eq!(
-        window.send_routed_input_message(WindowMessage::LeftUp, 0, 0),
+        window.test_send_routed_input_message(WindowMessage::LeftUp, 0, 0),
         WindowMsgHandled::Handled
     );
 
@@ -1920,7 +1920,7 @@ fn listbox_double_click_sends_glm_double_clicked_before_selection_like_cpp() {
     window.set_id(42);
     window.set_parent(Some(&owner));
     window.set_owner(Some(&owner));
-    window.set_size(100, 40).unwrap();
+    window.test_set_size(100, 40).unwrap();
     window.enable(true).unwrap();
     let mut listbox = ListBox::new(42, 0, 0, 100, 40).with_item_height(10);
     listbox.add_item("alpha");
@@ -1929,11 +1929,11 @@ fn listbox_double_click_sends_glm_double_clicked_before_selection_like_cpp() {
 
     window.set_cursor_position(1, 1).unwrap();
     assert_eq!(
-        window.send_routed_input_message(WindowMessage::LeftUp, 0, 0),
+        window.test_send_routed_input_message(WindowMessage::LeftUp, 0, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        window.send_routed_input_message(WindowMessage::LeftUp, 0, 0),
+        window.test_send_routed_input_message(WindowMessage::LeftUp, 0, 0),
         WindowMsgHandled::Handled
     );
 
@@ -1967,7 +1967,7 @@ fn listbox_scroll_buffer_and_update_display_system_messages_match_cpp() {
     window.set_widget(WindowWidget::ListBox(listbox));
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GLM_SCROLL_BUFFER), 1, 0),
+        window.test_send_system_message(WindowMessage::User(GLM_SCROLL_BUFFER), 1, 0),
         WindowMsgHandled::Handled
     );
     let listbox = window.list_box_mut().unwrap();
@@ -1983,13 +1983,13 @@ fn listbox_scroll_buffer_and_update_display_system_messages_match_cpp() {
     assert_eq!(listbox.scroll_offset(), 1);
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GLM_UPDATE_DISPLAY), 99, 0),
+        window.test_send_system_message(WindowMessage::User(GLM_UPDATE_DISPLAY), 99, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.list_box_mut().unwrap().scroll_offset(), 1);
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GLM_UPDATE_DISPLAY), 0, 0),
+        window.test_send_system_message(WindowMessage::User(GLM_UPDATE_DISPLAY), 0, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.list_box_mut().unwrap().scroll_offset(), 0);
@@ -2161,7 +2161,7 @@ fn listbox_linked_slider_tracks_cpp_inverted_position() {
     window.add_child(slider_window.clone());
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GLM_SET_SLIDER), 99, 0),
+        window.test_send_system_message(WindowMessage::User(GLM_SET_SLIDER), 99, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
@@ -2182,7 +2182,7 @@ fn listbox_linked_slider_tracks_cpp_inverted_position() {
     );
 
     window.list_box_mut().unwrap().set_scroll_offset(1);
-    window.update_listbox_scrollbar();
+    window.test_update_listbox_scrollbar();
     assert_eq!(
         slider_window
             .borrow_mut()
@@ -2193,7 +2193,7 @@ fn listbox_linked_slider_tracks_cpp_inverted_position() {
     );
 
     assert_eq!(
-        window.send_system_message(WindowMessage::User(GSM_SLIDER_TRACK), 99, 0),
+        window.test_send_system_message(WindowMessage::User(GSM_SLIDER_TRACK), 99, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.list_box_mut().unwrap().scroll_offset(), 2);
@@ -2204,7 +2204,7 @@ fn listbox_linked_slider_tracks_cpp_inverted_position() {
         .unwrap()
         .set_value(1);
     assert_eq!(
-        window.send_system_message(WindowMessage::GadgetValueChanged, 99, 0),
+        window.test_send_system_message(WindowMessage::GadgetValueChanged, 99, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(window.list_box_mut().unwrap().scroll_offset(), 1);
@@ -2232,7 +2232,7 @@ fn listbox_toggle_multi_selection_system_message_matches_cpp() {
     single_window.set_widget(WindowWidget::ListBox(single));
 
     assert_eq!(
-        single_window.send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 1, 0),
+        single_window.test_send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 1, 0),
         WindowMsgHandled::Handled
     );
     assert!(
@@ -2252,7 +2252,7 @@ fn listbox_toggle_multi_selection_system_message_matches_cpp() {
     multi_window.set_widget(WindowWidget::ListBox(multi));
 
     assert_eq!(
-        multi_window.send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 1, 0),
+        multi_window.test_send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 1, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
@@ -2261,7 +2261,7 @@ fn listbox_toggle_multi_selection_system_message_matches_cpp() {
     );
 
     assert_eq!(
-        multi_window.send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 2, 0),
+        multi_window.test_send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 2, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
@@ -2270,7 +2270,7 @@ fn listbox_toggle_multi_selection_system_message_matches_cpp() {
     );
 
     assert_eq!(
-        multi_window.send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 1, 0),
+        multi_window.test_send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 1, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
@@ -2507,7 +2507,7 @@ fn test_window_region() {
 fn test_point_in_window() {
     let mut window = GameWindow::new();
     window.set_position(10, 10).unwrap();
-    window.set_size(100, 100).unwrap();
+    window.test_set_size(100, 100).unwrap();
 
     assert!(window.point_in_window(50, 50));
     assert!(!window.point_in_window(5, 50));
@@ -2521,17 +2521,17 @@ fn point_in_child_returns_deepest_enabled_visible_child_like_cpp() {
     let grandchild = Rc::new(RefCell::new(GameWindow::new()));
 
     parent.borrow_mut().set_position(10, 10).unwrap();
-    parent.borrow_mut().set_size(100, 100).unwrap();
+    parent.borrow_mut().test_set_size(100, 100).unwrap();
     parent.borrow_mut().enable(true).unwrap();
 
     child.borrow_mut().set_position(5, 5).unwrap();
-    child.borrow_mut().set_size(40, 40).unwrap();
+    child.borrow_mut().test_set_size(40, 40).unwrap();
     child.borrow_mut().enable(true).unwrap();
     child.borrow_mut().set_parent(Some(&parent));
     parent.borrow_mut().add_child(child.clone());
 
     grandchild.borrow_mut().set_position(4, 4).unwrap();
-    grandchild.borrow_mut().set_size(10, 10).unwrap();
+    grandchild.borrow_mut().test_set_size(10, 10).unwrap();
     grandchild.borrow_mut().enable(true).unwrap();
     grandchild.borrow_mut().set_parent(Some(&child));
     child.borrow_mut().add_child(grandchild.clone());
@@ -2553,11 +2553,11 @@ fn point_in_any_child_matches_hidden_and_disabled_cpp_rules() {
     let child = Rc::new(RefCell::new(GameWindow::new()));
 
     parent.borrow_mut().set_position(0, 0).unwrap();
-    parent.borrow_mut().set_size(100, 100).unwrap();
+    parent.borrow_mut().test_set_size(100, 100).unwrap();
     parent.borrow_mut().enable(true).unwrap();
 
     child.borrow_mut().set_position(10, 10).unwrap();
-    child.borrow_mut().set_size(20, 20).unwrap();
+    child.borrow_mut().test_set_size(20, 20).unwrap();
     child.borrow_mut().enable(false).unwrap();
     child.borrow_mut().set_parent(Some(&parent));
     parent.borrow_mut().add_child(child.clone());
@@ -2620,11 +2620,11 @@ fn test_callbacks() {
     });
 
     assert_eq!(
-        window.send_input_message(WindowMessage::LeftDown, 0, 0),
+        window.test_send_input_message(WindowMessage::LeftDown, 0, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        window.send_input_message(WindowMessage::RightDown, 0, 0),
+        window.test_send_input_message(WindowMessage::RightDown, 0, 0),
         WindowMsgHandled::Ignored
     );
 }
@@ -2664,11 +2664,11 @@ fn callback_resets_restore_default_handlers_like_cpp_null_setters() {
     window.draw();
     assert_eq!(*drawn.borrow(), 1);
     assert_eq!(
-        window.send_input_message(WindowMessage::LeftDown, 0, 0),
+        window.test_send_input_message(WindowMessage::LeftDown, 0, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        window.send_system_message(WindowMessage::Create, 0, 0),
+        window.test_send_system_message(WindowMessage::Create, 0, 0),
         WindowMsgHandled::Handled
     );
 
@@ -2680,11 +2680,11 @@ fn callback_resets_restore_default_handlers_like_cpp_null_setters() {
     window.draw();
     assert_eq!(*drawn.borrow(), 1);
     assert_eq!(
-        window.send_input_message(WindowMessage::LeftDown, 0, 0),
+        window.test_send_input_message(WindowMessage::LeftDown, 0, 0),
         WindowMsgHandled::Ignored
     );
     assert_eq!(
-        window.send_system_message(WindowMessage::Create, 0, 0),
+        window.test_send_system_message(WindowMessage::Create, 0, 0),
         WindowMsgHandled::Ignored
     );
     assert!(window.get_tooltip_callback().is_none());
@@ -2717,7 +2717,7 @@ fn set_callbacks_updates_input_draw_and_tooltip_like_cpp() {
     );
 
     assert_eq!(
-        window.send_input_message(WindowMessage::LeftDown, 0, 0),
+        window.test_send_input_message(WindowMessage::LeftDown, 0, 0),
         WindowMsgHandled::Handled
     );
     window.draw();
@@ -2732,7 +2732,7 @@ fn set_callbacks_updates_input_draw_and_tooltip_like_cpp() {
 
     window.set_callbacks(None, None, None);
     assert_eq!(
-        window.send_input_message(WindowMessage::LeftDown, 0, 0),
+        window.test_send_input_message(WindowMessage::LeftDown, 0, 0),
         WindowMsgHandled::Ignored
     );
     window.draw();
@@ -2755,11 +2755,11 @@ fn destroyed_window_ignores_non_destroy_system_messages_like_cpp() {
     window.set_status_exact(WindowStatus::ENABLED | WindowStatus::DESTROYED);
 
     assert_eq!(
-        window.send_system_message(WindowMessage::Create, 0, 0),
+        window.test_send_system_message(WindowMessage::Create, 0, 0),
         WindowMsgHandled::Ignored
     );
     assert_eq!(
-        window.send_system_message(WindowMessage::Destroy, 0, 0),
+        window.test_send_system_message(WindowMessage::Destroy, 0, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(seen.borrow().as_slice(), &[WindowMessage::Destroy]);
@@ -2780,11 +2780,11 @@ fn destroyed_window_ignores_non_destroy_input_messages_like_cpp() {
     window.set_status_exact(WindowStatus::DESTROYED);
 
     assert_eq!(
-        window.send_input_message(WindowMessage::LeftDown, 0, 0),
+        window.test_send_input_message(WindowMessage::LeftDown, 0, 0),
         WindowMsgHandled::Ignored
     );
     assert_eq!(
-        window.send_input_message(WindowMessage::Destroy, 0, 0),
+        window.test_send_input_message(WindowMessage::Destroy, 0, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(seen.borrow().as_slice(), &[WindowMessage::Destroy]);
@@ -2808,15 +2808,15 @@ fn char_key_state_up_maps_to_widget_key_up() {
     }
 
     assert_eq!(
-        window.send_input_message(WindowMessage::Char, 13, KEY_STATE_DOWN),
+        window.test_send_input_message(WindowMessage::Char, 13, KEY_STATE_DOWN),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        window.send_input_message(WindowMessage::Char, 13, KEY_STATE_UP),
+        window.test_send_input_message(WindowMessage::Char, 13, KEY_STATE_UP),
         WindowMsgHandled::Handled
     );
     assert_eq!(
-        window.send_input_message(WindowMessage::Char, 13, 0),
+        window.test_send_input_message(WindowMessage::Char, 13, 0),
         WindowMsgHandled::Ignored
     );
 }
@@ -2989,7 +2989,7 @@ fn slider_left_drag_updates_value_and_sends_track() {
     let mut slider = GameWindow::new();
     slider.set_id(8);
     slider.enable(true).unwrap();
-    slider.set_size(100, 16).unwrap();
+    slider.test_set_size(100, 16).unwrap();
     slider.set_owner(Some(&owner));
     slider.set_widget(WindowWidget::HorizontalSlider(
         HorizontalSlider::new(8, 0, 0, 100, 16)
@@ -2999,14 +2999,14 @@ fn slider_left_drag_updates_value_and_sends_track() {
 
     let thumb = Rc::new(RefCell::new(GameWindow::new()));
     thumb.borrow_mut().set_id(9);
-    thumb.borrow_mut().set_size(13, 16).unwrap();
+    thumb.borrow_mut().test_set_size(13, 16).unwrap();
     thumb.borrow_mut().set_position(40, 10).unwrap();
     slider.add_child(thumb);
     slider.set_slider_thumb(9);
 
     let packed = 200usize;
     assert_eq!(
-        slider.send_system_message(WindowMessage::User(GGM_LEFT_DRAG), 9, packed),
+        slider.test_send_system_message(WindowMessage::User(GGM_LEFT_DRAG), 9, packed),
         WindowMsgHandled::Handled
     );
     assert_eq!(slider.horizontal_slider_mut().unwrap().value(), 10);
@@ -3043,7 +3043,7 @@ fn slider_keyboard_sends_gsm_slider_track_like_cpp() {
     slider.horizontal_slider_mut().unwrap().set_focus(true);
 
     assert_eq!(
-        slider.send_input_message(WindowMessage::Char, 0x27, KEY_STATE_DOWN),
+        slider.test_send_input_message(WindowMessage::Char, 0x27, KEY_STATE_DOWN),
         WindowMsgHandled::Handled
     );
     assert_eq!(slider.horizontal_slider_mut().unwrap().value(), 3);
@@ -3129,7 +3129,7 @@ fn tab_pane_forwards_selected_to_tab_control_parent_like_cpp() {
 
     assert_eq!(
         pane.borrow_mut()
-            .send_system_message(WindowMessage::GadgetSelected, 21, 0),
+            .test_send_system_message(WindowMessage::GadgetSelected, 21, 0),
         WindowMsgHandled::Handled
     );
     assert_eq!(

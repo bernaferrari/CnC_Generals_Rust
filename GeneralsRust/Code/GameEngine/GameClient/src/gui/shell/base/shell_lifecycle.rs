@@ -730,3 +730,38 @@ impl Shell {
         Ok(())
     }
 }
+
+
+impl Shell {
+    pub fn test_push(&mut self, filename: &str, shutdown_immediate: bool) -> Result<(), ShellError> {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.push(filename, shutdown_immediate, effects)
+        })
+    }
+
+    pub fn test_pop(&mut self) -> Result<(), ShellError> {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| self.pop(effects))
+    }
+
+    pub fn test_hide(&mut self, hide: bool) {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.hide(hide, effects);
+        });
+    }
+
+    pub fn test_update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.update_receiving(effects)
+        })
+    }
+
+    pub fn test_push_score_screen(
+        &mut self,
+        snapshot: crate::gui::callbacks::score_screen::ScoreScreenAcademySnapshot,
+        shutdown_immediate: bool,
+    ) -> Result<(), ShellError> {
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            self.push_score_screen(snapshot, shutdown_immediate, effects)
+        })
+    }
+}

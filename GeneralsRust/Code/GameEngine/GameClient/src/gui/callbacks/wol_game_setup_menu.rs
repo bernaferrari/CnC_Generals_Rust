@@ -23,7 +23,7 @@ use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::game_window::WindowInstanceData;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
-    get_shell, with_window_manager,
+    get_shell,
 };
 use crate::map_util::{
     find_draw_positions, get_map_cache_manager, get_map_preview_image,
@@ -161,7 +161,7 @@ fn set_window_image(win: &Option<Rc<RefCell<GameWindow>>>, image_name: &str) {
 
 fn set_window_tooltip(window: &GameWindow, tooltip: &str) {
     let id = window.get_id() as i32;
-    with_window_manager(|manager| {
+    owner.with_manager(|manager| {
         if let Some(win) = manager.get_window_by_id(id) {
             win.borrow_mut().set_tooltip(tooltip);
         }
@@ -213,7 +213,7 @@ fn position_start_buttons(state: &mut WolGameSetupState, meta: Option<&MapMetaDa
     let extent_height = (extent.hi.y - extent.lo.y).max(1.0);
 
     for i in 0..MAX_SLOTS {
-        let Some(button) = with_window_manager(|manager| {
+        let Some(button) = owner.with_manager(|manager| {
             manager.get_window_by_id(state.button_map_start_position_ids[i])
         }) else {
             continue;
@@ -240,7 +240,7 @@ fn position_start_buttons(state: &mut WolGameSetupState, meta: Option<&MapMetaDa
 
 fn update_map_start_spots(state: &mut WolGameSetupState, meta: Option<&MapMetaData>) {
     for button_id in state.button_map_start_position_ids {
-        if let Some(button) = with_window_manager(|manager| manager.get_window_by_id(button_id)) {
+        if let Some(button) = owner.with_manager(|manager| manager.get_window_by_id(button_id)) {
             let mut guard = button.borrow_mut();
             let _ = guard.set_text("");
             guard.set_tooltip(&GameText::fetch("TOOLTIP:StartPosition"));
@@ -261,7 +261,7 @@ fn update_map_start_spots(state: &mut WolGameSetupState, meta: Option<&MapMetaDa
                 {
                     let button_id = state.button_map_start_position_ids[pos as usize];
                     if let Some(button) =
-                        with_window_manager(|manager| manager.get_window_by_id(button_id))
+                        owner.with_manager(|manager| manager.get_window_by_id(button_id))
                     {
                         let mut guard = button.borrow_mut();
                         let number_key = format!("NUMBER:{}", i + 1);
@@ -494,7 +494,7 @@ fn map_selector_tooltip(window: &GameWindow, _inst: &WindowInstanceData, mouse: 
 
 fn populate_color_combo(index: usize, state: &mut WolGameSetupState, is_observer: bool) {
     let Some(window) =
-        with_window_manager(|manager| manager.get_window_by_id(state.combo_box_color_ids[index]))
+        owner.with_manager(|manager| manager.get_window_by_id(state.combo_box_color_ids[index]))
     else {
         return;
     };
@@ -556,7 +556,7 @@ fn populate_color_combo(index: usize, state: &mut WolGameSetupState, is_observer
 }
 
 fn populate_template_combo(index: usize, state: &mut WolGameSetupState, allow_observers: bool) {
-    let Some(window) = with_window_manager(|manager| {
+    let Some(window) = owner.with_manager(|manager| {
         manager.get_window_by_id(state.combo_box_template_ids[index])
     }) else {
         return;
@@ -613,7 +613,7 @@ fn populate_template_combo(index: usize, state: &mut WolGameSetupState, allow_ob
 
 fn populate_team_combo(index: usize, state: &mut WolGameSetupState, is_observer: bool) {
     let Some(window) =
-        with_window_manager(|manager| manager.get_window_by_id(state.combo_box_team_ids[index]))
+        owner.with_manager(|manager| manager.get_window_by_id(state.combo_box_team_ids[index]))
     else {
         return;
     };
@@ -687,13 +687,13 @@ fn enable_accept_controls(state: &mut WolGameSetupState, enabled: bool, slot_num
         state.combo_box_color_ids[slot_num],
         state.combo_box_team_ids[slot_num],
     ] {
-        if let Some(window) = with_window_manager(|manager| manager.get_window_by_id(id)) {
+        if let Some(window) = owner.with_manager(|manager| manager.get_window_by_id(id)) {
             let mut guard = window.borrow_mut();
             let _ = guard.enable(enabled && !is_observer);
         }
     }
 
-    if let Some(window) = with_window_manager(|manager| {
+    if let Some(window) = owner.with_manager(|manager| {
         manager.get_window_by_id(state.combo_box_template_ids[slot_num])
     }) {
         let _ = window.borrow_mut().enable(enabled);
@@ -712,7 +712,7 @@ fn enable_accept_controls(state: &mut WolGameSetupState, enabled: bool, slot_num
     if slot_num as i32 == info.get_local_slot_num() {
         let can_enable = if slot.has_map() { enabled } else { enabled };
         for id in state.button_map_start_position_ids {
-            if let Some(window) = with_window_manager(|manager| manager.get_window_by_id(id)) {
+            if let Some(window) = owner.with_manager(|manager| manager.get_window_by_id(id)) {
                 let _ = window.borrow_mut().enable(can_enable && can_choose_start);
             }
         }
@@ -747,7 +747,7 @@ fn update_slot_list(state: &mut WolGameSetupState) {
         }
 
         if let Some(combo) =
-            with_window_manager(|manager| manager.get_window_by_id(state.combo_box_player_ids[i]))
+            owner.with_manager(|manager| manager.get_window_by_id(state.combo_box_player_ids[i]))
         {
             let mut guard = combo.borrow_mut();
             if let Some(widget) = guard.combo_box_mut() {
@@ -760,7 +760,7 @@ fn update_slot_list(state: &mut WolGameSetupState) {
         }
 
         if let Some(button) =
-            with_window_manager(|manager| manager.get_window_by_id(state.button_accept_ids[i]))
+            owner.with_manager(|manager| manager.get_window_by_id(state.button_accept_ids[i]))
         {
             let mut guard = button.borrow_mut();
             if slot.is_human() {
@@ -774,7 +774,7 @@ fn update_slot_list(state: &mut WolGameSetupState) {
         }
 
         if !is_host() {
-            if let Some(combo) = with_window_manager(|manager| {
+            if let Some(combo) = owner.with_manager(|manager| {
                 manager.get_window_by_id(state.combo_box_player_ids[i])
             }) {
                 let _ = combo.borrow_mut().enable(false);
@@ -787,17 +787,17 @@ fn update_slot_list(state: &mut WolGameSetupState) {
             slot.get_player_template() == PLAYERTEMPLATE_OBSERVER,
         );
         if let Some(window) =
-            with_window_manager(|manager| manager.get_window_by_id(state.combo_box_color_ids[i]))
+            owner.with_manager(|manager| manager.get_window_by_id(state.combo_box_color_ids[i]))
         {
             set_combo_box_selected_by_data(&Some(window), slot.get_color());
         }
         if let Some(window) =
-            with_window_manager(|manager| manager.get_window_by_id(state.combo_box_team_ids[i]))
+            owner.with_manager(|manager| manager.get_window_by_id(state.combo_box_team_ids[i]))
         {
             set_combo_box_selected_by_data(&Some(window), slot.get_team_number());
         }
         if let Some(window) =
-            with_window_manager(|manager| manager.get_window_by_id(state.combo_box_template_ids[i]))
+            owner.with_manager(|manager| manager.get_window_by_id(state.combo_box_template_ids[i]))
         {
             set_combo_box_selected_by_data(&Some(window), slot.get_player_template());
         }
@@ -811,7 +811,7 @@ fn update_slot_list(state: &mut WolGameSetupState) {
             continue;
         };
         if let Some(ping_window) =
-            with_window_manager(|manager| manager.get_window_by_id(state.generic_ping_ids[i]))
+            owner.with_manager(|manager| manager.get_window_by_id(state.generic_ping_ids[i]))
         {
             let mut guard = ping_window.borrow_mut();
             if slot.is_human() {
@@ -910,7 +910,7 @@ pub(crate) fn refresh_map_selection_ui() {
 
 fn handle_color_selection(state: &mut WolGameSetupState, index: usize) {
     let combo =
-        with_window_manager(|manager| manager.get_window_by_id(state.combo_box_color_ids[index]));
+        owner.with_manager(|manager| manager.get_window_by_id(state.combo_box_color_ids[index]));
     let Some(combo) = combo else {
         return;
     };
@@ -973,7 +973,7 @@ fn handle_color_selection(state: &mut WolGameSetupState, index: usize) {
 }
 
 fn handle_template_selection(state: &mut WolGameSetupState, index: usize) {
-    let combo = with_window_manager(|manager| {
+    let combo = owner.with_manager(|manager| {
         manager.get_window_by_id(state.combo_box_template_ids[index])
     });
     let Some(combo) = combo else {
@@ -1031,7 +1031,7 @@ fn handle_template_selection(state: &mut WolGameSetupState, index: usize) {
 
 fn handle_team_selection(state: &mut WolGameSetupState, index: usize) {
     let combo =
-        with_window_manager(|manager| manager.get_window_by_id(state.combo_box_team_ids[index]));
+        owner.with_manager(|manager| manager.get_window_by_id(state.combo_box_team_ids[index]));
     let Some(combo) = combo else {
         return;
     };
@@ -1671,7 +1671,7 @@ pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
     state.checkbox_limit_armies_id = name_to_id("GameSpyGameOptionsMenu.wnd:CheckBoxLimitArmies");
     state.map_select_preview_id = name_to_id("WOLMapSelectMenu.wnd:WinMapPreview");
 
-    with_window_manager(|manager| {
+    owner.with_manager(|manager| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.button_back = manager.get_window_by_id(state.button_back_id);
         state.button_start = manager.get_window_by_id(state.button_start_id);
@@ -1725,7 +1725,7 @@ pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
             name_to_id(&format!("GameSpyGameOptionsMenu.wnd:GenericPing{}", i));
 
         if let Some(window) =
-            with_window_manager(|manager| manager.get_window_by_id(state.combo_box_player_ids[i]))
+            owner.with_manager(|manager| manager.get_window_by_id(state.combo_box_player_ids[i]))
         {
             let mut guard = window.borrow_mut();
             if let Some(combo) = guard.combo_box_mut() {
@@ -1765,7 +1765,7 @@ pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
         }
 
         if let Some(window) =
-            with_window_manager(|manager| manager.get_window_by_id(state.static_text_player_ids[i]))
+            owner.with_manager(|manager| manager.get_window_by_id(state.static_text_player_ids[i]))
         {
             window
                 .borrow_mut()
@@ -1775,7 +1775,7 @@ pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
         }
 
         if let Some(window) =
-            with_window_manager(|manager| manager.get_window_by_id(state.button_accept_ids[i]))
+            owner.with_manager(|manager| manager.get_window_by_id(state.button_accept_ids[i]))
         {
             window
                 .borrow_mut()
@@ -1785,7 +1785,7 @@ pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
         }
 
         if let Some(window) =
-            with_window_manager(|manager| manager.get_window_by_id(state.generic_ping_ids[i]))
+            owner.with_manager(|manager| manager.get_window_by_id(state.generic_ping_ids[i]))
         {
             window
                 .borrow_mut()
@@ -1861,27 +1861,27 @@ pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&dyn s
             }
         }
         for i in 0..MAX_SLOTS {
-            if let Some(window) = with_window_manager(|manager| {
+            if let Some(window) = owner.with_manager(|manager| {
                 manager.get_window_by_id(state.combo_box_player_ids[i])
             }) {
                 let _ = window.borrow_mut().enable(false);
             }
-            if let Some(window) = with_window_manager(|manager| {
+            if let Some(window) = owner.with_manager(|manager| {
                 manager.get_window_by_id(state.combo_box_color_ids[i])
             }) {
                 let _ = window.borrow_mut().enable(false);
             }
-            if let Some(window) = with_window_manager(|manager| {
+            if let Some(window) = owner.with_manager(|manager| {
                 manager.get_window_by_id(state.combo_box_template_ids[i])
             }) {
                 let _ = window.borrow_mut().enable(false);
             }
             if let Some(window) =
-                with_window_manager(|manager| manager.get_window_by_id(state.combo_box_team_ids[i]))
+                owner.with_manager(|manager| manager.get_window_by_id(state.combo_box_team_ids[i]))
             {
                 let _ = window.borrow_mut().enable(false);
             }
-            if let Some(window) = with_window_manager(|manager| {
+            if let Some(window) = owner.with_manager(|manager| {
                 manager.get_window_by_id(state.button_map_start_position_ids[i])
             }) {
                 let _ = window.borrow_mut().enable(false);
@@ -1950,7 +1950,7 @@ pub fn wol_game_setup_menu_update(layout: &WindowLayout, _user_data: Option<&dyn
 
     if state.is_shutting_down
         && get_shell().is_anim_finished()
-        && with_window_manager(|manager| manager.transitions_finished())
+        && owner.with_manager(|manager| manager.transitions_finished())
     {
         state.is_shutting_down = false;
         layout.hide(true);
@@ -2410,7 +2410,7 @@ pub fn wol_game_setup_menu_shutdown(layout: &WindowLayout, user_data: Option<&dy
     }
 
     if let Some(layout) = state.wol_map_select_layout.take() {
-        with_window_manager(|manager| manager.destroy_layout(&layout));
+        owner.with_manager(|manager| manager.destroy_layout(&layout));
     }
 
     state.parent = None;
@@ -2446,7 +2446,7 @@ pub fn wol_game_setup_menu_shutdown(layout: &WindowLayout, user_data: Option<&dy
 
     get_shell().reverse_animate_window();
     raise_gs_message_box();
-    with_window_manager(|manager| manager.transition_reverse("GameSpyGameOptionsMenuFade"));
+    owner.with_manager(|manager| manager.transition_reverse("GameSpyGameOptionsMenuFade"));
 }
 
 pub fn wol_game_setup_menu_system(
@@ -2498,7 +2498,7 @@ pub fn wol_game_setup_menu_system(
                     if !is_host() {
                         continue;
                     }
-                    let pos = combo_box_selected_index(&with_window_manager(|manager| {
+                    let pos = combo_box_selected_index(&owner.with_manager(|manager| {
                         manager.get_window_by_id(state.combo_box_player_ids[i])
                     }))
                     .unwrap_or(0) as i32;
@@ -2557,7 +2557,7 @@ pub fn wol_game_setup_menu_system(
                 return WindowMsgHandled::Handled;
             }
             if control_id == state.button_select_map_id {
-                let layout = with_window_manager(|manager| {
+                let layout = owner.with_manager(|manager| {
                     manager
                         .create_layout_with_windows("Menus/WOLMapSelectMenu.wnd")
                         .ok()

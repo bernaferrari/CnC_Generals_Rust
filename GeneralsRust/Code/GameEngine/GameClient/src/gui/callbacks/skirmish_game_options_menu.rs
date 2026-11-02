@@ -2367,7 +2367,7 @@ mod tests {
     #[test]
     fn os_wnd_skirmish_start_hits_button_start_then_start_skirmish_game() {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        { // was owner.with_scope
             use std::io::Write;
             let dir = tempfile::tempdir().expect("tmpdir");
             let map_path = dir.path().join("TestSkirmish.map");
@@ -2376,7 +2376,7 @@ mod tests {
                 .write_all(b"map")
                 .unwrap();
             set_skirmish_menu_selected_map(map_path.to_string_lossy().as_ref());
-            with_window_manager(|manager| {
+            owner.with_manager(|manager| {
                 let start = manager
                     .create_window(None, 20, 20, 80, 30)
                     .expect("ButtonStart");
@@ -2424,7 +2424,7 @@ mod tests {
             assert!(!crate::gui::dispatch_os_click_named_window(
                 "SkirmishGameOptionsMenu.wnd:ButtonStartMissing"
             ));
-        });
+        }
     }
 }
 

@@ -6,7 +6,7 @@ use std::rc::Rc;
 use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
-    with_window_manager, write_input_focus_response,
+    write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 
@@ -40,16 +40,16 @@ pub fn wol_qm_score_screen_init(layout: &WindowLayout, _user_data: Option<&dyn s
     let button_disconnect_id = name_to_id("WOLQMScoreScreen.wnd:ButtonDisconnect");
     let button_quickmatch_id = name_to_id("WOLQMScoreScreen.wnd:ButtonQuickMatch");
 
-    let parent = with_window_manager(|manager| manager.get_window_by_id(parent_id as i32));
+    let parent = owner.with_manager(|manager| manager.get_window_by_id(parent_id as i32));
     let button_disconnect =
-        with_window_manager(|manager| manager.get_window_by_id(button_disconnect_id as i32));
+        owner.with_manager(|manager| manager.get_window_by_id(button_disconnect_id as i32));
     let button_quickmatch =
-        with_window_manager(|manager| manager.get_window_by_id(button_quickmatch_id as i32));
+        owner.with_manager(|manager| manager.get_window_by_id(button_quickmatch_id as i32));
 
     layout.hide(false);
 
     if let Some(parent) = parent.as_ref() {
-        let _ = with_window_manager(|manager| manager.set_focus(Some(parent)));
+        let _ = owner.with_manager(|manager| manager.set_focus(Some(parent)));
     }
 
     let state_slot = wol_qm_score_state();

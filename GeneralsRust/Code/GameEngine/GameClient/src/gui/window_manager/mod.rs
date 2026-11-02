@@ -503,6 +503,83 @@ impl WindowManager {
         WindowEventEffects::with_standalone(|effects| self.set_focus(window, effects))
     }
 
+
+
+    pub(crate) fn test_create_window_from_definition(
+        &mut self,
+        window_def: &crate::gui::window_script::WindowDefinition,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        layout: &Rc<RefCell<WindowLayout>>,
+        layout_def: &crate::gui::window_script::WindowLayoutDefinition,
+        info: &mut WindowLayoutInfo,
+    ) -> WindowResult<Rc<RefCell<GameWindow>>> {
+        WindowEventEffects::with_standalone(|effects| {
+            self.create_window_from_definition(
+                window_def, parent, layout, layout_def, info, effects,
+            )
+        })
+    }
+
+    pub(crate) fn test_create_slider_thumb_child(
+        &mut self,
+        slider: &Rc<RefCell<GameWindow>>,
+        layout: &crate::gui::window_script::WindowLayoutDefinition,
+    ) -> WindowResult<()> {
+        WindowEventEffects::with_standalone(|effects| {
+            self.create_slider_thumb_child(slider, layout, effects)
+        })
+    }
+
+    pub fn test_process_key_event(
+        &mut self,
+        key: u8,
+        state: u8,
+    ) -> WindowInputReturnCode {
+        WindowEventEffects::with_standalone(|effects| self.process_key_event(key, state, effects))
+    }
+
+    pub fn test_process_mouse_event_with_delta(
+        &mut self,
+        msg: WindowMessage,
+        x: i32,
+        y: i32,
+        data: WindowMsgData,
+        mouse_delta: Option<(i32, i32)>,
+    ) -> WindowInputReturnCode {
+        WindowEventEffects::with_standalone(|effects| {
+            self.process_mouse_event_with_delta(msg, x, y, data, mouse_delta, effects)
+        })
+    }
+
+    pub fn test_set_lone_window(
+        &mut self,
+        window: Option<&Rc<RefCell<GameWindow>>>,
+    ) {
+        WindowEventEffects::with_standalone(|effects| {
+            self.set_lone_window(window, effects);
+        });
+    }
+
+    pub fn test_navigate_tab(&mut self, direction: TabDirection) {
+        WindowEventEffects::with_standalone(|effects| {
+            self.navigate_tab(direction, effects);
+        });
+    }
+
+    pub fn test_create_window_with_id(
+        &mut self,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        window_id: WindowId,
+    ) -> WindowResult<Rc<RefCell<GameWindow>>> {
+        WindowEventEffects::with_standalone(|effects| {
+            self.create_window_with_id(parent, x, y, width, height, window_id, effects)
+        })
+    }
+
     pub fn test_process_mouse_event(
         &mut self,
         msg: WindowMessage,

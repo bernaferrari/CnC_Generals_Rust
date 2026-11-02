@@ -868,32 +868,31 @@ pub fn drive_os_wnd_credits_roll_finished_like_cpp(
 #[cfg(test)]
 mod os_wnd_tests {
     use super::*;
-    use crate::gui::with_window_manager;
-
+    
     #[test]
     fn os_wnd_credits_roll_prepare_hits_parent_then_latches_lines() {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
-            with_window_manager(|manager| {
-                let parent = manager
-                    .create_window(None, 10, 10, 200, 120)
-                    .expect("ParentCreditsWindow");
-                parent
-                    .borrow_mut()
-                    .set_name("CreditsMenu.wnd:ParentCreditsWindow");
-                let _ = parent.borrow_mut().hide(false);
-            });
-            assert!(
-                drive_os_wnd_credits_roll_prepare_like_cpp(),
-                "OS WND click on ParentCreditsWindow must prepare short credits roll"
-            );
-            assert!(residual_credits_line_count() >= 3);
-            assert!(!residual_credits_is_finished());
-            assert!(drive_os_wnd_credits_roll_update_like_cpp());
-            assert_eq!(
-                residual_credits_last_action(),
-                ResidualCreditsAction::Update
-            );
+        owner.with_manager(|manager| {
+            let parent = manager
+                .test_create_window(None, 10, 10, 200, 120)
+                .expect("ParentCreditsWindow");
+            parent
+                .borrow_mut()
+                .set_name("CreditsMenu.wnd:ParentCreditsWindow");
+            let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
         });
+        // drive_os_wnd_* still needs a receiving owner/effects path — keep owner alive
+        let _owner = owner;
+        assert!(
+            drive_os_wnd_credits_roll_prepare_like_cpp(),
+            "OS WND click on ParentCreditsWindow must prepare short credits roll"
+        );
+        assert!(residual_credits_line_count() >= 3);
+        assert!(!residual_credits_is_finished());
+        assert!(drive_os_wnd_credits_roll_update_like_cpp());
+        assert_eq!(
+            residual_credits_last_action(),
+            ResidualCreditsAction::Update
+        );
     }
 }

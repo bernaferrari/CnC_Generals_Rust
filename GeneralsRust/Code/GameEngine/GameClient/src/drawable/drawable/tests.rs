@@ -2,7 +2,6 @@ use super::basic_core::ambient_sound_is_in_range;
 use super::*;
 use std::sync::Arc;
 
-use crate::helpers::TheInGameUI;
 use crate::language_filter::get_language_filter;
 use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
 use game_engine::common::bit_flags::ModelConditionFlags;

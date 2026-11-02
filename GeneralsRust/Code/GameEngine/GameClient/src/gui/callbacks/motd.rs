@@ -70,9 +70,9 @@ mod tests {
     #[test]
     fn motd_selected_close_button_toggles_window_hidden_state() {
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_scope(|| {
+        { // was owner.with_scope
             let live_window =
-                with_window_manager(|manager| manager.create_window(None, 0, 0, 100, 100).unwrap());
+                owner.with_manager(|manager| manager.create_window(None, 0, 0, 100, 100).unwrap());
 
             let mut window = GameWindow::new();
             window.set_id(live_window.borrow().get_id());
@@ -103,7 +103,7 @@ mod tests {
                 WindowMsgHandled::Handled
             );
             assert!(!live_window.borrow().is_hidden());
-        });
+        }
     }
 
     #[test]

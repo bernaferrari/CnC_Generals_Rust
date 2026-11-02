@@ -1542,6 +1542,7 @@ impl SelectionTranslator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::with_receiving_ui;
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
     fn test_state_lock() -> MutexGuard<'static, ()> {
@@ -1570,31 +1571,31 @@ mod tests {
         };
 
         // Can select normally
-        assert!(drawable.can_select(false, &mut |_, _| false));
-        assert!(drawable.can_select(true, &mut |_, _| false));
+        assert!(with_receiving_ui(|ui| drawable.can_select(false, &mut |_, _, _| false, ui)));
+        assert!(with_receiving_ui(|ui| drawable.can_select(true, &mut |_, _, _| false, ui)));
 
         // Can't select dead units
         let mut dead = drawable.clone();
         dead.is_dead = true;
-        assert!(!dead.can_select(false, &mut |_, _| false));
+        assert!(!with_receiving_ui(|ui| dead.can_select(false, &mut |_, _, _| false, ui)));
 
         // Can't drag-select structures
         let mut structure = drawable.clone();
         structure.is_structure = true;
-        assert!(structure.can_select(false, &mut |_, _| false)); // Can click-select
-        assert!(!structure.can_select(true, &mut |_, _| false)); // Can't drag-select
+        assert!(with_receiving_ui(|ui| structure.can_select(false, &mut |_, _, _| false, ui))); // Can click-select
+        assert!(!with_receiving_ui(|ui| structure.can_select(true, &mut |_, _, _| false, ui))); // Can't drag-select
 
         // Can't select hidden units
         let mut hidden = drawable.clone();
         hidden.is_hidden = true;
-        assert!(!hidden.can_select(false, &mut |_, _| false));
+        assert!(!with_receiving_ui(|ui| hidden.can_select(false, &mut |_, _, _| false, ui)));
 
         // C++ SelectionXlat.cpp:181-189 — point click may select enemy/civilian/allied.
         let mut enemy = drawable.clone();
         enemy.is_local_controlled = false;
-        assert!(enemy.can_select(false, &mut |_, _| false));
-        assert!(!enemy.can_select(true, &mut |_, _| false));
-    }
+        assert!(with_receiving_ui(|ui| enemy.can_select(false, &mut |_, _, _| false, ui)));
+        assert!(!with_receiving_ui(|ui| enemy.can_select(true, &mut |_, _, _| false, ui)));
+        }
 
     #[test]
     fn opaque_window_chain_blocks_selection_like_cpp() {
@@ -1605,7 +1606,7 @@ mod tests {
             .set_status_exact(WindowStatus::ENABLED | WindowStatus::ACTIVE);
 
         assert!(selection_window_chain_blocks_world_input(Some(opaque)));
-    }
+        }
 
     #[test]
     fn see_thru_window_chain_allows_selection_like_cpp() {
@@ -1616,7 +1617,7 @@ mod tests {
         );
 
         assert!(!selection_window_chain_blocks_world_input(Some(see_thru)));
-    }
+        }
 
     #[test]
     fn see_thru_child_with_opaque_parent_blocks_selection_like_cpp() {
@@ -1632,158 +1633,170 @@ mod tests {
         child.borrow_mut().set_parent(Some(&parent));
 
         assert!(selection_window_chain_blocks_world_input(Some(child)));
-    }
+        }
 
     #[test]
     fn test_context_short_circuit_prefers_command_over_enemy_selection() {
-        let _guard = test_state_lock();
-        let mut translator = SelectionTranslator::new();
+        with_receiving_ui(|ui| {
 
-        translator.register_drawable(SelectableDrawable {
-            id: 1,
-            object_id: 101,
-            position: Coord3D::default(),
-            is_structure: false,
-            is_garrisonable_building: false,
-            is_crate: false,
-            is_selectable: true,
-            is_dead: false,
-            is_hidden: false,
-            is_local_controlled: true,
-            kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
-            status_bits: 0,
-        });
-        translator.register_drawable(SelectableDrawable {
-            id: 2,
-            object_id: 202,
-            position: Coord3D::default(),
-            is_structure: false,
-            is_garrisonable_building: false,
-            is_crate: false,
-            is_selectable: true,
-            is_dead: false,
-            is_hidden: false,
-            is_local_controlled: false,
-            kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
-            status_bits: 0,
-        });
-        translator.current_selection.insert(101);
+            let _guard = test_state_lock();
+            let mut translator = SelectionTranslator::new();
 
-        let clicked = translator
-            .drawable_registry
-            .get(&2)
-            .cloned()
-            .expect("test drawable must exist");
+            translator.register_drawable(SelectableDrawable {
+                id: 1,
+                object_id: 101,
+                position: Coord3D::default(),
+                is_structure: false,
+                is_garrisonable_building: false,
+                is_crate: false,
+                is_selectable: true,
+                is_dead: false,
+                is_hidden: false,
+                is_local_controlled: true,
+                kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
+                status_bits: 0,
+            });
+            translator.register_drawable(SelectableDrawable {
+                id: 2,
+                object_id: 202,
+                position: Coord3D::default(),
+                is_structure: false,
+                is_garrisonable_building: false,
+                is_crate: false,
+                is_selectable: true,
+                is_dead: false,
+                is_hidden: false,
+                is_local_controlled: false,
+                kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
+                status_bits: 0,
+            });
+            translator.current_selection.insert(101);
 
-        assert!(
-            translator.should_short_circuit_selection_for_context_command(&clicked, true),
-            "point clicks on non-local targets should stay in the command pipeline"
-        );
+            let clicked = translator
+                .drawable_registry
+                .get(&2)
+                .cloned()
+                .expect("test drawable must exist");
+
+            assert!(
+                translator.should_short_circuit_selection_for_context_command(&clicked, true, ui),
+                "point clicks on non-local targets should stay in the command pipeline"
+            );
+            });
     }
 
     #[test]
     fn test_context_short_circuit_respects_prefer_selection_and_empty_selection() {
-        let _guard = test_state_lock();
-        let mut translator = SelectionTranslator::new();
+        with_receiving_ui(|ui| {
 
-        let clicked = SelectableDrawable {
-            id: 1,
-            object_id: 303,
-            position: Coord3D::default(),
-            is_structure: false,
-            is_garrisonable_building: false,
-            is_crate: false,
-            is_selectable: true,
-            is_dead: false,
-            is_hidden: false,
-            is_local_controlled: true,
-            kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
-            status_bits: 0,
-        };
-        translator.register_drawable(clicked.clone());
+            let _guard = test_state_lock();
+            let mut translator = SelectionTranslator::new();
 
-        assert!(
-            !translator.should_short_circuit_selection_for_context_command(&clicked, true),
-            "empty selection should never short-circuit"
-        );
+            let clicked = SelectableDrawable {
+                id: 1,
+                object_id: 303,
+                position: Coord3D::default(),
+                is_structure: false,
+                is_garrisonable_building: false,
+                is_crate: false,
+                is_selectable: true,
+                is_dead: false,
+                is_hidden: false,
+                is_local_controlled: true,
+                kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
+                status_bits: 0,
+            };
+            translator.register_drawable(clicked.clone());
 
-        translator.current_selection.insert(303);
-        TheInGameUI::set_prefer_selection_mode(true);
-        assert!(
-            !translator.should_short_circuit_selection_for_context_command(&clicked, true),
-            "prefer-selection mode should keep the click in selection flow"
-        );
-        TheInGameUI::set_prefer_selection_mode(false);
+            assert!(
+                !translator.should_short_circuit_selection_for_context_command(&clicked, true, ui),
+                "empty selection should never short-circuit"
+            );
+
+            translator.current_selection.insert(303);
+            ui.set_prefer_selection_mode(true);
+            assert!(
+                !translator.should_short_circuit_selection_for_context_command(&clicked, true, ui),
+                "prefer-selection mode should keep the click in selection flow"
+            );
+            ui.set_prefer_selection_mode(false);
+            });
     }
 
     #[test]
     fn test_context_short_circuit_allows_point_click_on_already_selected_local_unit() {
-        let _guard = test_state_lock();
-        let mut translator = SelectionTranslator::new();
+        with_receiving_ui(|ui| {
 
-        let clicked = SelectableDrawable {
-            id: 1,
-            object_id: 404,
-            position: Coord3D::default(),
-            is_structure: false,
-            is_garrisonable_building: false,
-            is_crate: false,
-            is_selectable: true,
-            is_dead: false,
-            is_hidden: false,
-            is_local_controlled: true,
-            kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
-            status_bits: 0,
-        };
-        translator.register_drawable(clicked.clone());
-        translator.current_selection.insert(404);
+            let _guard = test_state_lock();
+            let mut translator = SelectionTranslator::new();
 
-        assert!(
-            translator.should_short_circuit_selection_for_context_command(&clicked, true),
-            "C++ contextCommandForNewSelection still short-circuits when clicking an already selected local unit"
-        );
+            let clicked = SelectableDrawable {
+                id: 1,
+                object_id: 404,
+                position: Coord3D::default(),
+                is_structure: false,
+                is_garrisonable_building: false,
+                is_crate: false,
+                is_selectable: true,
+                is_dead: false,
+                is_hidden: false,
+                is_local_controlled: true,
+                kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
+                status_bits: 0,
+            };
+            translator.register_drawable(clicked.clone());
+            translator.current_selection.insert(404);
+
+            assert!(
+                translator.should_short_circuit_selection_for_context_command(&clicked, true, ui),
+                "C++ contextCommandForNewSelection still short-circuits when clicking an already selected local unit"
+            );
+            });
     }
 
     #[test]
     fn test_context_short_circuit_allows_garrisonable_drag_when_infantry_selected() {
-        let _guard = test_state_lock();
-        let mut translator = SelectionTranslator::new();
+        with_receiving_ui(|ui| {
 
-        translator.register_drawable(SelectableDrawable {
-            id: 10,
-            object_id: 500,
-            position: Coord3D::default(),
-            is_structure: false,
-            is_garrisonable_building: false,
-            is_crate: false,
-            is_selectable: true,
-            is_dead: false,
-            is_hidden: false,
-            is_local_controlled: true,
-            kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
-            status_bits: 0,
-        });
-        let clicked = SelectableDrawable {
-            id: 11,
-            object_id: 501,
-            position: Coord3D::default(),
-            is_structure: true,
-            is_garrisonable_building: true,
-            is_crate: false,
-            is_selectable: true,
-            is_dead: false,
-            is_hidden: false,
-            is_local_controlled: false,
-            kind_of_flags: KINDOF_SELECTABLE | KINDOF_STRUCTURE,
-            status_bits: 0,
-        };
-        translator.register_drawable(clicked.clone());
-        translator.current_selection.insert(500);
+            let _guard = test_state_lock();
+            let mut translator = SelectionTranslator::new();
 
-        assert!(
-            translator.should_short_circuit_selection_for_context_command(&clicked, false),
-            "infantry selecting a garrisonable building should short-circuit even for non-point selection"
-        );
+            translator.register_drawable(SelectableDrawable {
+                id: 10,
+                object_id: 500,
+                position: Coord3D::default(),
+                is_structure: false,
+                is_garrisonable_building: false,
+                is_crate: false,
+                is_selectable: true,
+                is_dead: false,
+                is_hidden: false,
+                is_local_controlled: true,
+                kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
+                status_bits: 0,
+            });
+            let clicked = SelectableDrawable {
+                id: 11,
+                object_id: 501,
+                position: Coord3D::default(),
+                is_structure: true,
+                is_garrisonable_building: true,
+                is_crate: false,
+                is_selectable: true,
+                is_dead: false,
+                is_hidden: false,
+                is_local_controlled: false,
+                kind_of_flags: KINDOF_SELECTABLE | KINDOF_STRUCTURE,
+                status_bits: 0,
+            };
+            translator.register_drawable(clicked.clone());
+            translator.current_selection.insert(500);
+
+            assert!(
+                translator.should_short_circuit_selection_for_context_command(&clicked, false, ui),
+                "infantry selecting a garrisonable building should short-circuit even for non-point selection"
+            );
+            });
     }
 
     #[test]
@@ -1793,7 +1806,7 @@ mod tests {
         assert!(!translator.left_mouse_button_is_down);
         assert!(!translator.drag_selecting);
         assert_eq!(translator.current_selection.len(), 0);
-    }
+        }
 
     #[test]
     fn test_drag_selection_start() {
@@ -1812,7 +1825,7 @@ mod tests {
         translator.handle_mouse_position(drag_pos);
 
         assert!(translator.drag_selecting); // Now dragging
-    }
+        }
 
     #[test]
     fn test_raw_left_button_up_forwards_click_when_not_dragging() {
@@ -1833,63 +1846,69 @@ mod tests {
             }
             other => panic!("expected MouseLeftClick, got {other:?}"),
         }
-    }
+        }
 
     #[test]
     fn test_raw_left_button_up_honors_one_click_deselect_prevention_in_alternate_mouse_mode() {
-        let _guard = test_state_lock();
-        game_engine::common::ini::ini_game_data::init_global_data();
-        let previous_alt_mouse = game_engine::common::ini::ini_game_data::get_global_data()
-            .map(|data| data.read().use_alternate_mouse)
-            .unwrap_or(false);
-        if let Some(data) = game_engine::common::ini::ini_game_data::get_global_data() {
-            data.write().use_alternate_mouse = true;
-        }
+        with_receiving_ui(|ui| {
 
-        TheInGameUI::set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(true);
-        let mut translator = SelectionTranslator::new();
-        translator.current_selection.insert(777);
+            let _guard = test_state_lock();
+            game_engine::common::ini::ini_game_data::init_global_data();
+            let previous_alt_mouse = game_engine::common::ini::ini_game_data::get_global_data()
+                .map(|data| data.read().use_alternate_mouse)
+                .unwrap_or(false);
+            if let Some(data) = game_engine::common::ini::ini_game_data::get_global_data() {
+                data.write().use_alternate_mouse = true;
+            }
 
-        let messages =
-            translator.handle_left_button_up(ICoord2D { x: 16, y: 24 }, KeyModifiers::empty());
+            ui.set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(true);
+            let mut translator = SelectionTranslator::new();
+            translator.current_selection.insert(777);
 
-        assert!(messages.is_empty());
-        assert_eq!(translator.current_selection.len(), 1);
-        assert!(
-            !TheInGameUI::get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
-            )
-        );
+            let messages =
+                translator.handle_left_button_up(ICoord2D { x: 16, y: 24 }, KeyModifiers::empty());
 
-        if let Some(data) = game_engine::common::ini::ini_game_data::get_global_data() {
-            data.write().use_alternate_mouse = previous_alt_mouse;
-        }
-        TheInGameUI::set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
-            false,
-        );
+            assert!(messages.is_empty());
+            assert_eq!(translator.current_selection.len(), 1);
+            assert!(
+                !ui.get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+                )
+            );
+
+            if let Some(data) = game_engine::common::ini::ini_game_data::get_global_data() {
+                data.write().use_alternate_mouse = previous_alt_mouse;
+            }
+            ui.set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
+                false,
+            );
+            });
     }
 
     #[test]
     fn test_double_click_selection_keeps_message_during_force_attack() {
-        let _guard = test_state_lock();
-        let mut translator = SelectionTranslator::new();
-        translator.current_selection.insert(44);
-        TheInGameUI::set_force_attack_mode(true);
+        with_receiving_ui(|ui| {
 
-        let disposition = translator.translate_game_message(&GameMessage::new(
-            GameMessageType::MouseLeftDoubleClick(
-                IRegion2D {
-                    x: 20,
-                    y: 30,
-                    width: 0,
-                    height: 0,
-                },
-                0,
-            ),
-        ));
+            let _guard = test_state_lock();
+            let mut translator = SelectionTranslator::new();
+            translator.current_selection.insert(44);
+            ui.set_force_attack_mode(true);
 
-        assert_eq!(disposition, GameMessageDisposition::KeepMessage);
-        assert!(translator.current_selection.contains(&44));
-        TheInGameUI::set_force_attack_mode(false);
+            let disposition = translator.translate_game_message(&GameMessage::new(
+                GameMessageType::MouseLeftDoubleClick(
+                    IRegion2D {
+                        x: 20,
+                        y: 30,
+                        width: 0,
+                        height: 0,
+                    },
+                    0,
+                ),
+            ));
+
+            assert_eq!(disposition, GameMessageDisposition::KeepMessage);
+            assert!(translator.current_selection.contains(&44));
+            ui.set_force_attack_mode(false);
+            });
     }
 
     #[test]
@@ -1916,7 +1935,7 @@ mod tests {
 
         assert_eq!(translator.current_selection.len(), 3);
         assert_eq!(translator.last_group_sel_group, 1);
-    }
+        }
 
     #[test]
     fn create_control_group_evicts_ids_from_other_squads() {
@@ -1933,70 +1952,79 @@ mod tests {
         let mut group1 = translator.control_groups[1].clone();
         group1.sort_unstable();
         assert_eq!(group1, vec![2, 3]);
-    }
+        }
 
     #[test]
     fn test_add_control_group_double_tap_does_not_append_again() {
-        let _guard = test_state_lock();
-        let mut translator = SelectionTranslator::new();
-        TheInGameUI::set_max_select_count(-1);
-        translator.control_groups[1] = vec![10, 11];
-        translator.current_selection.insert(99);
+        with_receiving_ui(|ui| {
 
-        let first = translator.handle_add_control_group(1);
-        assert_eq!(translator.current_selection.len(), 3);
-        assert_eq!(
-            first,
-            vec![
-                GameMessageType::CreateSelectedGroup(false, vec![10, 11]),
-                GameMessageType::AddTeamSlot(1)
-            ]
-        );
+            let _guard = test_state_lock();
+            let mut translator = SelectionTranslator::new();
+            ui.set_max_select_count(-1);
+            translator.control_groups[1] = vec![10, 11];
+            translator.current_selection.insert(99);
 
-        let second = translator.handle_add_control_group(1);
-        assert!(second.is_empty());
-        assert_eq!(translator.current_selection.len(), 3);
-        TheInGameUI::set_max_select_count(-1);
+            let first = translator.handle_add_control_group(1);
+            assert_eq!(translator.current_selection.len(), 3);
+            assert_eq!(
+                first,
+                vec![
+                    GameMessageType::CreateSelectedGroup(false, vec![10, 11]),
+                    GameMessageType::AddTeamSlot(1)
+                ]
+            );
+
+            let second = translator.handle_add_control_group(1);
+            assert!(second.is_empty());
+            assert_eq!(translator.current_selection.len(), 3);
+            ui.set_max_select_count(-1);
+            });
     }
 
     #[test]
     fn selection_limit_disabled_allows_more_than_forty_like_cpp() {
-        let _guard = test_state_lock();
-        let original_max = TheInGameUI::get_max_select_count();
-        TheInGameUI::set_max_select_count(0);
+        with_receiving_ui(|ui| {
 
-        let mut translator = SelectionTranslator::new();
-        translator.control_groups[1] = (1..=45).collect();
-        let messages = translator.handle_select_control_group(1);
+            let _guard = test_state_lock();
+            let original_max = ui.get_max_select_count();
+            ui.set_max_select_count(0);
 
-        assert_eq!(translator.current_selection.len(), 45);
-        assert!(!translator.displayed_max_warning);
-        assert!(messages.iter().any(|message| matches!(
-            message,
-            GameMessageType::CreateSelectedGroup(true, ids) if ids.len() == 45
-        )));
+            let mut translator = SelectionTranslator::new();
+            translator.control_groups[1] = (1..=45).collect();
+            let messages = translator.handle_select_control_group(1);
 
-        TheInGameUI::set_max_select_count(original_max);
+            assert_eq!(translator.current_selection.len(), 45);
+            assert!(!translator.displayed_max_warning);
+            assert!(messages.iter().any(|message| matches!(
+                message,
+                GameMessageType::CreateSelectedGroup(true, ids) if ids.len() == 45
+            )));
+
+            ui.set_max_select_count(original_max);
+            });
     }
 
     #[test]
     fn selection_limit_positive_caps_control_group_like_cpp() {
-        let _guard = test_state_lock();
-        let original_max = TheInGameUI::get_max_select_count();
-        TheInGameUI::set_max_select_count(40);
+        with_receiving_ui(|ui| {
 
-        let mut translator = SelectionTranslator::new();
-        translator.control_groups[1] = (1..=45).collect();
-        let messages = translator.handle_select_control_group(1);
+            let _guard = test_state_lock();
+            let original_max = ui.get_max_select_count();
+            ui.set_max_select_count(40);
 
-        assert_eq!(translator.current_selection.len(), 40);
-        assert!(translator.displayed_max_warning);
-        assert!(messages.iter().any(|message| matches!(
-            message,
-            GameMessageType::CreateSelectedGroup(true, ids) if ids.len() == 40
-        )));
+            let mut translator = SelectionTranslator::new();
+            translator.control_groups[1] = (1..=45).collect();
+            let messages = translator.handle_select_control_group(1);
 
-        TheInGameUI::set_max_select_count(original_max);
+            assert_eq!(translator.current_selection.len(), 40);
+            assert!(translator.displayed_max_warning);
+            assert!(messages.iter().any(|message| matches!(
+                message,
+                GameMessageType::CreateSelectedGroup(true, ids) if ids.len() == 40
+            )));
+
+            ui.set_max_select_count(original_max);
+            });
     }
 
     #[test]
@@ -2049,7 +2077,7 @@ mod tests {
             assert_eq!(view.position().x, 250.0);
             assert_eq!(view.position().y, 380.0);
         });
-    }
+        }
 
     #[test]
     fn view_team0_is_silent_noop_like_cpp() {
@@ -2080,7 +2108,7 @@ mod tests {
             assert_eq!(view.position().x, 0.0);
             assert_eq!(view.position().y, 0.0);
         });
-    }
+        }
 
     #[test]
     fn test_is_click_tolerance() {
@@ -2099,7 +2127,7 @@ mod tests {
         assert!(!translator.is_click(&anchor, &far, start_time, start_time));
 
         // Would test time tolerance but can't easily mock time in test
-    }
+        }
 
     #[test]
     fn test_build_region() {
@@ -2119,90 +2147,102 @@ mod tests {
         // Test reverse order
         let region2 = translator.build_region(&p2, &p1);
         assert_eq!(region, region2);
-    }
+        }
 
     #[test]
     fn test_right_click_cancels_pending_command_without_clearing_selection() {
-        let _guard = test_state_lock();
+        with_receiving_ui(|ui| {
 
-        use gamelogic::commands::command::CommandType;
+            let _guard = test_state_lock();
 
-        let mut translator = SelectionTranslator::new();
-        translator.current_selection.insert(7);
-        TheInGameUI::set_pending_command(CommandType::PlaceBeacon, 0x20, 99);
-        TheInGameUI::set_scrolling(true);
+            use gamelogic::commands::command::CommandType;
 
-        translator.handle_right_button_down(ICoord2D { x: 50, y: 60 }, 0, Coord3D::default());
-        let messages =
-            translator.handle_right_button_up(ICoord2D { x: 50, y: 60 }, 0, Coord3D::default());
+            let mut translator = SelectionTranslator::new();
+            translator.current_selection.insert(7);
+            ui.set_pending_command(CommandType::PlaceBeacon, 0x20, 99);
+            ui.set_scrolling(true);
 
-        assert!(messages.is_empty());
-        assert_eq!(translator.current_selection.len(), 1);
-        assert!(TheInGameUI::get_pending_command().is_none());
-        assert!(!TheInGameUI::is_scrolling());
+            translator.handle_right_button_down(ICoord2D { x: 50, y: 60 }, 0, Coord3D::default());
+            let messages =
+                translator.handle_right_button_up(ICoord2D { x: 50, y: 60 }, 0, Coord3D::default());
+
+            assert!(messages.is_empty());
+            assert_eq!(translator.current_selection.len(), 1);
+            assert!(ui.get_pending_command().is_none());
+            assert!(!ui.is_scrolling());
+            });
     }
 
     #[test]
     fn test_right_click_slow_release_does_not_cancel_pending_command() {
-        let _guard = test_state_lock();
+        with_receiving_ui(|ui| {
 
-        use gamelogic::commands::command::CommandType;
+            let _guard = test_state_lock();
 
-        let mut translator = SelectionTranslator::new();
-        translator.current_selection.insert(7);
-        TheInGameUI::set_pending_command(CommandType::PlaceBeacon, 0x20, 99);
+            use gamelogic::commands::command::CommandType;
 
-        translator.handle_right_button_down(ICoord2D { x: 50, y: 60 }, 10, Coord3D::default());
-        let messages = translator.handle_right_button_up(
-            ICoord2D { x: 50, y: 60 },
-            10 + DRAG_TOLERANCE_MS as u32 + 1,
-            Coord3D::default(),
-        );
+            let mut translator = SelectionTranslator::new();
+            translator.current_selection.insert(7);
+            ui.set_pending_command(CommandType::PlaceBeacon, 0x20, 99);
 
-        assert!(messages.is_empty());
-        assert_eq!(translator.current_selection.len(), 1);
-        assert!(TheInGameUI::get_pending_command().is_some());
-        TheInGameUI::clear_pending_command();
+            translator.handle_right_button_down(ICoord2D { x: 50, y: 60 }, 10, Coord3D::default());
+            let messages = translator.handle_right_button_up(
+                ICoord2D { x: 50, y: 60 },
+                10 + DRAG_TOLERANCE_MS as u32 + 1,
+                Coord3D::default(),
+            );
+
+            assert!(messages.is_empty());
+            assert_eq!(translator.current_selection.len(), 1);
+            assert!(ui.get_pending_command().is_some());
+            ui.clear_pending_command();
+            });
     }
 
     #[test]
     fn test_mouse_left_click_quit_menu_guard() {
-        let _guard = test_state_lock();
+        with_receiving_ui(|ui| {
 
-        let mut translator = SelectionTranslator::new();
-        TheInGameUI::set_quit_menu_visible(true);
+            let _guard = test_state_lock();
 
-        let disposition =
-            translator.translate_game_message(&GameMessage::new(GameMessageType::MouseLeftClick(
-                IRegion2D {
-                    x: 20,
-                    y: 30,
-                    width: 0,
-                    height: 0,
-                },
-                0,
-            )));
+            let mut translator = SelectionTranslator::new();
+            ui.set_quit_menu_visible(true);
 
-        assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
-        TheInGameUI::set_quit_menu_visible(false);
+            let disposition =
+                translator.translate_game_message(&GameMessage::new(GameMessageType::MouseLeftClick(
+                    IRegion2D {
+                        x: 20,
+                        y: 30,
+                        width: 0,
+                        height: 0,
+                    },
+                    0,
+                )));
+
+            assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+            ui.set_quit_menu_visible(false);
+            });
     }
 
     #[test]
     fn test_meta_options_clears_left_selection_feedback_state() {
-        let _guard = test_state_lock();
+        with_receiving_ui(|ui| {
 
-        let mut translator = SelectionTranslator::new();
-        translator.set_left_mouse_button(true);
-        translator.set_drag_selecting(true);
-        TheInGameUI::set_selecting(true);
+            let _guard = test_state_lock();
 
-        let disposition =
-            translator.translate_game_message(&GameMessage::new(GameMessageType::MetaOptions));
+            let mut translator = SelectionTranslator::new();
+            translator.set_left_mouse_button(true);
+            translator.set_drag_selecting(true);
+            ui.set_selecting(true);
 
-        assert_eq!(disposition, GameMessageDisposition::KeepMessage);
-        assert!(!translator.left_mouse_button_is_down);
-        assert!(!translator.drag_selecting);
-        assert!(!TheInGameUI::is_selecting());
+            let disposition =
+                translator.translate_game_message(&GameMessage::new(GameMessageType::MetaOptions));
+
+            assert_eq!(disposition, GameMessageDisposition::KeepMessage);
+            assert!(!translator.left_mouse_button_is_down);
+            assert!(!translator.drag_selecting);
+            assert!(!ui.is_selecting());
+            });
     }
 
     /// Writer (`catalog_kind_of_flags`) and reader (`has_kindof` / `can_select`)
@@ -2270,7 +2310,7 @@ mod tests {
             !force_only.can_select(false, &mut |_, _| false),
             "ForceAttackable without Selectable is not selectable (SelectionXlat.cpp:119-127)"
         );
-    }
+        }
 }
 
 impl GameMessageTranslator for SelectionTranslator {

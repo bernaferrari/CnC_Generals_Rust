@@ -8,7 +8,7 @@ use crate::gamespy_overlay::{GameSpyOverlayType, check_reopen_player_info, close
 use crate::gui::callbacks::online_callback_support::packed_ui_color;
 use crate::gui::{
     GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_shell,
-    with_window_manager, write_input_focus_response,
+    write_input_focus_response,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::preferences::GameSpyMiscPreferences;
@@ -44,7 +44,7 @@ pub fn wol_locale_select_init(layout: &WindowLayout, _user_data: Option<&dyn std
     state.listbox_locale_id =
         NameKeyGenerator::name_to_key("PopupLocaleSelect.wnd:ListBoxLocaleSelect") as i32;
 
-    with_window_manager(|manager| {
+    owner.with_manager(|manager| {
         state.parent = manager.get_window_by_id(state.parent_id);
         state.button_ok = manager.get_window_by_id(state.button_ok_id);
         state.listbox_locale = manager.get_window_by_id(state.listbox_locale_id);
@@ -70,7 +70,7 @@ pub fn wol_locale_select_init(layout: &WindowLayout, _user_data: Option<&dyn std
     layout.hide(false);
 
     if let Some(parent) = state.parent.as_ref() {
-        with_window_manager(|manager| {
+        owner.with_manager(|manager| {
             let _ = manager.set_focus(Some(parent));
             let _ = manager.set_modal(parent.clone());
         });

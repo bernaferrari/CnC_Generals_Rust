@@ -1,5 +1,6 @@
 //! Receiving native prefix facts are observed at the original late UI boundary.
 use super::*;
+use crate::test_support::with_receiving_ui;
 
 fn client(frame: u32) -> GameClient {
     let mut client = GameClient::new().unwrap();
@@ -336,6 +337,7 @@ fn native_shell_never_advances_foreign_core_impulse_but_standalone_effects_do() 
 
 #[test]
 fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() {
+        with_receiving_ui(|ui| {
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows",
@@ -363,8 +365,8 @@ fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() 
     peer.drawables
         .admit_native_drawable(id, Box::new(peer_selected));
     crate::display::view::with_tactical_view(|view| view.set_position(&Point3::new(10., 20., 0.)));
-    crate::helpers::TheInGameUI::set_camera_tracking_drawable(true);
-    assert!(crate::helpers::TheInGameUI::is_camera_tracking_drawable());
+    ui.set_camera_tracking_drawable(true);
+    assert!(ui.is_camera_tracking_drawable());
     let position = || {
         crate::display::view::with_tactical_view_ref(|view| {
             let p = view.position();
@@ -387,7 +389,7 @@ fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() 
             "native prefix must not follow foreign Core drawable selection"
         );
         assert!(
-            crate::helpers::TheInGameUI::is_camera_tracking_drawable(),
+            ui.is_camera_tracking_drawable(),
             "native empty peer must not clear foreign tracking"
         );
     }
@@ -397,7 +399,7 @@ fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() 
         before,
         "retained standalone adapter still follows installed selection"
     );
-    assert!(crate::helpers::TheInGameUI::is_camera_tracking_drawable());
+    assert!(ui.is_camera_tracking_drawable());
     let owner_position = position();
     peer.update_camera_tracking_drawable();
     assert_ne!(
@@ -405,13 +407,14 @@ fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() 
         owner_position,
         "same ID resolves the standalone receiving Client's drawable"
     );
-    assert!(crate::helpers::TheInGameUI::is_camera_tracking_drawable());
+    assert!(ui.is_camera_tracking_drawable());
     empty.update_camera_tracking_drawable();
     assert!(
-        !crate::helpers::TheInGameUI::is_camera_tracking_drawable(),
+        !ui.is_camera_tracking_drawable(),
         "standalone empty selection retains original clear"
     );
-}
+        });
+    }
 
 #[test]
 fn fallible_native_observation_rejects_at_late_boundary_without_consuming_visual_frame() {

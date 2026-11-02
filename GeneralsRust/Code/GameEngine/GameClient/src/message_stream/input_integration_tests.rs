@@ -1,8 +1,21 @@
 #[cfg(test)]
 mod integration_tests {
     use super::super::*;
+    use crate::test_support::with_receiving_ui;
     use crate::input::{KeyCode, KeyModifiers, MouseButton};
     use std::time::Instant;
+
+
+    fn noop_window_query(_x: i32, _y: i32, _ui: &mut crate::message_stream::ReceivingUi<'_>) -> bool {
+        false
+    }
+
+    fn process(processor: &mut InputProcessor, event: InputEvent) -> Vec<GameMessage> {
+        with_receiving_ui(|ui| {
+            let mut window_query = noop_window_query;
+            processor.process_input_event(event, &mut window_query, ui)
+        })
+    }
 
     /// Test complete mouse click → selection flow
     #[test]
@@ -17,7 +30,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        let down_messages = processor.process_input_event(down_event);
+        let down_messages = process(&mut processor, down_event);
         assert!(down_messages.len() >= 1);
 
         // Verify raw mouse button down message generated
@@ -37,7 +50,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        let up_messages = processor.process_input_event(up_event);
+        let up_messages = process(&mut processor, up_event);
         assert!(up_messages.len() >= 1);
 
         // Should generate click message (not area selection since no drag)
@@ -60,7 +73,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        processor.process_input_event(down_event);
+        process(&mut processor, down_event);
 
         // Move mouse to simulate drag (beyond tolerance)
         let mut last_messages = Vec::new();
@@ -71,7 +84,7 @@ mod integration_tests {
                 timestamp: Instant::now(),
             };
 
-            last_messages = processor.process_input_event(move_event);
+            last_messages = process(&mut processor, move_event);
         }
 
         // Should generate mouse position updates
@@ -85,7 +98,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        let up_messages = processor.process_input_event(up_event);
+        let up_messages = process(&mut processor, up_event);
 
         // Should generate area selection message
         let has_area_selection = up_messages
@@ -107,7 +120,7 @@ mod integration_tests {
             y: pos.1,
             timestamp: Instant::now(),
         };
-        processor.process_input_event(down1);
+        process(&mut processor, down1);
 
         let up1 = InputEvent::MouseButtonUp {
             button: MouseButton::Left,
@@ -115,7 +128,7 @@ mod integration_tests {
             y: pos.1,
             timestamp: Instant::now(),
         };
-        processor.process_input_event(up1);
+        process(&mut processor, up1);
 
         // Second click (within double-click time)
         let down2 = InputEvent::MouseButtonDown {
@@ -124,7 +137,7 @@ mod integration_tests {
             y: pos.1,
             timestamp: Instant::now(),
         };
-        let messages = processor.process_input_event(down2);
+        let messages = process(&mut processor, down2);
 
         // Should generate double-click message
         let has_double_click = messages
@@ -146,7 +159,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        processor.process_input_event(down_event);
+        process(&mut processor, down_event);
 
         // Right click up
         let up_event = InputEvent::MouseButtonUp {
@@ -156,7 +169,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(up_event);
+        let messages = process(&mut processor, up_event);
 
         // Should generate right click messages
         assert!(!messages.is_empty());
@@ -185,7 +198,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(event);
+        let messages = process(&mut processor, event);
 
         // Should generate MetaCreateTeam message
         let has_create_team = messages
@@ -206,7 +219,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(event);
+        let messages = process(&mut processor, event);
 
         // Should generate MetaSelectTeam message
         let has_select_team = messages
@@ -227,7 +240,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(stop_event);
+        let messages = process(&mut processor, stop_event);
         let has_stop = messages
             .iter()
             .any(|msg| matches!(msg.get_type(), GameMessageType::MetaStop));
@@ -244,7 +257,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(attack_event);
+        let messages = process(&mut processor, attack_event);
         assert!(!messages.is_empty());
 
         // Test G key (guard)
@@ -254,7 +267,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(guard_event);
+        let messages = process(&mut processor, guard_event);
         assert!(!messages.is_empty());
     }
 
@@ -269,7 +282,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(ctrl_down);
+        let messages = process(&mut processor, ctrl_down);
 
         let has_force_attack_begin = messages
             .iter()
@@ -282,7 +295,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(ctrl_up);
+        let messages = process(&mut processor, ctrl_up);
 
         let has_force_attack_end = messages
             .iter()
@@ -301,7 +314,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(alt_down);
+        let messages = process(&mut processor, alt_down);
         assert!(
             messages
                 .iter()
@@ -314,7 +327,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(alt_up);
+        let messages = process(&mut processor, alt_up);
         assert!(
             messages
                 .iter()
@@ -333,7 +346,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(shift_down);
+        let messages = process(&mut processor, shift_down);
         assert!(
             messages
                 .iter()
@@ -346,7 +359,7 @@ mod integration_tests {
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(shift_up);
+        let messages = process(&mut processor, shift_up);
         assert!(
             messages
                 .iter()
@@ -366,7 +379,7 @@ mod integration_tests {
             y: 100.0,
             timestamp: Instant::now(),
         };
-        processor.process_input_event(down_event);
+        process(&mut processor, down_event);
 
         // Press key
         let key_event = InputEvent::KeyDown {
@@ -374,14 +387,14 @@ mod integration_tests {
             modifiers: KeyModifiers::empty(),
             timestamp: Instant::now(),
         };
-        processor.process_input_event(key_event);
+        process(&mut processor, key_event);
 
         // Verify states are active
         assert!(processor.is_mouse_button_down(MouseButton::Left));
         assert!(processor.is_key_down(KeyCode::A));
 
         // Lose focus
-        processor.process_input_event(InputEvent::FocusLost);
+        process(&mut processor, InputEvent::FocusLost);
 
         // All state should be cleared
         assert!(!processor.is_mouse_button_down(MouseButton::Left));
@@ -402,7 +415,7 @@ mod integration_tests {
                 timestamp: Instant::now(),
             };
 
-            let messages = processor.process_input_event(event);
+            let messages = process(&mut processor, event);
             total_messages += messages.len();
         }
 
@@ -425,7 +438,7 @@ mod integration_tests {
             y: 100.0,
             timestamp: Instant::now(),
         };
-        processor.process_input_event(select_down);
+        process(&mut processor, select_down);
 
         // Drag mouse
         for i in 1..=10 {
@@ -434,7 +447,7 @@ mod integration_tests {
                 y: 100.0 + (i as f32 * 5.0),
                 timestamp: Instant::now(),
             };
-            processor.process_input_event(move_event);
+            process(&mut processor, move_event);
         }
 
         let select_up = InputEvent::MouseButtonUp {
@@ -443,7 +456,7 @@ mod integration_tests {
             y: 150.0,
             timestamp: Instant::now(),
         };
-        let messages = processor.process_input_event(select_up);
+        let messages = process(&mut processor, select_up);
 
         // Should generate area selection
         assert!(
@@ -458,7 +471,7 @@ mod integration_tests {
             modifiers: KeyModifiers::CTRL,
             timestamp: Instant::now(),
         };
-        let messages = processor.process_input_event(create_group);
+        let messages = process(&mut processor, create_group);
         assert!(
             messages
                 .iter()
@@ -472,7 +485,7 @@ mod integration_tests {
             y: 300.0,
             timestamp: Instant::now(),
         };
-        processor.process_input_event(deselect_down);
+        process(&mut processor, deselect_down);
 
         let deselect_up = InputEvent::MouseButtonUp {
             button: MouseButton::Left,
@@ -480,7 +493,7 @@ mod integration_tests {
             y: 300.0,
             timestamp: Instant::now(),
         };
-        processor.process_input_event(deselect_up);
+        process(&mut processor, deselect_up);
 
         // Step 4: Select control group (press 1)
         let select_group = InputEvent::KeyDown {
@@ -488,7 +501,7 @@ mod integration_tests {
             modifiers: KeyModifiers::empty(),
             timestamp: Instant::now(),
         };
-        let messages = processor.process_input_event(select_group);
+        let messages = process(&mut processor, select_group);
         assert!(
             messages
                 .iter()
@@ -502,7 +515,7 @@ mod integration_tests {
             y: 400.0,
             timestamp: Instant::now(),
         };
-        processor.process_input_event(move_down);
+        process(&mut processor, move_down);
 
         let move_up = InputEvent::MouseButtonUp {
             button: MouseButton::Right,
@@ -510,7 +523,7 @@ mod integration_tests {
             y: 400.0,
             timestamp: Instant::now(),
         };
-        let messages = processor.process_input_event(move_up);
+        let messages = process(&mut processor, move_up);
 
         // Should have move command in pipeline
         assert!(!messages.is_empty());
@@ -532,7 +545,7 @@ mod integration_tests {
             modifiers: KeyModifiers::CTRL,
             timestamp: Instant::now(),
         };
-        processor.process_input_event(ctrl_down);
+        process(&mut processor, ctrl_down);
 
         // Press Shift while Ctrl is held
         let shift_down = InputEvent::KeyDown {
@@ -540,7 +553,7 @@ mod integration_tests {
             modifiers: KeyModifiers::CTRL | KeyModifiers::SHIFT,
             timestamp: Instant::now(),
         };
-        processor.process_input_event(shift_down);
+        process(&mut processor, shift_down);
 
         // Both should be active
         assert!(processor.is_key_down(KeyCode::LeftCtrl));
@@ -563,7 +576,7 @@ mod integration_tests {
                 y: (i as f32 * 2.0),
                 timestamp: Instant::now(),
             };
-            processor.process_input_event(event);
+            process(&mut processor, event);
         }
 
         // Update processor (called every frame)
@@ -591,7 +604,7 @@ mod integration_tests {
             y: 100.0,
             timestamp: Instant::now(),
         };
-        let messages1 = processor.process_input_event(event1);
+        let messages1 = process(&mut processor, event1);
         assert!(!messages1.is_empty());
 
         // Disable processor
@@ -603,7 +616,7 @@ mod integration_tests {
             y: 200.0,
             timestamp: Instant::now(),
         };
-        let messages2 = processor.process_input_event(event2);
+        let messages2 = process(&mut processor, event2);
         assert!(messages2.is_empty()); // Should not process
 
         // Re-enable
@@ -615,7 +628,7 @@ mod integration_tests {
             y: 300.0,
             timestamp: Instant::now(),
         };
-        let messages3 = processor.process_input_event(event3);
+        let messages3 = process(&mut processor, event3);
         assert!(!messages3.is_empty());
     }
 }

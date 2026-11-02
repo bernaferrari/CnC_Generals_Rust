@@ -543,6 +543,8 @@ impl LookAtTranslator {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_support::with_receiving_ui;
+
     use super::*;
 
     #[test]
@@ -581,8 +583,9 @@ mod tests {
 
     #[test]
     fn set_scrolling_locks_mouse_and_stop_restores_prev_cursor() {
-        TheInGameUI::set_scrolling(false);
-        TheInGameUI::set_mouse_cursor(MouseCursor::Waypoint);
+        with_receiving_ui(|ui| {
+        ui.set_scrolling(false);
+        ui.set_mouse_cursor(MouseCursor::Waypoint);
         with_tactical_view(|view| {
             view.set_mouse_lock(false);
             view.set_camera_lock(Some(42));
@@ -594,7 +597,7 @@ mod tests {
 
         assert!(translator.is_scrolling);
         assert_eq!(translator.scroll_type, ScrollType::Rmb);
-        assert!(TheInGameUI::is_scrolling());
+        assert!(ui.is_scrolling());
         assert!(with_tactical_view_ref(|view| view.is_mouse_locked()));
         assert_eq!(translator.prev_cursor, MouseCursor::Waypoint);
         // C++ InGameUI::setScrolling(TRUE) clears lock + drawable.
@@ -604,14 +607,15 @@ mod tests {
             None
         );
 
-        TheInGameUI::set_mouse_cursor(MouseCursor::Scroll);
+        ui.set_mouse_cursor(MouseCursor::Scroll);
         translator.stop_scrolling();
 
         assert!(!translator.is_scrolling);
         assert_eq!(translator.scroll_type, ScrollType::None);
-        assert!(!TheInGameUI::is_scrolling());
+        assert!(!ui.is_scrolling());
         assert!(!with_tactical_view_ref(|view| view.is_mouse_locked()));
-        assert_eq!(TheInGameUI::get_mouse_cursor(), MouseCursor::Waypoint);
+        assert_eq!(ui.get_mouse_cursor(), MouseCursor::Waypoint);
+        });
     }
 
     #[test]
@@ -622,13 +626,15 @@ mod tests {
 
     #[test]
     fn wheel_falls_through_to_stop_scrolling() {
-        TheInGameUI::set_mouse_cursor(MouseCursor::Selecting);
+        with_receiving_ui(|ui| {
+        ui.set_mouse_cursor(MouseCursor::Selecting);
         let mut translator = LookAtTranslator::new();
         translator.set_scrolling(ScrollType::Rmb);
         let _ =
             translator.translate_game_message(&GameMessage::new(GameMessageType::RawMouseWheel(1)));
         assert!(!translator.is_scrolling);
         assert_eq!(translator.scroll_type, ScrollType::None);
+        });
     }
 
     #[test]

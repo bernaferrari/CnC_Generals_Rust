@@ -143,15 +143,18 @@ pub fn simulate_generals_exp_prepare_exit() -> bool {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_support::with_receiving_ui;
+
     use super::*;
 
     #[test]
     fn mouse_entering_keeps_legacy_placement_cancel_when_bridge_is_disabled() {
+        with_receiving_ui(|ui| {
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
-        TheInGameUI::place_build_available(Some("TestStructure".to_string()), Some(77));
+        ui.place_build_available(Some("TestStructure".to_string()), Some(77));
         assert_eq!(
-            TheInGameUI::get_pending_place_template().as_deref(),
+            ui.get_pending_place_template().as_deref(),
             Some("TestStructure")
         );
 
@@ -161,13 +164,14 @@ mod tests {
             WindowMsgHandled::Handled
         );
         assert!(
-            TheInGameUI::get_pending_place_template().is_none(),
+            ui.get_pending_place_template().is_none(),
             "standalone GameClient must retain C++ placement cancellation"
         );
-        assert_eq!(TheInGameUI::get_pending_place_source_object_id(), 0);
+        assert_eq!(ui.get_pending_place_source_object_id(), 0);
         assert!(
             crate::gui::control_bar::take_host_control_bar_requests(&mut transport_ui).is_empty()
         );
+        });
     }
 
     #[test]
