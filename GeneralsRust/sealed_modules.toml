@@ -166,3 +166,9 @@ note = "LAN/Skirmish MenuShellFlags owned on WindowManagerOwner; removed 16 TLS 
 path = "Code/GameEngine/GameClient/src/gui/window_manager/menu_shell_flags.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks"
 note = "MenuShellFlags type for per-client LAN/Skirmish shell transition flags; 0 process globals."
+
+[[module]]
+path = "Code/GameEngine/GameLogic/src/world/entity_generation.rs"
+cpp = "GeneralsMD/Code/GameEngine/Include/GameLogic/GameLogic.h"
+note = "Per-world EntityHandle epoch via SessionLogicFlags; 0 process globals; fail-closed reuse defense."
+
