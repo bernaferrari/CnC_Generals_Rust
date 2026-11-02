@@ -2,7 +2,8 @@
 # Count process-wide mutable statics per crate area.
 # Counts: `static mut`, `static` with Mutex|RwLock|Atomic*|RefCell|Cell
 # (including those nested under OnceLock/Lazy/LazyLock/OnceCell), and
-# `thread_local!`. Excludes tests/, examples/, benches/, *_tests.rs, tests.rs.
+# `thread_local!`. Excludes tests/, examples/, benches/, *_tests.rs, tests.rs,
+# and items under #[cfg(test)] modules/attributes.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 python3 - "$ROOT" "$@" <<'PY'
@@ -20,6 +21,95 @@ pat_static = re.compile(
 )
 pat_tls = re.compile(r"(?m)^[ \t]*thread_local!\s*\{")
 mut_ty = re.compile(r"\b(Mutex|RwLock|Atomic\w+|RefCell|Cell)\b")
+
+
+def cfg_test_depths(text):
+    """Byte offsets that sit inside a #[cfg(test)] module body."""
+    depths = set()
+    depth = 0
+    test_depth = None
+    i = 0
+    n = len(text)
+    while i < n:
+        if text.startswith("#[cfg(test)]", i):
+            j = i + len("#[cfg(test)]")
+            while j < n and text[j] in " \t\r\n":
+                j += 1
+            # Attribute on a module: track its body. Attribute on an item: mark
+            # the next item span roughly via following '{'/';' .
+            if text.startswith("mod ", j) or text.startswith("pub mod ", j):
+                k = text.find("{", j)
+                if k != -1 and k < n:
+                    # enter module at k
+                    pass
+                # find opening brace of the mod
+                k = j
+                while k < n and text[k] != "{":
+                    if text[k] == ";":  # mod foo;
+                        break
+                    k += 1
+                if k < n and text[k] == "{":
+                    test_depth = depth + 1
+                    i = k
+                    depth += 1
+                    i += 1
+                    continue
+            else:
+                # cfg(test) on a non-mod item — skip until next top-level-ish end
+                depths.add(j)  # marker; handled per-match via lookback
+            i = j
+            continue
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            if test_depth is not None and depth == test_depth:
+                test_depth = None
+            depth -= 1
+        if test_depth is not None and depth >= test_depth:
+            depths.add(i)
+        i += 1
+    return depths
+
+def item_has_cfg_test_attr(text, pos):
+    line = text.rfind("\n", 0, pos) + 1
+    window = text[max(0, line - 240):line]
+    for raw in reversed(window.splitlines()):
+        s = raw.strip()
+        if not s:
+            continue
+        if s.startswith("#[cfg(test)]"):
+            return True
+        if s.startswith("#["):
+            continue
+        break
+    return False
+
+def inside_cfg_test_thread_local(text, pos):
+    """True when pos sits in a thread_local! block preceded by #[cfg(test)]."""
+    # Find the nearest thread_local! before pos whose braces still enclose pos.
+    idx = text.rfind("thread_local!", 0, pos)
+    while idx != -1:
+        brace = text.find("{", idx)
+        if brace == -1 or brace > pos:
+            idx = text.rfind("thread_local!", 0, idx)
+            continue
+        depth = 0
+        i = brace
+        end = None
+        while i < len(text):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+            i += 1
+        if end is not None and brace < pos <= end:
+            return item_has_cfg_test_attr(text, idx)
+        idx = text.rfind("thread_local!", 0, idx)
+    return False
 
 roots = {
     "GameClient": "Code/GameEngine/GameClient",
@@ -50,9 +140,15 @@ for label, rel in roots.items():
                 continue
             path = os.path.join(dirpath, fn)
             text = open(path, encoding="utf-8", errors="ignore").read()
+            test_body = cfg_test_depths(text)
             for m in pat_tls.finditer(text):
                 line = text.rfind("\n", 0, m.start()) + 1
                 if text[line : line + 8].lstrip().startswith("//"):
+                    continue
+                if (
+                    m.start() in test_body
+                    or item_has_cfg_test_attr(text, m.start())
+                ):
                     continue
                 counts[label] += 1
                 details[label].append(f"{rel_dir}/{fn}:thread_local!")
@@ -63,6 +159,12 @@ for label, rel in roots.items():
                     continue
                 name, ty = m.group(1), m.group(2)
                 if re.search(r"\bstatic\s+mut\b", head) or mut_ty.search(ty):
+                    if (
+                        m.start() in test_body
+                        or item_has_cfg_test_attr(text, m.start())
+                        or inside_cfg_test_thread_local(text, m.start())
+                    ):
+                        continue
                     counts[label] += 1
                     details[label].append(f"{rel_dir}/{fn}:{name}")
 
