@@ -1962,8 +1962,8 @@ impl Pathfinder {
             return None;
         }
 
-        let locomotor = locomotor_set.get_default_locomotor()?;
-        let mut surfaces = locomotor.get_legal_surfaces();
+        locomotor_set.get_default_locomotor()?;
+        let surfaces = locomotor_set.get_valid_surfaces();
         let mut is_crusher = false;
         let mut unit_radius = 0.0;
         let mut move_allies = false;
@@ -1972,7 +1972,6 @@ impl Pathfinder {
         let _ = OBJECT_REGISTRY.with_object(obj, |obj_guard| {
             if obj_guard.get_crusher_level() > 0 {
                 is_crusher = true;
-                surfaces |= crate::path::SURFACE_RUBBLE;
             }
             unit_radius = obj_guard.get_geometry_info().get_major_radius();
             if let Some(ai) = obj_guard.get_ai_update_interface() {
@@ -2581,27 +2580,18 @@ impl Pathfinder {
         pos: &Coord3D,
         ignore_obstacle_id: Option<ObjectID>,
     ) -> bool {
-        let Some(locomotor) = locomotor_set.get_default_locomotor() else {
-            return false;
-        };
-        let mut surfaces = locomotor.get_legal_surfaces();
-        if is_crusher {
-            surfaces |= crate::path::SURFACE_RUBBLE;
-        }
+        let surfaces = locomotor_set.get_valid_surfaces();
         self.inner
             .valid_movement_position(surfaces, is_crusher, pos, ignore_obstacle_id)
     }
 
     pub fn valid_movement_position_for_surfaces(
         &self,
-        mut surfaces: u32,
+        surfaces: u32,
         is_crusher: bool,
         pos: &Coord3D,
         ignore_obstacle_id: Option<ObjectID>,
     ) -> bool {
-        if is_crusher {
-            surfaces |= crate::path::SURFACE_RUBBLE;
-        }
         self.inner
             .valid_movement_position(surfaces, is_crusher, pos, ignore_obstacle_id)
     }
