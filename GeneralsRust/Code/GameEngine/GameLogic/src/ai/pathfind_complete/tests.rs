@@ -4093,3 +4093,42 @@ fn closest_path_clips_crossing_and_exterior_segments_like_cpp() {
         GridCoord::new(19, 6)
     );
 }
+
+#[test]
+fn closest_path_distance_pruning_matches_cpp_boundaries() {
+    let prune = PathfindingSystem::closest_search_should_prune;
+    assert!(!prune(4000.0, 1000.0, false, 2001));
+    assert!(prune(4001.0, 1000.0, false, 0));
+    assert!(!prune(4001.0, 1000.0, true, 2000));
+    assert!(prune(4001.0, 1000.0, true, 2001));
+    assert!(prune(3997.0, 999.0, true, 0));
+}
+
+#[test]
+fn closest_path_reaches_goal_beyond_four_thousand_expansions() {
+    let mut world = PathfindingSystem::new(4_210, 3);
+    world.new_map();
+    let start = GridCoord::new(1, 1);
+    let goal = GridCoord::new(4_205, 1);
+    let result = world.find_closest_path_with_movement_policy(
+        PathRequest {
+            object_id: INVALID_ID,
+            from: start.to_world(0.0),
+            to: goal.to_world(0.0),
+            surfaces: SURFACE_GROUND,
+            is_crusher: false,
+            unit_radius: 0.0,
+            allow_partial: true,
+            move_allies: false,
+            ignore_obstacle_id: None,
+            is_human: false,
+        },
+        Some(true),
+        Some(false),
+    );
+    assert!(result.success);
+    assert_eq!(
+        GridCoord::from_world(result.waypoints.last().unwrap()),
+        goal
+    );
+}

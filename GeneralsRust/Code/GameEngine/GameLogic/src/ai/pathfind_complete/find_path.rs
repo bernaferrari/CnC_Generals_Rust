@@ -1,6 +1,18 @@
 use super::*;
 
 impl PathfindingSystem {
+    pub(super) fn closest_search_should_prune(
+        distance_sqr: f32,
+        closest_screen_sqr: f32,
+        got_hierarchical_path: bool,
+        allocated_neighbors: i32,
+    ) -> bool {
+        distance_sqr > closest_screen_sqr * 4.0
+            && (!got_hierarchical_path
+                || allocated_neighbors > 2000
+                || closest_screen_sqr < 10.0 * 10.0 * PATHFIND_CELL_SIZE_F)
+    }
+
     fn hierarchical_bridge_endpoints(&self) -> Vec<(GridCoord, GridCoord)> {
         self.bridges
             .iter()
@@ -512,7 +524,6 @@ impl PathfindingSystem {
         const COST_DIAG: i32 = 14;
         // C++ COST_TO_DISTANCE_FACTOR = 1/10 → SQR = 1/100.
         const COST_TO_DISTANCE_FACTOR_SQR: f32 = 0.01;
-        const MAX_EXPAND: i32 = 4000;
 
         if !self.is_map_ready || self.width == 0 || self.height == 0 {
             return Ok(PathResult::none());
@@ -624,8 +635,9 @@ impl PathfindingSystem {
         let mut tunneling = started_stuck;
 
         // C++ hierarchical passable flags (unless tunneling).
-        if tunneling {
+        let got_hierarchical_path = if tunneling {
             self.set_all_zone_passable();
+            false
         } else {
             self.clear_zone_passable_flags();
             let jumps = self.hierarchical_bridge_endpoints();
@@ -644,10 +656,12 @@ impl PathfindingSystem {
                         ));
                     }
                 }
+                true
             } else {
                 self.set_all_zone_passable();
+                false
             }
-        }
+        };
 
         let surfaces = request.surfaces;
         let is_crusher = request.is_crusher;
@@ -698,8 +712,7 @@ impl PathfindingSystem {
         };
 
         type CellKey = (i32, i32, u8);
-        // C++ inserts after existing entries with equal total cost. The
-        // monotonic sequence is bounded by MAX_EXPAND and neighbor count.
+        // C++ inserts after existing entries with equal total cost.
         let mut open: std::collections::BinaryHeap<
             std::cmp::Reverse<(i32, u64, i32, i32, i32, u8)>,
         > = std::collections::BinaryHeap::new();
@@ -722,7 +735,7 @@ impl PathfindingSystem {
         let mut closest_cell: Option<(GridCoord, PathfindLayerEnum, f32)> = None;
         let mut closest_screen_sqr = f32::MAX;
         let mut found_goal_cell = false;
-        let mut expanded = 0i32;
+        let mut allocated_neighbors = 0i32;
         let destination_valid = |system: &Self, cell, layer| {
             if observations.is_some() {
                 system.check_destination_with_observations(
@@ -753,10 +766,6 @@ impl PathfindingSystem {
                 continue;
             }
             closed.insert(key);
-            expanded += 1;
-            if expanded > MAX_EXPAND {
-                break;
-            }
             let cell = GridCoord::new(cx, cy);
             let layer = PathfindLayerEnum::from_u32(layer_id as u32);
 
@@ -806,7 +815,15 @@ impl PathfindingSystem {
                 }
             }
 
-            if found_goal_cell {
+            let dx = (goal_grid.x - cx).abs() as f32;
+            let dy = (goal_grid.y - cy).abs() as f32;
+            if Self::closest_search_should_prune(
+                dx * dx + dy * dy,
+                closest_screen_sqr,
+                got_hierarchical_path,
+                allocated_neighbors,
+            ) || found_goal_cell
+            {
                 continue;
             }
 
@@ -1071,6 +1088,11 @@ impl PathfindingSystem {
                     step += 10 * COST_ORTHO;
                 }
                 let ng = g + step;
+                // The goal and start already have allocated search info in
+                // C++; line seeds and layer transitions allocate separately.
+                if neighbor_key != (goal_grid.x, goal_grid.y, goal_layer as u8) {
+                    allocated_neighbors += 1;
+                }
                 g_score.insert(neighbor_key, ng);
                 parents.insert(neighbor_key, key);
                 let f = ng + if tunneling { 0 } else { heuristic(nc) };
