@@ -34,6 +34,8 @@ fn closest_path_equal_cost_candidates_keep_cpp_fifo_order() {
             true,
             0.2,
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+            super::super::standalone_closest_path_fixture().read(),
+            crate::game_logic::ObjectId(1),
         )
         .expect("closest reachable path");
     let end = system

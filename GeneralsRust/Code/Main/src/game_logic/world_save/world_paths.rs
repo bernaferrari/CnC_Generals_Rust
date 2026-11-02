@@ -1763,6 +1763,8 @@ impl GameLogic {
                 is_human,
                 0.0,
                 &ground_source,
+                self.objects.read(),
+                unit_id,
             )
         });
         if let Some(unit) = self.objects.get_mut(&unit_id) {
@@ -2105,6 +2107,8 @@ impl GameLogic {
                     is_human,
                     0.2,
                     &ground_source,
+                    self.objects.read(),
+                    unit_id,
                 )
             })
         } else {

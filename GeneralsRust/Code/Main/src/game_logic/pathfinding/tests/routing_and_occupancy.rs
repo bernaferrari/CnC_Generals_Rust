@@ -1498,6 +1498,8 @@ fn find_closest_path_walks_to_valid_cell_when_goal_impassable() {
             true,
             0.2,
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+            super::super::standalone_closest_path_fixture().read(),
+            crate::game_logic::ObjectId(1),
         )
         .expect("closest path");
     let end = *path.last().expect("end");

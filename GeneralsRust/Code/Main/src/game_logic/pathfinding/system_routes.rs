@@ -917,7 +917,12 @@ impl PathfindingSystem {
         is_human: bool,
         path_cost_multiplier: f32,
         ground_source: &PathfindingGround<'_>,
+        objects: HostObjectRead<'_>,
+        mover: ObjectId,
     ) -> Option<Vec<Vec3>> {
+        objects.lookup(&mover)?;
+        self.ensure_dynamic_obstacles(objects, ground_source);
+        self.bind_seeker_from_mover(objects, Some(mover));
         self.sync_crate_astar();
         self.grid.query_seeker_id = self.seeker_id.map(|id| id.0).unwrap_or(0);
         let start = self
@@ -1148,7 +1153,7 @@ impl PathfindingSystem {
             start_layer,
             best_layer,
             ground_source,
-            None,
+            Some(objects),
         ) {
             let mut world = path;
             if let Some(first) = world.first_mut() {
@@ -1733,6 +1738,8 @@ mod closest_path_ignored_footprint_tests {
                 true,
                 0.2,
                 &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+                objects.read(),
+                ObjectId(1),
             )
             .expect("ordinary closest path can stop beside the target");
         assert_ne!(
@@ -1751,6 +1758,8 @@ mod closest_path_ignored_footprint_tests {
                 true,
                 0.2,
                 &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+                objects.read(),
+                ObjectId(1),
             )
             .expect("ignoreObstacle must admit the victim's target cell");
         assert_eq!(

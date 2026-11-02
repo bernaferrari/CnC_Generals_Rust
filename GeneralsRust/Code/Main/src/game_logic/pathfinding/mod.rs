@@ -935,6 +935,14 @@ mod owned_ground_cpp_tests;
 mod offmap_extent_owner_tests;
 
 #[cfg(test)]
+fn standalone_closest_path_fixture() -> HostObjectStore {
+    let mut template = ThingTemplate::new("ClosestPathFixture");
+    template.set_health(100.0);
+    let mover = Object::new(template, ObjectId(1), Team::USA);
+    registered_path_fixture([(mover.id, mover)])
+}
+
+#[cfg(test)]
 fn registered_path_fixture(rows: impl IntoIterator<Item = (ObjectId, Object)>) -> HostObjectStore {
     let mut objects = HostObjectStore::new();
     for (id, object) in rows {

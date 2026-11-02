@@ -151,6 +151,8 @@ impl GameLogic {
                     is_human,
                     0.2,
                     &ground_source,
+                    self.objects.read(),
+                    req.unit_id,
                 )
             }) {
                 let last = path.last().copied();

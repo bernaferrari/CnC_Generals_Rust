@@ -461,6 +461,8 @@ fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
             true,
             0.2,
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+            objects.read(),
+            ObjectId(1),
         )
         .expect("closest without tunnel");
     let without_cell = sys.grid.world_to_grid(*without.last().unwrap());
@@ -487,6 +489,8 @@ fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
             true,
             0.2,
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+            objects.read(),
+            ObjectId(1),
         )
         .expect("closest with tunnel");
     let with_cell = sys.grid.world_to_grid(*with.last().unwrap());
@@ -520,6 +524,8 @@ fn find_closest_path_does_not_cut_through_building() {
             true,
             0.2,
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+            super::super::standalone_closest_path_fixture().read(),
+            crate::game_logic::ObjectId(1),
         )
         .expect("closest path");
     let crosses = path
@@ -571,6 +577,8 @@ fn find_closest_path_hops_connect_layer_onto_deck() {
             true,
             0.2,
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+            super::super::standalone_closest_path_fixture().read(),
+            crate::game_logic::ObjectId(1),
         )
         .expect("closest onto deck");
     let end = *path.last().expect("end");
@@ -805,7 +813,9 @@ fn queued_search_uses_ignore_written_after_enqueue() {
     let decoy = ObjectId(wall.0.wrapping_add(1000));
     logic.force_map_loaded_for_path_test(true);
     assert!(logic.assign_unit_path_ignoring(mover, goal, &[], Some(decoy)));
-    let queued: Vec<_> = logic.snapshot_pending_host_paths().into_iter()
+    let queued: Vec<_> = logic
+        .snapshot_pending_host_paths()
+        .into_iter()
         .map(|req| req.ignore_obstacle)
         .collect();
     assert_eq!(

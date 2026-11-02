@@ -656,6 +656,8 @@ impl GameLogic {
                                 is_human,
                                 0.0,
                                 &ground_source,
+                                self.objects.read(),
+                                id,
                             )
                         }) {
                             repaths.push((id, path, false));
@@ -722,6 +724,8 @@ impl GameLogic {
                                     is_human,
                                     0.0,
                                     &ground_source,
+                                    self.objects.read(),
+                                    id,
                                 )
                             }) {
                                 repaths.push((id, path, false));
@@ -821,6 +825,8 @@ impl GameLogic {
                                     is_human,
                                     0.0,
                                     &ground_source,
+                                    self.objects.read(),
+                                    id,
                                 )
                             }) {
                                 repaths.push((id, path, false));
