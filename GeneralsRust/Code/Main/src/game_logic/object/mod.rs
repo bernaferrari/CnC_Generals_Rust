@@ -1231,14 +1231,6 @@ pub struct Object {
     #[serde(default)]
     pub guard_retaliate_anchor: Option<Vec3>,
 
-    /// Guard target
-    /// C++ AIGuardInner / Outer / AttackAggressor residual (0 none, 1 inner, 2 outer, 3 aggressor).
-    #[serde(default)]
-    pub guard_chase_phase: u8,
-    /// C++ ExitConditions::m_attackGiveUpFrame.
-    #[serde(default)]
-    pub guard_chase_give_up_frame: u32,
-
     /// Force attack mode
     pub force_attack: bool,
 
@@ -3069,8 +3061,20 @@ pub enum GuardMode {
     FlyingUnitsOnly = 2,
 }
 
-/// C++ AIGuardRetaliate AttackAggressor residual (`guard_chase_phase`).
-pub const GUARD_CHASE_PHASE_RETALIATE: u8 = 4;
+/// Active attack child of a Guard or GuardRetaliate machine.
+/// This is an internal continuation, not a C++ state ID or wire layout.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GuardChasePhase {
+    #[default]
+    None,
+    Inner,
+    Outer,
+    Aggressor,
+    RetaliateAggressor,
+}
+
+/// C++ AIGuardRetaliate AttackAggressor residual.
+pub const GUARD_CHASE_PHASE_RETALIATE: GuardChasePhase = GuardChasePhase::RetaliateAggressor;
 
 /// AI behavior states
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -3533,6 +3537,22 @@ impl Object {
 }
 
 impl Object {
+    pub fn guard_chase_phase(&self) -> GuardChasePhase {
+        self.unit_ai_runtime.guard_chase_phase()
+    }
+
+    pub fn guard_chase_give_up_frame(&self) -> u32 {
+        self.unit_ai_runtime.guard_chase_give_up_frame()
+    }
+
+    pub fn set_guard_chase_phase(&mut self, phase: GuardChasePhase) {
+        self.unit_ai_runtime.set_guard_chase_phase(phase);
+    }
+
+    pub(crate) fn set_guard_chase_give_up_frame(&mut self, frame: u32) {
+        self.unit_ai_runtime.set_guard_chase_give_up_frame(frame);
+    }
+
     pub(crate) fn mark_ai_dead(&mut self) {
         let has_ai_update = self
             .thing()

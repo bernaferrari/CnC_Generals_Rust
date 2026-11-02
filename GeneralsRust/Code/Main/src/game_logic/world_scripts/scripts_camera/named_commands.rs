@@ -268,9 +268,12 @@ impl GameLogic {
                     .set_raw_guard_area(Some(area.to_owned()));
             }
         }
-        let clear_team_target = self
-            .host_object(id)
-            .is_some_and(|unit| matches!(unit.guard_chase_phase, 1 | 3));
+        let clear_team_target = self.host_object(id).is_some_and(|unit| {
+            matches!(
+                unit.guard_chase_phase(),
+                GuardChasePhase::Inner | GuardChasePhase::Aggressor
+            )
+        });
         // The new guard data is already staged above. Run the outgoing
         // machine's callbacks before clearing its paths and projections.
         if !matches!(

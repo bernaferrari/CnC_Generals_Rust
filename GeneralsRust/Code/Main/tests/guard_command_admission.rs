@@ -1,5 +1,5 @@
 //! AIUpdate.cpp privateGuardPosition/Object reject immobile or projectile actors.
-use generals_main::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
+use generals_main::game_logic::{AIState, GameLogic, GuardChasePhase, KindOf, Team, ThingTemplate};
 use glam::Vec3;
 
 fn make_world(kind: KindOf) -> GameLogic {
@@ -230,7 +230,7 @@ fn outer_retaliation_exit_keeps_the_team_common_target() {
         &mut attacks,
         &mut ObjectAudio::queue(&mut audio),
     );
-    actor.guard_chase_phase = 2;
+    actor.set_guard_chase_phase(GuardChasePhase::Outer);
     bind_team_target(&mut world, id);
     assert!(world.unit_command_guard_position(id, Vec3::new(10., 0., 20.)));
     assert_eq!(team_target(&world, id), Some(id.0));
@@ -254,7 +254,7 @@ fn inner_retaliation_exit_clears_the_team_common_target() {
         &mut attacks,
         &mut ObjectAudio::queue(&mut audio),
     );
-    actor.guard_chase_phase = 1;
+    actor.set_guard_chase_phase(GuardChasePhase::Inner);
     bind_team_target(&mut world, id);
     assert!(world.unit_command_guard_position(id, Vec3::new(10., 0., 20.)));
     assert_eq!(team_target(&world, id), None);

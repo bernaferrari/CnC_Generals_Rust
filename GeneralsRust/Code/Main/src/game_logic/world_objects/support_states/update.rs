@@ -4105,8 +4105,8 @@ impl GameLogic {
                     let phase = self
                         .objects
                         .get(&object_id)
-                        .map(|o| o.guard_chase_phase)
-                        .unwrap_or(0);
+                        .map(|o| o.guard_chase_phase())
+                        .unwrap_or(GuardChasePhase::None);
                     if phase == GUARD_CHASE_PHASE_INNER
                         && can_attack
                         && self.try_guard_last_attacker(object_id, team, effects)?

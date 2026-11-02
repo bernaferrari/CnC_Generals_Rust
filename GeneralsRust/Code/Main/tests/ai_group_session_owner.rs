@@ -1074,7 +1074,8 @@ fn locked_attack_move_parent_allows_child_attack_to_finish() {
 
 #[test]
 fn guard_keeps_parent_after_real_aggressor_hit() {
-    const GUARD_ATTACK_AGGRESSOR_PHASE: u8 = 3;
+    const GUARD_ATTACK_AGGRESSOR_PHASE: generals_main::game_logic::GuardChasePhase =
+        generals_main::game_logic::GuardChasePhase::Aggressor;
     let root = tempfile::tempdir().unwrap();
     let map = map_file(root.path());
     let (mut world, actor, _, _) = world_with_options(&map, true, true, false);
@@ -1099,14 +1100,15 @@ fn guard_keeps_parent_after_real_aggressor_hit() {
     for _ in 0..240 {
         world.update_with_dt(1.0 / 30.0);
         let unit = world.host_object(actor).unwrap();
-        if unit.health.current < 100.0 && unit.guard_chase_phase == GUARD_ATTACK_AGGRESSOR_PHASE {
+        if unit.health.current < 100.0 && unit.guard_chase_phase() == GUARD_ATTACK_AGGRESSOR_PHASE {
             break;
         }
     }
     let unit = world.host_object(actor).unwrap();
     assert!(unit.health.current < 100.0, "attack did not damage guard");
     assert_eq!(
-        unit.guard_chase_phase, GUARD_ATTACK_AGGRESSOR_PHASE,
+        unit.guard_chase_phase(),
+        GUARD_ATTACK_AGGRESSOR_PHASE,
         "guard did not react to its attacker"
     );
     assert_eq!(unit.target, Some(attacker));
@@ -1172,6 +1174,11 @@ fn guard_aggressor_attack_keeps_the_receiving_guard_parent() {
         !machine["attack_original_victim_pos"].is_null(),
         "Guard must enter the attack state, not only select its child"
     );
+    let chase_phase = owner.host_object(actor).unwrap().guard_chase_phase();
+    assert_ne!(
+        chase_phase,
+        generals_main::game_logic::GuardChasePhase::None
+    );
     assert_eq!(
         peer.host_object(actor).unwrap().ai_state(),
         AIState::GuardingArea
@@ -1179,6 +1186,69 @@ fn guard_aggressor_attack_keeps_the_receiving_guard_parent() {
     builder
         .restore_from_snapshot(&snapshot, &mut owner)
         .unwrap();
+    let (mut fresh, fresh_actor, _, _) = world_with_options(&map, true, true, false);
+    admit_players(&mut fresh);
+    assert_eq!(fresh_actor, actor);
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded = bincode_legacy::deserialize(&bytes).unwrap();
+    builder.restore_from_snapshot(&decoded, &mut fresh).unwrap();
+    assert_eq!(
+        fresh.host_object(actor).unwrap().guard_chase_phase(),
+        chase_phase
+    );
+    assert!(
+        fresh
+            .host_object(actor)
+            .unwrap()
+            .guard_chase_give_up_frame()
+            > 0
+    );
+    fresh.update_with_dt(1.0 / 30.0);
+    assert_eq!(
+        fresh.host_object(actor).unwrap().guard_chase_phase(),
+        chase_phase
+    );
+    assert_eq!(fresh.host_object(actor).unwrap().target, Some(victim));
+    assert_eq!(
+        peer.host_object(actor).unwrap().guard_chase_phase(),
+        generals_main::game_logic::GuardChasePhase::None
+    );
+    let mut invalid = builder.create_world_snapshot(&fresh).unwrap();
+    let before_failed_load =
+        serde_json::to_value(&invalid.objects[&actor].modules["ReceivingBaseAI"]).unwrap();
+    let frame_before_failed_load = invalid.frame_number;
+    let invalid_module = invalid
+        .objects
+        .get_mut(&actor)
+        .unwrap()
+        .modules
+        .get_mut("ReceivingBaseAI")
+        .unwrap();
+    let mut invalid_value = serde_json::to_value(&*invalid_module).unwrap();
+    invalid_value["BaseAi"]["continuation"]["guard"]["chase_phase"] = "None".into();
+    invalid_value["BaseAi"]["continuation"]["guard"]["chase_give_up_frame"] = 1.into();
+    *invalid_module = serde_json::from_value(invalid_value).unwrap();
+    assert!(builder.restore_from_snapshot(&invalid, &mut fresh).is_err());
+    assert_eq!(
+        fresh.host_object(actor).unwrap().guard_chase_phase(),
+        chase_phase
+    );
+    let after_failed_load = builder.create_world_snapshot(&fresh).unwrap();
+    assert_eq!(after_failed_load.frame_number, frame_before_failed_load);
+    assert_eq!(
+        serde_json::to_value(&after_failed_load.objects[&actor].modules["ReceivingBaseAI"])
+            .unwrap(),
+        before_failed_load
+    );
+    fresh.reset();
+    assert_eq!(
+        owner.host_object(actor).unwrap().guard_chase_phase(),
+        chase_phase
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().guard_chase_phase(),
+        generals_main::game_logic::GuardChasePhase::None
+    );
     let restored = builder.create_world_snapshot(&owner).unwrap();
     assert_eq!(
         serde_json::to_value(&restored.objects[&actor].modules["ReceivingBaseAI"]).unwrap(),

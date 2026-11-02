@@ -54,11 +54,8 @@ impl Object {
         movement_events: &mut crate::game_logic::movement_events::MovementEventWriter<'_>,
         audio: &mut crate::game_logic::ObjectAudio<'_>,
     ) {
-        let _ = self.takeoff_from_airfield_parking_with_operation(
-            audio,
-            0,
-            &mut Default::default(),
-        );
+        let _ =
+            self.takeoff_from_airfield_parking_with_operation(audio, 0, &mut Default::default());
         if self.status.deployed {
             self.set_deployed(false, audio);
         }
@@ -816,8 +813,7 @@ impl Object {
 
     /// Drop AIGuard inner/outer/aggressor chase exits (player order or return).
     pub fn clear_guard_chase(&mut self) {
-        self.guard_chase_phase = 0;
-        self.guard_chase_give_up_frame = 0;
+        self.unit_ai_runtime.clear_guard_chase();
     }
 
     /// C++ AIUpdateInterface::privateGuardRetaliate residual.
@@ -866,8 +862,8 @@ impl Object {
         self.set_ai_state(AIState::GuardRetaliating, audio);
         // C++ AttackAggressor onEnter: chase timer + radius/owner leash.
         // Give-up frame is stamped on the first GuardRetaliate tick (needs GameLogic.frame).
-        self.guard_chase_phase = crate::game_logic::GUARD_CHASE_PHASE_RETALIATE;
-        self.guard_chase_give_up_frame = 0;
+        self.set_guard_chase_phase(crate::game_logic::GUARD_CHASE_PHASE_RETALIATE);
+        self.set_guard_chase_give_up_frame(0);
         // C++ JetAIUpdate::aiDoCommand GUARD_RETALIATE sets
         // ALLOW_INTERRUPT_AND_RESUME_OF_CUR_STATE_FOR_RELOAD.
         self.mark_jet_command_for_reload_interrupt(true);

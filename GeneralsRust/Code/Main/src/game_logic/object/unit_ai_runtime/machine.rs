@@ -131,6 +131,9 @@ impl BaseAiContinuation {
         self.parent_state().unwrap_or(self.ai_state)
     }
     pub(crate) fn validate(&self) -> Result<(), String> {
+        if self.guard.chase_phase == GuardChasePhase::None && self.guard.chase_give_up_frame != 0 {
+            return Err("guard chase deadline requires an active chase".into());
+        }
         if self.tighten_repath_available.is_some() && self.root_state() != AIState::Moving {
             return Err("tighten retry requires an active move root".into());
         }
@@ -467,6 +470,8 @@ impl BaseAiContinuation {
             && self.guard_target_types[1] == GuardTargetType::None
             && self.guard.phase.is_none()
             && self.guard.scan.is_none()
+            && self.guard.chase_phase == GuardChasePhase::None
+            && self.guard.chase_give_up_frame == 0
             && self.hunt_scan.is_none()
             && self.quick_exit.is_none()
             && self.wander.is_none()

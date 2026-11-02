@@ -906,8 +906,6 @@ impl Object {
 
             weapon_crate_upgrade: 0,
             armor_crate_upgrade: 0,
-            guard_chase_phase: 0,
-            guard_chase_give_up_frame: 0,
 
             force_attack: false,
             show_health_bar: true, // Show health bars by default
@@ -1862,8 +1860,6 @@ impl Object {
 
             weapon_crate_upgrade: 0,
             armor_crate_upgrade: 0,
-            guard_chase_phase: 0,
-            guard_chase_give_up_frame: 0,
 
             force_attack: false,
             show_health_bar: true,

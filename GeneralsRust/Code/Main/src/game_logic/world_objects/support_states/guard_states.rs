@@ -2,11 +2,11 @@
 use super::super::super::*;
 use crate::game_logic::object::unit_ai_runtime::GuardPhase;
 /// C++ AIGuardInnerState residual.
-pub(super) const GUARD_CHASE_PHASE_INNER: u8 = 1;
+pub(super) const GUARD_CHASE_PHASE_INNER: GuardChasePhase = GuardChasePhase::Inner;
 /// C++ AIGuardOuterState residual.
-const GUARD_CHASE_PHASE_OUTER: u8 = 2;
+const GUARD_CHASE_PHASE_OUTER: GuardChasePhase = GuardChasePhase::Outer;
 /// C++ AIGuardAttackAggressorState residual.
-const GUARD_CHASE_PHASE_AGGRESSOR: u8 = 3;
+const GUARD_CHASE_PHASE_AGGRESSOR: GuardChasePhase = GuardChasePhase::Aggressor;
 pub(crate) fn host_guard_xy_dist_sq(a: glam::Vec3, b: glam::Vec3) -> f32 {
     let dx = a.x - b.x;
     let dz = a.z - b.z;
@@ -245,16 +245,16 @@ impl GameLogic {
         (inner, outer)
     }
 
-    fn begin_guard_chase(&mut self, object_id: ObjectId, phase: u8) {
+    fn begin_guard_chase(&mut self, object_id: ObjectId, phase: GuardChasePhase) {
         let frames = self.host_guard_chase_unit_frames();
         let now = self.frame;
         if let Some(o) = self.objects.get_mut(&object_id) {
-            o.guard_chase_phase = phase;
-            o.guard_chase_give_up_frame = if phase == GUARD_CHASE_PHASE_INNER {
+            o.set_guard_chase_phase(phase);
+            o.set_guard_chase_give_up_frame(if phase == GUARD_CHASE_PHASE_INNER {
                 0
             } else {
                 now.saturating_add(frames)
-            };
+            });
         }
     }
 
@@ -324,7 +324,7 @@ impl GameLogic {
             return Ok(false);
         }
         let replacing_attack = self.objects.get(&object_id).is_some_and(|unit| {
-            unit.guard_chase_phase != 0
+            unit.guard_chase_phase() != GuardChasePhase::None
                 && unit.unit_ai_runtime.current_leaf_state() == AIState::Attacking
         });
         if replacing_attack {
@@ -446,9 +446,9 @@ impl GameLogic {
     /// C++ AIGuardInner / Outer / AttackAggressor ExitConditions while Attacking.
     pub(super) fn tick_guard_chase_exits(&mut self, object_id: ObjectId) -> bool {
         let snapshot = match self.objects.get(&object_id) {
-            Some(o) if o.guard_chase_phase != 0 => (
-                o.guard_chase_phase,
-                o.guard_chase_give_up_frame,
+            Some(o) if o.guard_chase_phase() != GuardChasePhase::None => (
+                o.guard_chase_phase(),
+                o.guard_chase_give_up_frame(),
                 o.target,
                 o.active_guard_position(),
                 o.active_guard_target(),
@@ -518,7 +518,7 @@ impl GameLogic {
                     let frames = self.host_guard_chase_unit_frames();
                     give_up = now.saturating_add(frames);
                     if let Some(o) = self.objects.get_mut(&object_id) {
-                        o.guard_chase_give_up_frame = give_up;
+                        o.set_guard_chase_give_up_frame(give_up);
                     }
                 }
                 if now >= give_up {

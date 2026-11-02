@@ -1,6 +1,6 @@
 //! Installed-actor StateMachine::clear and base Idle admission.
 use super::*;
-use crate::game_logic::{AIState, GameLogic, ObjectId};
+use crate::game_logic::{AIState, GameLogic, GuardChasePhase, ObjectId};
 use gamelogic::{GameLogicError, GameLogicResult};
 use glam::Vec3;
 
@@ -36,12 +36,14 @@ impl GameLogic {
         }
         for state in states {
             let retaliate_phase = (state == AIState::GuardRetaliating)
-                .then(|| self.objects.get(&id).map(|unit| unit.guard_chase_phase))
+                .then(|| self.objects.get(&id).map(|unit| unit.guard_chase_phase()))
                 .flatten();
             let retaliate_attack = retaliate_phase.is_some_and(|phase| {
                 matches!(
                     phase,
-                    1 | 2 | crate::game_logic::GUARD_CHASE_PHASE_RETALIATE
+                    GuardChasePhase::Inner
+                        | GuardChasePhase::Outer
+                        | GuardChasePhase::RetaliateAggressor
                 )
             });
             if matches!(state, AIState::Attacking | AIState::AttackingGround) || retaliate_attack {
@@ -132,7 +134,10 @@ impl GameLogic {
             }
             // Inner and AttackAggressor clear the Team target after the child exits.
             if retaliate_phase.is_some_and(|phase| {
-                matches!(phase, 1 | crate::game_logic::GUARD_CHASE_PHASE_RETALIATE)
+                matches!(
+                    phase,
+                    GuardChasePhase::Inner | GuardChasePhase::RetaliateAggressor
+                )
             }) {
                 self.set_host_team_common_target(id, None);
             }
