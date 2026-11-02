@@ -99,21 +99,19 @@ fn owned_classic_stores_isolate_same_id_and_reset_through_pathfinder() {
     };
     let first_path = first.find_path_result(request.clone());
     assert!(first_path.success);
-    assert_eq!(first.inner.path_cache.len(), 1);
     second
         .inner
         .set_cell_type(&request.to, PathfindCellType::Cliff);
     assert!(!second.find_path_result(request.clone()).success);
-    assert!(second.inner.path_cache.is_empty());
-    let first_crc_after_search = crc_bytes(&first);
+    let second_crc_before_first_search = crc_bytes(&second);
     assert_eq!(
         first.find_path_result(request).waypoints,
         first_path.waypoints
     );
     assert_eq!(
-        crc_bytes(&first),
-        first_crc_after_search,
-        "cache hit must not repeat A*"
+        crc_bytes(&second),
+        second_crc_before_first_search,
+        "searching the first world must not change the second"
     );
 
     second.queue_for_path(ID);
@@ -124,7 +122,6 @@ fn owned_classic_stores_isolate_same_id_and_reset_through_pathfinder() {
     assert!(first.inner.goal_cells.is_empty());
     assert!(first.inner.unit_goal_cells.is_empty());
     assert!(first.inner.unit_pos_cells.is_empty());
-    assert!(first.inner.path_cache.is_empty());
     assert!(first.inner.wall_cells.is_empty());
     assert_eq!(crc_bytes(&second), second_before_reset);
     assert_eq!(second.inner.get_goal_unit(b, PathfindLayerEnum::Ground), ID);
@@ -2287,7 +2284,6 @@ fn dozer_hack_steps_non_enemy_obstacle_not_enemy() {
         dozer_path.waypoints
     );
 
-    system.path_cache.clear();
     let infantry = system.find_path(mk(INVALID_ID));
     assert!(!infantry.success, "non-dozer cannot step on CELL_OBSTACLE");
 
@@ -2295,7 +2291,6 @@ fn dozer_hack_steps_non_enemy_obstacle_not_enemy() {
         let pf = &mut system.pathfinder;
         pf.set_cell_obstacle_id(obs, ENEMY_OBS_ID, false, false);
     }
-    system.path_cache.clear();
     let enemy_path = system.find_path(mk(DOZER_ID));
     assert!(
         !enemy_path.success,
@@ -2306,7 +2301,6 @@ fn dozer_hack_steps_non_enemy_obstacle_not_enemy() {
         let pf = &mut system.pathfinder;
         pf.set_cell_obstacle_id(obs, MISSING_OBS_ID, false, false);
     }
-    system.path_cache.clear();
     let missing = system.find_path(mk(DOZER_ID));
     assert!(
         !missing.success,

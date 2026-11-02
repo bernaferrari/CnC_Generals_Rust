@@ -112,7 +112,6 @@ fn crusher_fence_passability_does_not_bypass_cpp_quick_zone_gate() {
             .pathfinder
             .set_cell_obstacle_id(GridCoord::new(4, y), 2, true, false);
     }
-    owner.inner.clear_cache();
     owner.inner.new_map_from_classified_cells();
     assert!(owner.inner.pathfinder.is_obstacle_fence(middle));
     assert!(

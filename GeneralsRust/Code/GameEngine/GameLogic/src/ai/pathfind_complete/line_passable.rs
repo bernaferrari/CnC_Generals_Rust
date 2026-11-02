@@ -759,11 +759,6 @@ impl PathfindingSystem {
             .find(|bridge| bridge.layer_id == layer_id)
     }
 
-    /// Clear path cache
-    pub fn clear_cache(&mut self) {
-        self.path_cache.clear();
-    }
-
     /// Set cell type at world position
     pub fn set_cell_type(&mut self, pos: &Coord3D, cell_type: PathfindCellType) {
         let coord = GridCoord::from_world(pos);
@@ -879,7 +874,6 @@ impl PathfindingSystem {
                 self.set_cell_type(pos, cell_type);
             }
         }
-        self.clear_cache();
         self.mark_zones_dirty();
     }
 

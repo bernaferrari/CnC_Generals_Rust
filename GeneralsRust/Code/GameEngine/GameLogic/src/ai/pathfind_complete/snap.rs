@@ -907,7 +907,6 @@ impl PathfindingSystem {
             }
             self.classify_bridge_cells(idx);
         }
-        self.clear_cache();
     }
 
     /// Get the width of the pathfinding grid.

@@ -33,27 +33,6 @@ impl PathfindingSystem {
 
         let downhill_only =
             downhill_only.unwrap_or_else(|| Self::object_is_downhill_only(request.object_id));
-        // Check cache first
-        let cache_key = (
-            GridCoord::from_world(&request.from),
-            GridCoord::from_world(&request.to),
-            request.surfaces,
-            request.is_crusher,
-            request.allow_partial,
-            request.unit_radius.to_bits(),
-            request.move_allies,
-            request.ignore_obstacle_id.unwrap_or(INVALID_ID),
-            request.is_human,
-            downhill_only,
-        );
-
-        {
-            let cache = &self.path_cache;
-            if let Some(cached) = cache.get(&cache_key) {
-                return Ok(cached.clone());
-            }
-        }
-
         // C++ findPath: clientSafeQuickDoesPathExist first.
         if !self.client_safe_quick_does_path_exist_ignoring(
             request.surfaces,
@@ -115,17 +94,6 @@ impl PathfindingSystem {
 
         let result =
             self.find_path_internal_with_observations(request, Some(downhill_only), observations)?;
-
-        // Cache the result
-        {
-            let cache = &mut self.path_cache;
-            cache.insert(cache_key, result.clone());
-
-            // Limit cache size
-            if cache.len() > 1000 {
-                cache.clear();
-            }
-        }
 
         Ok(result)
     }

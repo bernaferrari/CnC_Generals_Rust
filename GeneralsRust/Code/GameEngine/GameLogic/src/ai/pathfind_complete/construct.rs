@@ -57,7 +57,6 @@ impl PathfindingSystem {
             request_queue: VecDeque::new(),
             object_path_queue: ObjectPathQueue::new(),
             goal_cells: vec![vec![GoalCell::new(); height]; width],
-            path_cache: HashMap::new(),
             zones: ZoneManager::new(width, height),
             width,
             height,

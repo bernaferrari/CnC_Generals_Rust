@@ -23,23 +23,6 @@ pub struct PathfindingSystem {
     /// Goal cell tracking (ground/top + aircraft goals).
     pub(crate) goal_cells: Vec<Vec<GoalCell>>,
 
-    /// Cached paths
-    pub(crate) path_cache: HashMap<
-        (
-            GridCoord,
-            GridCoord,
-            LocomotorSurfaceTypeMask,
-            bool,
-            bool,
-            u32,
-            bool,
-            ObjectID,
-            bool, // is_human
-            bool, // downhill-only locomotor policy
-        ),
-        PathResult,
-    >,
-
     pub(crate) zones: ZoneManager,
 
     /// Map dimensions
