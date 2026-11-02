@@ -145,3 +145,8 @@ path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/renderin
 cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/light.cpp"
 note = "LightEnvironment-owned light ids; removed TLS LIGHT_ENVIRONMENT and ID counter; push/pop take &mut env; 3->0 globals."
 
+[[module]]
+path = "Code/GameEngine/GameLogic/src/control_bar.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBar.cpp"
+note = "Per-world CommandButton/CommandSet bridge catalog + UI hooks; Arc view API; 0 process globals."
+
