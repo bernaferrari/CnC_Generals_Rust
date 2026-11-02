@@ -41,6 +41,10 @@ struct StatusSnap {
     physical_save_load_continue: bool,
     retail_sit_through_missing: String,
     render_item_count: u32,
+    render_terrain_chunks: u32,
+    render_models: u32,
+    render_ui: u32,
+    render_selection: u32,
     render_alive_objects: u32,
     render_fow_filtered: u32,
     render_frustum_culled: u32,
@@ -165,6 +169,18 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
             }
             "render_item_count" => {
                 snap.render_item_count = v.trim().parse().unwrap_or(0);
+            }
+            "render_terrain_chunks" => {
+                snap.render_terrain_chunks = v.trim().parse().unwrap_or(0);
+            }
+            "render_models" => {
+                snap.render_models = v.trim().parse().unwrap_or(0);
+            }
+            "render_ui" => {
+                snap.render_ui = v.trim().parse().unwrap_or(0);
+            }
+            "render_selection" => {
+                snap.render_selection = v.trim().parse().unwrap_or(0);
             }
             "render_alive_objects" => {
                 snap.render_alive_objects = v.trim().parse().unwrap_or(0);

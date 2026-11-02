@@ -466,6 +466,13 @@ impl TerrainVisualImpl {
         self.reset_draw_area_state();
     }
 
+    pub fn debug_gpu_resources_ready(&self) -> bool {
+        self.device.is_some()
+            && self.queue.is_some()
+            && self.terrain_pipeline.is_some()
+            && self.terrain_camera_bind_group.is_some()
+    }
+
     pub fn debug_heightmap_loaded(&self) -> bool {
         self.height_map.is_some()
     }

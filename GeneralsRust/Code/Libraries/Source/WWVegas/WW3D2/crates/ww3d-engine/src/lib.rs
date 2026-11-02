@@ -242,6 +242,9 @@ struct WindowSurfaceState {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     depth: Option<DepthTarget>,
+    /// COPY_SRC target used when Metal returns Occluded/Timeout so present-frame
+    /// gates can still read a real GPU backbuffer instead of the procedural PNG.
+    occlusion_fallback: HeadlessTarget,
 }
 
 impl WindowSurfaceState {
@@ -290,10 +293,20 @@ impl WindowSurfaceState {
 
         surface.configure(device, &surface_config);
 
+        let occlusion_fallback = HeadlessTarget::new(
+            device,
+            surface_config.width,
+            surface_config.height,
+            surface_config.format,
+            config.enable_depth.then_some(config.depth_format),
+            config.sample_count,
+        );
+
         Self {
             surface,
             config: surface_config,
             depth,
+            occlusion_fallback,
         }
     }
 
@@ -312,6 +325,7 @@ impl WindowSurfaceState {
         if let Some(depth) = &mut self.depth {
             depth.resize(device, width, height);
         }
+        self.occlusion_fallback.resize(device, width, height);
     }
 
     fn color_format(&self) -> wgpu::TextureFormat {
@@ -633,6 +647,8 @@ pub struct RenderFrame {
     color_texture: wgpu::Texture,
 
     surface_texture: Option<wgpu::SurfaceTexture>,
+    /// True when this frame rendered into the window occlusion fallback target.
+    rendered_offscreen: bool,
     _start_time: Instant,
     frame_index: u64,
     color_format: wgpu::TextureFormat,
@@ -644,6 +660,11 @@ impl RenderFrame {
     /// Whether ending this frame can present a real window surface.
     pub fn has_window_surface(&self) -> bool {
         self.surface_texture.is_some()
+    }
+
+    /// Real GPU color was produced this frame (window present or occlusion fallback).
+    pub fn has_gpu_color_target(&self) -> bool {
+        self.surface_texture.is_some() || self.rendered_offscreen
     }
 
     /// Borrow the command encoder to record render passes.
@@ -1072,30 +1093,67 @@ impl Engine {
 
         match &mut self.surface {
             SurfaceMode::Windowed(surface_state) => {
-                let frame = ww3d_gpu::acquire_surface_texture(&surface_state.surface)?;
-                let view = Arc::new(
-                    frame
-                        .texture
-                        .create_view(&wgpu::TextureViewDescriptor::default()),
-                );
-
-                let depth_view = surface_state.depth_view();
-
-                self.frame_active = true;
-                frame_submit::on_begin_frame();
-                Ok(RenderFrame {
-                    device: Arc::clone(&self.device),
-                    queue: Arc::clone(&self.queue),
-                    encoder,
-                    color_view: view,
-                    depth_view,
-                    color_texture: frame.texture.clone(),
-                    surface_texture: Some(frame),
-                    _start_time: start_time,
-                    frame_index: self.frame_index,
-                    color_format: self.color_format,
-                    timing,
-                })
+                match ww3d_gpu::acquire_surface_texture(&surface_state.surface) {
+                    Ok(frame) => {
+                        let view = Arc::new(
+                            frame
+                                .texture
+                                .create_view(&wgpu::TextureViewDescriptor::default()),
+                        );
+                        let depth_view = surface_state.depth_view();
+                        self.frame_active = true;
+                        frame_submit::on_begin_frame();
+                        Ok(RenderFrame {
+                            device: Arc::clone(&self.device),
+                            queue: Arc::clone(&self.queue),
+                            encoder,
+                            color_view: view,
+                            depth_view,
+                            color_texture: frame.texture.clone(),
+                            surface_texture: Some(frame),
+                            rendered_offscreen: false,
+                            _start_time: start_time,
+                            frame_index: self.frame_index,
+                            color_format: self.color_format,
+                            timing,
+                        })
+                    }
+                    Err(err)
+                        if matches!(
+                            err,
+                            ww3d_gpu::GpuError::SurfaceOccluded
+                                | ww3d_gpu::GpuError::SurfaceTimeout
+                        ) =>
+                    {
+                        // Metal returns Occluded when the Aqua window is not
+                        // composited (common for non-interactive smoke). Keep
+                        // drawing into a COPY_SRC fallback so screenshots and
+                        // live_frame residuals still observe real GPU content.
+                        let view = surface_state.occlusion_fallback.color_view();
+                        let depth_view = surface_state
+                            .occlusion_fallback
+                            .depth_view()
+                            .or_else(|| surface_state.depth_view());
+                        let color_texture = surface_state.occlusion_fallback.texture().clone();
+                        self.frame_active = true;
+                        frame_submit::on_begin_frame();
+                        Ok(RenderFrame {
+                            device: Arc::clone(&self.device),
+                            queue: Arc::clone(&self.queue),
+                            encoder,
+                            color_view: view,
+                            depth_view,
+                            color_texture,
+                            surface_texture: None,
+                            rendered_offscreen: true,
+                            _start_time: start_time,
+                            frame_index: self.frame_index,
+                            color_format: self.color_format,
+                            timing,
+                        })
+                    }
+                    Err(err) => Err(err.into()),
+                }
             }
             SurfaceMode::Headless(target) => {
                 let color_view = target.color_view();
@@ -1111,6 +1169,7 @@ impl Engine {
                     depth_view,
                     color_texture: target.color.clone(),
                     surface_texture: None,
+                    rendered_offscreen: false,
                     _start_time: start_time,
                     frame_index: self.frame_index,
                     color_format: self.color_format,
@@ -1149,6 +1208,7 @@ impl Engine {
             depth_view: _,
             color_texture: _,
             mut surface_texture,
+            rendered_offscreen: frame_rendered_offscreen,
             _start_time: _,
             frame_index: _,
             color_format: _,
@@ -1159,7 +1219,40 @@ impl Engine {
         // Frame-owned submit: uploads + this encoder + overlays in one queue.submit.
         frame_submit::submit_owned_frame(&self.queue, command_buffer, self.frame_index);
 
+        let rendered_offscreen = frame_rendered_offscreen;
         self.process_pending_screenshots(surface_texture.as_ref())?;
+        if surface_texture.is_none() && rendered_offscreen {
+            // Capture from the occlusion fallback color target.
+            let occlusion = if let SurfaceMode::Windowed(surface_state) = &self.surface {
+                let (width, height) = surface_state.occlusion_fallback.size();
+                Some((
+                    surface_state.occlusion_fallback.texture().clone(),
+                    width,
+                    height,
+                    surface_state.occlusion_fallback.format,
+                ))
+            } else {
+                None
+            };
+            if let Some((texture, width, height, format)) = occlusion {
+                let requests: Vec<_> = self.settings.pending_screenshots.drain(..).collect();
+                for request in requests {
+                    if let Err(err) = self.queue_texture_capture_readback(
+                        &texture,
+                        width,
+                        height,
+                        format,
+                        &request.path,
+                    ) {
+                        eprintln!(
+                            "WW3D occlusion-fallback screenshot queue failed for {}: {}",
+                            request.path.display(),
+                            err
+                        );
+                    }
+                }
+            }
+        }
 
         if let Some(texture) = surface_texture.take() {
             self.gpu_device.present_surface_texture(texture);
@@ -1579,22 +1672,38 @@ impl Engine {
     }
 
     fn flush_pending_screenshot_readbacks(&mut self) {
+        let finish = |this: &mut Self, pending: ScreenshotReadback| {
+            if let Err(err) = this.finish_screenshot_readback(pending) {
+                eprintln!("WW3D screenshot finalize failed: {}", err);
+            }
+        };
         let mut remaining = Vec::new();
         for pending in std::mem::take(&mut self.pending_screenshot_readbacks) {
             match pending.completion.try_recv() {
-                Ok(Ok(())) => {
-                    if let Err(err) = self.finish_screenshot_readback(pending) {
-                        eprintln!("WW3D screenshot finalize failed: {}", err);
-                    }
-                }
-                Ok(Err(err)) => {
-                    eprintln!("WW3D screenshot GPU map failed: {}", err);
-                }
+                Ok(Ok(())) => finish(self, pending),
+                Ok(Err(err)) => eprintln!("WW3D screenshot GPU map failed: {}", err),
                 Err(std::sync::mpsc::TryRecvError::Empty) => remaining.push(pending),
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     eprintln!("WW3D screenshot completion channel disconnected");
                 }
             }
+        }
+        if !remaining.is_empty() {
+            // Block once so capture_path is durable before the runtime host
+            // copies the procedural fallback placeholder into frame.png.
+            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            let mut still = Vec::new();
+            for pending in remaining {
+                match pending.completion.try_recv() {
+                    Ok(Ok(())) => finish(self, pending),
+                    Ok(Err(err)) => eprintln!("WW3D screenshot GPU map failed: {}", err),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => still.push(pending),
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        eprintln!("WW3D screenshot completion channel disconnected");
+                    }
+                }
+            }
+            remaining = still;
         }
         self.pending_screenshot_readbacks = remaining;
     }
@@ -1615,31 +1724,27 @@ impl Engine {
         let format = pending.format;
         let row_size = pending.row_size;
         let padded_row_size = pending.padded_row_size;
-        std::thread::spawn(move || {
-            let mut image_data = vec![0u8; width as usize * height as usize * 4];
-            for (row_index, dest_chunk) in
-                image_data.chunks_exact_mut(width as usize * 4).enumerate()
-            {
-                let src_offset = row_index * padded_row_size;
-                let src_slice = &mapped_bytes[src_offset..src_offset + row_size];
-                if let Err(err) = convert_row_to_rgba(format, src_slice, dest_chunk) {
-                    eprintln!(
-                        "WW3D screenshot row conversion failed for {}: {}",
-                        path.display(),
-                        err
-                    );
-                    return;
-                }
-            }
-
-            if let Err(err) = write_screenshot_png(path.as_path(), width, height, &image_data) {
-                eprintln!(
-                    "WW3D screenshot encode/write failed for {}: {}",
-                    path.display(),
-                    err
-                );
-            }
-        });
+        // Write synchronously so promote_capture_frame_if_ready can see the PNG
+        // on this frame instead of racing a detached encoder thread against the
+        // procedural fallback placeholder.
+        let mut image_data = vec![0u8; width as usize * height as usize * 4];
+        for (row_index, dest_chunk) in image_data.chunks_exact_mut(width as usize * 4).enumerate()
+        {
+            let src_offset = row_index * padded_row_size;
+            let src_slice = &mapped_bytes[src_offset..src_offset + row_size];
+            convert_row_to_rgba(format, src_slice, dest_chunk).map_err(|err| {
+                EngineError::Screenshot(format!(
+                    "Screenshot row conversion failed for {}: {err}",
+                    path.display()
+                ))
+            })?;
+        }
+        write_screenshot_png(path.as_path(), width, height, &image_data).map_err(|err| {
+            EngineError::Screenshot(format!(
+                "Screenshot encode/write failed for {}: {err}",
+                path.display()
+            ))
+        })?;
         Ok(())
     }
 
@@ -2208,11 +2313,7 @@ where
 
 /// Schedule a screenshot that will be captured on the next completed frame.
 pub fn make_screenshot<P: AsRef<Path>>(path: P) -> EngineResult<()> {
-    let Some(mut slot) = global_engine().try_lock() else {
-        return Err(EngineError::Rendering(
-            "WW3D screenshot scheduling skipped because engine is busy".to_string(),
-        ));
-    };
+    let mut slot = global_engine().lock();
     match slot.as_mut() {
         Some(engine) => {
             engine.queue_screenshot(path.as_ref().to_path_buf());

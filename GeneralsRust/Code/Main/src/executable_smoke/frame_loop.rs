@@ -170,6 +170,11 @@ struct SmokeRunState {
     present_frame_ingame_since: Option<Instant>,
     saw_present_frame_ok: bool,
     present_screenshot_path: String,
+    max_terrain_chunks: u32,
+    max_render_models: u32,
+    max_render_ui: u32,
+    max_render_selection: u32,
+    present_image_ok: bool,
     phase: u8, // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     last_snap: StatusSnap,
     last_ingame_frame: Option<u32>,
@@ -532,6 +537,12 @@ fn smoke_child_exited_early(
             );
             if let Some(idx) = prior.find("construct=") {
                 result.detail = format!("{}; {}", result.detail, &prior[idx..]);
+            }
+            for marker in ["present_frame_pass", "present_frame_fail", "save_load_pass", "world_restore_fail"] {
+                if let Some(idx) = prior.find(marker) {
+                    result.detail = format!("{}; {}", result.detail, &prior[idx..]);
+                    break;
+                }
             }
         } else if st.boot_shell_menu_goal
             && result.reached_menu

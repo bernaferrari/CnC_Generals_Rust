@@ -60,11 +60,15 @@ fn main() {
         eprintln!("retail_save_load_gate: SKIP binary_missing — {}", r.detail);
         std::process::exit(0);
     }
+    let empty_units = r.detail.contains("units=0")
+        || r.detail.contains("unit count is 0")
+        || r.detail.contains("world_restore_fail:unit count");
     let pass = r.executable_host_ok
         && r.reached_ingame
         && r.gameplay_cmd_ok
         && r.save_cmd_ok
         && r.load_cmd_ok
+        && !empty_units
         && (r.status == "success" || r.status == "success_forced_exit");
     if pass {
         println!(

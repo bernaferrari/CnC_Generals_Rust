@@ -4509,6 +4509,7 @@ dependencies = [
  "crossbeam",
  "env_logger",
  "fastrand 2.5.0",
+ "flate2",
  "font8x8",
  "futures",
  "game-client-rust",

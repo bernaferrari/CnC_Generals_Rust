@@ -489,6 +489,9 @@ impl RenderPipeline {
             let terrain_update_elapsed = terrain_update_started.elapsed();
 
             let chunk_count = terrain_visual.chunk_draw_count();
+            self.debug_last_terrain_chunks = chunk_count;
+            self.debug_last_terrain_visible_chunks = terrain_visual.debug_visible_chunk_count();
+            self.debug_last_terrain_total_chunks = terrain_visual.debug_total_chunk_count();
             let terrain_total_elapsed = terrain_pass_started.elapsed();
             if terrain_total_elapsed >= PROFILE_STEP_LOG_THRESHOLD
                 || terrain_render_elapsed >= PROFILE_STEP_LOG_THRESHOLD
@@ -515,6 +518,9 @@ impl RenderPipeline {
                 );
             }
         } else {
+            self.debug_last_terrain_chunks = 0;
+            self.debug_last_terrain_visible_chunks = 0;
+            self.debug_last_terrain_total_chunks = 0;
             return Ok(());
         }
 

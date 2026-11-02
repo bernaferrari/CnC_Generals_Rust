@@ -733,6 +733,11 @@ pub struct RenderPipeline {
     /// cross-pipeline suppression of retries. Fresh instances start empty.
     failed_model_resolutions: pipeline_collect::FailedModelResolutions,
     debug_last_alive_objects: usize,
+    pub(crate) debug_last_terrain_chunks: usize,
+    pub(crate) debug_last_terrain_visible_chunks: usize,
+    pub(crate) debug_last_terrain_total_chunks: usize,
+    pub(crate) debug_last_selection_indicators: usize,
+    pub(crate) debug_last_ui_draw_items: usize,
     /// Live GameLogic object identity reads in unit mesh pass (0 when presentation owns pass).
     debug_last_live_unit_identity_reads: usize,
     /// Live GameLogic dual-reads while a presentation frame is installed (must stay 0).

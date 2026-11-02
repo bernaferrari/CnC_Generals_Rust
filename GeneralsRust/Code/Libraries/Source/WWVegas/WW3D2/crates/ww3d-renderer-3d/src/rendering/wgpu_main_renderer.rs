@@ -559,7 +559,7 @@ impl WgpuMainRenderer {
                     }
                     Ok(())
                 });
-            let has_window_surface = frame.has_window_surface();
+            let has_window_surface = frame.has_gpu_color_target();
             let end_result = ww3d_engine::end_render(frame)
                 .map_err(|err| RendererError::RenderError(err.to_string()));
             let frame_work_result = match (frame_work_result, callback_result) {

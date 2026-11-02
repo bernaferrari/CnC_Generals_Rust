@@ -83,11 +83,17 @@ fn main() {
         );
         std::process::exit(4);
     }
+    let detail = r.detail.clone();
+    let categories_ok = detail.contains("terrain=")
+        && !detail.contains("present_frame_fail")
+        && detail.contains("present_frame_pass");
     let pass = r.executable_host_ok
         && r.reached_ingame
         && r.gameplay_cmd_ok
         && r.render_items_stable_ok
         && r.max_render_item_count > 0
+        && r.live_frame_ok
+        && categories_ok
         && (r.status == "success" || r.status == "success_forced_exit");
     if pass {
         println!(

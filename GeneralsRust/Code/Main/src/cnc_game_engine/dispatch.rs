@@ -997,6 +997,33 @@ impl CnCGameEngine {
         )
     }
 
+    /// Visible InGame UI residual for the present-frame gate: ControlBar parent
+    /// or any live WindowManager roots. Zero outside gameplay.
+    pub(super) fn runtime_host_ingame_ui_window_count(&self) -> u32 {
+        if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
+            return 0;
+        }
+        #[cfg(feature = "game_client")]
+        {
+            self.game_client
+                .window_manager_owner()
+                .with_manager(|wm| {
+                    if wm
+                        .find_window_by_name("ControlBar.wnd:ControlBarParent")
+                        .is_some()
+                    {
+                        (wm.window_count() as u32).max(1)
+                    } else {
+                        wm.window_count() as u32
+                    }
+                })
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            0
+        }
+    }
+
     /// Physical OS window outer frame for status.txt clicker aim.
     /// Headless always reports zeros — there is no OS window to click.
     /// Coordinates are **points** (CGEvent / Quartz), not retina backing pixels.
@@ -1313,6 +1340,14 @@ impl CnCGameEngine {
             render_alive_objects: self.render_pipeline.debug_last_alive_objects() as u32,
             render_fow_filtered: self.render_pipeline.debug_last_fow_filtered() as u32,
             render_item_count: self.render_pipeline.debug_render_item_count() as u32,
+            render_terrain_chunks: self.render_pipeline.debug_last_terrain_chunks() as u32,
+            render_models: self.render_pipeline.debug_model_item_count() as u32,
+            render_ui: {
+                let pass = self.render_pipeline.debug_ui_pass_item_count() as u32;
+                let windows = self.runtime_host_ingame_ui_window_count();
+                pass.max(windows)
+            },
+            render_selection: self.render_pipeline.debug_last_selection_indicators() as u32,
             render_model_missing: self.render_pipeline.debug_last_model_missing() as u32,
             render_frustum_culled: self.render_pipeline.debug_last_frustum_culled() as u32,
             camera_pos: format!(

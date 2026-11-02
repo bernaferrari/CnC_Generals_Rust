@@ -457,6 +457,25 @@ impl RenderPipeline {
 
         #[cfg(feature = "game_client")]
         if render_world_scene {
+            // CPU-admitted maps must own GPU pipelines before TerrainGround,
+            // otherwise record_chunk_draws only paints the skybox clear/gradient.
+            if self
+                .native_terrain
+                .as_ref()
+                .is_some_and(|t| !t.debug_gpu_resources_ready())
+            {
+                let device = graphics_system.device_arc();
+                let queue = graphics_system.queue_arc();
+                match self.hydrate_native_terrain_gpu(&device, &queue) {
+                    Ok(true) => {
+                        if self.frame_number <= 3 {
+                            info!("hydrated native terrain GPU before TerrainGround pass");
+                        }
+                    }
+                    Ok(false) => {}
+                    Err(err) => warn!("native terrain GPU hydrate failed: {err}"),
+                }
+            }
             let terrain_started = std::time::Instant::now();
             let motion = self
                 .presentation_frame

@@ -89,6 +89,10 @@ pub(super) struct RuntimeHostSnapshot {
     pub(super) render_alive_objects: u32,
     pub(super) render_fow_filtered: u32,
     pub(super) render_item_count: u32,
+    pub(super) render_terrain_chunks: u32,
+    pub(super) render_models: u32,
+    pub(super) render_ui: u32,
+    pub(super) render_selection: u32,
     pub(super) render_model_missing: u32,
     pub(super) render_frustum_culled: u32,
     pub(super) camera_pos: String,
@@ -389,6 +393,10 @@ impl RuntimeHostBridge {
             render_alive_objects: 0,
             render_fow_filtered: 0,
             render_item_count: 0,
+            render_terrain_chunks: 0,
+            render_models: 0,
+            render_ui: 0,
+            render_selection: 0,
             render_model_missing: 0,
             render_frustum_culled: 0,
             camera_pos: String::new(),
@@ -554,6 +562,22 @@ impl RuntimeHostBridge {
             snapshot.render_item_count
         ));
         payload.push_str(&format!(
+            "render_terrain_chunks={}\n",
+            snapshot.render_terrain_chunks
+        ));
+        payload.push_str(&format!(
+            "render_models={}\n",
+            snapshot.render_models
+        ));
+        payload.push_str(&format!(
+            "render_ui={}\n",
+            snapshot.render_ui
+        ));
+        payload.push_str(&format!(
+            "render_selection={}\n",
+            snapshot.render_selection
+        ));
+        payload.push_str(&format!(
             "render_model_missing={}\n",
             snapshot.render_model_missing
         ));
@@ -659,6 +683,12 @@ impl RuntimeHostBridge {
                 self.capture_path.display()
             );
             self.last_capture_health_log_at = Some(Instant::now());
+        }
+
+        // Never plant the procedural green→blue ramp during a live match: the
+        // present-frame gate previously copied that placeholder and passed.
+        if matches!(state, "InGame" | "Paused") {
+            return;
         }
 
         let fallback_bytes = if let Some(bytes) = self.fallback_frame_png.as_ref() {

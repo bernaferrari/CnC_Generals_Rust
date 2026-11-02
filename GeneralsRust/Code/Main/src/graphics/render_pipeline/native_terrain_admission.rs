@@ -153,9 +153,12 @@ impl RenderPipeline {
         let Some(visual) = self.native_terrain.as_mut() else {
             return Ok(false);
         };
-        visual
-            .init_gpu_resources(device.clone(), queue.clone())
-            .map_err(|error| anyhow::anyhow!("Terrain GPU hydration failed: {error}"))?;
+        // init_gpu_resources drops skybox/bind groups; only run once per CPU map.
+        if !visual.debug_gpu_resources_ready() {
+            visual
+                .init_gpu_resources(device.clone(), queue.clone())
+                .map_err(|error| anyhow::anyhow!("Terrain GPU hydration failed: {error}"))?;
+        }
         if !source_tile_classes.is_empty() {
             let source_load = if let Some(read_virtual_file) = read_virtual_file.as_deref_mut() {
                 visual.load_source_tiles_from_texture_classes_with_reader(

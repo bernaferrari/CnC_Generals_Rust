@@ -1191,12 +1191,16 @@ pub fn enqueue_selection_render(
     let view_proj = *projection_matrix * *view_matrix;
 
     let mut selected_units = collect_selected_units(presentation);
+    // Count true selection circles before blob-shadow / marker padding so the
+    // present-frame gate can require a selected unit indicator.
+    let selection_indicator_count = selected_units.len();
     // Blob discs are the fallback when the forward-pass projected/CSM sample
     // is empty. Planted at unit Y (not world origin) so units do not hover.
     if let Some(frame) = presentation {
         selected_units.splice(0..0, collect_blob_shadows_from_presentation(frame));
     }
     selected_units.extend(ground_markers);
+    pipeline.debug_last_selection_indicators = selection_indicator_count;
 
     // C++ Drawable::drawIconUI health bars for the selected set (Drawable.cpp
     // 2738-2754 / 3825-3937), packed for the 2D overlay pass.
