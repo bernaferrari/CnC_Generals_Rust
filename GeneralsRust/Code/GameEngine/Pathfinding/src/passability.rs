@@ -146,23 +146,14 @@ impl AStarPathfinder {
             COST_ORTHOGONAL
         };
 
-        // Terrain cost modifiers matching C++ logic at AIPathfind.cpp:6263-6318
+        // C++ costSoFar charges the same base step for clear, water and rubble;
+        // examineNeighboringCells adds the cliff and obstacle surcharges.
         match to_cell.get_type() {
-            PathfindCellType::Clear => {}
-            PathfindCellType::Water => {
-                cost = (cost as f32 * 1.5) as u32; // Slower in water
-            }
+            PathfindCellType::Clear | PathfindCellType::Water | PathfindCellType::Rubble => {}
             PathfindCellType::Cliff => {
                 // Base cliff surcharge applied when height unavailable; find_path_ex2
                 // adjusts via ground_height when |dz| is known (C++ AIPathfind.cpp:6263-6276).
                 cost += 7 * COST_DIAGONAL;
-            }
-            PathfindCellType::Rubble => {
-                if is_crusher {
-                    cost = (cost as f32 * 1.2) as u32;
-                } else {
-                    cost = (cost as f32 * 1.8) as u32;
-                }
             }
             PathfindCellType::Obstacle => {
                 if self.is_ignored_obstacle(to, from_layer, ignore_cells) {
@@ -214,9 +205,6 @@ impl AStarPathfinder {
                 }
             }
         }
-
-        // Apply custom cost multiplier
-        cost = (cost as f32 * to_cell.cost_multiplier) as u32;
 
         cost
     }

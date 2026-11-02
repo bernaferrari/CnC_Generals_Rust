@@ -186,8 +186,6 @@ pub struct PathfindCell {
     connect_layer: PathfindLayerEnum,
     zone: u16,
     pinched: bool,
-    /// Read directly by the movement-cost model (C++ cost multiplier).
-    pub(crate) cost_multiplier: f32,
 }
 
 impl PathfindCell {
@@ -199,7 +197,6 @@ impl PathfindCell {
             connect_layer: PathfindLayerEnum::Invalid,
             zone: 0,
             pinched: false,
-            cost_multiplier: 1.0,
         }
     }
 

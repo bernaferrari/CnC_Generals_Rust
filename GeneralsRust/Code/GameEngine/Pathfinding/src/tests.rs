@@ -2,6 +2,97 @@ use super::*;
 use super::*;
 
 #[test]
+fn ordinary_search_does_not_detour_around_water_for_an_invented_cost() {
+    use crate::cell::SURFACE_WATER;
+    let mut finder = AStarPathfinder::new(15, 5);
+    for x in 2..=12 {
+        finder.set_cell_type(GridCoord::new(x, 2), PathfindCellType::Water);
+    }
+    let start = GridCoord::new(1, 2);
+    let goal = GridCoord::new(13, 2);
+    let (path, _) = finder
+        .find_path_ex6(
+            start,
+            goal,
+            SURFACE_GROUND | SURFACE_WATER,
+            false,
+            2000,
+            false,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            None,
+        )
+        .expect("water-capable unit should reach the goal");
+    let expected: Vec<_> = (1..=13).map(|x| GridCoord::new(x, 2)).collect();
+    assert_eq!(
+        path, expected,
+        "the shorter straight route should not get a water surcharge"
+    );
+}
+
+#[test]
+fn cpp_cell_cost_does_not_weight_water_or_rubble() {
+    use crate::cell::{SURFACE_RUBBLE, SURFACE_WATER};
+    use std::collections::HashMap;
+    let mut finder = AStarPathfinder::new(5, 5);
+    let from = GridCoord::new(1, 1);
+    let orthogonal = GridCoord::new(2, 1);
+    let diagonal = GridCoord::new(2, 2);
+    let layer = PathfindLayerEnum::Ground;
+    let surfaces = SURFACE_GROUND | SURFACE_WATER | SURFACE_RUBBLE;
+    let mut parents = HashMap::new();
+    for terrain in [
+        PathfindCellType::Clear,
+        PathfindCellType::Water,
+        PathfindCellType::Rubble,
+    ] {
+        finder.set_cell_type(orthogonal, terrain);
+        finder.set_cell_type(diagonal, terrain);
+        for crusher in [false, true] {
+            assert_eq!(
+                finder.movement_cost_with_ignore(
+                    from, orthogonal, layer, surfaces, crusher, None, &parents
+                ),
+                COST_ORTHOGONAL
+            );
+            assert_eq!(
+                finder.movement_cost_with_ignore(
+                    from, diagonal, layer, surfaces, crusher, None, &parents
+                ),
+                COST_DIAGONAL
+            );
+        }
+    }
+    finder.set_cell_type(orthogonal, PathfindCellType::Clear);
+    finder.set_pinched(orthogonal, true);
+    assert_eq!(
+        finder.movement_cost_with_ignore(from, orthogonal, layer, surfaces, false, None, &parents),
+        COST_ORTHOGONAL + COST_DIAGONAL
+    );
+    finder.set_pinched(orthogonal, false);
+    parents.insert((from, layer), (GridCoord::new(0, 1), layer));
+    assert_eq!(
+        finder.movement_cost_with_ignore(
+            from,
+            GridCoord::new(1, 2),
+            layer,
+            surfaces,
+            false,
+            None,
+            &parents
+        ),
+        COST_ORTHOGONAL + 8
+    );
+}
+
+#[test]
 fn resolved_layer_follows_cpp_ground_fallback() {
     let mut finder = AStarPathfinder::new(4, 4);
     let cell = GridCoord::new(2, 2);
