@@ -9,10 +9,8 @@
 //! - dx8texman.h (DirectX8 texture manager)
 
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-static TEXTURE_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 use crate::core::error::{Result, W3dError};
 use crate::core::wwstring::StringClass;
 use crate::rendering::texture_loader::{
@@ -145,8 +143,20 @@ impl TextureBaseClass {
         render_target: bool,
         reducible: bool,
     ) -> Self {
-        let texture_id = TEXTURE_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+        // Instance-assigned id (C++ file-static counter removed for multi-instance ownership).
+        Self::with_id(width, height, mip_level_count, pool, render_target, reducible, 0)
+    }
 
+    /// Construct with an explicit texture identity.
+    pub fn with_id(
+        width: u32,
+        height: u32,
+        mip_level_count: MipCountType,
+        pool: PoolType,
+        render_target: bool,
+        reducible: bool,
+        texture_id: u32,
+    ) -> Self {
         Self {
             width,
             height,
@@ -774,42 +784,29 @@ impl TextureLoader {
     }
 }
 
-thread_local! {
-    /// C++ kept the texture loader singleton as a plain static on the game thread.
-    static TEXTURE_LOADER: RefCell<Option<TextureLoader>> = const { RefCell::new(None) };
+/// Owned texture helpers. Prefer a [`TextureLoader`] on the owning renderer
+/// (process TLS singleton removed for multi-instance ownership).
+
+pub fn with_texture_loader<R>(
+    loader: &mut TextureLoader,
+    f: impl FnOnce(&mut TextureLoader) -> R,
+) -> R {
+    f(loader)
 }
 
-/// Run `f` with mutable access to the texture loader singleton, if initialized.
-pub fn with_texture_loader<R>(f: impl FnOnce(&mut TextureLoader) -> R) -> Option<R> {
-    TEXTURE_LOADER.with_borrow_mut(|loader| {
-        let loader = loader.as_mut()?;
-        Some(f(loader))
-    })
-}
-
-/// Initialize texture system
-pub fn init_texture_system() -> Result<()> {
-    TEXTURE_LOADER.with_borrow_mut(|slot| *slot = Some(TextureLoader::new()));
-    Ok(())
-}
-
-/// Shutdown texture system
-pub fn shutdown_texture_system() {
-    TEXTURE_LOADER.with_borrow_mut(|slot| *slot = None);
-}
-
-/// Quick texture loading function
-pub fn load_texture(filename: &str) -> Result<Arc<TextureBaseClass>> {
-    with_texture_loader(|loader| loader.load_texture(filename))
-        .ok_or_else(|| W3dError::NotInitialized("Texture loader not initialized".to_string()))?
+pub fn load_texture(
+    loader: &mut TextureLoader,
+    filename: &str,
+) -> Result<Arc<TextureBaseClass>> {
+    loader.load_texture(filename)
 }
 
 pub fn load_texture_with_policy(
+    loader: &mut TextureLoader,
     filename: &str,
     policy: TextureUsagePolicy,
 ) -> Result<Arc<TextureBaseClass>> {
-    with_texture_loader(|loader| loader.load_texture_with_policy(filename, policy))
-        .ok_or_else(|| W3dError::NotInitialized("Texture loader not initialized".to_string()))?
+    loader.load_texture_with_policy(filename, policy)
 }
 
 /// Quick texture creation function

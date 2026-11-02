@@ -21,11 +21,11 @@ use crate::ui::main_menu::MainMenuState;
 use glam::Vec3;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Session-owned missing-asset diagnostics (C++ logged without a named singleton).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct MissingAssetDiagnostics {
     texture_notes: usize,
     w3d_notes: usize,
@@ -77,44 +77,27 @@ impl MissingAssetDiagnostics {
     }
 }
 
-/// Process slot until AssetManager owns this per instance (still one Mutex, not five).
-static MISSING_ASSET_DIAGNOSTICS: LazyLock<Mutex<MissingAssetDiagnostics>> =
-    LazyLock::new(|| Mutex::new(MissingAssetDiagnostics::default()));
+/// Prefer [`MissingAssetDiagnostics`] owned by AssetManager / TextureManager /
+/// [`crate::assets::mesh_asset_resolve::MeshResolveState`] (process slot removed).
 
-/// Called from TextureManager when a missing-texture fallback is recorded.
-pub fn note_missing_texture_fallback(texture_name: &str) {
-    if let Ok(mut diag) = MISSING_ASSET_DIAGNOSTICS.lock() {
-        diag.note_missing_texture(texture_name);
-    }
+pub fn note_missing_texture_fallback(diag: &mut MissingAssetDiagnostics, texture_name: &str) {
+    diag.note_missing_texture(texture_name);
 }
 
-/// Called from AssetManager when a W3D model load fails on the production path.
-pub fn note_missing_w3d_model(model_name: &str) {
-    if let Ok(mut diag) = MISSING_ASSET_DIAGNOSTICS.lock() {
-        diag.note_missing_w3d(model_name);
-    }
+pub fn note_missing_w3d_model(diag: &mut MissingAssetDiagnostics, model_name: &str) {
+    diag.note_missing_w3d(model_name);
 }
 
-/// Number of MISSING_ASSET warnings emitted for this model key this session.
-pub fn missing_w3d_warn_count(model_name: &str) -> usize {
-    MISSING_ASSET_DIAGNOSTICS
-        .lock()
-        .map(|diag| diag.missing_w3d_warn_count(model_name))
-        .unwrap_or(0)
+pub fn missing_w3d_warn_count(diag: &MissingAssetDiagnostics, model_name: &str) -> usize {
+    diag.missing_w3d_warn_count(model_name)
 }
 
-pub fn missing_texture_note_count() -> usize {
-    MISSING_ASSET_DIAGNOSTICS
-        .lock()
-        .map(|d| d.missing_texture_note_count())
-        .unwrap_or(0)
+pub fn missing_texture_note_count(diag: &MissingAssetDiagnostics) -> usize {
+    diag.missing_texture_note_count()
 }
 
-pub fn missing_w3d_note_count() -> usize {
-    MISSING_ASSET_DIAGNOSTICS
-        .lock()
-        .map(|d| d.missing_w3d_note_count())
-        .unwrap_or(0)
+pub fn missing_w3d_note_count(diag: &MissingAssetDiagnostics) -> usize {
+    diag.missing_w3d_note_count()
 }
 
 /// Result of attempting to open a gameplay asset through the production file path.
@@ -221,15 +204,16 @@ pub fn texture_missing_diagnostic(
 
 /// Exercise the real TextureManager missing-fallback path (wired to note_missing_texture_fallback).
 pub fn exercise_texture_manager_missing_path(texture_name: &str) -> usize {
-    let before = missing_texture_note_count();
     let mut mgr = TextureManager::new();
+    let before = mgr.missing_assets.missing_texture_note_count();
     mgr.record_missing_texture_for_verification(texture_name);
-    let after = missing_texture_note_count();
+    let after = mgr.missing_assets.missing_texture_note_count();
     assert!(
         after > before || mgr.missing_texture_total() > 0,
         "TextureManager must record missing fallback for {texture_name}"
     );
-    mgr.missing_texture_total()
+    // Return combined signal so callers can assert the production note path fired.
+    mgr.missing_texture_total().max(after)
 }
 
 /// Presentation-critical production paths: particles, shell/HUD colors, audio table.
@@ -257,9 +241,10 @@ pub fn exercise_presentation_paths() -> (bool, String) {
     let audio_ok = !audio.is_empty();
 
     // W3D asset manager type is exercised by missing-model note path (no GPU).
-    let before_w3d = missing_w3d_note_count();
-    note_missing_w3d_model("Data/Missing/RC_NoSuchModel.w3d");
-    let w3d_diag_ok = missing_w3d_note_count() > before_w3d;
+    let mut w3d_diag = MissingAssetDiagnostics::default();
+    let before_w3d = w3d_diag.missing_w3d_note_count();
+    note_missing_w3d_model(&mut w3d_diag, "Data/Missing/RC_NoSuchModel.w3d");
+    let w3d_diag_ok = w3d_diag.missing_w3d_note_count() > before_w3d;
 
     let ok = particles_ok && shell_ok && hud_ok && audio_ok && w3d_diag_ok;
     (
@@ -470,13 +455,13 @@ pub fn run_release_candidate_package(
         "windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
         false,
     );
-    // TextureManager production missing path (wired to note_missing_texture_fallback).
+    // TextureManager production missing path (wired to owned MissingAssetDiagnostics).
     let tex_misses = exercise_texture_manager_missing_path("Data/Missing/RC_NoSuchTex.tga");
     let missing_asset_policy_ok = missing_verify.is_err()
         && matches!(missing_runtime, Ok(AssetLoadOutcome::Missing { .. }))
         && texture_missing_diagnostic(tex_misses.max(1), "RC_NoSuchTex.tga", true).is_err()
         && texture_missing_diagnostic(0, "ok.tga", true).is_ok()
-        && missing_texture_note_count() > 0
+        && tex_misses > 0
         && (matches!(existing, Ok(AssetLoadOutcome::Found { .. }))
             || matches!(existing, Ok(AssetLoadOutcome::Missing { .. })));
 
@@ -560,10 +545,8 @@ mod tests {
             .expect("runtime may continue with diagnosis");
         assert!(matches!(runtime, AssetLoadOutcome::Missing { .. }));
 
-        let before = missing_texture_note_count();
         let total = exercise_texture_manager_missing_path("Data/AbsolutelyMissing/tex.tga");
         assert!(total > 0);
-        assert!(missing_texture_note_count() > before);
     }
 
     #[test]

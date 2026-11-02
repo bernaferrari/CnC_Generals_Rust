@@ -32,6 +32,8 @@ use std::time::SystemTime;
 
 /// Complete asset management system for C&C Generals
 pub struct AssetManager {
+    /// Instance-owned mesh-resolve honesty + missing-W3D diagnostics.
+    pub mesh_resolve: crate::assets::mesh_asset_resolve::MeshResolveState,
     /// Archive file system for reading BIG files
     archive_system: ArchiveFileSystem,
     /// Audio manager for music and sound effects
@@ -648,6 +650,7 @@ impl AssetManager {
         let (language, active_mod_path) = Self::runtime_overrides();
 
         Ok(Self {
+            mesh_resolve: Default::default(),
             archive_system: ArchiveFileSystem::new(),
             audio_manager: AudioManager::new()?,
             model_loader: W3DLoader::new(),
@@ -2190,7 +2193,7 @@ impl AssetManager {
             Err(e) => {
                 self.missing_model_keys.insert(model_key.clone());
                 self.missing_model_keys.insert(resolved_key.clone());
-                crate::release_candidate::note_missing_w3d_model(model_name);
+                self.mesh_resolve.missing_assets.note_missing_w3d(model_name);
                 warn!("W3D loader failed for '{}': {}", model_name, e);
                 return Err(anyhow!("W3D load failed for '{}': {e}", model_name));
             }
@@ -2253,7 +2256,7 @@ impl AssetManager {
             Err(err) => {
                 self.missing_model_keys.insert(model_key.clone());
                 self.missing_model_keys.insert(resolved_key.clone());
-                crate::release_candidate::note_missing_w3d_model(&resolved_name);
+                self.mesh_resolve.missing_assets.note_missing_w3d(&resolved_name);
                 warn!(
                     "Synchronous W3D load failed for '{}': {}",
                     resolved_name, err

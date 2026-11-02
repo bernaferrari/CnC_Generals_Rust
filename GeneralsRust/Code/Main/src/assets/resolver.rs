@@ -15,6 +15,8 @@ pub struct LiveAssetResolver {
     missing_keys: HashSet<String>,
     #[cfg(test)]
     miss_probes: HashMap<String, usize>,
+    /// Instance-owned mesh-resolve honesty + missing-W3D diagnostics.
+    pub mesh_resolve: crate::assets::mesh_asset_resolve::MeshResolveState,
 }
 
 impl LiveAssetResolver {

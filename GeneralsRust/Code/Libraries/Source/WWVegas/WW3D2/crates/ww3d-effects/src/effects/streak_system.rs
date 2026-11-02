@@ -9,8 +9,6 @@
 //! - line3d.cpp/h (3D line rendering)
 
 use glam::{Mat4, Vec2, Vec3, Vec4};
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::cell::RefCell;
 use std::sync::Arc;
 use ww3d_core::errors::{W3DError, W3DResult};
 use ww3d_core::w3d_format::{W3dTexCoordStruct, W3dTriangleStruct, W3dVectorStruct};
@@ -27,26 +25,8 @@ use ww3d_renderer_3d::{
 
 type Result<T> = W3DResult<T>;
 
-static STREAK_LINE_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
-static STREAK_RENDERER_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
-
 fn renderer_error_to_w3d(err: RendererError) -> W3DError {
     W3DError::UnknownWithMessage(err.to_string())
-}
-
-thread_local! {
-    /// C++ kept the streak renderer as a plain file static on the game thread.
-    static STREAK_RENDERER_SLOT: RefCell<Option<StreakRenderer>> = const { RefCell::new(None) };
-}
-
-fn with_streak_renderer_mut<R, F>(f: F) -> Option<R>
-where
-    F: FnOnce(&mut StreakRenderer) -> R,
-{
-    STREAK_RENDERER_SLOT.with_borrow_mut(|slot| {
-        let renderer = slot.as_mut()?;
-        Some(f(renderer))
-    })
 }
 
 /// Streak rendering mode
@@ -138,8 +118,12 @@ pub struct StreakLine {
 impl StreakLine {
     /// Create new streak line
     pub fn new(max_points: usize) -> Self {
-        let streak_id = STREAK_LINE_ID_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
+        // Standalone construction uses id 1; prefer `with_id` from an owning renderer.
+        Self::with_id(max_points, 1)
+    }
 
+    /// Construct with an explicit streak identity (no process counter).
+    pub fn with_id(max_points: usize, streak_id: u32) -> Self {
         Self {
             points: vec![StreakPoint::new(Vec3::ZERO, Vec3::X); max_points],
             max_points,
@@ -295,6 +279,8 @@ pub struct StreakRenderer {
     pub index_buffer: Vec<u32>,
     /// Renderer ID
     pub renderer_id: u32,
+    /// Next streak-line id allocated by this renderer instance.
+    next_line_id: u32,
 }
 
 impl StreakRenderer {
@@ -302,9 +288,11 @@ impl StreakRenderer {
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
         let _ = device; // Use parameters
         let _ = queue;
+        Self::with_id(1)
+    }
 
-        let renderer_id = STREAK_RENDERER_ID_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
-
+    /// Construct with an explicit renderer identity (no process counter).
+    pub fn with_id(renderer_id: u32) -> Self {
         Self {
             streaks: Vec::new(),
             texture: None,
@@ -314,7 +302,19 @@ impl StreakRenderer {
             vertex_buffer: Vec::new(),
             index_buffer: Vec::new(),
             renderer_id,
+            next_line_id: 1,
         }
+    }
+
+    fn alloc_line_id(&mut self) -> u32 {
+        let id = self.next_line_id;
+        self.next_line_id = self.next_line_id.wrapping_add(1).max(1);
+        id
+    }
+
+    /// Allocate a new streak line with an id owned by this renderer.
+    pub fn create_line(&mut self, max_points: usize) -> StreakLine {
+        StreakLine::with_id(max_points, self.alloc_line_id())
     }
 
     /// Set texture
@@ -605,7 +605,7 @@ impl StreakRenderer {
         color: glam::Vec4,
         width: f32,
     ) {
-        let mut streak = StreakLine::new(10);
+        let mut streak = self.create_line(10);
         let _ = streak.add_point(StreakPoint {
             position: start,
             direction: (end - start).normalize(),
@@ -797,36 +797,23 @@ impl LightningStreak {
     }
 }
 
-/// Initialize global streak renderer
-pub fn init_streak_renderer(max_streaks: usize) -> Result<()> {
-    let _ = max_streaks; // Placeholder until device/queue wiring is implemented
-    Ok(())
-}
+/// Quick streak helpers. Prefer owning a [`StreakRenderer`] on the effects system
+/// (process TLS slot removed for multi-instance ownership).
 
-/// Shutdown global streak renderer
-pub fn shutdown_streak_renderer() {
-    STREAK_RENDERER_SLOT.with_borrow_mut(|slot| *slot = None);
-}
-
-/// Quick streak functions
 pub fn create_lightning_streak(start_pos: Vec3, end_pos: Vec3) -> LightningStreak {
     LightningStreak::new(start_pos, end_pos, 20)
 }
 
-pub fn add_streak_to_renderer(streak: StreakLine) -> Result<usize> {
-    with_streak_renderer_mut(|renderer| renderer.add_streak(streak)).unwrap_or_else(|| {
-        Err(W3DError::NotInitialized(
-            "Streak system not initialized".to_string(),
-        ))
-    })
+pub fn add_streak_to_renderer(renderer: &mut StreakRenderer, streak: StreakLine) -> Result<usize> {
+    renderer.add_streak(streak)
 }
 
-pub fn update_streak_renderer(delta_time: f32) {
-    let _ = with_streak_renderer_mut(|renderer| renderer.update(delta_time));
+pub fn update_streak_renderer(renderer: &mut StreakRenderer, delta_time: f32) {
+    renderer.update(delta_time);
 }
 
-pub fn render_streaks(rinfo: &RenderInfoClass) -> Result<()> {
-    with_streak_renderer_mut(|renderer| renderer.render(rinfo)).unwrap_or_else(|| Ok(()))
+pub fn render_streaks(renderer: &mut StreakRenderer, rinfo: &RenderInfoClass) -> Result<()> {
+    renderer.render(rinfo)
 }
 
 #[cfg(test)]
