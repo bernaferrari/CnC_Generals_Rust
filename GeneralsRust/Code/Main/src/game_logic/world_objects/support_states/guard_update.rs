@@ -3,15 +3,17 @@ use super::super::super::*;
 use crate::game_logic::object::unit_ai_runtime::GuardPhase;
 
 impl GameLogic {
+    #[cfg(test)]
     pub(crate) fn tick_host_guard_states(&mut self, object_ids: &[ObjectId]) {
         self.tick_host_guard_states_with_effects(object_ids, &mut Default::default())
+            .expect("valid Guard test session")
     }
 
     pub(crate) fn tick_host_guard_states_with_effects(
         &mut self,
         object_ids: &[ObjectId],
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         for &object_id in object_ids {
             let Some(unit) = self.objects.get(&object_id) else {
                 continue;
@@ -32,34 +34,31 @@ impl GameLogic {
             {
                 continue;
             }
-            let finished = self.finish_quick_exit_if_due(object_id, guard_target, effects);
-            self.update_host_guard_base_state_with_effects(object_id, effects);
+            let finished = self.finish_quick_exit_if_due(object_id, guard_target, effects)?;
+            self.update_host_guard_base_state_with_effects(object_id, effects)?;
             if finished {
                 // AIUpdate::update consumes movementComplete after the whole
                 // state-machine call, including the resumed base state.
                 self.consume_guard_exit_movement(object_id);
             }
         }
-    }
-
-    fn update_host_guard_base_state(&mut self, object_id: ObjectId) {
-        self.update_host_guard_base_state_with_effects(object_id, &mut Default::default())
+        Ok(())
     }
 
     fn update_host_guard_base_state_with_effects(
         &mut self,
         object_id: ObjectId,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
-    ) {
+    ) -> gamelogic::GameLogicResult<()> {
         let Some(unit) = self.objects.get(&object_id) else {
-            return;
+            return Ok(());
         };
         if !matches!(
             unit.ai_state(),
             AIState::GuardingArea | AIState::GuardingObject
         ) || self.guard_quick_exit_active(object_id)
         {
-            return;
+            return Ok(());
         }
         let (
             ai_state,
@@ -103,14 +102,14 @@ impl GameLogic {
         );
         // AIGuardMachine exit conditions observe retaliation independently
         // of the nested Idle scan sleep.
-        if can_attack && self.try_guard_last_attacker(object_id, team, effects) {
-            return;
+        if can_attack && self.try_guard_last_attacker(object_id, team, effects)? {
+            return Ok(());
         }
         let scan_due = self.guard_acquire_scan_due(object_id, returning);
         // Idle's entire body sleeps until its scan; Return still observes
         // movement completion on frames without an enemy scan.
         if !returning && !scan_due {
-            return;
+            return Ok(());
         }
         const GUARD_MIN_RADIUS: f32 = 80.0;
         match ai_state {
@@ -165,8 +164,8 @@ impl GameLogic {
                     .unwrap_or(false);
                 if scan_due && can_attack {
                     if let Some(team_id) = self.host_team_common_target(object_id) {
-                        if self.engage_guard_target(object_id, team_id, false, effects) {
-                            return;
+                        if self.engage_guard_target(object_id, team_id, false, effects)? {
+                            return Ok(());
                         }
                     }
                     if let Some(enemy_id) = self.scan_guard_inner_target(
@@ -187,10 +186,10 @@ impl GameLogic {
                                 team,
                                 effects,
                             ) {
-                                return;
+                                return Ok(());
                             }
-                        } else if self.engage_guard_target(object_id, enemy_id, false, effects) {
-                            return;
+                        } else if self.engage_guard_target(object_id, enemy_id, false, effects)? {
+                            return Ok(());
                         }
                     }
                 }
@@ -204,7 +203,7 @@ impl GameLogic {
                                 &mut self.queued_audio_events,
                             ));
                         }
-                        return;
+                        return Ok(());
                     }
                 };
 
@@ -223,7 +222,7 @@ impl GameLogic {
                         );
                     }
                     self.clear_target_decision_aware(object_id);
-                    return;
+                    return Ok(());
                 };
 
                 let (std_inner, _) = self.host_std_guard_ranges(object_id);
@@ -262,8 +261,8 @@ impl GameLogic {
                     .unwrap_or(false);
                 if scan_due && can_attack {
                     if let Some(team_id) = self.host_team_common_target(object_id) {
-                        if self.engage_guard_target(object_id, team_id, false, effects) {
-                            return;
+                        if self.engage_guard_target(object_id, team_id, false, effects)? {
+                            return Ok(());
                         }
                     }
                     if enter_guard {
@@ -283,7 +282,7 @@ impl GameLogic {
                                 team,
                                 effects,
                             ) {
-                                return;
+                                return Ok(());
                             }
                         }
                     } else {
@@ -307,8 +306,8 @@ impl GameLogic {
                             }
                         };
                         if let Some(enemy_id) = tunnel_nemesis {
-                            if self.engage_guard_target(object_id, enemy_id, false, effects) {
-                                return;
+                            if self.engage_guard_target(object_id, enemy_id, false, effects)? {
+                                return Ok(());
                             }
                         }
                         if let Some(enemy_id) = self.scan_guard_inner_target(
@@ -320,8 +319,8 @@ impl GameLogic {
                             false,
                             None,
                         ) {
-                            if self.engage_guard_target(object_id, enemy_id, false, effects) {
-                                return;
+                            if self.engage_guard_target(object_id, enemy_id, false, effects)? {
+                                return Ok(());
                             }
                         }
                     }
@@ -343,5 +342,6 @@ impl GameLogic {
         if returning {
             self.finish_guard_return_if_arrived(object_id, effects);
         }
+        Ok(())
     }
 }

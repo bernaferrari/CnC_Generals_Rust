@@ -281,6 +281,13 @@ impl GameLogic {
             });
             if attack_move_child {
                 self.complete_attack_move_child_attack_owned(id)?;
+            } else if matches!(
+                parent,
+                Some(AIState::GuardingArea | AIState::GuardingObject)
+            ) {
+                // Guard owns its attack child and performs its own exit/return
+                // handling; generic child Idle is an AI_IDLE state, not Guard.
+                self.end_guard_chase_attack(id);
             } else {
                 self.attack_state_exit(id);
                 self.stop_attack_decision_aware(id);

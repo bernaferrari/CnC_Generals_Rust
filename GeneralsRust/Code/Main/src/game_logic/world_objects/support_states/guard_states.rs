@@ -306,31 +306,59 @@ impl GameLogic {
         target_id: ObjectId,
         aggressor: bool,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
+        if self
+            .objects
+            .get(&object_id)
+            .is_none_or(|unit| unit.unit_ai_runtime.machine_locked())
+            || !matches!(
+                self.get_able_to_attack_specific_object(
+                    object_id,
+                    target_id,
+                    AbleToAttackType::NewTarget,
+                    false,
+                ),
+                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+            )
+        {
+            return Ok(false);
+        }
+        let replacing_attack = self.objects.get(&object_id).is_some_and(|unit| {
+            unit.guard_chase_phase != 0
+                && unit.unit_ai_runtime.current_leaf_state() == AIState::Attacking
+        });
+        if replacing_attack {
+            self.attack_state_exit(object_id);
+            self.stop_attack_decision_aware(object_id);
+            self.set_host_team_common_target(object_id, None);
+        }
         if aggressor {
             self.begin_guard_chase(object_id, GUARD_CHASE_PHASE_AGGRESSOR);
         } else {
             self.begin_guard_chase_acquired(object_id, target_id);
         }
-        let eligible = matches!(
-            self.get_able_to_attack_specific_object(
-                object_id,
-                target_id,
-                AbleToAttackType::NewTarget,
-                false,
-            ),
-            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-        );
-        let ok = eligible && self.admit_ai_engagement_with_effects(object_id, target_id, effects);
+        if let Some(unit) = self.objects.get_mut(&object_id) {
+            unit.set_force_attack(false);
+        }
+        let ok = self.attack_state_enter_with_effects(object_id, target_id, effects)?
+            == AttackMachineResult::Continue;
         if !ok {
-            if let Some(o) = self.objects.get_mut(&object_id) {
-                o.clear_guard_chase();
+            if self.objects.get(&object_id).is_some_and(|unit| {
+                matches!(
+                    unit.retained_ai_root_state(),
+                    AIState::GuardingArea | AIState::GuardingObject
+                )
+            }) {
+                self.end_guard_chase_attack(object_id);
+            } else if let Some(unit) = self.objects.get_mut(&object_id) {
+                unit.clear_guard_chase();
             }
         }
-        ok
+        Ok(ok)
     }
 
-    fn end_guard_chase_attack(&mut self, object_id: ObjectId) {
+    pub(crate) fn end_guard_chase_attack(&mut self, object_id: ObjectId) {
+        self.attack_state_exit(object_id);
         if let Some(o) = self.objects.get_mut(&object_id) {
             o.clear_guard_chase();
         }
@@ -525,22 +553,22 @@ impl GameLogic {
         object_id: ObjectId,
         team: Team,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let last = self
             .objects
             .get_mut(&object_id)
             .and_then(|o| o.last_damage_source.take());
         let Some(aid) = last else {
-            return false;
+            return Ok(false);
         };
         if aid == object_id {
-            return false;
+            return Ok(false);
         }
         let Some(atk) = self.objects.get(&aid) else {
-            return false;
+            return Ok(false);
         };
         if !atk.is_alive() || atk.status.destroyed || !atk.is_targetable_by_enemy_of(team) {
-            return false;
+            return Ok(false);
         }
         if !matches!(
             self.get_able_to_attack_specific_object(
@@ -551,7 +579,7 @@ impl GameLogic {
             ),
             CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
         ) {
-            return false;
+            return Ok(false);
         }
         self.engage_guard_target(object_id, aid, true, effects)
     }

@@ -51,7 +51,11 @@ impl GameLogic {
                     {
                         return SimulationStepOutcome::Failed(error);
                     }
-                    self.tick_host_guard_states_with_effects(&object_ids, &mut ui);
+                    if let Err(error) =
+                        self.tick_host_guard_states_with_effects(&object_ids, &mut ui)
+                    {
+                        return SimulationStepOutcome::Failed(error);
+                    }
                     self.tick_host_tighten_states(&object_ids);
                     if let Err(error) = self.update_movement_with_effects(&object_ids, dt, &mut ui)
                     {

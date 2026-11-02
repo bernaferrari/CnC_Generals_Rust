@@ -1118,6 +1118,7 @@ fn guard_keeps_parent_after_real_aggressor_hit() {
         value["BaseAi"]["continuation"]["parent"]["state"],
         serde_json::to_value(generals_main::game_logic::AIState::GuardingArea).unwrap()
     );
+    assert!(!value["BaseAi"]["continuation"]["attack_original_victim_pos"].is_null());
 }
 
 #[test]
@@ -1167,6 +1168,10 @@ fn guard_aggressor_attack_keeps_the_receiving_guard_parent() {
         machine["parent"]["state"],
         serde_json::to_value(AIState::GuardingArea).unwrap()
     );
+    assert!(
+        !machine["attack_original_victim_pos"].is_null(),
+        "Guard must enter the attack state, not only select its child"
+    );
     assert_eq!(
         peer.host_object(actor).unwrap().ai_state(),
         AIState::GuardingArea
@@ -1178,6 +1183,17 @@ fn guard_aggressor_attack_keeps_the_receiving_guard_parent() {
     assert_eq!(
         serde_json::to_value(&restored.objects[&actor].modules["ReceivingBaseAI"]).unwrap(),
         value
+    );
+    owner.destroy_object(victim).unwrap();
+    owner.update_with_dt(1.0 / 30.0);
+    assert_eq!(
+        owner.host_object(actor).unwrap().ai_state(),
+        AIState::GuardingArea
+    );
+    assert_eq!(owner.host_object(actor).unwrap().target, None);
+    assert_eq!(
+        peer.host_object(actor).unwrap().ai_state(),
+        AIState::GuardingArea
     );
 }
 

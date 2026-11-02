@@ -100,11 +100,11 @@ impl GameLogic {
                     .get(&object_id)
                     .is_some_and(Object::has_guard_quick_exit_overlay)
             {
-                self.tick_host_guard_states_with_effects(&[object_id], effects);
+                self.tick_host_guard_states_with_effects(&[object_id], effects)?;
                 continue;
             }
             let quick_exit_finished =
-                self.finish_quick_exit_if_due(object_id, guard_target, effects);
+                self.finish_quick_exit_if_due(object_id, guard_target, effects)?;
             let ai_state = if quick_exit_finished {
                 self.objects
                     .get(&object_id)
@@ -118,7 +118,7 @@ impl GameLogic {
                     self.update_owned_passenger_exit_with_effects(object_id, effects);
                 }
                 AIState::GuardingArea | AIState::GuardingObject => {
-                    self.tick_host_guard_states_with_effects(&[object_id], effects);
+                    self.tick_host_guard_states_with_effects(&[object_id], effects)?;
                 }
                 AIState::Repairing => {
                     let Some(repair_target_id) = target_id else {
@@ -4109,7 +4109,7 @@ impl GameLogic {
                         .unwrap_or(0);
                     if phase == GUARD_CHASE_PHASE_INNER
                         && can_attack
-                        && self.try_guard_last_attacker(object_id, team, effects)
+                        && self.try_guard_last_attacker(object_id, team, effects)?
                     {
                         continue;
                     }

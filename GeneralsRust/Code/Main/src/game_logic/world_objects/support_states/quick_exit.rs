@@ -8,7 +8,7 @@ impl GameLogic {
         object_id: ObjectId,
         guard_target: Option<ObjectId>,
         effects: &mut ScriptPresentationEffects<'_>,
-    ) -> bool {
+    ) -> gamelogic::GameLogicResult<bool> {
         let quick_until = self
             .unit_ai_runtime(object_id)
             .and_then(|runtime| runtime.quick_exit_deadline());
@@ -70,14 +70,14 @@ impl GameLogic {
                     });
                     if let Some(key) = nemesis {
                         if let Some(enemy) = self.resolved_tunnel_nemesis(key) {
-                            let _ = self.engage_guard_target(object_id, enemy, false, effects);
+                            self.engage_guard_target(object_id, enemy, false, effects)?;
                         }
                     }
                 }
-                return true;
+                return Ok(true);
             }
         }
-        false
+        Ok(false)
     }
 
     /// AIUpdate.cpp:1018 consumes movementComplete after the resumed state.
