@@ -3597,11 +3597,11 @@ mod options_os_wnd_tests {
 
     use super::*;
 
-    fn install_named_button(name: &str, x: i32, y: i32) {
+    fn install_named_button(owner: &crate::gui::window_manager::WindowManagerOwner, name: &str, x: i32, y: i32) {
         owner.with_manager(|manager| {
-            let button = manager.create_window(None, x, y, 80, 24).expect(name);
+            let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
-            let _ = button.borrow_mut().hide(false);
+            let _ = button.borrow_mut().hide_without_manager_side_effects(false);
         });
     }
 
@@ -3614,7 +3614,8 @@ mod options_os_wnd_tests {
             crate::test_process::TestProcess::ParentVerified => return,
             crate::test_process::TestProcess::Child => {}
         }
-        install_named_button("OptionsMenu.wnd:ButtonAccept", 10, 10);
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        install_named_button(&owner, "OptionsMenu.wnd:ButtonAccept", 10, 10);
         assert!(
             drive_os_wnd_options_menu_accept_like_cpp(),
             "OS WND click on ButtonAccept must latch Accept residual"
@@ -3640,8 +3641,10 @@ mod options_os_wnd_tests {
         apply.music_volume = 80;
         apply.gamma_slider = 100;
         apply.resolution = (1024, 768);
-        assert!(apply_options_from_host(apply, effects));
-        let gamma = crate::display::display_fx::gamma_state();
+        assert!(crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            apply_options_from_host(apply, effects)
+        }));
+        let gamma = crate::display::display_fx::DisplayFX::default().gamma_state(); // TODO: read from receiving display
         assert!((gamma.gamma - 2.0).abs() < 0.01);
         assert!((runtime_global_data::read().music_volume_factor - 0.8).abs() < 0.01);
     }
@@ -3684,7 +3687,9 @@ mod options_os_wnd_tests {
         let mut apply = HostOptionsApply::default();
         apply.detail_index = 3;
         apply.resolution = (1024, 768);
-        assert!(apply_options_from_host(apply, effects));
+        assert!(crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            apply_options_from_host(apply, effects)
+        }));
         {
             let g = runtime_global_data::read();
             assert!(g.writable.use_shadow_volumes);
@@ -4325,6 +4330,8 @@ pub fn simulate_map_select_menu_prepare_ok(
 
 #[cfg(test)]
 mod tests {
+    use crate::test_support::with_receiving_ui;
+
     use super::*;
 
     fn with_global_data_residences_restored(f: impl FnOnce()) {

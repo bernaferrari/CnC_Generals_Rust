@@ -168,7 +168,7 @@ mod tests {
             .into_iter()
             .flatten()
         {
-            window.borrow_mut().hide(true).unwrap();
+            window.borrow_mut().hide_without_manager_side_effects(true).unwrap();
         }
 
         ControlBar::apply_beacon_window_state(
@@ -717,7 +717,7 @@ mod tests {
                     .expect("shortcut tray");
                 win.borrow_mut()
                     .set_name("ControlBar.wnd:GenPowersShortcutBarParent");
-                let _ = win.borrow_mut().hide(true);
+                let _ = win.borrow_mut().hide_without_manager_side_effects(true);
             });
             ControlBar::new().show_special_power_shortcut();
             let hidden = owner.with_manager_ref(|manager| {

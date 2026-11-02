@@ -582,7 +582,7 @@ mod tests {
             }
             client.message_stream_mut().clear_messages();
             show_shell_map_if_available(false);
-            assert!(!get_shell().is_shell_map_on());
+            assert!(!client.window_manager_owner().shell_handle().is_shell_map_on());
 
             client
                 .campaign_menu_and_host_mut()
@@ -628,7 +628,7 @@ mod tests {
             assert_eq!(after_get_update, Some(true));
             assert_eq!(after_motd, before_motd);
             assert_eq!(after_map_pack, Some(true));
-            assert!(get_shell().is_shell_map_on());
+            assert!(client.window_manager_owner().shell_handle().is_shell_map_on());
             assert_eq!(
                 get_global_data()
                     .expect("global data initialized")
@@ -1187,11 +1187,11 @@ mod tests {
                 state.window_ids = build_window_ids();
             }
 
-            crate::gui::shell::get_shell().set_shell_active(true);
+            client.window_manager_owner().shell_handle().set_shell_active(true);
             client.window_manager_owner().with_manager(|manager| {
                 manager.test_reset();
                 let parent = manager
-                    .create_window_with_id(None, 0, 0, 400, 400, parent_id)
+                    .test_create_window_with_id(None, 0, 0, 400, 400, parent_id)
                     .unwrap();
                 manager.bind_window_callbacks(
                     &mut parent.borrow_mut(),
@@ -1203,7 +1203,7 @@ mod tests {
                 );
 
                 let border = manager
-                    .create_window_with_id(Some(&parent), 0, 0, 200, 200, border_id)
+                    .test_create_window_with_id(Some(&parent), 0, 0, 200, 200, border_id)
                     .unwrap();
                 manager.bind_window_callbacks(
                     &mut border.borrow_mut(),
@@ -1215,7 +1215,7 @@ mod tests {
                 );
 
                 let button_win = manager
-                    .create_window_with_id(Some(&border), 10, 10, 80, 30, skirmish_id)
+                    .test_create_window_with_id(Some(&border), 10, 10, 80, 30, skirmish_id)
                     .unwrap();
                 {
                     let mut button_mut = button_win.borrow_mut();
@@ -1323,13 +1323,13 @@ mod tests {
                 state.drop_down = DropdownType::Main;
             }
 
-            crate::gui::shell::get_shell().set_shell_active(true);
+            client.window_manager_owner().shell_handle().set_shell_active(true);
             client.window_manager_owner().with_manager(|manager| {
                 manager.test_reset();
                 manager.set_screen_size(800, 600);
 
                 let parent = manager
-                    .create_window_with_id(None, 0, 0, 800, 600, parent_id)
+                    .test_create_window_with_id(None, 0, 0, 800, 600, parent_id)
                     .unwrap();
                 {
                     let mut parent_mut = parent.borrow_mut();
@@ -1346,7 +1346,7 @@ mod tests {
                 }
 
                 let border2 = manager
-                    .create_window_with_id(Some(&parent), 0, 0, 800, 600, border2_id)
+                    .test_create_window_with_id(Some(&parent), 0, 0, 800, 600, border2_id)
                     .unwrap();
                 {
                     let mut border2_mut = border2.borrow_mut();
@@ -1363,7 +1363,7 @@ mod tests {
                 let _ = border2.borrow_mut().hide_without_manager_side_effects(false);
 
                 let solo = manager
-                    .create_window_with_id(Some(&border2), 540, 116, 208, 36, solo_id)
+                    .test_create_window_with_id(Some(&border2), 540, 116, 208, 36, solo_id)
                     .unwrap();
                 {
                     let mut solo_mut = solo.borrow_mut();
@@ -1391,7 +1391,7 @@ mod tests {
                 let _ = solo.borrow_mut().enable(true);
 
                 let border = manager
-                    .create_window_with_id(Some(&parent), 0, 0, 800, 600, border_id)
+                    .test_create_window_with_id(Some(&parent), 0, 0, 800, 600, border_id)
                     .unwrap();
                 {
                     let mut border_mut = border.borrow_mut();
@@ -1408,7 +1408,7 @@ mod tests {
                 let _ = border.borrow_mut().hide_without_manager_side_effects(true);
 
                 let skirmish = manager
-                    .create_window_with_id(Some(&border), 540, 276, 208, 36, skirmish_id)
+                    .test_create_window_with_id(Some(&border), 540, 276, 208, 36, skirmish_id)
                     .unwrap();
                 {
                     let mut skirmish_mut = skirmish.borrow_mut();
@@ -1850,7 +1850,7 @@ mod tests {
                     // create_window_with_id so window_by_id is keyed by the WND
                     // name key the transition lookup uses (set_id does not re-key).
                     let win = manager
-                        .create_window_with_id(
+                        .test_create_window_with_id(
                             Some(&parent),
                             540,
                             100 + (i as i32) * 40,
@@ -1913,7 +1913,7 @@ mod tests {
                 manager.test_reset();
                 manager.init_with_transition_ini_for_test(RETAIL_WINDOW_TRANSITIONS);
                 let border = manager
-                    .create_window_with_id(
+                    .test_create_window_with_id(
                         None,
                         0,
                         0,
