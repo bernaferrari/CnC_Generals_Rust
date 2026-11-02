@@ -232,6 +232,14 @@ mod tests {
         }
 
         let mut control_bar = ControlBar::new();
+        let mut catalog = gamelogic::upgrade::center::UpgradeCenter::new();
+        catalog.new_upgrade(UPGRADE.into());
+        control_bar.set_receiving_upgrade_definitions(&catalog, None);
+        control_bar.context.available_commands.push(CommandButton {
+            upgrade: UPGRADE.into(),
+            button_image: IMAGE.into(),
+            ..Default::default()
+        });
         control_bar.sync_upgrade_cameos_from_presentation(
             &[UPGRADE.to_string()],
             &[UPGRADE.to_string()],
@@ -264,6 +272,8 @@ mod tests {
         }
 
         let mut control_bar = ControlBar::new();
+        let catalog = with_upgrade_center(Clone::clone);
+        control_bar.set_receiving_upgrade_definitions(&catalog, None);
         control_bar.sync_upgrade_cameos_from_presentation(
             &[UPGRADE.to_string()],
             &[UPGRADE.to_string()],
@@ -307,7 +317,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_upgrade_cameo_keeps_fail_closed_name_placeholder() {
+    fn unknown_upgrade_cameo_is_hidden() {
         const UPGRADE: &str = "Upgrade_UnknownCameoNoArtRegistered";
         let mut control_bar = ControlBar::new();
         control_bar.sync_upgrade_cameos_from_presentation(
@@ -321,7 +331,8 @@ mod tests {
         let cameos = &control_bar.get_portrait_state().upgrade_cameos;
         assert_eq!(cameos.len(), 1);
         assert_eq!(cameos[0].upgrade_name, UPGRADE);
-        assert_eq!(cameos[0].button_image, UPGRADE);
+        assert!(!cameos[0].is_visible);
+        assert!(cameos[0].button_image.is_empty());
     }
 
     #[test]

@@ -870,9 +870,13 @@ fn presentation_feeds_control_bar_upgrade_cameos() {
     #[cfg(feature = "game_client")]
     {
         let mut bar = game_client::gui::control_bar::ControlBar::new();
+        let mut upgrades = gamelogic::upgrade::center::UpgradeCenter::new();
+        upgrades.new_upgrade("UpgradeAdvancedTraining".into());
+        upgrades.new_upgrade("UpgradeCaptureBuilding".into());
+        bar.set_receiving_upgrade_definitions(&upgrades, None);
         frame.apply_to_control_bar(&mut bar);
         let portrait = bar.get_portrait_state();
-        assert_eq!(portrait.upgrade_cameos.len(), 2);
+        assert_eq!(portrait.upgrade_cameos.len(), 5);
         assert!(
             portrait
                 .upgrade_cameos

@@ -298,7 +298,7 @@ impl PresentationFrame {
             Some(cs_name)
         });
         bar.sync_upgrade_cameos_from_presentation(
-            &[],
+            &ro.upgrade_cameo_names,
             &completed,
             None,
             ro.special_power_ready,

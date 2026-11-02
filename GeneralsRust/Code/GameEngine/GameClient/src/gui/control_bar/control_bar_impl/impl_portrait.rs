@@ -310,7 +310,6 @@ impl ControlBar {
         let context_commands = self.context.available_commands.clone();
         let upgrade_cameos = leftover_authored_upgrade_cameo_names(&template_name)
             .into_iter()
-            .filter(|name| !name.is_empty())
             .map(|name| {
                 let upgrade = self
                     .receiving_upgrade_catalog
@@ -554,9 +553,8 @@ impl ControlBar {
 
     /// Presentation-fed C++ `setPortraitByObject` cameo strip.
     ///
-    /// `authored_cameos` is `UpgradeCameo1..5` (empty slots omitted). When
-    /// empty, leftover ThingFactory is consulted from the portrait template
-    /// name. `completed_upgrades` is object `hasUpgrade` plus player
+    /// `authored_cameos` preserves the positions of `UpgradeCameo1..5`,
+    /// including empty slots. `completed_upgrades` is object `hasUpgrade` plus player
     /// `hasUpgradeComplete`. Applied names that are not authored never appear.
     pub fn sync_upgrade_cameos_from_presentation(
         &mut self,
@@ -568,36 +566,34 @@ impl ControlBar {
         special_power_cooldown_total: f32,
     ) {
         let context_commands = self.context.available_commands.clone();
-        let leftover_slots =
-            leftover_authored_upgrade_cameo_names(&self.portrait_state.portrait_image);
-        let authored: Vec<String> = if !authored_cameos.is_empty() {
-            authored_cameos
-                .iter()
-                .map(|name| name.trim().to_string())
-                .filter(|name| !name.is_empty())
-                .collect()
-        } else {
-            leftover_slots
-                .into_iter()
-                .filter(|name| !name.is_empty())
-                .collect()
-        };
-        let cameos: Vec<UpgradeCameoState> = authored
-            .into_iter()
+        let cameos: Vec<UpgradeCameoState> = authored_cameos
+            .iter()
+            .take(MAX_RIGHT_HUD_UPGRADE_CAMEOS)
             .map(|name| {
-                let is_completed = completed_upgrades
-                    .iter()
-                    .any(|owned| owned.eq_ignore_ascii_case(&name));
+                let name = name.trim().to_owned();
+                let is_visible = !name.is_empty()
+                    && self
+                        .receiving_upgrade_catalog
+                        .as_ref()
+                        .is_some_and(|catalog| catalog.find_upgrade(&name).is_some());
+                let is_completed = is_visible
+                    && completed_upgrades
+                        .iter()
+                        .any(|owned| owned.eq_ignore_ascii_case(&name));
                 UpgradeCameoState {
-                    button_image: resolve_upgrade_cameo_button_image(
-                        &name,
-                        Some(context_commands.as_slice()),
-                        self.receiving_upgrade_catalog.as_ref(),
-                        self.receiving_upgrade_actions.as_deref(),
-                    ),
+                    button_image: if is_visible {
+                        resolve_upgrade_cameo_button_image(
+                            &name,
+                            Some(context_commands.as_slice()),
+                            self.receiving_upgrade_catalog.as_ref(),
+                            self.receiving_upgrade_actions.as_deref(),
+                        )
+                    } else {
+                        String::new()
+                    },
                     upgrade_name: name,
                     is_completed,
-                    is_visible: true,
+                    is_visible,
                 }
             })
             .collect();

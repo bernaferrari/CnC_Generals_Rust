@@ -1315,12 +1315,6 @@ impl PresentationFrame {
             },
             manager,
         );
-        let authored_cameos: Vec<String> = panel
-            .upgrade_cameo_names
-            .iter()
-            .map(|name| name.trim().to_string())
-            .filter(|name| !name.is_empty())
-            .collect();
         let mut completed_upgrades = panel.applied_upgrades.clone();
         for name in &self.local_unlocked_sciences {
             if !completed_upgrades
@@ -1465,7 +1459,7 @@ impl PresentationFrame {
             &ready_sp,
         );
         control_bar.sync_upgrade_cameos_from_presentation(
-            &authored_cameos,
+            &panel.upgrade_cameo_names,
             &completed_upgrades,
             if controllable {
                 panel.rally_point

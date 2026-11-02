@@ -60,11 +60,11 @@ fn portrait_uses_receiving_upgrade_masks_and_hides_missing_definitions() {
     peer.set_portrait_by_object_id(Some(ID));
     missing.set_portrait_by_object_id(Some(ID));
     unadmitted.set_portrait_by_object_id(Some(ID));
-    assert_eq!(owner.get_portrait_state().upgrade_cameos.len(), 1);
+    assert_eq!(owner.get_portrait_state().upgrade_cameos.len(), 5);
     assert!(owner.get_portrait_state().upgrade_cameos[0].is_completed);
-    assert_eq!(peer.get_portrait_state().upgrade_cameos.len(), 1);
+    assert_eq!(peer.get_portrait_state().upgrade_cameos.len(), 5);
     assert!(!peer.get_portrait_state().upgrade_cameos[0].is_completed);
-    assert_eq!(missing.get_portrait_state().upgrade_cameos.len(), 1);
+    assert_eq!(missing.get_portrait_state().upgrade_cameos.len(), 5);
     assert!(!missing.get_portrait_state().upgrade_cameos[0].is_visible);
     assert!(!unadmitted.get_portrait_state().upgrade_cameos[0].is_visible);
     assert!(
@@ -76,4 +76,39 @@ fn portrait_uses_receiving_upgrade_masks_and_hides_missing_definitions() {
     assert!(owner.get_portrait_state().upgrade_cameos[0].is_completed);
     OBJECT_REGISTRY.unregister_object(ID);
     *game_engine::common::thing::get_thing_factory().unwrap() = previous_factory;
+}
+
+#[test]
+fn presentation_keeps_sparse_upgrade_cameos_in_their_authored_slots() {
+    let mut catalog = UpgradeCenter::new();
+    catalog.new_upgrade("Upgrade_SlotSecond".into());
+    catalog.new_upgrade("Upgrade_SlotFifth".into());
+    let mut bar = ControlBar::new();
+    bar.set_receiving_upgrade_definitions(&catalog, None);
+    let slots = [
+        "",
+        "Upgrade_SlotSecond",
+        "",
+        "Upgrade_Missing",
+        "Upgrade_SlotFifth",
+    ]
+    .map(str::to_owned);
+    bar.sync_upgrade_cameos_from_presentation(
+        &slots,
+        &["Upgrade_SlotFifth".to_owned()],
+        None,
+        false,
+        0.0,
+        0.0,
+    );
+    let cameos = &bar.get_portrait_state().upgrade_cameos;
+    assert_eq!(cameos.len(), 5);
+    assert!(!cameos[0].is_visible);
+    assert_eq!(cameos[1].upgrade_name, "Upgrade_SlotSecond");
+    assert!(cameos[1].is_visible);
+    assert!(!cameos[2].is_visible);
+    assert_eq!(cameos[3].upgrade_name, "Upgrade_Missing");
+    assert!(!cameos[3].is_visible);
+    assert_eq!(cameos[4].upgrade_name, "Upgrade_SlotFifth");
+    assert!(cameos[4].is_visible && cameos[4].is_completed);
 }
