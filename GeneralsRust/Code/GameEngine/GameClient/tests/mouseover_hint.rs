@@ -1,15 +1,21 @@
 //! Live-host hover tooltip: HintSpy → InGameUI createMouseoverHint.
+//! State stays on the receiving GameClient (no process-wide TheInGameUI / with_mouse).
 
-use std::sync::Mutex;
+use std::collections::HashMap;
 
+use game_client_rust::core::game_client::{ClientInputAuthority, GameClient};
 use game_client_rust::core::subsystems::InGameUISubsystem;
-use game_client_rust::gui::ingame_ui::{InGameUI, PresentationUnitCatalogEntry};
-use game_client_rust::helpers::TheInGameUI;
-use game_client_rust::input::mouse::with_mouse;
-use game_engine::common::language::Language;
+use game_client_rust::gui::ingame_ui::{
+    MouseoverObjectObservation, PresentationUnitCatalogEntry, ReceivingMouseoverFacts,
+};
 use gamelogic::common::ObjectShroudStatus;
 
-static MOUSEOVER_TEST_LOCK: Mutex<()> = Mutex::new(());
+fn client() -> GameClient {
+    let mut client =
+        GameClient::new_with_input_authority(ClientInputAuthority::NativeHosted).unwrap();
+    client.init_input_subsystems().unwrap();
+    client
+}
 
 fn catalog_unit(id: u32, template: &str) -> PresentationUnitCatalogEntry {
     PresentationUnitCatalogEntry {
@@ -52,47 +58,80 @@ fn catalog_unit(id: u32, template: &str) -> PresentationUnitCatalogEntry {
     }
 }
 
-fn cursor_tooltip_text() -> String {
-    with_mouse(|m| m.cursor_tooltip_state().tooltip_text.clone())
+fn facts_for(id: u32, template: &str, display: &str) -> ReceivingMouseoverFacts {
+    let mut facts = ReceivingMouseoverFacts::default();
+    let mut display_names = HashMap::new();
+    display_names.insert(template.to_string(), display.to_string());
+    facts.objects.insert(
+        id,
+        MouseoverObjectObservation {
+            visible_friendly: true,
+            player: None,
+            display_names,
+        },
+    );
+    facts
 }
 
 #[test]
-fn create_mouseover_hint_sets_cursor_tooltip_for_named_object_under_cursor() {
-    let _guard = MOUSEOVER_TEST_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    Language::clear_localized_strings();
-    Language::register_localized_string("ThingTemplate:AmericaRanger", "Ranger");
-    let catalog = [catalog_unit(7, "AmericaRanger")];
-
-    let moused = InGameUI::apply_catalog_mouseover_tooltip(&catalog, Some(7), false);
-
-    assert_eq!(moused, 7);
-    assert_eq!(cursor_tooltip_text(), "Ranger");
-    Language::clear_localized_strings();
-}
-
-#[test]
-fn ingame_ui_create_mouseover_hint_sets_tooltip_like_hintspy() {
-    let _guard = MOUSEOVER_TEST_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    // Given: live InGameUISubsystem with the presentation catalog Main stamps
-    Language::clear_localized_strings();
-    Language::register_localized_string("ThingTemplate:AmericaRanger", "Ranger");
+fn create_mouseover_hint_sets_cursor_tooltip_only_on_receiving_client() {
+    let mut owner = client();
+    let mut peer = client();
     let mut ui = InGameUISubsystem::default();
     ui.set_presentation_unit_catalog(vec![catalog_unit(7, "AmericaRanger")]);
+    owner.set_in_game_ui_subsystem(ui);
+    peer.set_in_game_ui_subsystem(InGameUISubsystem::default());
+    peer.input_mouse_mut()
+        .unwrap()
+        .set_cursor_tooltip("peer retained".into(), Some(0), None, None);
 
-    // When: HintSpy-equivalent hover (MSG_MOUSEOVER_DRAWABLE_HINT)
-    ui.create_mouseover_hint(Some(7), false);
+    let facts = facts_for(7, "AmericaRanger", "Ranger");
+    owner.create_mouseover_hint(Some(7), false, 1, &facts);
 
-    // Then: leftover Mouse tooltip is the unit name (C++ setCursorTooltip)
-    assert_eq!(TheInGameUI::get_moused_over_drawable_id(), 7);
-    assert_eq!(cursor_tooltip_text(), "Ranger");
+    assert_eq!(
+        owner
+            .in_game_ui_subsystem()
+            .unwrap()
+            .get_moused_over_drawable_id(),
+        7
+    );
+    assert_eq!(
+        owner
+            .input_mouse()
+            .unwrap()
+            .cursor_tooltip_state()
+            .tooltip_text,
+        "Ranger"
+    );
+    assert_eq!(
+        peer.input_mouse()
+            .unwrap()
+            .cursor_tooltip_state()
+            .tooltip_text,
+        "peer retained"
+    );
 
-    ui.create_mouseover_hint(None, true);
-    assert_eq!(TheInGameUI::get_moused_over_drawable_id(), 0);
-    assert_eq!(cursor_tooltip_text(), "");
-
-    Language::clear_localized_strings();
+    owner.create_mouseover_hint(None, true, 1, &Default::default());
+    assert_eq!(
+        owner
+            .in_game_ui_subsystem()
+            .unwrap()
+            .get_moused_over_drawable_id(),
+        0
+    );
+    assert_eq!(
+        owner
+            .input_mouse()
+            .unwrap()
+            .cursor_tooltip_state()
+            .tooltip_text,
+        ""
+    );
+    assert_eq!(
+        peer.input_mouse()
+            .unwrap()
+            .cursor_tooltip_state()
+            .tooltip_text,
+        "peer retained"
+    );
 }
