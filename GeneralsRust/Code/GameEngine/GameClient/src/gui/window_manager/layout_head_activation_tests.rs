@@ -9,9 +9,9 @@ fn actual_init_callback_activates_layout_head_immediately_under_shared_layout_lo
         let layout = manager.create_layout("HeadActivation.wnd".into());
         let older = manager.create_window(None, 0, 0, 40, 40).unwrap();
         layout.borrow_mut().add_window(older.clone());
-        let target = manager.create_window(None, 40, 0, 40, 40).unwrap();
+        let target = manager.test_create_window(None, 40, 0, 40, 40).unwrap();
         layout.borrow_mut().add_window(target.clone());
-        let unrelated = manager.create_window(None, 80, 0, 40, 40).unwrap();
+        let unrelated = manager.test_create_window(None, 80, 0, 40, 40).unwrap();
         target.borrow_mut().hide(true).unwrap();
         assert!(Rc::ptr_eq(&manager.root_windows[0], &unrelated));
         (layout, older, target, unrelated)
@@ -69,11 +69,11 @@ fn actual_init_callback_activates_layout_head_immediately_under_shared_layout_lo
 fn ordinary_nonfirst_activation_still_promotes_manager_and_layout_synchronously() {
     let mut manager = WindowManager::new();
     let layout = manager.create_layout("OrdinaryPromotion.wnd".into());
-    let first = manager.create_window(None, 0, 0, 40, 40).unwrap();
+    let first = manager.test_create_window(None, 0, 0, 40, 40).unwrap();
     layout.borrow_mut().add_window(first.clone());
-    let second = manager.create_window(None, 40, 0, 40, 40).unwrap();
+    let second = manager.test_create_window(None, 40, 0, 40, 40).unwrap();
     layout.borrow_mut().add_window(second.clone());
-    let unrelated = manager.create_window(None, 80, 0, 40, 40).unwrap();
+    let unrelated = manager.test_create_window(None, 80, 0, 40, 40).unwrap();
     assert!(Rc::ptr_eq(&layout.borrow().windows()[0], &second));
     manager.activate_window(&first).unwrap();
     assert!(Rc::ptr_eq(&manager.root_windows[0], &first));

@@ -71,7 +71,7 @@ fn local_manager(free_windows: usize, deferred: bool) -> WindowManager {
         .unwrap();
     layout.borrow_mut().add_window(existing.clone());
     manager.register_tab_list(vec![existing.clone()]);
-    manager.set_focus(Some(&existing)).unwrap();
+    manager.test_set_focus(Some(&existing)).unwrap();
     while manager.window_count < MAX_WINDOWS - free_windows {
         // Capacity fillers are unrelated unnamed windows. Keep their IDs
         // disjoint from the thread's low sequential authored NameKeys; using

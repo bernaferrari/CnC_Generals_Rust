@@ -462,3 +462,56 @@ mod receiving_key_delivery_tests;
 pub use reentry::dispatch_translated_window_input_for_owner;
 
 pub(crate) use reentry::opaque_window_at_screen;
+
+impl WindowManager {
+    /// Test-only create that owns a temporary WindowEventEffects on the stack.
+    pub fn test_create_window(
+        &mut self,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    ) -> WindowResult<Rc<RefCell<GameWindow>>> {
+        WindowEventEffects::with_standalone(|effects| {
+            self.create_window(parent, x, y, width, height, effects)
+        })
+    }
+
+    pub fn test_destroy_all_windows(&mut self) {
+        WindowEventEffects::with_standalone(|effects| {
+            self.destroy_all_windows(effects);
+        });
+    }
+
+    pub fn test_update(&mut self) {
+        WindowEventEffects::with_standalone(|effects| {
+            self.update(effects);
+        });
+    }
+
+    pub fn test_reset(&mut self) {
+        WindowEventEffects::with_standalone(|effects| {
+            self.reset(effects);
+        });
+    }
+
+    pub fn test_set_focus(
+        &mut self,
+        window: Option<&Rc<RefCell<GameWindow>>>,
+    ) -> WindowResult<()> {
+        WindowEventEffects::with_standalone(|effects| self.set_focus(window, effects))
+    }
+
+    pub fn test_process_mouse_event(
+        &mut self,
+        msg: WindowMessage,
+        x: i32,
+        y: i32,
+        data: WindowMsgData,
+    ) -> WindowInputReturnCode {
+        WindowEventEffects::with_standalone(|effects| {
+            self.process_mouse_event(msg, x, y, data, effects)
+        })
+    }
+}

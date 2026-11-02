@@ -20,8 +20,8 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     }
     let mut windows = WindowManager::new();
     let mut foreign = WindowManager::new();
-    let button = windows.create_window(None, 10, 10, 90, 40).unwrap();
-    let peer_button = foreign.create_window(None, 10, 10, 90, 40).unwrap();
+    let button = windows.test_create_window(None, 10, 10, 90, 40).unwrap();
+    let peer_button = foreign.test_create_window(None, 10, 10, 90, 40).unwrap();
     button.borrow_mut().set_id(42);
     peer_button.borrow_mut().set_id(42);
     button
@@ -52,7 +52,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
         .lock()
         .unwrap()
         .set_cursor_tooltip("Peer".into(), None, None, None);
-    let generic = windows.create_window(None, 120, 10, 90, 40).unwrap();
+    let generic = windows.test_create_window(None, 120, 10, 90, 40).unwrap();
     generic.borrow_mut().set_tooltip("Generic");
     let mut viewport = Viewport;
     {

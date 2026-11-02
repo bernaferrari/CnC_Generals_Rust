@@ -89,7 +89,7 @@ mod tests {
     use super::*;
 
     fn create_window(manager: &mut WindowManager) -> Option<Rc<RefCell<GameWindow>>> {
-        manager.create_window(None, 0, 0, 10, 10).ok()
+        manager.test_create_window(None, 0, 0, 10, 10).ok()
     }
 
     #[test]
@@ -152,7 +152,7 @@ mod tests {
             Some(tracked_id)
         );
 
-        manager.destroy_all_windows();
+        manager.test_destroy_all_windows();
         assert!(manager.get_window_by_id(tracked_id).is_none());
         manager.destroy_script_message_window();
         assert_eq!(manager.script_message_window_id_for_test(), None);

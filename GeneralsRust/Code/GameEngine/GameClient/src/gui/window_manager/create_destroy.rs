@@ -359,15 +359,15 @@ mod receiving_window_id_tests {
     fn manager_allocations_are_independent_and_reset_retains_its_sequence() {
         let mut a = WindowManager::new();
         let mut b = WindowManager::new();
-        let a1 = a.create_window(None, 0, 0, 10, 10).unwrap();
-        let b1 = b.create_window(None, 0, 0, 10, 10).unwrap();
+        let a1 = a.test_create_window(None, 0, 0, 10, 10).unwrap();
+        let b1 = b.test_create_window(None, 0, 0, 10, 10).unwrap();
         assert_eq!(a1.borrow().get_id(), 1);
         assert_eq!(b1.borrow().get_id(), 1);
-        let a2 = a.create_window(None, 0, 0, 10, 10).unwrap();
+        let a2 = a.test_create_window(None, 0, 0, 10, 10).unwrap();
         assert_eq!(a2.borrow().get_id(), 2);
         b.reset();
-        let a3 = a.create_window(None, 0, 0, 10, 10).unwrap();
-        let b2 = b.create_window(None, 0, 0, 10, 10).unwrap();
+        let a3 = a.test_create_window(None, 0, 0, 10, 10).unwrap();
+        let b2 = b.test_create_window(None, 0, 0, 10, 10).unwrap();
         assert_eq!(a3.borrow().get_id(), 3);
         assert_eq!(b2.borrow().get_id(), 2);
         assert!(Rc::ptr_eq(&a.get_window_by_id(1).unwrap(), &a1));

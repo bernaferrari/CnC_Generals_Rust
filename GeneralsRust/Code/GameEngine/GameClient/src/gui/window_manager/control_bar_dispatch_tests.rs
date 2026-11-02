@@ -164,7 +164,7 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
         view_height: 482,
         writes: Vec::new(),
     };
-    manager.set_focus(Some(&button)).unwrap();
+    manager.test_set_focus(Some(&button)).unwrap();
     {
         let mut context = ControlBarInputContext {
             control_bar_observation:None,

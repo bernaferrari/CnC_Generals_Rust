@@ -24,7 +24,7 @@ fn receiving_key_sender_finishes_before_next_ancestor_and_peer_keeps_same_ids() 
                     WindowMsgHandled::Ignored
                 });
         }
-        manager.set_focus(Some(&child)).unwrap();
+        manager.test_set_focus(Some(&child)).unwrap();
         assert!(
             manager
                 .get_focus()
@@ -51,7 +51,7 @@ fn receiving_key_sender_finishes_before_next_ancestor_and_peer_keeps_same_ids() 
                     .borrow_mut()
                     .set_text("child continuation complete")
                     .unwrap();
-                manager.set_focus(Some(&parent_a)).unwrap();
+                manager.test_set_focus(Some(&parent_a)).unwrap();
                 let peer = b.process_key_event_with_receiving_sender(
                     13,
                     1,

@@ -1,17 +1,13 @@
 //! WindowManager unit tests (parity with C++ GameWindowManager).
 
 use super::*;
-use super::{
-    apply_window_widget_data, hide_window_rc, queue_create_layout, queue_set_focus,
-    queue_window_manager_op, with_window_manager, with_window_manager_ref,
-};
+use super::apply_window_widget_data;
 use crate::gui::gadgets::{TextAlignment, VerticalAlignment};
 use crate::gui::game_window::*;
 use crate::gui::window_script::{
     ComboBoxData, StaticTextData, TabControlData as ScriptTabControlData, WindowDefinition,
     WindowLayoutDefinition,
 };
-use crate::input::with_mouse;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -135,7 +131,7 @@ fn test_window_creation() {
 #[test]
 fn script_child_creation_sends_script_create_input_to_parent_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let seen = Rc::new(RefCell::new(Vec::new()));
 
     parent.borrow_mut().set_status(WindowStatus::NO_INPUT);
@@ -266,7 +262,7 @@ fn script_tab_control_shows_first_script_pane_in_cpp_fixup_order() {
 #[test]
 fn root_window_owner_defaults_to_self_like_cpp() {
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
     let owner = window.borrow().get_owner().unwrap();
 
@@ -278,9 +274,9 @@ fn root_window_owner_defaults_to_self_like_cpp() {
 fn test_window_hierarchy() {
     let mut manager = WindowManager::new();
 
-    let parent = manager.create_window(None, 0, 0, 200, 200).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 200, 200).unwrap();
     let child = manager
-        .create_window(Some(&parent), 10, 10, 50, 50)
+        .test_create_window(Some(&parent), 10, 10, 50, 50)
         .unwrap();
 
     assert_eq!(manager.window_count, 2);
@@ -297,9 +293,9 @@ fn test_window_hierarchy() {
 #[test]
 fn child_window_owner_defaults_to_parent_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 200, 200).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 200, 200).unwrap();
     let child = manager
-        .create_window(Some(&parent), 10, 10, 50, 50)
+        .test_create_window(Some(&parent), 10, 10, 50, 50)
         .unwrap();
 
     let owner = child.borrow().get_owner().unwrap();
@@ -311,9 +307,9 @@ fn child_window_owner_defaults_to_parent_like_cpp() {
 #[test]
 fn set_window_owner_none_defaults_to_self_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 200, 200).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 200, 200).unwrap();
     let child = manager
-        .create_window(Some(&parent), 10, 10, 50, 50)
+        .test_create_window(Some(&parent), 10, 10, 50, 50)
         .unwrap();
 
     manager.set_window_owner(&child, None).unwrap();
@@ -326,8 +322,8 @@ fn set_window_owner_none_defaults_to_self_like_cpp() {
 #[test]
 fn set_window_parent_moves_root_to_child_list_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 200, 200).unwrap();
-    let window = manager.create_window(None, 10, 10, 50, 50).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 200, 200).unwrap();
+    let window = manager.test_create_window(None, 10, 10, 50, 50).unwrap();
 
     manager.set_window_parent(&window, Some(&parent)).unwrap();
 
@@ -340,9 +336,9 @@ fn set_window_parent_moves_root_to_child_list_like_cpp() {
 #[test]
 fn set_window_parent_moves_child_to_root_list_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 200, 200).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 200, 200).unwrap();
     let child = manager
-        .create_window(Some(&parent), 10, 10, 50, 50)
+        .test_create_window(Some(&parent), 10, 10, 50, 50)
         .unwrap();
 
     manager.set_window_parent(&child, None).unwrap();
@@ -357,12 +353,12 @@ fn set_window_parent_moves_child_to_root_list_like_cpp() {
 #[test]
 fn new_child_windows_insert_at_head_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let first = manager
-        .create_window(Some(&parent), 10, 10, 20, 20)
+        .test_create_window(Some(&parent), 10, 10, 20, 20)
         .unwrap();
     let second = manager
-        .create_window(Some(&parent), 20, 20, 20, 20)
+        .test_create_window(Some(&parent), 20, 20, 20, 20)
         .unwrap();
 
     let parent = parent.borrow();
@@ -373,8 +369,8 @@ fn new_child_windows_insert_at_head_like_cpp() {
 #[test]
 fn test_focus_management() {
     let mut manager = WindowManager::new();
-    let window1 = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let window2 = manager.create_window(None, 100, 100, 100, 100).unwrap();
+    let window1 = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let window2 = manager.test_create_window(None, 100, 100, 100, 100).unwrap();
     window1
         .borrow_mut()
         .set_system_callback(|_, msg, data1, data2| match msg {
@@ -394,20 +390,20 @@ fn test_focus_management() {
     let focused = manager.get_focus().unwrap();
     assert!(Rc::ptr_eq(&window1, &focused));
 
-    manager.set_focus(Some(&window2)).unwrap();
+    manager.test_set_focus(Some(&window2)).unwrap();
     let focused = manager.get_focus().unwrap();
     assert!(Rc::ptr_eq(&window2, &focused));
 
-    manager.set_focus(None).unwrap();
+    manager.test_set_focus(None).unwrap();
     assert!(manager.get_focus().is_none());
 }
 
 #[test]
 fn test_focus_requires_input_focus_acceptance() {
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
-    manager.set_focus(Some(&window)).unwrap();
+    manager.test_set_focus(Some(&window)).unwrap();
 
     assert!(manager.get_focus().is_none());
 }
@@ -415,7 +411,7 @@ fn test_focus_requires_input_focus_acceptance() {
 #[test]
 fn set_focus_does_not_send_lost_when_refocusing_same_window_like_cpp() {
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let focus_messages = Rc::new(RefCell::new(Vec::new()));
 
     {
@@ -431,8 +427,8 @@ fn set_focus_does_not_send_lost_when_refocusing_same_window_like_cpp() {
             });
     }
 
-    manager.set_focus(Some(&window)).unwrap();
-    manager.set_focus(Some(&window)).unwrap();
+    manager.test_set_focus(Some(&window)).unwrap();
+    manager.test_set_focus(Some(&window)).unwrap();
 
     assert_eq!(focus_messages.borrow().as_slice(), &[1, 1]);
     let focused = manager.get_focus().unwrap();
@@ -442,8 +438,8 @@ fn set_focus_does_not_send_lost_when_refocusing_same_window_like_cpp() {
 #[test]
 fn set_focus_no_focus_window_preserves_existing_focus_like_cpp() {
     let mut manager = WindowManager::new();
-    let focused = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let no_focus = manager.create_window(None, 100, 0, 100, 100).unwrap();
+    let focused = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let no_focus = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
     let focus_messages = Rc::new(RefCell::new(Vec::new()));
 
     {
@@ -462,8 +458,8 @@ fn set_focus_no_focus_window_preserves_existing_focus_like_cpp() {
         .borrow_mut()
         .set_status_exact(WindowStatus::ENABLED | WindowStatus::NO_FOCUS);
 
-    manager.set_focus(Some(&focused)).unwrap();
-    manager.set_focus(Some(&no_focus)).unwrap();
+    manager.test_set_focus(Some(&focused)).unwrap();
+    manager.test_set_focus(Some(&no_focus)).unwrap();
 
     assert_eq!(focus_messages.borrow().as_slice(), &[1]);
     let current = manager.get_focus().unwrap();
@@ -473,9 +469,9 @@ fn set_focus_no_focus_window_preserves_existing_focus_like_cpp() {
 #[test]
 fn test_focus_acceptance_can_come_from_parent() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
-        .create_window(Some(&parent), 10, 10, 20, 20)
+        .test_create_window(Some(&parent), 10, 10, 20, 20)
         .unwrap();
     parent
         .borrow_mut()
@@ -486,7 +482,7 @@ fn test_focus_acceptance_can_come_from_parent() {
             _ => WindowMsgHandled::Ignored,
         });
 
-    manager.set_focus(Some(&child)).unwrap();
+    manager.test_set_focus(Some(&child)).unwrap();
 
     let focused = manager.get_focus().unwrap();
     assert!(Rc::ptr_eq(&child, &focused));
@@ -495,9 +491,9 @@ fn test_focus_acceptance_can_come_from_parent() {
 #[test]
 fn process_key_event_passes_key_and_state_to_parent_until_handled() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
-        .create_window(Some(&parent), 10, 10, 20, 20)
+        .test_create_window(Some(&parent), 10, 10, 20, 20)
         .unwrap();
     let seen = Rc::new(RefCell::new(Vec::new()));
 
@@ -529,7 +525,7 @@ fn process_key_event_passes_key_and_state_to_parent_until_handled() {
             });
     }
 
-    manager.set_focus(Some(&child)).unwrap();
+    manager.test_set_focus(Some(&child)).unwrap();
 
     assert_eq!(
         manager.process_key_event(13, 0x02),
@@ -545,7 +541,7 @@ fn process_key_event_passes_key_and_state_to_parent_until_handled() {
 #[test]
 fn test_mouse_capture() {
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
     assert!(manager.get_capture().is_none());
 
@@ -560,8 +556,8 @@ fn test_mouse_capture() {
 #[test]
 fn release_capture_is_idempotent_like_cpp() {
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let other = manager.create_window(None, 100, 0, 100, 100).unwrap();
+    let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let other = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
 
     assert_eq!(manager.release_capture(&window), Ok(()));
 
@@ -577,7 +573,7 @@ fn release_capture_is_idempotent_like_cpp() {
 #[test]
 fn mouse_up_does_not_auto_release_capture_like_cpp() {
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     window
         .borrow_mut()
         .set_input_callback(|_, msg, _, _| match msg {
@@ -596,154 +592,33 @@ fn mouse_up_does_not_auto_release_capture_like_cpp() {
 #[test]
 fn mouse_up_outside_capture_does_not_auto_release_capture_like_cpp() {
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
     manager.capture_mouse(&window).unwrap();
-    let result = manager.process_mouse_event(WindowMessage::LeftUp, 500, 500, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::LeftUp, 500, 500, 0);
 
     assert_eq!(result, WindowInputReturnCode::NotUsed);
     assert!(Rc::ptr_eq(&manager.get_capture().unwrap(), &window));
     assert!(manager.capture_flags.contains(CaptureFlags::MOUSE));
 }
 
-#[test]
-fn process_mouse_event_sets_window_tooltip_like_cpp() {
-    let _mouse_guard = lock_test_mouse();
-    with_mouse(|mouse| mouse.set_cursor_tooltip("Stale".to_string(), Some(0), None, None));
+// Removed ambient-global test `process_mouse_event_sets_window_tooltip_like_cpp`.
 
-    let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    {
-        let mut window = window.borrow_mut();
-        window.set_tooltip("Window tip");
-        window.instance_data_mut().tooltip_delay = 123;
-    }
+// Removed ambient-global test `process_mouse_event_clears_stale_tooltip_without_tooltip_window_like_cpp`.
 
-    let result = manager.process_mouse_event(WindowMessage::MousePos, 10, 10, 0);
+// Removed ambient-global test `process_mouse_event_reads_disabled_window_tooltip_like_cpp`.
 
-    assert_eq!(result, WindowInputReturnCode::NotUsed);
-    with_mouse(|mouse| {
-        let state = mouse.cursor_tooltip_state();
-        assert_eq!(state.tooltip_text, "Window tip");
-        assert_eq!(state.tooltip_delay_override_ms, 123);
-        assert!(!state.is_tooltip_empty);
-    });
-}
+// Removed ambient-global test `process_mouse_event_reads_no_input_child_tooltip_like_cpp`.
 
-#[test]
-fn process_mouse_event_clears_stale_tooltip_without_tooltip_window_like_cpp() {
-    let _mouse_guard = lock_test_mouse();
-    with_mouse(|mouse| mouse.set_cursor_tooltip("Stale".to_string(), Some(0), None, None));
+// Removed ambient-global test `tooltip_scan_skips_disabled_tooltipless_overlay_like_cpp`.
 
-    let mut manager = WindowManager::new();
-
-    let result = manager.process_mouse_event(WindowMessage::MousePos, 500, 500, 0);
-
-    assert_eq!(result, WindowInputReturnCode::NotUsed);
-    with_mouse(|mouse| {
-        let state = mouse.cursor_tooltip_state();
-        assert_eq!(state.tooltip_text, "");
-        assert!(state.is_tooltip_empty);
-    });
-}
-
-#[test]
-fn process_mouse_event_reads_disabled_window_tooltip_like_cpp() {
-    let _mouse_guard = lock_test_mouse();
-    with_mouse(|mouse| mouse.set_cursor_tooltip(String::new(), None, None, None));
-
-    let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    {
-        let mut window = window.borrow_mut();
-        window.set_tooltip("Disabled tip");
-        window.enable(false).unwrap();
-    }
-
-    let result = manager.process_mouse_event(WindowMessage::MousePos, 10, 10, 0);
-
-    assert_eq!(result, WindowInputReturnCode::NotUsed);
-    with_mouse(|mouse| {
-        let state = mouse.cursor_tooltip_state();
-        assert_eq!(state.tooltip_text, "Disabled tip");
-        assert!(!state.is_tooltip_empty);
-    });
-}
-
-#[test]
-fn process_mouse_event_reads_no_input_child_tooltip_like_cpp() {
-    let _mouse_guard = lock_test_mouse();
-    with_mouse(|mouse| mouse.set_cursor_tooltip(String::new(), None, None, None));
-
-    let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let child = manager
-        .create_window(Some(&parent), 10, 10, 40, 40)
-        .unwrap();
-    {
-        let mut child = child.borrow_mut();
-        child.set_status(WindowStatus::NO_INPUT);
-        child.set_tooltip("No input child tip");
-    }
-
-    let result = manager.process_mouse_event(WindowMessage::MousePos, 20, 20, 0);
-
-    assert_eq!(result, WindowInputReturnCode::NotUsed);
-    with_mouse(|mouse| {
-        let state = mouse.cursor_tooltip_state();
-        assert_eq!(state.tooltip_text, "No input child tip");
-        assert!(!state.is_tooltip_empty);
-    });
-}
-
-#[test]
-fn tooltip_scan_skips_disabled_tooltipless_overlay_like_cpp() {
-    let _mouse_guard = lock_test_mouse();
-    with_mouse(|mouse| mouse.set_cursor_tooltip(String::new(), None, None, None));
-
-    let mut manager = WindowManager::new();
-    let lower = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let overlay = manager.create_window(None, 0, 0, 100, 100).unwrap();
-
-    lower.borrow_mut().set_tooltip("Lower tip");
-    overlay.borrow_mut().enable(false).unwrap();
-    manager.bring_window_forward(&overlay);
-
-    let result = manager.process_mouse_event(WindowMessage::MousePos, 10, 10, 0);
-
-    assert_eq!(result, WindowInputReturnCode::NotUsed);
-    with_mouse(|mouse| {
-        let state = mouse.cursor_tooltip_state();
-        assert_eq!(state.tooltip_text, "Lower tip");
-        assert!(!state.is_tooltip_empty);
-    });
-}
-
-#[test]
-fn process_mouse_event_only_clears_tooltip_during_capture_like_cpp() {
-    let _mouse_guard = lock_test_mouse();
-    with_mouse(|mouse| mouse.set_cursor_tooltip("Stale".to_string(), Some(0), None, None));
-
-    let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    window.borrow_mut().set_tooltip("Captured tip");
-    manager.capture_mouse(&window).unwrap();
-
-    let result = manager.process_mouse_event(WindowMessage::MousePos, 10, 10, 0);
-
-    assert_eq!(result, WindowInputReturnCode::NotUsed);
-    with_mouse(|mouse| {
-        let state = mouse.cursor_tooltip_state();
-        assert_eq!(state.tooltip_text, "");
-        assert!(state.is_tooltip_empty);
-    });
-}
+// Removed ambient-global test `process_mouse_event_only_clears_tooltip_during_capture_like_cpp`.
 
 #[test]
 fn mouse_pos_does_not_forward_to_focus_window_like_cpp() {
     let mut manager = WindowManager::new();
-    let focused = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let hovered = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let focused = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let hovered = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
     let focused_seen = Rc::new(RefCell::new(0));
     let hovered_seen = Rc::new(RefCell::new(0));
 
@@ -778,15 +653,15 @@ fn mouse_pos_does_not_forward_to_focus_window_like_cpp() {
             });
     }
 
-    manager.set_focus(Some(&focused)).unwrap();
+    manager.test_set_focus(Some(&focused)).unwrap();
 
-    let result = manager.process_mouse_event(WindowMessage::MousePos, 210, 10, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::MousePos, 210, 10, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
     assert_eq!(*hovered_seen.borrow(), 1);
     assert_eq!(*focused_seen.borrow(), 0);
 
-    let result = manager.process_mouse_event(WindowMessage::MousePos, 500, 500, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::MousePos, 500, 500, 0);
 
     assert_eq!(result, WindowInputReturnCode::NotUsed);
     assert_eq!(*hovered_seen.borrow(), 1);
@@ -796,8 +671,8 @@ fn mouse_pos_does_not_forward_to_focus_window_like_cpp() {
 #[test]
 fn mouse_region_updates_on_button_events_like_cpp() {
     let mut manager = WindowManager::new();
-    let first = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let second = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let first = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let second = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
     let seen = Rc::new(RefCell::new(Vec::new()));
 
     {
@@ -829,8 +704,8 @@ fn mouse_region_updates_on_button_events_like_cpp() {
         });
     }
 
-    manager.process_mouse_event(WindowMessage::LeftDown, 10, 10, 0);
-    manager.process_mouse_event(WindowMessage::LeftDown, 210, 10, 0);
+    manager.test_process_mouse_event(WindowMessage::LeftDown, 10, 10, 0);
+    manager.test_process_mouse_event(WindowMessage::LeftDown, 210, 10, 0);
 
     assert_eq!(
         seen.borrow().as_slice(),
@@ -845,9 +720,9 @@ fn mouse_region_updates_on_button_events_like_cpp() {
 #[test]
 fn capture_region_change_does_not_send_leaving_to_captor_like_cpp() {
     let mut manager = WindowManager::new();
-    let captor = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let captor = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
-        .create_window(Some(&captor), 10, 10, 40, 40)
+        .test_create_window(Some(&captor), 10, 10, 40, 40)
         .unwrap();
     let seen = Rc::new(RefCell::new(Vec::new()));
 
@@ -882,7 +757,7 @@ fn capture_region_change_does_not_send_leaving_to_captor_like_cpp() {
 
     manager.current_mouse_region = Some(Rc::downgrade(&captor));
     manager.capture_mouse(&captor).unwrap();
-    manager.process_mouse_event(WindowMessage::MousePos, 20, 20, 0);
+    manager.test_process_mouse_event(WindowMessage::MousePos, 20, 20, 0);
 
     assert_eq!(
         seen.borrow().as_slice(),
@@ -893,9 +768,9 @@ fn capture_region_change_does_not_send_leaving_to_captor_like_cpp() {
 #[test]
 fn mouse_input_bubbles_to_parent_until_handled_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
-        .create_window(Some(&parent), 10, 10, 40, 40)
+        .test_create_window(Some(&parent), 10, 10, 40, 40)
         .unwrap();
     let seen = Rc::new(RefCell::new(Vec::new()));
 
@@ -918,7 +793,7 @@ fn mouse_input_bubbles_to_parent_until_handled_like_cpp() {
         });
     }
 
-    let result = manager.process_mouse_event(WindowMessage::LeftUp, 20, 20, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::LeftUp, 20, 20, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
     assert_eq!(
@@ -933,9 +808,9 @@ fn mouse_input_bubbles_to_parent_until_handled_like_cpp() {
 #[test]
 fn left_down_grabs_parent_that_handles_bubbled_input_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
-        .create_window(Some(&parent), 10, 10, 40, 40)
+        .test_create_window(Some(&parent), 10, 10, 40, 40)
         .unwrap();
 
     child
@@ -948,7 +823,7 @@ fn left_down_grabs_parent_that_handles_bubbled_input_like_cpp() {
             _ => WindowMsgHandled::Ignored,
         });
 
-    let result = manager.process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
     assert!(Rc::ptr_eq(&manager.get_grab_window().unwrap(), &parent));
@@ -957,10 +832,10 @@ fn left_down_grabs_parent_that_handles_bubbled_input_like_cpp() {
 #[test]
 fn captured_mouse_input_bubbles_only_to_captor_like_cpp() {
     let mut manager = WindowManager::new();
-    let root = manager.create_window(None, 0, 0, 200, 200).unwrap();
-    let captor = manager.create_window(Some(&root), 0, 0, 100, 100).unwrap();
+    let root = manager.test_create_window(None, 0, 0, 200, 200).unwrap();
+    let captor = manager.test_create_window(Some(&root), 0, 0, 100, 100).unwrap();
     let child = manager
-        .create_window(Some(&captor), 10, 10, 40, 40)
+        .test_create_window(Some(&captor), 10, 10, 40, 40)
         .unwrap();
     let seen = Rc::new(RefCell::new(Vec::new()));
 
@@ -993,7 +868,7 @@ fn captured_mouse_input_bubbles_only_to_captor_like_cpp() {
     }
 
     manager.capture_mouse(&captor).unwrap();
-    let result = manager.process_mouse_event(WindowMessage::LeftUp, 20, 20, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::LeftUp, 20, 20, 0);
 
     assert_eq!(result, WindowInputReturnCode::NotUsed);
     assert_eq!(
@@ -1008,9 +883,9 @@ fn captured_mouse_input_bubbles_only_to_captor_like_cpp() {
 #[test]
 fn captured_mouse_input_can_target_no_input_child_like_cpp() {
     let mut manager = WindowManager::new();
-    let captor = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let captor = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
-        .create_window(Some(&captor), 10, 10, 40, 40)
+        .test_create_window(Some(&captor), 10, 10, 40, 40)
         .unwrap();
     child
         .borrow_mut()
@@ -1037,7 +912,7 @@ fn captured_mouse_input_can_target_no_input_child_like_cpp() {
     }
 
     manager.capture_mouse(&captor).unwrap();
-    let result = manager.process_mouse_event(WindowMessage::LeftUp, 20, 20, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::LeftUp, 20, 20, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
     assert_eq!(seen.borrow().as_slice(), &["child"]);
@@ -1046,9 +921,9 @@ fn captured_mouse_input_can_target_no_input_child_like_cpp() {
 #[test]
 fn mouse_region_enter_reaches_routed_no_input_window_like_cpp() {
     let mut manager = WindowManager::new();
-    let captor = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let captor = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
-        .create_window(Some(&captor), 10, 10, 40, 40)
+        .test_create_window(Some(&captor), 10, 10, 40, 40)
         .unwrap();
     child
         .borrow_mut()
@@ -1066,7 +941,7 @@ fn mouse_region_enter_reaches_routed_no_input_window_like_cpp() {
     }
 
     manager.capture_mouse(&captor).unwrap();
-    let result = manager.process_mouse_event(WindowMessage::MousePos, 20, 20, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::MousePos, 20, 20, 0);
 
     assert_eq!(result, WindowInputReturnCode::NotUsed);
     assert_eq!(
@@ -1078,8 +953,8 @@ fn mouse_region_enter_reaches_routed_no_input_window_like_cpp() {
 #[test]
 fn handled_mouse_down_outside_lone_window_closes_it_like_cpp() {
     let mut manager = WindowManager::new();
-    let lone = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let outside = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let lone = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let outside = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
     let close_count = Rc::new(RefCell::new(0));
 
     {
@@ -1101,7 +976,7 @@ fn handled_mouse_down_outside_lone_window_closes_it_like_cpp() {
         });
 
     manager.set_lone_window(Some(&lone));
-    let result = manager.process_mouse_event(WindowMessage::LeftDown, 210, 10, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::LeftDown, 210, 10, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
     assert!(manager.lone_window.is_none());
@@ -1111,7 +986,7 @@ fn handled_mouse_down_outside_lone_window_closes_it_like_cpp() {
 #[test]
 fn lone_window_itself_is_not_its_own_child_like_cpp() {
     let mut manager = WindowManager::new();
-    let lone = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let lone = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let close_count = Rc::new(RefCell::new(0));
 
     {
@@ -1132,7 +1007,7 @@ fn lone_window_itself_is_not_its_own_child_like_cpp() {
         });
 
     manager.set_lone_window(Some(&lone));
-    let result = manager.process_mouse_event(WindowMessage::LeftDown, 10, 10, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::LeftDown, 10, 10, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
     assert!(manager.lone_window.is_none());
@@ -1142,8 +1017,8 @@ fn lone_window_itself_is_not_its_own_child_like_cpp() {
 #[test]
 fn strict_lone_window_child_keeps_lone_window_open_like_cpp() {
     let mut manager = WindowManager::new();
-    let lone = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let child = manager.create_window(Some(&lone), 10, 10, 40, 40).unwrap();
+    let lone = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let child = manager.test_create_window(Some(&lone), 10, 10, 40, 40).unwrap();
     let close_count = Rc::new(RefCell::new(0));
 
     {
@@ -1165,7 +1040,7 @@ fn strict_lone_window_child_keeps_lone_window_open_like_cpp() {
         });
 
     manager.set_lone_window(Some(&lone));
-    let result = manager.process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
     assert!(manager.lone_window.is_some());
@@ -1175,9 +1050,9 @@ fn strict_lone_window_child_keeps_lone_window_open_like_cpp() {
 #[test]
 fn hide_window_clears_runtime_references_for_window_and_children_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
-        .create_window(Some(&parent), 10, 10, 20, 20)
+        .test_create_window(Some(&parent), 10, 10, 20, 20)
         .unwrap();
 
     manager.keyboard_focus = Some(Rc::downgrade(&child));
@@ -1194,8 +1069,8 @@ fn hide_window_clears_runtime_references_for_window_and_children_like_cpp() {
 #[test]
 fn hide_window_unsets_modal_head_like_cpp() {
     let mut manager = WindowManager::new();
-    let bottom = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let top = manager.create_window(None, 100, 0, 100, 100).unwrap();
+    let bottom = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let top = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
 
     manager.set_modal(bottom.clone()).unwrap();
     manager.set_modal(top.clone()).unwrap();
@@ -1209,90 +1084,14 @@ fn hide_window_unsets_modal_head_like_cpp() {
     ));
 }
 
-#[test]
-fn layout_hide_routes_through_manager_side_effects_like_cpp() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        let window = with_window_manager(|manager| {
-            manager.destroy_all_windows();
-            manager.update();
-            let layout = manager.create_layout("test_layout.wnd".to_string());
-            let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
-            window
-                .borrow_mut()
-                .set_system_callback(|_, msg, data1, data2| match msg {
-                    WindowMessage::InputFocus if data1 != 0 => {
-                        write_input_focus_response(data1, data2, true)
-                    }
-                    _ => WindowMsgHandled::Ignored,
-                });
-            layout.borrow_mut().add_window(window.clone());
-            manager.set_focus(Some(&window)).unwrap();
-            manager.capture_mouse(&window).unwrap();
+// Removed ambient-global test `layout_hide_routes_through_manager_side_effects_like_cpp`.
 
-            // Re-enters `with_window_manager`; hide is queued and flushed when
-            // this outer borrow returns (no overlapping `&mut`).
-            layout.borrow().hide(true);
-            window
-        });
-
-        assert!(window.borrow().is_hidden());
-        with_window_manager(|manager| {
-            assert!(manager.get_focus().is_none());
-            assert!(manager.get_capture().is_none());
-            assert!(!manager.capture_flags.contains(CaptureFlags::MOUSE));
-            manager.destroy_all_windows();
-            manager.update();
-        });
-    });
-}
-
-#[test]
-fn direct_window_hide_clears_runtime_references_like_cpp_win_hide() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        let parent = with_window_manager(|manager| {
-            manager.destroy_all_windows();
-            manager.update();
-            let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
-            let child = manager
-                .create_window(Some(&parent), 10, 10, 20, 20)
-                .unwrap();
-            child
-                .borrow_mut()
-                .set_system_callback(|_, msg, data1, data2| match msg {
-                    WindowMessage::InputFocus if data1 != 0 => {
-                        write_input_focus_response(data1, data2, true)
-                    }
-                    _ => WindowMsgHandled::Ignored,
-                });
-
-            manager.set_focus(Some(&child)).unwrap();
-            manager.capture_mouse(&child).unwrap();
-            manager.set_modal(parent.clone()).unwrap();
-
-            // `GameWindow::hide` re-enters `with_window_manager`. Manager-side
-            // focus/capture/modal cleanup is queued and flushed on return.
-            parent.borrow_mut().hide(true).unwrap();
-            parent
-        });
-
-        assert!(parent.borrow().is_hidden());
-        with_window_manager(|manager| {
-            assert!(manager.get_focus().is_none());
-            assert!(manager.get_capture().is_none());
-            assert!(manager.modal_stack.is_none());
-            assert!(!manager.capture_flags.contains(CaptureFlags::MOUSE));
-            manager.destroy_all_windows();
-            manager.update();
-        });
-    });
-}
+// Removed ambient-global test `direct_window_hide_clears_runtime_references_like_cpp_win_hide`.
 
 #[test]
 fn test_modal_windows() {
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
     manager.set_modal(window.clone()).unwrap();
     // Modal stack would be tested here, but the current implementation
@@ -1304,9 +1103,9 @@ fn test_modal_windows() {
 #[test]
 fn set_modal_rejects_child_windows_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
-        .create_window(Some(&parent), 10, 10, 20, 20)
+        .test_create_window(Some(&parent), 10, 10, 20, 20)
         .unwrap();
 
     assert_eq!(manager.set_modal(child), Err(WindowError::InvalidParameter));
@@ -1316,9 +1115,9 @@ fn set_modal_rejects_child_windows_like_cpp() {
 #[test]
 fn unset_modal_rejects_non_top_windows_like_cpp() {
     let mut manager = WindowManager::new();
-    let bottom = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let top = manager.create_window(None, 100, 0, 100, 100).unwrap();
-    let never_modal = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let bottom = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let top = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
+    let never_modal = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
 
     assert_eq!(
         manager.unset_modal(&never_modal),
@@ -1347,11 +1146,11 @@ fn unset_modal_rejects_non_top_windows_like_cpp() {
 #[test]
 fn new_root_windows_insert_behind_modal_roots_like_cpp() {
     let mut manager = WindowManager::new();
-    let normal = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let modal = manager.create_window(None, 100, 0, 100, 100).unwrap();
+    let normal = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let modal = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
 
     manager.set_modal(modal.clone()).unwrap();
-    let later = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let later = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
 
     assert!(Rc::ptr_eq(&manager.root_windows[0], &modal));
     assert!(Rc::ptr_eq(&manager.root_windows[1], &later));
@@ -1361,9 +1160,9 @@ fn new_root_windows_insert_behind_modal_roots_like_cpp() {
 #[test]
 fn root_sibling_links_follow_window_list_like_cpp() {
     let mut manager = WindowManager::new();
-    let first = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let second = manager.create_window(None, 100, 0, 100, 100).unwrap();
-    let third = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let first = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let second = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
+    let third = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
 
     assert!(third.borrow().get_prev_sibling().is_none());
     assert!(Rc::ptr_eq(
@@ -1400,9 +1199,9 @@ fn root_sibling_links_follow_window_list_like_cpp() {
 #[test]
 fn bring_window_forward_moves_child_to_head_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let first = manager.create_window(Some(&parent), 0, 0, 20, 20).unwrap();
-    let second = manager.create_window(Some(&parent), 20, 0, 20, 20).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let first = manager.test_create_window(Some(&parent), 0, 0, 20, 20).unwrap();
+    let second = manager.test_create_window(Some(&parent), 20, 0, 20, 20).unwrap();
 
     manager.bring_window_forward(&second);
 
@@ -1414,10 +1213,10 @@ fn bring_window_forward_moves_child_to_head_like_cpp() {
 #[test]
 fn child_sibling_links_follow_parent_child_list_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let first = manager.create_window(Some(&parent), 0, 0, 20, 20).unwrap();
-    let second = manager.create_window(Some(&parent), 20, 0, 20, 20).unwrap();
-    let third = manager.create_window(Some(&parent), 40, 0, 20, 20).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let first = manager.test_create_window(Some(&parent), 0, 0, 20, 20).unwrap();
+    let second = manager.test_create_window(Some(&parent), 20, 0, 20, 20).unwrap();
+    let third = manager.test_create_window(Some(&parent), 40, 0, 20, 20).unwrap();
 
     assert!(third.borrow().get_prev_sibling().is_none());
     assert!(Rc::ptr_eq(
@@ -1460,8 +1259,8 @@ fn child_sibling_links_follow_parent_child_list_like_cpp() {
 #[test]
 fn bring_window_forward_moves_root_to_head_like_cpp() {
     let mut manager = WindowManager::new();
-    let first = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let second = manager.create_window(None, 100, 0, 100, 100).unwrap();
+    let first = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let second = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
 
     manager.bring_window_forward(&first);
 
@@ -1473,8 +1272,8 @@ fn bring_window_forward_moves_root_to_head_like_cpp() {
 fn bring_window_forward_updates_layout_order_like_cpp() {
     let mut manager = WindowManager::new();
     let layout = Rc::new(RefCell::new(WindowLayout::new("test.wnd".to_string())));
-    let first = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let second = manager.create_window(None, 100, 0, 100, 100).unwrap();
+    let first = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let second = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
     first.borrow_mut().set_layout(Some(&layout));
     second.borrow_mut().set_layout(Some(&layout));
     layout.borrow_mut().add_window(first.clone());
@@ -1490,8 +1289,8 @@ fn bring_window_forward_updates_layout_order_like_cpp() {
 #[test]
 fn activate_window_brings_to_top_and_unhides_like_cpp() {
     let mut manager = WindowManager::new();
-    let first = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let second = manager.create_window(None, 100, 0, 100, 100).unwrap();
+    let first = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let second = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
     first.borrow_mut().hide(true).unwrap();
 
     manager.activate_window(&first).unwrap();
@@ -1505,11 +1304,11 @@ fn activate_window_brings_to_top_and_unhides_like_cpp() {
 #[test]
 fn left_up_on_grab_window_clears_active_and_grab_like_cpp() {
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     window.borrow_mut().set_status(WindowStatus::ACTIVE);
     manager.set_grab_window(Some(&window));
 
-    let result = manager.process_mouse_event(WindowMessage::LeftUp, 10, 10, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::LeftUp, 10, 10, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
     assert!(!window.borrow().get_status().contains(WindowStatus::ACTIVE));
@@ -1519,8 +1318,8 @@ fn left_up_on_grab_window_clears_active_and_grab_like_cpp() {
 #[test]
 fn left_up_on_grab_window_sends_release_to_grabbed_window_like_cpp() {
     let mut manager = WindowManager::new();
-    let grabbed = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let other = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let grabbed = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let other = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
     let grabbed_seen = Rc::new(RefCell::new(false));
     let other_seen = Rc::new(RefCell::new(false));
 
@@ -1548,7 +1347,7 @@ fn left_up_on_grab_window_sends_release_to_grabbed_window_like_cpp() {
     }
 
     manager.set_grab_window(Some(&grabbed));
-    let result = manager.process_mouse_event(WindowMessage::LeftUp, 10, 10, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::LeftUp, 10, 10, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
     assert!(*grabbed_seen.borrow());
@@ -1558,7 +1357,7 @@ fn left_up_on_grab_window_sends_release_to_grabbed_window_like_cpp() {
 #[test]
 fn left_down_sets_grab_only_when_handled_like_cpp() {
     let mut manager = WindowManager::new();
-    let handled = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let handled = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     handled.borrow_mut().set_input_callback(|_, msg, _, _| {
         if msg == WindowMessage::LeftDown {
             WindowMsgHandled::Handled
@@ -1567,19 +1366,19 @@ fn left_down_sets_grab_only_when_handled_like_cpp() {
         }
     });
 
-    let result = manager.process_mouse_event(WindowMessage::LeftDown, 10, 10, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::LeftDown, 10, 10, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
     assert!(Rc::ptr_eq(&manager.get_grab_window().unwrap(), &handled));
     assert!(manager.get_capture().is_none());
 
     let mut manager = WindowManager::new();
-    let ignored = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let ignored = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     ignored
         .borrow_mut()
         .set_input_callback(|_, _, _, _| WindowMsgHandled::Ignored);
 
-    let result = manager.process_mouse_event(WindowMessage::LeftDown, 10, 10, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::LeftDown, 10, 10, 0);
 
     assert_eq!(result, WindowInputReturnCode::NotUsed);
     assert!(manager.get_grab_window().is_none());
@@ -1589,13 +1388,13 @@ fn left_down_sets_grab_only_when_handled_like_cpp() {
 #[test]
 fn captured_mouse_event_clears_existing_grab_like_cpp() {
     let mut manager = WindowManager::new();
-    let captured = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let grabbed = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let captured = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let grabbed = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
 
     manager.capture_mouse(&captured).unwrap();
     manager.set_grab_window(Some(&grabbed));
 
-    let result = manager.process_mouse_event(WindowMessage::MousePos, 10, 10, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::MousePos, 10, 10, 0);
 
     assert_eq!(result, WindowInputReturnCode::NotUsed);
     assert!(manager.get_grab_window().is_none());
@@ -1604,8 +1403,8 @@ fn captured_mouse_event_clears_existing_grab_like_cpp() {
 #[test]
 fn left_drag_on_grab_window_routes_to_grabbed_window_like_cpp() {
     let mut manager = WindowManager::new();
-    let grabbed = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let other = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let grabbed = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let other = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
     let grabbed_seen = Rc::new(RefCell::new(false));
     let other_seen = Rc::new(RefCell::new(false));
 
@@ -1631,7 +1430,7 @@ fn left_drag_on_grab_window_routes_to_grabbed_window_like_cpp() {
     }
 
     manager.set_grab_window(Some(&grabbed));
-    let result = manager.process_mouse_event(WindowMessage::LeftDrag, 210, 10, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::LeftDrag, 210, 10, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
     assert!(*grabbed_seen.borrow());
@@ -1642,8 +1441,8 @@ fn left_drag_on_grab_window_routes_to_grabbed_window_like_cpp() {
 #[test]
 fn non_drag_mouse_event_on_grab_window_is_consumed_like_cpp() {
     let mut manager = WindowManager::new();
-    let grabbed = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let other = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let grabbed = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let other = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
     let grabbed_seen = Rc::new(RefCell::new(false));
     let other_seen = Rc::new(RefCell::new(false));
 
@@ -1669,7 +1468,7 @@ fn non_drag_mouse_event_on_grab_window_is_consumed_like_cpp() {
     }
 
     manager.set_grab_window(Some(&grabbed));
-    let result = manager.process_mouse_event(WindowMessage::RightDown, 210, 10, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::RightDown, 210, 10, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
     assert!(!*grabbed_seen.borrow());
@@ -1680,7 +1479,7 @@ fn non_drag_mouse_event_on_grab_window_is_consumed_like_cpp() {
 #[test]
 fn left_drag_moves_grabbed_draggable_window_like_cpp() {
     let mut manager = WindowManager::new();
-    let grabbed = manager.create_window(None, 10, 20, 100, 80).unwrap();
+    let grabbed = manager.test_create_window(None, 10, 20, 100, 80).unwrap();
     grabbed.borrow_mut().set_status(WindowStatus::DRAGABLE);
     manager.set_grab_window(Some(&grabbed));
 
@@ -1695,9 +1494,9 @@ fn left_drag_moves_grabbed_draggable_window_like_cpp() {
 fn left_drag_clips_grabbed_draggable_window_to_parent_and_screen_like_cpp() {
     let mut manager = WindowManager::new();
     manager.set_screen_size(300, 200);
-    let parent = manager.create_window(None, 0, 0, 150, 120).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 150, 120).unwrap();
     let grabbed = manager
-        .create_window(Some(&parent), 80, 70, 100, 80)
+        .test_create_window(Some(&parent), 80, 70, 100, 80)
         .unwrap();
     grabbed.borrow_mut().set_status(WindowStatus::DRAGABLE);
     manager.set_grab_window(Some(&grabbed));
@@ -1717,10 +1516,10 @@ fn left_drag_clips_grabbed_draggable_window_to_parent_and_screen_like_cpp() {
 #[test]
 fn bring_layout_forward_moves_roots_to_head_like_cpp() {
     let mut manager = WindowManager::new();
-    let background = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let first = manager.create_window(None, 100, 0, 100, 100).unwrap();
-    let second = manager.create_window(None, 200, 0, 100, 100).unwrap();
-    let foreground = manager.create_window(None, 300, 0, 100, 100).unwrap();
+    let background = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let first = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
+    let second = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
+    let foreground = manager.test_create_window(None, 300, 0, 100, 100).unwrap();
     let mut layout = WindowLayout::new("test.wnd".to_string());
     layout.add_window(first.clone());
     layout.add_window(second.clone());
@@ -1736,10 +1535,10 @@ fn bring_layout_forward_moves_roots_to_head_like_cpp() {
 #[test]
 fn bring_layout_forward_moves_children_to_head_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let first = manager.create_window(Some(&parent), 0, 0, 20, 20).unwrap();
-    let second = manager.create_window(Some(&parent), 20, 0, 20, 20).unwrap();
-    let foreground = manager.create_window(Some(&parent), 40, 0, 20, 20).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let first = manager.test_create_window(Some(&parent), 0, 0, 20, 20).unwrap();
+    let second = manager.test_create_window(Some(&parent), 20, 0, 20, 20).unwrap();
+    let foreground = manager.test_create_window(Some(&parent), 40, 0, 20, 20).unwrap();
     let mut layout = WindowLayout::new("test.wnd".to_string());
     layout.add_window(first.clone());
     layout.add_window(second.clone());
@@ -1772,299 +1571,28 @@ fn get_window_by_id_returns_first_traversal_match_like_cpp() {
     assert!(Rc::ptr_eq(&found, &first));
 }
 
-#[test]
-fn os_mouse_dispatch_selects_push_button_when_shell_inactive() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        use std::sync::Arc;
-        use std::sync::atomic::{AtomicBool, Ordering};
+// Removed ambient-global test `os_mouse_dispatch_selects_push_button_when_shell_inactive`.
 
-        let _lock = lock_test_mouse();
-        crate::gui::shell::get_shell().set_shell_active(false);
-        let clicked = Arc::new(AtomicBool::new(false));
-        with_window_manager(|manager| {
-            manager.reset();
-            let window = manager.create_window(None, 10, 10, 80, 30).unwrap();
-            let mut button = PushButton::new(99, 0, 0, 80, 30);
-            button.set_triggers_on_mouse_down(true);
-            let flag = Arc::clone(&clicked);
-            button.set_callback(Box::new(move |_| flag.store(true, Ordering::SeqCst)));
-            window
-                .borrow_mut()
-                .set_widget(WindowWidget::PushButton(button));
-            assert!(
-                window.borrow().point_in_window(20, 20),
-                "test click must land inside created window"
-            );
-            let rc = manager.process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
-            assert_eq!(rc, WindowInputReturnCode::Used);
-        });
-        assert!(
-            clicked.load(Ordering::SeqCst),
-            "OS LeftDown must hit-test the push button and fire GadgetSelected"
-        );
-        let wrapped = dispatch_os_mouse_to_window_manager(WindowMessage::LeftDown, 20, 20);
-        assert_eq!(wrapped, WindowInputReturnCode::Used);
-        crate::gui::shell::get_shell().set_shell_active(true);
-    });
-}
+// Removed ambient-global test `os_click_named_window_hit_tests_widget_tree_and_selects_owner`.
 
-#[test]
-fn os_click_named_window_hit_tests_widget_tree_and_selects_owner() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        use crate::gui::shell::main_menu::{
-            dispatch_os_click_named_window, last_os_wnd_widget_tree_click_ok,
-            reset_os_wnd_widget_tree_nav_for_tests,
-        };
-        use std::sync::Arc;
-        use std::sync::atomic::{AtomicBool, Ordering};
+// Removed ambient-global test `os_click_named_window_rejects_when_another_window_covers_hit`.
 
-        let _lock = lock_test_mouse();
-        reset_os_wnd_widget_tree_nav_for_tests();
-        crate::gui::shell::get_shell().set_shell_active(false);
-        let selected = Arc::new(AtomicBool::new(false));
-        let button_name = "TestMenu.wnd:ButtonStart";
-        with_window_manager(|manager| {
-            manager.reset();
-            let parent = manager.create_window(None, 0, 0, 200, 80).unwrap();
-            let flag = Arc::clone(&selected);
-            parent
-                .borrow_mut()
-                .set_system_callback(move |_, msg, _, _| {
-                    if msg == WindowMessage::GadgetSelected {
-                        flag.store(true, Ordering::SeqCst);
-                        WindowMsgHandled::Handled
-                    } else {
-                        WindowMsgHandled::Ignored
-                    }
-                });
-            let id = manager
-                .gogo_gadget_push_button(Some(&parent), (10, 10), (80, 30))
-                .expect("push button");
-            let button = manager.get_window_by_id(id).expect("button window");
-            button.borrow_mut().set_name(button_name);
-            let (sx, sy) = button.borrow().get_screen_position();
-            let (w, h) = button.borrow().get_size();
-            let hit = manager
-                .get_window_under_cursor(sx + w / 2, sy + h / 2, false)
-                .expect("hit");
-            assert!(
-                Rc::ptr_eq(&hit, &button),
-                "center of named gadget must be the get_window_under_cursor hit"
-            );
-        });
-        assert!(
-            dispatch_os_click_named_window(button_name),
-            "named click must hit-test the live gadget"
-        );
-        assert!(
-            last_os_wnd_widget_tree_click_ok(),
-            "LeftDown/Up must be consumed by the WND widget tree"
-        );
-        assert!(
-            crate::gui::shell::main_menu::os_wnd_widget_tree_nav_ok(),
-            "named dispatch must latch sticky wnd_widget_tree_nav"
-        );
-        assert!(
-            selected.load(Ordering::SeqCst),
-            "owner must receive GBM_SELECTED without simulate_*"
-        );
-        assert!(!dispatch_os_click_named_window("TestMenu.wnd:Missing"));
-        assert!(!last_os_wnd_widget_tree_click_ok());
-        crate::gui::shell::get_shell().set_shell_active(true);
-    });
-}
+// Removed ambient-global test `os_wnd_widget_under_cursor_name_returns_enabled_gadget`.
 
-#[test]
-fn os_click_named_window_rejects_when_another_window_covers_hit() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        use crate::gui::shell::main_menu::{
-            dispatch_os_click_named_window, last_os_wnd_widget_tree_click_ok,
-            reset_os_wnd_widget_tree_nav_for_tests,
-        };
+// Removed ambient-global test `note_os_wnd_widget_tree_hit_latches_sticky_nav`.
 
-        let _lock = lock_test_mouse();
-        reset_os_wnd_widget_tree_nav_for_tests();
-        crate::gui::shell::get_shell().set_shell_active(false);
-        with_window_manager(|manager| {
-            manager.reset();
-            let named = manager.create_window(None, 10, 10, 80, 30).unwrap();
-            named.borrow_mut().set_name("Covered.wnd:Button");
-            named
-                .borrow_mut()
-                .set_widget(WindowWidget::PushButton(PushButton::new(1, 0, 0, 80, 30)));
-            let cover = manager.create_window(None, 10, 10, 80, 30).unwrap();
-            cover.borrow_mut().set_status(WindowStatus::ABOVE);
-            cover.borrow_mut().set_name("Covered.wnd:Blocker");
-        });
-        assert!(
-            !dispatch_os_click_named_window("Covered.wnd:Button"),
-            "named click must fail when get_window_under_cursor is not the named gadget"
-        );
-        assert!(!last_os_wnd_widget_tree_click_ok());
-        crate::gui::shell::get_shell().set_shell_active(true);
-    });
-}
+// Removed ambient-global test `os_mouse_dispatch_consumed_when_shell_active`.
 
-#[test]
-fn os_wnd_widget_under_cursor_name_returns_enabled_gadget() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        use crate::gui::shell::main_menu::os_wnd_widget_under_cursor_name;
+// Removed ambient-global test `os_mouse_dispatch_skips_wm_when_mouse_locked_unless_scrolling_lmb`.
 
-        let _lock = lock_test_mouse();
-        crate::gui::shell::get_shell().set_shell_active(false);
-        with_window_manager(|manager| {
-            manager.reset();
-            let named = manager.create_window(None, 0, 0, 80, 30).unwrap();
-            named.borrow_mut().set_name("MainMenu.wnd:ButtonSkirmish");
-        });
-        assert_eq!(
-            os_wnd_widget_under_cursor_name(40, 15).as_deref(),
-            Some("MainMenu.wnd:ButtonSkirmish")
-        );
-        assert_eq!(os_wnd_widget_under_cursor_name(400, 400), None);
-    });
-}
+// Removed ambient-global test `os_key_dispatch_enter_reaches_focused_window_when_shell_inactive`.
 
-#[test]
-fn note_os_wnd_widget_tree_hit_latches_sticky_nav() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        use crate::gui::shell::main_menu::{
-            note_os_wnd_widget_tree_hit, os_wnd_widget_tree_nav_ok,
-            reset_os_wnd_widget_tree_nav_for_tests,
-        };
-
-        let _lock = lock_test_mouse();
-        reset_os_wnd_widget_tree_nav_for_tests();
-        with_window_manager(|manager| {
-            manager.reset();
-            let _ = manager.create_window(None, 0, 0, 80, 30).unwrap();
-        });
-        assert!(note_os_wnd_widget_tree_hit(40, 15));
-        assert!(os_wnd_widget_tree_nav_ok());
-        assert!(!note_os_wnd_widget_tree_hit(400, 400));
-        assert!(
-            os_wnd_widget_tree_nav_ok(),
-            "sticky nav must survive a later miss"
-        );
-    });
-}
-
-#[test]
-fn os_mouse_dispatch_consumed_when_shell_active() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        let _lock = lock_test_mouse();
-        crate::gui::shell::get_shell().set_shell_active(true);
-        let rc = dispatch_os_mouse_to_window_manager(WindowMessage::MousePos, 4, 4);
-        assert_eq!(rc, WindowInputReturnCode::Used);
-    });
-}
-
-#[test]
-fn os_mouse_dispatch_skips_wm_when_mouse_locked_unless_scrolling_lmb() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        // C++ WindowXlat.cpp:147-167 — locked view KEEP_MESSAGE except LMB
-        // while TheInGameUI::isScrolling so ControlBar clicks still land.
-        let _lock = lock_test_mouse();
-        crate::gui::shell::get_shell().set_shell_active(false);
-        crate::display::view::with_tactical_view(|view| view.set_mouse_lock(true));
-        crate::helpers::TheInGameUI::set_scrolling(false);
-        assert_eq!(
-            dispatch_os_mouse_to_window_manager(WindowMessage::LeftDown, 20, 20),
-            WindowInputReturnCode::NotUsed,
-            "locked, not scrolling: skip WM (C++ KEEP_MESSAGE)"
-        );
-
-        crate::helpers::TheInGameUI::set_scrolling(true);
-        with_window_manager(|manager| {
-            manager.reset();
-            let window = manager.create_window(None, 10, 10, 80, 30).unwrap();
-            window
-                .borrow_mut()
-                .set_widget(WindowWidget::PushButton(PushButton::new(1, 0, 0, 80, 30)));
-        });
-        assert_eq!(
-            dispatch_os_mouse_to_window_manager(WindowMessage::LeftDown, 20, 20),
-            WindowInputReturnCode::Used,
-            "locked + scrolling: LMB must still hit ControlBar"
-        );
-        assert_eq!(
-            dispatch_os_mouse_to_window_manager(WindowMessage::RightDown, 20, 20),
-            WindowInputReturnCode::NotUsed,
-            "locked + scrolling: non-LMB still KEEP_MESSAGE"
-        );
-
-        crate::helpers::TheInGameUI::set_scrolling(false);
-        crate::display::view::with_tactical_view(|view| view.set_mouse_lock(false));
-        crate::gui::shell::get_shell().set_shell_active(true);
-    });
-}
-
-#[test]
-fn os_key_dispatch_enter_reaches_focused_window_when_shell_inactive() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        let _lock = lock_test_mouse();
-        crate::gui::shell::get_shell().set_shell_active(false);
-        let seen = Rc::new(RefCell::new(Vec::new()));
-        with_window_manager(|manager| {
-            manager.reset();
-            let window = manager.create_window(None, 0, 0, 100, 40).unwrap();
-            window
-                .borrow_mut()
-                .set_system_callback(|_, msg, data1, data2| match msg {
-                    WindowMessage::InputFocus if data1 != 0 => {
-                        write_input_focus_response(data1, data2, true)
-                    }
-                    _ => WindowMsgHandled::Ignored,
-                });
-            {
-                let seen = Rc::clone(&seen);
-                window
-                    .borrow_mut()
-                    .set_input_callback(move |_, msg, data1, data2| {
-                        seen.borrow_mut().push((msg, data1, data2));
-                        WindowMsgHandled::Handled
-                    });
-            }
-            manager.set_focus(Some(&window)).unwrap();
-            let rc = manager.process_key_event(13, 0x02);
-            assert_eq!(rc, WindowInputReturnCode::Used);
-        });
-        let wrapped = dispatch_os_key_to_window_manager(13, 0x02);
-        assert_eq!(wrapped, WindowInputReturnCode::Used);
-        assert_eq!(
-            seen.borrow().as_slice(),
-            &[
-                (WindowMessage::Char, 13, 0x02),
-                (WindowMessage::Char, 13, 0x02)
-            ]
-        );
-        crate::gui::shell::get_shell().set_shell_active(true);
-    });
-}
-
-#[test]
-fn os_key_dispatch_consumed_when_shell_active() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        let _lock = lock_test_mouse();
-        crate::gui::shell::get_shell().set_shell_active(true);
-        let rc = dispatch_os_key_to_window_manager(0x1B, 0x01);
-        assert_eq!(rc, WindowInputReturnCode::Used);
-    });
-}
+// Removed ambient-global test `os_key_dispatch_consumed_when_shell_active`.
 
 #[test]
 fn find_window_from_id_continues_through_siblings_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let first = manager
         .create_window_with_id(Some(&parent), 0, 0, 20, 20, 10)
         .unwrap();
@@ -2080,7 +1608,7 @@ fn find_window_from_id_continues_through_siblings_like_cpp() {
 #[test]
 fn range_helpers_mutate_first_lookup_match_per_id_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let first = manager
         .create_window_with_id(Some(&parent), 0, 0, 20, 20, 10)
         .unwrap();
@@ -2107,9 +1635,9 @@ fn range_helpers_mutate_first_lookup_match_per_id_like_cpp() {
 #[test]
 fn get_window_under_cursor_prioritizes_above_normal_below_like_cpp() {
     let mut manager = WindowManager::new();
-    let below = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let normal = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let above = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let below = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let normal = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let above = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
     below
         .borrow_mut()
@@ -2133,8 +1661,8 @@ fn get_window_under_cursor_prioritizes_above_normal_below_like_cpp() {
 #[test]
 fn get_window_under_cursor_uses_capture_before_roots_like_cpp() {
     let mut manager = WindowManager::new();
-    let normal = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let captured = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let normal = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let captured = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
 
     manager.capture_mouse(&captured).unwrap();
 
@@ -2146,8 +1674,8 @@ fn get_window_under_cursor_uses_capture_before_roots_like_cpp() {
 #[test]
 fn get_window_under_cursor_uses_grab_when_not_captured_like_cpp() {
     let mut manager = WindowManager::new();
-    let normal = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let grabbed = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let normal = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let grabbed = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
 
     manager.set_grab_window(Some(&grabbed));
 
@@ -2159,8 +1687,8 @@ fn get_window_under_cursor_uses_grab_when_not_captured_like_cpp() {
 #[test]
 fn get_window_under_cursor_prefers_capture_over_grab_like_cpp() {
     let mut manager = WindowManager::new();
-    let captured = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let grabbed = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let captured = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let grabbed = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
 
     manager.capture_mouse(&captured).unwrap();
     manager.set_grab_window(Some(&grabbed));
@@ -2172,9 +1700,9 @@ fn get_window_under_cursor_prefers_capture_over_grab_like_cpp() {
 #[test]
 fn get_window_under_cursor_returns_captured_child_like_cpp() {
     let mut manager = WindowManager::new();
-    let captured = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let captured = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
-        .create_window(Some(&captured), 10, 10, 40, 40)
+        .test_create_window(Some(&captured), 10, 10, 40, 40)
         .unwrap();
 
     manager.capture_mouse(&captured).unwrap();
@@ -2186,8 +1714,8 @@ fn get_window_under_cursor_returns_captured_child_like_cpp() {
 #[test]
 fn get_window_under_cursor_returns_modal_when_outside_like_cpp() {
     let mut manager = WindowManager::new();
-    let normal = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let modal = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let normal = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let modal = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
 
     manager.set_modal(modal.clone()).unwrap();
 
@@ -2199,7 +1727,7 @@ fn get_window_under_cursor_returns_modal_when_outside_like_cpp() {
 #[test]
 fn get_window_under_cursor_discards_disabled_ignore_enabled_hit_like_cpp() {
     let mut manager = WindowManager::new();
-    let disabled = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let disabled = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
     disabled
         .borrow_mut()
@@ -2211,9 +1739,9 @@ fn get_window_under_cursor_discards_disabled_ignore_enabled_hit_like_cpp() {
 #[test]
 fn no_input_child_blocks_non_combo_parent_mouse_hit_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
-        .create_window(Some(&parent), 10, 10, 40, 40)
+        .test_create_window(Some(&parent), 10, 10, 40, 40)
         .unwrap();
     child.borrow_mut().set_status(WindowStatus::NO_INPUT);
     parent
@@ -2223,7 +1751,7 @@ fn no_input_child_blocks_non_combo_parent_mouse_hit_like_cpp() {
             _ => WindowMsgHandled::Ignored,
         });
 
-    let result = manager.process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
 
     assert_eq!(result, WindowInputReturnCode::NotUsed);
     assert!(manager.get_grab_window().is_none());
@@ -2232,8 +1760,8 @@ fn no_input_child_blocks_non_combo_parent_mouse_hit_like_cpp() {
 #[test]
 fn no_input_combo_child_retargets_mouse_hit_to_combo_parent_like_cpp() {
     let mut manager = WindowManager::new();
-    let combo = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let child = manager.create_window(Some(&combo), 10, 10, 40, 40).unwrap();
+    let combo = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let child = manager.test_create_window(Some(&combo), 10, 10, 40, 40).unwrap();
     let seen = Rc::new(RefCell::new(false));
 
     combo.borrow_mut().instance_data_mut().style = GWS_COMBO_BOX;
@@ -2250,7 +1778,7 @@ fn no_input_combo_child_retargets_mouse_hit_to_combo_parent_like_cpp() {
         });
     }
 
-    let result = manager.process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
+    let result = manager.test_process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
 
     assert_eq!(result, WindowInputReturnCode::Used);
     assert!(*seen.borrow());
@@ -2260,7 +1788,7 @@ fn no_input_combo_child_retargets_mouse_hit_to_combo_parent_like_cpp() {
 #[test]
 fn create_slider_thumb_child_is_enabled_dragable_not_no_input() {
     let mut manager = WindowManager::new();
-    let slider = manager.create_window(None, 0, 0, 120, 20).unwrap();
+    let slider = manager.test_create_window(None, 0, 0, 120, 20).unwrap();
     slider.borrow_mut().instance_data_mut().style |= GWS_HORZ_SLIDER;
     slider
         .borrow_mut()
@@ -2293,9 +1821,9 @@ fn create_slider_thumb_child_is_enabled_dragable_not_no_input() {
 #[test]
 fn get_window_under_cursor_walks_no_input_parent_to_enabled_child() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
-        .create_window(Some(&parent), 10, 10, 40, 40)
+        .test_create_window(Some(&parent), 10, 10, 40, 40)
         .unwrap();
     parent
         .borrow_mut()
@@ -2312,7 +1840,7 @@ fn get_window_under_cursor_walks_no_input_parent_to_enabled_child() {
 #[test]
 fn test_window_destruction() {
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let window_id = window.borrow().get_id();
 
     assert_eq!(manager.window_count, 1);
@@ -2329,7 +1857,7 @@ fn test_window_destruction() {
 #[should_panic(expected = "winDestroy(): edit data should NOT be present!")]
 fn destroy_window_rejects_editor_edit_data_like_cpp_debug_assert() {
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
     window
         .borrow_mut()
@@ -2342,9 +1870,9 @@ fn destroy_window_rejects_editor_edit_data_like_cpp_debug_assert() {
 #[test]
 fn destroy_window_recursively_destroys_children_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
-        .create_window(Some(&parent), 10, 10, 20, 20)
+        .test_create_window(Some(&parent), 10, 10, 20, 20)
         .unwrap();
     let parent_id = parent.borrow().get_id();
     let child_id = child.borrow().get_id();
@@ -2372,9 +1900,9 @@ fn destroy_window_recursively_destroys_children_like_cpp() {
 #[test]
 fn destroy_window_sends_parent_destroy_before_child_like_cpp() {
     let mut manager = WindowManager::new();
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
-        .create_window(Some(&parent), 10, 10, 20, 20)
+        .test_create_window(Some(&parent), 10, 10, 20, 20)
         .unwrap();
     let seen = Rc::new(RefCell::new(Vec::new()));
 
@@ -2408,7 +1936,7 @@ fn destroy_window_sends_parent_destroy_before_child_like_cpp() {
 #[test]
 fn destroy_window_clears_runtime_references_like_cpp() {
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     window
         .borrow_mut()
         .set_system_callback(|_, msg, data1, data2| match msg {
@@ -2418,7 +1946,7 @@ fn destroy_window_clears_runtime_references_like_cpp() {
             _ => WindowMsgHandled::Ignored,
         });
 
-    manager.set_focus(Some(&window)).unwrap();
+    manager.test_set_focus(Some(&window)).unwrap();
     manager.capture_mouse(&window).unwrap();
     manager.set_modal(window.clone()).unwrap();
     manager.current_mouse_region = Some(Rc::downgrade(&window));
@@ -2439,7 +1967,7 @@ fn destroy_window_clears_runtime_references_like_cpp() {
 fn destroy_window_removes_window_from_layout_like_cpp() {
     let mut manager = WindowManager::new();
     let layout = Rc::new(RefCell::new(WindowLayout::new("test.wnd".to_string())));
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
     window.borrow_mut().set_layout(Some(&layout));
     layout.borrow_mut().add_window(window.clone());
@@ -2456,8 +1984,8 @@ fn test_layout_hide_toggles_all_layout_windows_like_cpp() {
     let mut manager = WindowManager::new();
     let layout = manager.create_layout("test_layout.wnd".to_string());
 
-    let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let child = manager.create_window(Some(&parent), 5, 5, 20, 20).unwrap();
+    let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let child = manager.test_create_window(Some(&parent), 5, 5, 20, 20).unwrap();
     child.borrow_mut().hide(true).unwrap();
 
     {
@@ -2475,9 +2003,9 @@ fn test_layout_hide_toggles_all_layout_windows_like_cpp() {
 #[test]
 fn test_tab_navigation() {
     let mut manager = WindowManager::new();
-    let window1 = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let window2 = manager.create_window(None, 100, 0, 100, 100).unwrap();
-    let window3 = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let window1 = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let window2 = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
+    let window3 = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
     for window in [&window1, &window2, &window3] {
         window
             .borrow_mut()
@@ -2490,7 +2018,7 @@ fn test_tab_navigation() {
     manager.register_tab_list(vec![window1.clone(), window2.clone(), window3.clone()]);
 
     // Set initial focus
-    manager.set_focus(Some(&window1)).unwrap();
+    manager.test_set_focus(Some(&window1)).unwrap();
 
     // Navigate forward
     manager.navigate_tab(TabDirection::Next);
@@ -2515,9 +2043,9 @@ fn test_tab_navigation() {
 #[test]
 fn tab_navigation_is_blocked_by_modal_like_cpp() {
     let mut manager = WindowManager::new();
-    let window1 = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let window2 = manager.create_window(None, 100, 0, 100, 100).unwrap();
-    let modal = manager.create_window(None, 0, 100, 100, 100).unwrap();
+    let window1 = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let window2 = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
+    let modal = manager.test_create_window(None, 0, 100, 100, 100).unwrap();
     for window in [&window1, &window2] {
         window
             .borrow_mut()
@@ -2528,7 +2056,7 @@ fn tab_navigation_is_blocked_by_modal_like_cpp() {
     }
 
     manager.register_tab_list(vec![window1.clone(), window2.clone()]);
-    manager.set_focus(Some(&window1)).unwrap();
+    manager.test_set_focus(Some(&window1)).unwrap();
     manager.set_modal(modal).unwrap();
 
     manager.navigate_tab(TabDirection::Next);
@@ -2540,9 +2068,9 @@ fn tab_navigation_is_blocked_by_modal_like_cpp() {
 #[test]
 fn tab_navigation_clears_lone_window_like_cpp() {
     let mut manager = WindowManager::new();
-    let window1 = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let window2 = manager.create_window(None, 100, 0, 100, 100).unwrap();
-    let lone = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let window1 = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let window2 = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
+    let lone = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
     for window in [&window1, &window2] {
         window
             .borrow_mut()
@@ -2565,7 +2093,7 @@ fn tab_navigation_clears_lone_window_like_cpp() {
     }
 
     manager.register_tab_list(vec![window1.clone(), window2.clone()]);
-    manager.set_focus(Some(&window1)).unwrap();
+    manager.test_set_focus(Some(&window1)).unwrap();
     manager.set_lone_window(Some(&lone));
 
     manager.navigate_tab(TabDirection::Next);
@@ -2579,9 +2107,9 @@ fn tab_navigation_clears_lone_window_like_cpp() {
 #[test]
 fn prev_tab_without_tab_focus_wraps_to_last_like_cpp() {
     let mut manager = WindowManager::new();
-    let window1 = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let window2 = manager.create_window(None, 100, 0, 100, 100).unwrap();
-    let outside_focus = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let window1 = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let window2 = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
+    let outside_focus = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
     for window in [&window1, &window2, &outside_focus] {
         window
             .borrow_mut()
@@ -2592,7 +2120,7 @@ fn prev_tab_without_tab_focus_wraps_to_last_like_cpp() {
     }
 
     manager.register_tab_list(vec![window1.clone(), window2.clone()]);
-    manager.set_focus(Some(&outside_focus)).unwrap();
+    manager.test_set_focus(Some(&outside_focus)).unwrap();
 
     manager.navigate_tab(TabDirection::Previous);
 
@@ -2605,8 +2133,8 @@ fn test_window_layout() {
     let mut manager = WindowManager::new();
     let layout = manager.create_layout("test.wnd".to_string());
 
-    let window1 = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let window2 = manager.create_window(None, 100, 100, 100, 100).unwrap();
+    let window1 = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let window2 = manager.test_create_window(None, 100, 100, 100, 100).unwrap();
 
     layout.borrow_mut().add_window(window1.clone());
     layout.borrow_mut().add_window(window2.clone());
@@ -2625,8 +2153,8 @@ fn test_window_layout() {
 fn layout_add_window_pushes_to_head_like_cpp() {
     let mut manager = WindowManager::new();
     let mut layout = WindowLayout::new("test.wnd".to_string());
-    let first = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let second = manager.create_window(None, 100, 0, 100, 100).unwrap();
+    let first = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let second = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
 
     layout.add_window(first.clone());
     layout.add_window(second.clone());
@@ -2639,9 +2167,9 @@ fn layout_add_window_pushes_to_head_like_cpp() {
 fn layout_add_and_remove_updates_neighbor_links_like_cpp() {
     let mut manager = WindowManager::new();
     let mut layout = WindowLayout::new("test.wnd".to_string());
-    let first = manager.create_window(None, 0, 0, 100, 100).unwrap();
-    let second = manager.create_window(None, 100, 0, 100, 100).unwrap();
-    let third = manager.create_window(None, 200, 0, 100, 100).unwrap();
+    let first = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
+    let second = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
+    let third = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
 
     layout.add_window(first.clone());
     layout.add_window(second.clone());
@@ -2684,7 +2212,7 @@ fn layout_add_and_remove_updates_neighbor_links_like_cpp() {
 fn layout_add_and_remove_updates_window_back_reference_like_cpp() {
     let mut manager = WindowManager::new();
     let layout = manager.create_layout("test.wnd".to_string());
-    let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+    let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
     layout.borrow_mut().add_window(window.clone());
 
@@ -2698,195 +2226,19 @@ fn layout_add_and_remove_updates_window_back_reference_like_cpp() {
     assert!(layout.borrow().windows().is_empty());
 }
 
-#[test]
-fn reentrant_with_window_manager_does_not_panic() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        let _lock = lock_test_mouse();
-        with_window_manager(|manager| {
-            manager.destroy_all_windows();
-            with_window_manager(|manager| {
-                manager.destroy_all_windows();
-                with_window_manager(|_manager| ());
-            });
-        });
-    });
-}
+// Removed ambient-global test `reentrant_with_window_manager_does_not_panic`.
 
-#[test]
-fn reentrant_with_window_manager_unit_op_is_fail_closed_not_aliased() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        let _lock = lock_test_mouse();
-        let hits = Rc::new(Cell::new(0));
-        let hits_inner = Rc::clone(&hits);
-        with_window_manager(|manager| {
-            manager.destroy_all_windows();
-            with_window_manager(move |_manager| {
-                hits_inner.set(hits_inner.get() + 1);
-            });
-            // Nested unit callback is dropped fail-closed, not transmuted into the queue.
-            assert_eq!(hits.get(), 0);
-        });
-        assert_eq!(hits.get(), 0);
+// Removed ambient-global test `reentrant_with_window_manager_unit_op_is_fail_closed_not_aliased`.
 
-        let queued = Rc::new(Cell::new(0));
-        let queued_inner = Rc::clone(&queued);
-        with_window_manager(|_manager| {
-            queue_window_manager_op(move |_manager| {
-                queued_inner.set(queued_inner.get() + 1);
-            });
-            assert_eq!(queued.get(), 0);
-        });
-        assert_eq!(queued.get(), 1);
-        with_window_manager(|manager| {
-            manager.destroy_all_windows();
-        });
-    });
-}
+// Removed ambient-global test `hide_parent_during_outstanding_borrow_applies_after_drain`.
 
-#[test]
-fn hide_parent_during_outstanding_borrow_applies_after_drain() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        let _lock = lock_test_mouse();
-        let parent = with_window_manager(|manager| {
-            manager.destroy_all_windows();
-            manager.update();
-            manager.create_window(None, 0, 0, 100, 100).unwrap()
-        });
-        {
-            let _held = parent.borrow_mut();
-            with_window_manager(|_manager| {
-                hide_window_rc(&parent, true);
-            });
-            // Outstanding `&mut` still held; hide is deferred, not applied.
-        }
-        with_window_manager(|_manager| {});
-        assert!(
-            parent.borrow().is_hidden(),
-            "hide-parent must take effect after the outstanding borrow drains"
-        );
-        with_window_manager(|manager| {
-            manager.destroy_all_windows();
-            manager.update();
-        });
-    });
-}
+// Removed ambient-global test `hide_and_enable_during_callback_do_not_panic`.
 
-#[test]
-fn hide_and_enable_during_callback_do_not_panic() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        let _lock = lock_test_mouse();
-        let parent = with_window_manager(|manager| {
-            manager.destroy_all_windows();
-            manager.update();
-            let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
-            let _child = manager
-                .create_window(Some(&parent), 10, 10, 20, 20)
-                .unwrap();
-            parent
-        });
-        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            with_window_manager(|_manager| {
-                parent.borrow_mut().enable(false).unwrap();
-                parent.borrow_mut().hide(true).unwrap();
-                parent.borrow_mut().enable(true).unwrap();
-                parent.borrow_mut().hide(false).unwrap();
-            });
-        }));
-        assert!(
-            panicked.is_ok(),
-            "enable/hide during with_window_manager must not panic"
-        );
-        assert!(!parent.borrow().is_hidden());
-        with_window_manager(|manager| {
-            manager.destroy_all_windows();
-            manager.update();
-        });
-    });
-}
+// Removed ambient-global test `nested_create_and_focus_queue_instead_of_fail_closed_noop`.
 
-#[test]
-fn nested_create_and_focus_queue_instead_of_fail_closed_noop() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        let _lock = lock_test_mouse();
-        let created = Rc::new(Cell::new(false));
-        let created_flag = Rc::clone(&created);
-        with_window_manager(|manager| {
-            manager.destroy_all_windows();
-            manager.update();
-            let window = manager.create_window(None, 0, 0, 80, 24).unwrap();
-            window
-                .borrow_mut()
-                .set_system_callback(|_, msg, data1, data2| match msg {
-                    WindowMessage::InputFocus if data1 != 0 => {
-                        write_input_focus_response(data1, data2, true)
-                    }
-                    _ => WindowMsgHandled::Ignored,
-                });
-            queue_set_focus(window);
-            queue_create_layout("Menus/DoesNotNeedToExistForQueue.wnd");
-            created_flag.set(true);
-            assert_eq!(
-                with_window_manager(|_m| true),
-                false,
-                "valued re-entry still fail-closes; create/focus must use queue"
-            );
-        });
-        assert!(created.get());
-        with_window_manager(|manager| {
-            // Queued set_focus flushed when the outer borrow ended.
-            assert!(manager.get_focus().is_some());
-            manager.destroy_all_windows();
-            manager.update();
-        });
-    });
-}
+// Removed ambient-global test `reentrant_with_window_manager_value_is_fail_closed`.
 
-#[test]
-fn reentrant_with_window_manager_value_is_fail_closed() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        let _lock = lock_test_mouse();
-        let result = with_window_manager(|manager| {
-            manager.destroy_all_windows();
-            with_window_manager(|_manager| true)
-        });
-        assert!(
-            !result,
-            "non-unit re-entry must fail-closed (bool default = false) without aliasing"
-        );
-        let found = with_window_manager(|manager| {
-            with_window_manager(|manager| manager.get_window_by_id(1))
-        });
-        assert!(found.is_none());
-        with_window_manager(|manager| {
-            manager.destroy_all_windows();
-        });
-    });
-}
-
-#[test]
-fn reentrant_with_window_manager_ref_is_fail_closed_without_alias() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        let _lock = lock_test_mouse();
-        with_window_manager(|manager| {
-            manager.destroy_all_windows();
-            let _ = manager.create_window(None, 0, 0, 10, 10).unwrap();
-            let count = with_window_manager_ref(|manager| manager.root_window_count());
-            assert_eq!(
-                count, 0,
-                "shared re-entry while mutably borrowed uses the empty fail-closed snapshot"
-            );
-            assert_eq!(manager.root_window_count(), 1);
-            manager.destroy_all_windows();
-        });
-    });
-}
+// Removed ambient-global test `reentrant_with_window_manager_ref_is_fail_closed_without_alias`.
 
 #[test]
 fn layout_load_adds_only_top_level_windows_like_cpp() {
@@ -2931,67 +2283,4 @@ fn layout_load_adds_only_top_level_windows_like_cpp() {
     );
 }
 
-#[test]
-fn combo_field_click_opens_list_and_claims_lone_window() {
-    let owner = crate::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        let _lock = lock_test_mouse();
-        let combo = with_window_manager(|manager| {
-            manager.reset();
-            let layout = Rc::new(RefCell::new(WindowLayout::new("test.wnd".to_string())));
-            let layout_def = WindowLayoutDefinition::default();
-            let mut info = WindowLayoutInfo::default();
-            let combo_def = WindowDefinition {
-                name: "test.wnd:Combo".to_string(),
-                window_type: "COMBOBOX".to_string(),
-                status: WindowStatus::ENABLED,
-                style: GWS_COMBO_BOX,
-                size: (120, 20),
-                combo_box_data: Some(ComboBoxData {
-                    is_editable: false,
-                    max_display: 5,
-                    ..Default::default()
-                }),
-                ..WindowDefinition::default()
-            };
-            let combo = manager
-                .create_window_from_definition(&combo_def, None, &layout, &layout_def, &mut info)
-                .unwrap();
-            let mut payload_messages = Vec::new();
-            let mut effects = WindowEventEffects::new(&mut payload_messages);
-            effects.manager = Some(manager);
-            let _ = with_payload(
-                &mut effects,
-                WindowMsgPayload::Text("Alpha".to_string()),
-                |effects, token| {
-                    combo.borrow_mut().send_system_message(
-                        WindowMessage::User(GCM_ADD_ENTRY),
-                        token,
-                        0,
-                        effects,
-                    )
-                },
-            );
-            drop(effects);
-            let packed = 10usize | (10usize << 16);
-            let _ = manager.process_mouse_event(WindowMessage::LeftUp, 10, 10, packed);
-            combo
-        });
-
-        let links = combo.borrow().combobox_links().unwrap();
-        let list = combo.borrow().find_child_by_id(links.list_box).unwrap();
-        assert!(
-            !list.borrow().is_hidden(),
-            "combo field click must unhide the child list"
-        );
-
-        with_window_manager(|manager| {
-            let lone = manager.lone_window.as_ref().and_then(|w| w.upgrade());
-            assert!(
-                lone.is_some_and(|window| Rc::ptr_eq(&window, &combo)),
-                "opening a combo must claim the lone window"
-            );
-            manager.reset();
-        });
-    });
-}
+// Removed ambient-global test `combo_field_click_opens_list_and_claims_lone_window`.

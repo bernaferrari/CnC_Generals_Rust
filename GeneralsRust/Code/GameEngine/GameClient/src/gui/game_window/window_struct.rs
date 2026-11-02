@@ -231,6 +231,13 @@ impl<'effects> WindowEventEffects<'effects> {
         }
     }
 
+    /// Stack-local effects for unit tests that do not drive a live GameClient.
+    pub fn with_standalone<R>(operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R) -> R {
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        operation(&mut effects)
+    }
+
     pub(crate) fn queue_window_callback(&mut self, step: PendingWindowCallback) {
         self.pending_window_callbacks.push_back(step);
     }

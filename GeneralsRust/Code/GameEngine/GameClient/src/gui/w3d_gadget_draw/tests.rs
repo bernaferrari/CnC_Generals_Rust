@@ -218,7 +218,7 @@ fn gadget_gpu_fill_rect_mesh_is_two_triangles_matching_window_rect() {
 fn pressed_button_keeps_cpp_authored_draw_bounds() {
     // W3DPushButton.cpp draws every state at winGetScreenPosition/winGetSize.
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 10, 20, 100, 30).unwrap();
+    let window = manager.test_create_window(None, 10, 20, 100, 30).unwrap();
     window
         .borrow_mut()
         .set_widget(WindowWidget::PushButton(PushButton::new(7, 0, 0, 100, 30)));
@@ -226,7 +226,7 @@ fn pressed_button_keeps_cpp_authored_draw_bounds() {
         .borrow_mut()
         .send_routed_input_message(WindowMessage::LeftDown, 0, 0);
     std::thread::sleep(std::time::Duration::from_millis(16));
-    manager.update();
+    manager.test_update();
 
     let window = window.borrow();
     assert_eq!(window.get_screen_position(), (10, 20));
@@ -240,7 +240,7 @@ fn pressed_button_keeps_cpp_authored_draw_bounds() {
 #[test]
 fn window_update_still_syncs_button_widget_state() {
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 10, 20, 100, 30).unwrap();
+    let window = manager.test_create_window(None, 10, 20, 100, 30).unwrap();
     window
         .borrow_mut()
         .set_widget(WindowWidget::PushButton(PushButton::new(7, 0, 0, 100, 30)));
@@ -257,7 +257,7 @@ fn window_update_still_syncs_button_widget_state() {
             .state
             .contains(WindowState::HILITED)
     );
-    manager.update();
+    manager.test_update();
     assert!(
         window
             .borrow()
@@ -270,7 +270,7 @@ fn window_update_still_syncs_button_widget_state() {
 #[test]
 fn window_update_does_not_add_nonbutton_state_sync() {
     let mut manager = WindowManager::new();
-    let window = manager.create_window(None, 10, 20, 100, 30).unwrap();
+    let window = manager.test_create_window(None, 10, 20, 100, 30).unwrap();
     window
         .borrow_mut()
         .set_widget(WindowWidget::ListBox(ListBox::new(8, 0, 0, 100, 30)));
@@ -287,7 +287,7 @@ fn window_update_does_not_add_nonbutton_state_sync() {
             .state
             .contains(WindowState::HILITED)
     );
-    manager.update();
+    manager.test_update();
     assert!(
         !window
             .borrow()

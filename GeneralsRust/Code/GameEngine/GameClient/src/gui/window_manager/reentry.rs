@@ -761,7 +761,7 @@ mod owner_tests {
         let first_window =
             first.with_manager(|manager| manager.create_window(None, 0, 0, 20, 20).unwrap());
         let second_window =
-            second.with_manager(|manager| manager.create_window(None, 0, 0, 20, 20).unwrap());
+            second.with_manager(|manager| manager.test_create_window(None, 0, 0, 20, 20).unwrap());
         assert_eq!(first_window.borrow().id, second_window.borrow().id);
         assert!(!Rc::ptr_eq(&first_window, &second_window));
         first.with_manager(|manager| {
@@ -782,9 +782,9 @@ mod owner_tests {
         let first = WindowManagerOwner::new();
         let second = WindowManagerOwner::new();
         first.with_manager(|manager| {
-            let window = manager.create_window(None, 0, 0, 20, 20).unwrap();
+            let window = manager.test_create_window(None, 0, 0, 20, 20).unwrap();
             second.with_manager(|peer| {
-                peer.create_window(None, 0, 0, 20, 20).unwrap();
+                peer.test_create_window(None, 0, 0, 20, 20).unwrap();
             });
             assert!(
                 manager
@@ -807,9 +807,9 @@ mod owner_tests {
         let first_owner = first.window_manager_owner();
         let second_owner = second.window_manager_owner();
         let first_window =
-            first_owner.with_manager(|manager| manager.create_window(None, 0, 0, 20, 20).unwrap());
+            first_owner.with_manager(|manager| manager.test_create_window(None, 0, 0, 20, 20).unwrap());
         let second_window =
-            second_owner.with_manager(|manager| manager.create_window(None, 0, 0, 20, 20).unwrap());
+            second_owner.with_manager(|manager| manager.test_create_window(None, 0, 0, 20, 20).unwrap());
         assert_eq!(first_window.borrow().id, second_window.borrow().id);
         assert!(!Rc::ptr_eq(&first_window, &second_window));
         first
