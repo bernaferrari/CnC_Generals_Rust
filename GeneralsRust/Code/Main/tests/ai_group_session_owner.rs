@@ -1418,12 +1418,17 @@ fn retaliation_keeps_new_attacker_pending_while_chasing() {
     let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
     enemy.alliance_team = 2;
     world.add_player(enemy);
+    // Player 3 uses the same faction as the guard but is an enemy.
+    let mut same_faction_enemy = Player::new(3, Team::USA, "Rival", false);
+    same_faction_enemy.alliance_team = 3;
+    world.add_player(same_faction_enemy);
     let original = world
         .create_object_for_player("GroupUnit", 2, Vec3::new(45.0, 0.0, 40.0))
         .unwrap();
     let new_attacker = world
-        .create_object_for_player("GroupUnit", 2, Vec3::new(50.0, 0.0, 40.0))
+        .create_object_for_player("GroupUnit", 3, Vec3::new(50.0, 0.0, 40.0))
         .unwrap();
+    assert!(world.should_retaliate_against_aggressor(victim, new_attacker));
     assert!(world.try_friends_retaliate(victim, original) > 0);
     world.set_current_frame(10);
     world.host_object_mut(actor).unwrap().take_damage_from(
@@ -1452,6 +1457,9 @@ fn retaliation_keeps_new_attacker_pending_while_chasing() {
     let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
     enemy.alliance_team = 2;
     peer.add_player(enemy);
+    let mut same_faction_enemy = Player::new(3, Team::USA, "Rival", false);
+    same_faction_enemy.alliance_team = 3;
+    peer.add_player(same_faction_enemy);
     builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
     peer.tick_guard_retaliate_states().unwrap();
     assert_eq!(
@@ -1529,6 +1537,64 @@ fn retaliation_keeps_new_attacker_pending_while_chasing() {
     assert_eq!(
         peer.host_object(actor).unwrap().clearable_last_attacker(),
         Some(original)
+    );
+    // The C++ condition also checks isAbleToAttack before acquiring a source.
+    builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
+    peer.host_object_mut(actor).unwrap().status.weapons_jammed = true;
+    peer.tick_guard_retaliate_states().unwrap();
+    assert_eq!(
+        peer.host_object(actor).unwrap().guard_retaliate_victim(),
+        Some(original)
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().clearable_last_attacker(),
+        None
+    );
+    // Owner relationships do not bypass the weapon stealth gate.
+    builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
+    peer.host_object_mut(new_attacker).unwrap().status.stealthed = true;
+    peer.host_object_mut(new_attacker).unwrap().status.detected = false;
+    peer.tick_guard_retaliate_states().unwrap();
+    assert_eq!(
+        peer.host_object(actor).unwrap().guard_retaliate_victim(),
+        Some(original)
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().clearable_last_attacker(),
+        None
+    );
+
+    // Different factions can be allies: the clearable hit is consumed but
+    // must not start an attack on the allied source.
+    builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
+    let mut ally = Player::new(4, Team::China, "Ally", false);
+    ally.alliance_team = 1;
+    peer.add_player(ally);
+    let allied_attacker = peer
+        .create_object_for_player("GroupUnit", 4, Vec3::new(55.0, 0.0, 40.0))
+        .unwrap();
+    peer.host_object_mut(actor).unwrap().take_damage_from(
+        1.0,
+        Some(allied_attacker),
+        13,
+        &mut generals_main::game_logic::HostHealthEvents::default(),
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().clearable_last_attacker(),
+        Some(allied_attacker)
+    );
+    peer.tick_guard_retaliate_states().unwrap();
+    assert_eq!(
+        peer.host_object(actor).unwrap().guard_retaliate_victim(),
+        Some(original)
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().clearable_last_attacker(),
+        None
+    );
+    assert_eq!(
+        peer.host_object(actor).unwrap().last_damage_source,
+        Some(allied_attacker)
     );
 
     assert_eq!(

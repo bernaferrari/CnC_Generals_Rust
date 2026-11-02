@@ -944,23 +944,29 @@ impl GameLogic {
             };
             if let Some(aid) = last {
                 if aid != id {
+                    // C++ checks the objects' relationship before the normal
+                    // attackability query. Faction identity alone does not
+                    // determine whether two players are enemies.
                     let legal = self
                         .objects
-                        .get(&aid)
-                        .is_some_and(|a| a.is_alive() && !a.status.destroyed)
-                        && matches!(
-                            self.get_able_to_attack_specific_object(
-                                id,
-                                aid,
-                                AbleToAttackType::NewTarget,
-                                false,
-                            ),
-                            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-                        )
-                        && self.objects.get(&aid).is_some_and(|a| {
-                            self.objects
-                                .get(&id)
-                                .is_some_and(|me| a.is_targetable_by_enemy_of(me.team))
+                        .get(&id)
+                        .zip(self.objects.get(&aid))
+                        .is_some_and(|(owner, attacker)| {
+                            self.host_guard_relationship(owner, attacker)
+                                == gamelogic::common::Relationship::Enemies
+                                && attacker.is_alive()
+                                && !attacker.status.destroyed
+                                && owner.can_attack()
+                                && matches!(
+                                    self.get_able_to_attack_specific_object(
+                                        id,
+                                        aid,
+                                        AbleToAttackType::NewTarget,
+                                        false,
+                                    ),
+                                    CanAttackResult::Possible
+                                        | CanAttackResult::PossibleAfterMoving
+                                )
                         });
                     if legal {
                         if let Some(o) = self.objects.get_mut(&id) {
