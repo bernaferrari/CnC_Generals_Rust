@@ -30,3 +30,7 @@ path = "Code/GameEngine/GameLogic/src/system/radar_notifier.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Radar.cpp"
 note = "World-owned radar update fan-out queue; under-attack path still on TheRadar."
 
+[[module]]
+path = "Code/Libraries/Source/WWVegas/Wwutil"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/Wwutil"
+note = "cMathUtil/cMiscUtil port; PDF RNG injected (no process rand); fs-backed file helpers; 0 process globals."

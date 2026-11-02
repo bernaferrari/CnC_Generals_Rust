@@ -1,14 +1,12 @@
-//! WWUtil compatibility crate
+//! WWUtil — GeneralsMD/Code/Libraries/Source/WWVegas/Wwutil/
 //!
-//! Port of GeneralsMD/Code/Libraries/Source/WWVegas/Wwutil/
-//! Provides math and miscellaneous utility functions used throughout the engine.
+//! Faithful ports of `cMathUtil` and `cMiscUtil`. No process-wide mutable state.
 
 pub mod mathutil;
 pub mod miscutil;
 
-/// Epsilon value for misc utility comparisons (matches C++ MISCUTIL_EPSILON)
-pub const MISCUTIL_EPSILON: f32 = 0.0001f32;
+/// Epsilon value for misc utility comparisons (matches C++ `MISCUTIL_EPSILON`).
+pub const MISCUTIL_EPSILON: f32 = 0.0001;
 
-// Re-export for convenience
-pub use mathutil::*;
-pub use miscutil::*;
+pub use mathutil::{MathUtil, PdfRng, PI_1, PI_2};
+pub use miscutil::MiscUtil;

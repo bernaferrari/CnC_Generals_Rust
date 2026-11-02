@@ -15713,8 +15713,8 @@ dependencies = [
 name = "wwutil"
 version = "0.1.0"
 dependencies = [
- "math_utilities",
- "wwlib-rust",
+ "chrono",
+ "fastrand 2.5.0",
 ]
 
 [[package]]
