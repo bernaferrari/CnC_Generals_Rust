@@ -397,7 +397,7 @@ impl PathfindingSystem {
         crusher: bool,
         examined_zones: &mut Vec<u16>,
     ) -> Option<(GridCoord, u16)> {
-        if parent_zone == UNINITIALIZED_ZONE || parent_zone == 0 {
+        if parent_zone == UNINITIALIZED_ZONE {
             return None;
         }
         if !self.is_valid_coord(scan_cell) {
@@ -449,7 +449,7 @@ impl PathfindingSystem {
     ) -> Vec<(GridCoord, u16, bool)> {
         // Returns (far_end_cell, far_block_zone, reached_goal).
         let mut out = Vec::new();
-        if parent_zone == 0 || parent_zone == UNINITIALIZED_ZONE {
+        if parent_zone == UNINITIALIZED_ZONE {
             return out;
         }
         let zones = &self.zones;

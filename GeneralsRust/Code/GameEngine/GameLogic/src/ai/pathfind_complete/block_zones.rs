@@ -150,6 +150,33 @@ impl ZoneManager {
         self.zones[cell.x as usize][cell.y as usize]
     }
 
+    /// C++ `updateZonesForModify`: repair only the affected block fragments.
+    pub(crate) fn update_modified_zones(
+        &mut self,
+        cells: &AStarPathfinder,
+        bounds: (GridCoord, GridCoord),
+    ) {
+        if self.width == 0 || self.height == 0 {
+            return;
+        }
+        let global = (
+            GridCoord::new(0, 0),
+            GridCoord::new(self.width as i32 - 1, self.height as i32 - 1),
+        );
+        let blocks = &mut self.zone_blocks;
+        super::zone_modify::update_modified_zones(
+            &mut self.zones,
+            cells,
+            global,
+            bounds,
+            |x, y| {
+                if let Some(block) = blocks.get_mut(x).and_then(|column| column.get_mut(y)) {
+                    block.interacts_with_bridge = false;
+                }
+            },
+        );
+    }
+
     /// C++ hierarchical connectivity via `getEffectiveZone` (not raw cell zones).
     ///
     /// Ground+cliff locomotors share ground_cliff combiners; crushers share

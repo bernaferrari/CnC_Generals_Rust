@@ -43,6 +43,7 @@ mod snap;
 mod system;
 mod tall_buildings;
 mod types;
+mod zone_modify;
 
 #[cfg(test)]
 mod counter_tests;

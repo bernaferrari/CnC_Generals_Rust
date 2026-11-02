@@ -16,7 +16,7 @@ pub const MAX_WALL_PIECES: usize = 128;
 /// C++ PathfindZoneManager::ZONE_BLOCK_SIZE (AIPathfind.h:479).
 pub const ZONE_BLOCK_SIZE: i32 = 10;
 /// C++ PathfindZoneManager::UNINITIALIZED_ZONE.
-pub const UNINITIALIZED_ZONE: u16 = 0xFFFF;
+pub const UNINITIALIZED_ZONE: u16 = 0;
 
 /// Maximum iterations for A* to prevent infinite loops
 pub const MAX_PATH_ITERATIONS: usize = 10000;

@@ -1,6 +1,6 @@
 use game_engine::system::geometry::{GeometryInfo as Shape, GeometryType};
 use gamelogic::ai::pathfind_astar::{GridCoord, PathfindCellType};
-use gamelogic::ai::pathfind_complete::{PathfindingSystem, SURFACE_GROUND};
+use gamelogic::ai::pathfind_complete::{PathfindingSystem, SURFACE_GROUND, UNINITIALIZED_ZONE};
 use gamelogic::common::{
     AsciiString, DefaultThingTemplate, GeometryInfo, KindOf, ObjectStatusMaskType, ThingTemplate,
 };
@@ -113,7 +113,9 @@ fn zero_width_box_does_not_invent_a_footprint() {
     });
     object.set_position(&Vec3::new(55.0, 55.0, 0.0)).unwrap();
     let mut world = PathfindingSystem::new(10, 10);
+    world.set_zone_bridge(GridCoord::new(5, 5), true);
     world.classify_object_footprint(&object).unwrap();
+    assert!(!world.zone_interacts_with_bridge(GridCoord::new(5, 5)));
     assert_eq!(
         world.get_cell_type(&Vec3::new(55.0, 55.0, 0.0)),
         Some(PathfindCellType::Clear)
@@ -133,6 +135,15 @@ fn fence_classification_preserves_the_crusher_exception_without_registry_access(
         assert!(!world.valid_movement_position(SURFACE_GROUND, false, &pos, None));
         assert!(world.valid_movement_position(SURFACE_GROUND, true, &pos, None));
     }
+    let cell = GridCoord::new(5, 5);
+    world.set_zone_bridge(cell, true);
+    world.classify_object_footprint(&object).unwrap();
+    assert!(
+        world.zone_interacts_with_bridge(cell),
+        "an unchanged fence does not repair zones"
+    );
+    world.classify_object_footprint_ex(&object, false).unwrap();
+    assert!(!world.zone_interacts_with_bridge(cell));
 }
 
 #[test]
@@ -224,4 +235,75 @@ fn rubble_body_produces_an_ownerless_rubble_footprint() {
         world.get_cell_type(&cell.to_world(0.0)),
         Some(PathfindCellType::Clear)
     );
+}
+
+#[cfg(feature = "internal")]
+#[test]
+fn rubble_fence_removal_keeps_the_original_did_anything_gate() {
+    let template = FenceTemplate(DefaultThingTemplate::new("RubbleFence".into()));
+    let mut object = Object::new_test_from_template(47, 100.0, Arc::new(template));
+    object.set_position(&Vec3::new(55.0, 55.0, 0.0)).unwrap();
+    object
+        .get_body_module()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .set_damage_state(gamelogic::common::BodyDamageType::Rubble)
+        .unwrap();
+    let mut world = PathfindingSystem::new(10, 10);
+    let cell = GridCoord::new(5, 5);
+    world.classify_object_footprint(&object).unwrap();
+    assert_eq!(
+        world.get_cell_type(&cell.to_world(0.0)),
+        Some(PathfindCellType::Rubble)
+    );
+    world.set_zone_bridge(cell, true);
+    world.classify_object_footprint_ex(&object, false).unwrap();
+    assert_eq!(
+        world.get_cell_type(&cell.to_world(0.0)),
+        Some(PathfindCellType::Clear)
+    );
+    assert!(world.zone_interacts_with_bridge(cell));
+}
+
+#[test]
+fn uninitialized_zone_matches_the_original_value() {
+    assert_eq!(UNINITIALIZED_ZONE, 0);
+}
+
+#[test]
+fn footprint_update_clears_only_its_worlds_intersecting_bridge_block() {
+    let mut template = DefaultThingTemplate::new("ZoneStructure".into());
+    template.add_kind_of(KindOf::Structure);
+    template.add_kind_of(KindOf::Immobile);
+    let mut object = Object::new_raw(Arc::new(template), 50, ObjectStatusMaskType::NONE, None);
+    object.set_geometry_info(GeometryInfo {
+        shape: Shape::new(GeometryType::Box, false, 10.0, 5.0, 10.0),
+        ..GeometryInfo::default()
+    });
+    object.set_position(&Vec3::new(55.0, 55.0, 0.0)).unwrap();
+    let mut world = PathfindingSystem::new(30, 20);
+    let mut peer = PathfindingSystem::new(30, 20);
+    world.new_map_from_classified_cells();
+    peer.new_map_from_classified_cells();
+    let touched = GridCoord::new(5, 5);
+    let untouched = GridCoord::new(25, 5);
+    for pathfinder in [&mut world, &mut peer] {
+        pathfinder.set_zone_bridge(touched, true);
+        pathfinder.set_zone_bridge(untouched, true);
+    }
+    world.classify_object_footprint(&object).unwrap();
+    assert!(!world.zone_interacts_with_bridge(touched));
+    assert!(world.zone_interacts_with_bridge(untouched));
+    assert!(peer.zone_interacts_with_bridge(touched));
+    world.set_zone_bridge(touched, true);
+    world.classify_object_footprint(&object).unwrap();
+    assert!(
+        !world.zone_interacts_with_bridge(touched),
+        "box zone repair runs even when cells are unchanged"
+    );
+    world.set_zone_bridge(touched, true);
+    world.classify_object_footprint_ex(&object, false).unwrap();
+    assert!(!world.zone_interacts_with_bridge(touched));
+    assert!(peer.zone_interacts_with_bridge(touched));
 }

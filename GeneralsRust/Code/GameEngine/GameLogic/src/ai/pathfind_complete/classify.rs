@@ -937,7 +937,10 @@ impl PathfindingSystem {
 
         if did {
             self.zones.mark_zones_dirty(insert);
-            self.refresh_pinched_bounds(lo_x, lo_y, hi_x, hi_y);
+            self.zones.update_modified_zones(
+                &self.pathfinder,
+                (GridCoord::new(lo_x, lo_y), GridCoord::new(hi_x, hi_y)),
+            );
         }
         Ok(())
     }
@@ -951,11 +954,12 @@ impl PathfindingSystem {
         let pos = obj.get_position();
         let geo = obj.get_geometry_info();
         let obstacle = FootprintObstacle::from_object(obj, insert)?;
-        let mut lo_x = i32::MAX;
-        let mut lo_y = i32::MAX;
-        let mut hi_x = i32::MIN;
-        let mut hi_y = i32::MIN;
-        let mut visited_cell = false;
+        let origin_x = ((pos.x + 0.5) / PATHFIND_CELL_SIZE_F).floor() as i32;
+        let origin_y = ((pos.y + 0.5) / PATHFIND_CELL_SIZE_F).floor() as i32;
+        let mut lo_x = origin_x;
+        let mut lo_y = origin_y;
+        let mut hi_x = origin_x;
+        let mut hi_y = origin_y;
 
         // C++ marks box/circle zones dirty before touching any footprint cell.
         self.zones.mark_zones_dirty(insert);
@@ -987,7 +991,6 @@ impl PathfindingSystem {
                             && (cy as usize) < self.height
                         {
                             self.set_or_clear_obstacle_cell(cx, cy, obstacle, false, insert);
-                            visited_cell = true;
                             lo_x = lo_x.min(cx);
                             lo_y = lo_y.min(cy);
                             hi_x = hi_x.max(cx);
@@ -1026,7 +1029,6 @@ impl PathfindingSystem {
                             continue;
                         }
                         self.set_or_clear_obstacle_cell(cx, cy, obstacle, false, insert);
-                        visited_cell = true;
                         lo_x = lo_x.min(cx);
                         lo_y = lo_y.min(cy);
                         hi_x = hi_x.max(cx);
@@ -1036,9 +1038,11 @@ impl PathfindingSystem {
             }
         }
 
-        if visited_cell {
-            self.refresh_pinched_bounds(lo_x, lo_y, hi_x, hi_y);
-        }
+        self.zones.update_modified_zones(
+            &self.pathfinder,
+            (GridCoord::new(lo_x, lo_y), GridCoord::new(hi_x, hi_y)),
+        );
+        self.refresh_pinched_bounds(lo_x, lo_y, hi_x, hi_y);
         Ok(())
     }
 
@@ -1073,7 +1077,7 @@ impl PathfindingSystem {
         let Some(cell_type) = pathfinder.get_cell_type(coord) else {
             return false;
         };
-        if insert {
+        let reported = if insert {
             if !matches!(
                 cell_type,
                 PathfindCellType::Clear | PathfindCellType::Impassable
@@ -1096,7 +1100,11 @@ impl PathfindingSystem {
             false
         } else {
             pathfinder.clear_cell_obstacle_id(coord, obstacle.id)
+        };
+        if reported {
+            self.zones.zones[cx as usize][cy as usize] = UNINITIALIZED_ZONE;
         }
+        reported
     }
 
     pub(crate) fn refresh_pinched_bounds(&mut self, lo_x: i32, lo_y: i32, hi_x: i32, hi_y: i32) {
