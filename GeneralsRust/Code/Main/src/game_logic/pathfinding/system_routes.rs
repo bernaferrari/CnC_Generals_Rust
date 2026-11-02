@@ -1165,9 +1165,6 @@ impl PathfindingSystem {
         if !self.grid.is_valid_pos(start) || !self.grid.is_valid_pos(goal_grid) {
             return None;
         }
-        if is_human && !self.grid.human_extent_allows(start, true) {
-            return None;
-        }
         let (radius, center_in_cell) = PathfindingGrid::radius_and_center(
             unit.geometry_info().bounding_circle_radius(),
             self.grid.grid_size(),

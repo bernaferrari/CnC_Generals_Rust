@@ -168,10 +168,8 @@ impl PathfindingSystem {
         if !self.is_valid_coord(start) || !self.is_valid_coord(goal) {
             return Ok(PathResult::none());
         }
-        // C++ human: reject cells outside m_logicalExtent.
-        if request.is_human && (!self.in_logical_extent(start) || !self.in_logical_extent(goal)) {
-            return Ok(PathResult::none());
-        }
+        // C++ seeds the clipped start even outside the logical extent. Human
+        // restrictions apply to examined neighbors, including line seeding.
 
         // C++ internalFindPath determines tunneling before the zone test.
         let start_is_obstacle =

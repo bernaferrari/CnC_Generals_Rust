@@ -271,3 +271,109 @@ fn closest_goal_checks_the_receiving_units_whole_footprint() {
         "the allied goal occupies the receiving unit's destination footprint"
     );
 }
+
+#[test]
+fn human_closest_path_reenters_from_an_adjacent_outside_cell() {
+    use generals_main::game_logic::HostGeometryType;
+    use generals_main::game_logic::pathfinding::GridPos;
+    let make = || {
+        let mut world = GameLogic::new();
+        world.add_player(Player::new(0, Team::USA, "Owner", true));
+        let mut template = ThingTemplate::new("Unit");
+        template.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        template.geometry_info.geom_type = HostGeometryType::Sphere;
+        template.geometry_info.major_radius = 2.0;
+        template.geometry_info.authored = true;
+        world.templates.insert("Unit".into(), template);
+        let mover = world
+            .create_object_for_player("Unit", 0, Vec3::new(105.0, 0.0, 55.0))
+            .unwrap();
+        (world, PathfindingSystem::new(200.0, 200.0), mover)
+    };
+    let (world, mut finder, mover) = make();
+    let (peer, mut peer_finder, peer_mover) = make();
+    assert_eq!(mover, peer_mover);
+    for f in [&mut finder, &mut peer_finder] {
+        f.grid
+            .set_logical_extent(GridPos::new(0, 0), GridPos::new(9, 19));
+        f.set_human_player_mask(1);
+    }
+    let ground = PathfindingGround::Flat(0.0);
+    let from = Vec3::new(105.0, 0.0, 55.0);
+    let goal = Vec3::new(85.0, 0.0, 55.0);
+    let direct = finder
+        .find_path_ex_surfaces(
+            from,
+            goal,
+            world.host_objects(),
+            false,
+            SURFACE_GROUND,
+            false,
+            Some(mover),
+            &ground,
+        )
+        .expect("ordinary path search can reenter from the outside start");
+    assert_eq!(direct.first(), Some(&from));
+    assert_eq!(
+        finder.grid.world_to_grid(*direct.last().unwrap()),
+        GridPos::new(8, 5)
+    );
+    assert!(
+        finder
+            .find_path_ex_surfaces(
+                Vec3::new(115.0, 0.0, 55.0),
+                goal,
+                world.host_objects(),
+                false,
+                SURFACE_GROUND,
+                false,
+                Some(mover),
+                &ground,
+            )
+            .is_none(),
+        "human neighbors outside the logical extent remain forbidden"
+    );
+    let query = |f: &mut PathfindingSystem, w: &GameLogic, id| {
+        f.find_closest_path(
+            from,
+            goal,
+            SURFACE_GROUND,
+            false,
+            true,
+            0.0,
+            &ground,
+            w.host_objects(),
+            id,
+        )
+        .expect("human should reenter from an adjacent cell")
+    };
+    let expected = query(&mut peer_finder, &peer, peer_mover);
+    let path = query(&mut finder, &world, mover);
+    assert_eq!(
+        path.first(),
+        Some(&from),
+        "the true start is not silently relocated"
+    );
+    assert_eq!(
+        finder.grid.world_to_grid(*path.last().unwrap()),
+        GridPos::new(8, 5)
+    );
+    assert_eq!(query(&mut peer_finder, &peer, peer_mover), expected);
+    let same = finder
+        .find_closest_path(
+            from,
+            from,
+            SURFACE_GROUND,
+            false,
+            true,
+            0.0,
+            &ground,
+            world.host_objects(),
+            mover,
+        )
+        .expect("the starting cell can itself be the goal");
+    assert_eq!(
+        finder.grid.world_to_grid(*same.last().unwrap()),
+        GridPos::new(10, 5)
+    );
+}

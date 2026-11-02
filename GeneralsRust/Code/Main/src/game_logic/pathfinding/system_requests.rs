@@ -528,20 +528,25 @@ impl PathfindingSystem {
         let goal_seed = self.grid.clamp_pos(goal);
         self.grid.query_from = Some(start_seed);
         self.grid.query_orig_dest = Some(start_seed);
-        // C++ adjustDestination: on failure leave dest unchanged (no static-open fallback).
-        let start = self
-            .grid
-            .adjust_destination_on_layer(
-                start_seed,
-                surfaces,
-                is_crusher,
-                64,
-                self.seeker_player,
-                crusher_level,
-                start_layer,
-                ground_source,
-            )
-            .unwrap_or(start_seed);
+        // The C++ search seeds the actual start even outside the logical
+        // extent. Relocating it would skip the restricted neighbor admission.
+        let outside_human_start = self.seeker_is_human && !self.grid.in_logical_extent(start_seed);
+        let start = if outside_human_start {
+            start_seed
+        } else {
+            self.grid
+                .adjust_destination_on_layer(
+                    start_seed,
+                    surfaces,
+                    is_crusher,
+                    64,
+                    self.seeker_player,
+                    crusher_level,
+                    start_layer,
+                    ground_source,
+                )
+                .unwrap_or(start_seed)
+        };
         self.grid.query_from = Some(start);
         self.grid.query_orig_dest = Some(goal_seed);
         let ignore_id = self.ignore_obstacle_id.map(|id| id.0).filter(|id| *id != 0);
@@ -552,7 +557,10 @@ impl PathfindingSystem {
                     .obstacle_owner(goal_seed)
                     .is_some_and(|(owner, _, _)| owner == id)
         });
-        let mut goal = if !self.adjust_goal || goal_is_ignored {
+        let mut goal = if !self.adjust_goal
+            || goal_is_ignored
+            || (outside_human_start && goal_seed == start_seed)
+        {
             goal_seed
         } else {
             self.grid
@@ -874,13 +882,6 @@ impl PathfindingSystem {
                     .grid_to_world(GridPos::new(c.x, c.y), ground_source);
                 self.sample_terrain_height(w.x, w.z, ground_source)
             };
-            if is_human
-                && (!self.grid.in_logical_extent(start) || !self.grid.in_logical_extent(goal))
-            {
-                if !self.grid.in_logical_extent(start) {
-                    return None;
-                }
-            }
             // C++ internalFindPath always runs on the live pathfind map; no
             // secondary solver exists. Without A* there is no path — returning
             // the legacy grid result would let non-dozers cross obstacle gaps.
