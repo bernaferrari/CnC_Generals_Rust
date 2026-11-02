@@ -191,7 +191,7 @@ impl PathfindingSystem {
                     start_layer,
                     dest_layer,
                     ground_source,
-                    Some(objects),
+                    objects,
                 ) {
                     Some(p) => p,
                     None => {
@@ -233,7 +233,7 @@ impl PathfindingSystem {
                             start_layer,
                             retry_layer,
                             ground_source,
-                            Some(objects),
+                            objects,
                         )?
                     }
                 }
@@ -481,7 +481,7 @@ impl PathfindingSystem {
                 start_layer,
                 dest_layer,
                 ground_source,
-                Some(objects),
+                objects,
             )
         };
         let mut prefix = try_goal(goal_pos);
@@ -538,25 +538,46 @@ impl PathfindingSystem {
     /// A* to a cell whose clearance box does not overlap avoided path segments.
     pub fn get_move_away_from_path(
         &mut self,
-        from: Vec3,
         path_to_avoid: &[Vec3],
         path_to_avoid2: Option<&[Vec3]>,
-        surfaces: u32,
-        is_crusher: bool,
-        unit_radius: f32,
-        other_radius: f32,
-        seeker_player: Option<u32>,
-        crusher_level: u8,
         tunnel: bool,
         ground_source: &PathfindingGround<'_>,
+        objects: HostObjectRead<'_>,
+        mover: ObjectId,
+        other: ObjectId,
     ) -> Option<Vec<Vec3>> {
         if path_to_avoid.len() < 2 {
             return None;
         }
-        let (radius, center_in_cell) =
-            PathfindingGrid::radius_and_center(unit_radius, self.grid.grid_size());
-        let (other_r, other_center) =
-            PathfindingGrid::radius_and_center(other_radius, self.grid.grid_size());
+        let unit = objects.lookup(&mover).filter(|unit| unit.is_alive())?;
+        let from = unit.get_position();
+        let surfaces = if unit.locomotor_surfaces != 0 {
+            unit.locomotor_surfaces
+        } else {
+            SURFACE_GROUND
+        };
+        let is_crusher = unit.crusher_level > 0;
+        let seeker_player = unit.owner_player_id.or(Some(unit.team as u32));
+        let crusher_level = unit.crusher_level;
+        let (radius, center_in_cell) = PathfindingGrid::radius_and_center(
+            unit.geometry_info().bounding_circle_radius(),
+            self.grid.grid_size(),
+        );
+        let (other_r, other_center) = objects
+            .lookup(&other)
+            .map(|other| {
+                PathfindingGrid::radius_and_center(
+                    other.geometry_info().bounding_circle_radius(),
+                    self.grid.grid_size(),
+                )
+            })
+            .unwrap_or((0, true));
+        self.ensure_dynamic_obstacles(objects, ground_source);
+        self.bind_seeker_from_mover(objects, Some(mover));
+        self.apply_seeker_human_flag();
+        self.grid.query_seeker_id = mover.0;
+        self.grid
+            .set_query_footprint(self.seeker_path_diameter, is_crusher);
         let start = self.grid.cell_for_unit_position(from, center_in_cell);
         if !self.grid.is_valid_pos(start) {
             return None;
@@ -670,7 +691,7 @@ impl PathfindingSystem {
             layer,
             layer,
             ground_source,
-            None,
+            objects,
         ) {
             if path.len() >= 2 {
                 return Some(path);
@@ -910,7 +931,7 @@ impl PathfindingSystem {
             start_layer,
             dest_layer,
             ground_source,
-            Some(objects),
+            objects,
         )?;
         if path.len() < 2 {
             return None;
@@ -1166,7 +1187,7 @@ impl PathfindingSystem {
             start_layer,
             best_layer,
             ground_source,
-            Some(objects),
+            objects,
         ) {
             let mut world = path;
             if let Some(first) = world.first_mut() {

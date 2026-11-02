@@ -472,7 +472,7 @@ impl PathfindingSystem {
         start_layer: PathfindLayerEnum,
         dest_layer: PathfindLayerEnum,
         ground_source: &PathfindingGround<'_>,
-        objects: Option<HostObjectRead<'_>>,
+        objects: HostObjectRead<'_>,
     ) -> Option<Vec<Vec3>> {
         self.sync_crate_astar();
         self.apply_seeker_human_flag();
@@ -641,8 +641,7 @@ impl PathfindingSystem {
         let is_dozer = self.seeker_is_dozer;
         let seeker_player = self.seeker_player;
         let seeker_team = self.seeker_team;
-        let seeker_object =
-            objects.and_then(|objects| self.seeker_id.and_then(|id| objects.lookup(&id)));
+        let seeker_object = self.seeker_id.and_then(|id| objects.lookup(&id));
         let ally_mask = seeker_player
             .map(|p| self.grid.ally_mask_for(p))
             .unwrap_or(0);
@@ -650,27 +649,22 @@ impl PathfindingSystem {
             if !is_dozer {
                 return false;
             }
-            let Some((obstacle_id, owner, team)) = self.grid.obstacle_owner(GridPos::new(c.x, c.y))
-            else {
+            let Some((obstacle_id, _, _)) = self.grid.obstacle_owner(GridPos::new(c.x, c.y)) else {
                 return false;
             };
             // Object::getRelationship handles undetected defectors before
             // team relationships. Resolve both objects from this query's
             // receiving world; an orphaned obstacle ID cannot grant passage.
-            let (owner, team) = if let Some(objects) = objects {
-                let Some(seeker) = seeker_object else {
-                    return false;
-                };
-                let Some(obstacle) = objects.lookup(&ObjectId(obstacle_id)) else {
-                    return false;
-                };
-                if seeker.is_undetected_defector() || obstacle.is_undetected_defector() {
-                    return true;
-                }
-                (obstacle.owner_player_id, Some(obstacle.team))
-            } else {
-                (owner, team)
+            let Some(seeker) = seeker_object else {
+                return false;
             };
+            let Some(obstacle) = objects.lookup(&ObjectId(obstacle_id)) else {
+                return false;
+            };
+            if seeker.is_undetected_defector() || obstacle.is_undetected_defector() {
+                return true;
+            }
+            let (owner, team) = (obstacle.owner_player_id, Some(obstacle.team));
             if let (Some(sp), Some(op)) = (seeker_player, owner) {
                 if sp == op {
                     return true;

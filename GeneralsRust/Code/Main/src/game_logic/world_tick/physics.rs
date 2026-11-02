@@ -416,11 +416,6 @@ impl GameLogic {
                     .get(&a_id)
                     .map(|a| a.movement.path.clone())
                     .unwrap_or_default();
-                let a_radius = self
-                    .objects
-                    .get(&a_id)
-                    .map(|a| a.selection_radius)
-                    .unwrap_or(0.0);
                 let prev_path = self
                     .objects
                     .get(&other_id)
@@ -432,16 +427,6 @@ impl GameLogic {
                     });
                 if a_path.len() >= 2 {
                     if let Some(other) = self.objects.get(&other_id) {
-                        let from = other.get_position();
-                        let surfaces = if other.locomotor_surfaces != 0 {
-                            other.locomotor_surfaces
-                        } else {
-                            gamelogic::ai::pathfind_complete::SURFACE_GROUND
-                        };
-                        let is_crusher = other.crusher_level > 0;
-                        let unit_radius = other.selection_radius;
-                        let seeker_player = other.owner_player_id.or(Some(other.team as u32));
-                        let crusher_level = other.crusher_level;
                         let can_tunnel = other.can_path_through_units;
                         let mut yield_path = ({
                             let ground_owner = self.world_services.terrain();
@@ -457,17 +442,13 @@ impl GameLogic {
                                     &self.pathfinding_system.grid,
                                 );
                             self.pathfinding_system.get_move_away_from_path(
-                                from,
                                 &a_path,
                                 prev_path.as_deref(),
-                                surfaces,
-                                is_crusher,
-                                unit_radius,
-                                a_radius,
-                                seeker_player,
-                                crusher_level,
                                 false,
                                 &ground_source,
+                                self.objects.read(),
+                                other_id,
+                                a_id,
                             )
                         });
                         if yield_path.is_none() && !can_tunnel {
@@ -490,17 +471,13 @@ impl GameLogic {
                                     )
                                 };
                                 self.pathfinding_system.get_move_away_from_path(
-                                    from,
                                     &a_path,
                                     prev_path.as_deref(),
-                                    surfaces,
-                                    is_crusher,
-                                    unit_radius,
-                                    a_radius,
-                                    seeker_player,
-                                    crusher_level,
                                     true,
                                     &ground_source,
+                                    self.objects.read(),
+                                    other_id,
+                                    a_id,
                                 )
                             });
                             if let Some(other) = self.objects.get_mut(&other_id) {
@@ -551,11 +528,6 @@ impl GameLogic {
                     .get(&other_id)
                     .map(|o| o.movement.path.clone())
                     .unwrap_or_default();
-                let other_radius = self
-                    .objects
-                    .get(&other_id)
-                    .map(|o| o.selection_radius)
-                    .unwrap_or(0.0);
                 let prev_path = self
                     .objects
                     .get(&a_id)
@@ -567,12 +539,6 @@ impl GameLogic {
                     });
                 if other_path.len() >= 2 {
                     if let Some(me) = self.objects.get(&a_id) {
-                        let from = me.get_position();
-                        let surfaces = if me.locomotor_surfaces != 0 {
-                            me.locomotor_surfaces
-                        } else {
-                            gamelogic::ai::pathfind_complete::SURFACE_GROUND
-                        };
                         let can_tunnel = me.can_path_through_units;
                         let mut yield_path = ({
                             let ground_owner = self.world_services.terrain();
@@ -588,17 +554,13 @@ impl GameLogic {
                                     &self.pathfinding_system.grid,
                                 );
                             self.pathfinding_system.get_move_away_from_path(
-                                from,
                                 &other_path,
                                 prev_path.as_deref(),
-                                surfaces,
-                                me.crusher_level > 0,
-                                me.selection_radius,
-                                other_radius,
-                                me.owner_player_id.or(Some(me.team as u32)),
-                                me.crusher_level,
                                 false,
                                 &ground_source,
+                                self.objects.read(),
+                                a_id,
+                                other_id,
                             )
                         });
                         if yield_path.is_none() && !can_tunnel {
@@ -621,17 +583,13 @@ impl GameLogic {
                                     )
                                 };
                                 self.pathfinding_system.get_move_away_from_path(
-                                    from,
                                     &other_path,
                                     prev_path.as_deref(),
-                                    surfaces,
-                                    me.crusher_level > 0,
-                                    me.selection_radius,
-                                    other_radius,
-                                    me.owner_player_id.or(Some(me.team as u32)),
-                                    me.crusher_level,
                                     true,
                                     &ground_source,
+                                    self.objects.read(),
+                                    a_id,
+                                    other_id,
                                 )
                             });
                             if let Some(me) = self.objects.get_mut(&a_id) {

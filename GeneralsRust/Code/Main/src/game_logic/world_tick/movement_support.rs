@@ -200,11 +200,11 @@ impl GameLogic {
 
     /// C++ `Pathfinder::moveAllies` after `computePath` installs a route.
     pub(in super::super) fn scoot_allies_off_mover_path(&mut self, object_id: ObjectId) {
-        let Some((path, mover_radius)) = self.objects.get(&object_id).and_then(|obj| {
+        let Some(path) = self.objects.get(&object_id).and_then(|obj| {
             if obj.is_kind_of(KindOf::NoCollide) {
                 None
             } else {
-                Some((obj.movement.path.clone(), obj.selection_radius))
+                Some(obj.movement.path.clone())
             }
         }) else {
             return;
@@ -226,16 +226,6 @@ impl GameLogic {
             let Some(obj) = self.objects.get(&ally) else {
                 continue;
             };
-            let from = obj.get_position();
-            let surfaces = if obj.locomotor_surfaces != 0 {
-                obj.locomotor_surfaces
-            } else {
-                gamelogic::ai::pathfind_complete::SURFACE_GROUND
-            };
-            let is_crusher = obj.crusher_level > 0;
-            let unit_radius = obj.selection_radius;
-            let seeker_player = obj.owner_player_id.or(Some(obj.team as u32));
-            let crusher_level = obj.crusher_level;
             let can_tunnel = obj.can_path_through_units;
             let mut yield_path = ({
                 let ground_owner = self.world_services.terrain();
@@ -250,17 +240,13 @@ impl GameLogic {
                     &self.pathfinding_system.grid,
                 );
                 self.pathfinding_system.get_move_away_from_path(
-                    from,
                     &mover_path,
                     prev_path.as_deref(),
-                    surfaces,
-                    is_crusher,
-                    unit_radius,
-                    mover_radius,
-                    seeker_player,
-                    crusher_level,
                     false,
                     &ground_source,
+                    self.objects.read(),
+                    ally,
+                    object_id,
                 )
             });
             if yield_path.is_none() && !can_tunnel {
@@ -278,17 +264,13 @@ impl GameLogic {
                             &self.pathfinding_system.grid,
                         );
                     self.pathfinding_system.get_move_away_from_path(
-                        from,
                         &mover_path,
                         prev_path.as_deref(),
-                        surfaces,
-                        is_crusher,
-                        unit_radius,
-                        mover_radius,
-                        seeker_player,
-                        crusher_level,
                         true,
                         &ground_source,
+                        self.objects.read(),
+                        ally,
+                        object_id,
                     )
                 });
                 if let Some(obj) = self.objects.get_mut(&ally) {

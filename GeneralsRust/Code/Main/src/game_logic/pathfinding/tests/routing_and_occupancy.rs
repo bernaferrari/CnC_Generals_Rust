@@ -962,19 +962,17 @@ fn get_move_away_from_path_leaves_avoided_route() {
         Vec3::new(50.0, 0.0, 50.0),
         Vec3::new(150.0, 0.0, 50.0),
     ];
+    let mut fixture = super::super::standalone_path_fixture();
+    fixture.get_mut(&ObjectId(1)).unwrap().set_position(from);
     let path = sys
         .get_move_away_from_path(
-            from,
             &avoided,
             None,
-            SURFACE_GROUND,
-            false,
-            6.0,
-            15.0,
-            Some(0),
-            0,
             false,
             &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+            fixture.read(),
+            ObjectId(1),
+            ObjectId(1),
         )
         .expect("yield path");
     assert!(path.len() >= 2);
