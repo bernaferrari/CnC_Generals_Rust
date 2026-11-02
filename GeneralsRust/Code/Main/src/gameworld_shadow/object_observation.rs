@@ -1200,8 +1200,8 @@ impl GameWorldShadow {
         e.requested_destination = obj.requested_destination.map(|p| [p.x, p.y, p.z]);
         e.prev_victim_pos = obj.prev_victim_pos().map(|p| [p.x, p.y, p.z]);
         e.crate_created_host = obj.crate_created.map(|id| id.0).unwrap_or(0);
-        e.guard_retaliate_victim_host = obj.guard_retaliate_victim.map(|id| id.0).unwrap_or(0);
-        e.guard_retaliate_anchor = obj.guard_retaliate_anchor.map(|p| [p.x, p.y, p.z]);
+        e.guard_retaliate_victim_host = obj.guard_retaliate_victim().map(|id| id.0).unwrap_or(0);
+        e.guard_retaliate_anchor = obj.guard_retaliate_anchor().map(|p| [p.x, p.y, p.z]);
         e.path_timestamp = obj.path_timestamp;
         e.disguise_pending_template = obj.disguise_pending_template.clone().unwrap_or_default();
         e.disguise_pending_team_ordinal = obj

@@ -118,8 +118,8 @@ impl GameLogic {
                 unit.exit_base_ai_guard_owned();
             }
             if state == AIState::GuardRetaliating {
-                unit.guard_retaliate_victim = None;
-                unit.guard_retaliate_anchor = None;
+                unit.set_guard_retaliate_victim(None);
+                unit.set_guard_retaliate_anchor(None);
                 unit.clear_guard_chase();
             }
             if state == AIState::Hunting {

@@ -309,7 +309,7 @@ fn begin_guard_retaliate_sets_state_and_anchor() {
     );
     let o = &logic.objects[&id];
     assert_eq!(o.ai_state(), AIState::GuardRetaliating);
-    assert_eq!(o.guard_retaliate_victim, Some(victim));
+    assert_eq!(o.guard_retaliate_victim(), Some(victim));
     assert_eq!(o.target, Some(victim));
     assert_eq!(o.max_shots_to_fire, 5);
 }
@@ -363,7 +363,7 @@ fn guard_retaliate_ends_when_victim_dead() {
         "got {:?}",
         o.ai_state()
     );
-    assert!(o.guard_retaliate_victim.is_none() || matches!(o.ai_state, AIState::Moving));
+    assert!(o.guard_retaliate_victim().is_none() || matches!(o.ai_state, AIState::Moving));
 }
 
 #[test]
@@ -432,8 +432,8 @@ fn friends_retaliate_against_nearby_aggressor() {
     let f = &logic.objects[&fid];
     assert_eq!(f.target, Some(eid));
     assert_eq!(f.ai_state(), AIState::GuardRetaliating);
-    assert_eq!(f.guard_retaliate_victim, Some(eid));
-    assert!(f.guard_retaliate_anchor.is_some());
+    assert_eq!(f.guard_retaliate_victim(), Some(eid));
+    assert!(f.guard_retaliate_anchor().is_some());
 }
 
 #[test]
@@ -699,7 +699,7 @@ fn guard_retaliate_chase_gives_up_on_timer() {
         .expect("valid guard retaliation fixture");
     let give = logic.objects[&id].guard_chase_give_up_frame();
     assert!(give > 0, "first tick must stamp give-up frame");
-    assert_eq!(logic.objects[&id].guard_retaliate_victim, Some(vid));
+    assert_eq!(logic.objects[&id].guard_retaliate_victim(), Some(vid));
 
     logic.frame = give;
     logic
@@ -707,7 +707,7 @@ fn guard_retaliate_chase_gives_up_on_timer() {
         .expect("valid guard retaliation fixture");
     let o = &logic.objects[&id];
     assert!(
-        o.guard_retaliate_victim.is_none(),
+        o.guard_retaliate_victim().is_none(),
         "timer must drop the live victim"
     );
     assert!(
@@ -781,7 +781,7 @@ fn guard_retaliate_inner_scan_allows_base_defense() {
         .tick_guard_retaliate_states()
         .expect("valid guard retaliation fixture");
     assert_eq!(
-        logic.objects[&id].guard_retaliate_victim,
+        logic.objects[&id].guard_retaliate_victim(),
         Some(pid),
         "human retaliate rescan must pick Patriot, not warehouse"
     );
@@ -839,7 +839,7 @@ fn guard_retaliate_computer_scan_allows_any_enemy_structure() {
         .tick_guard_retaliate_states()
         .expect("valid guard retaliation fixture");
     assert_eq!(
-        logic.objects[&id].guard_retaliate_victim,
+        logic.objects[&id].guard_retaliate_victim(),
         Some(wid),
         "computer retaliate rescan must acquire enemy structures"
     );
@@ -1415,7 +1415,7 @@ fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
         .tick_guard_retaliate_states()
         .expect("valid guard retaliation fixture");
     assert_eq!(
-        logic.objects[&id].guard_retaliate_victim,
+        logic.objects[&id].guard_retaliate_victim(),
         Some(sid),
         "dead aggressor must re-acquire the scan victim"
     );
@@ -1440,7 +1440,7 @@ fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
         "INNER leash fail must escalate to OUTER (C++ success AND failure → OUTER)"
     );
     assert_eq!(
-        logic.objects[&id].guard_retaliate_victim,
+        logic.objects[&id].guard_retaliate_victim(),
         Some(sid),
         "OUTER onEnter re-attacks the same nemesis"
     );
@@ -1453,7 +1453,7 @@ fn guard_retaliate_scan_victim_uses_inner_1_5x_not_aggressor() {
         .tick_guard_retaliate_states()
         .expect("valid guard retaliation fixture");
     assert!(
-        logic.objects[&id].guard_retaliate_victim.is_none(),
+        logic.objects[&id].guard_retaliate_victim().is_none(),
         "scan victim past OUTER 0.67*(vision+std) must then drop"
     );
 }
@@ -1604,7 +1604,7 @@ fn guard_retaliate_outer_refreshes_timer_while_victim_in_std_guard() {
         "OUTER must refresh give-up while the victim stays inside stdGuard"
     );
     assert_eq!(
-        logic.objects[&id].guard_retaliate_victim,
+        logic.objects[&id].guard_retaliate_victim(),
         Some(vid),
         "in-range OUTER victim must not be dropped"
     );

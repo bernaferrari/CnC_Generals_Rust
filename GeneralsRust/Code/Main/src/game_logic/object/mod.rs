@@ -1195,9 +1195,6 @@ pub struct Object {
 
     /// Guard position
     /// C++ AIGuardMachine::m_areaToGuard trigger name residual.
-    /// C++ AIGuardRetaliateMachine goal victim residual.
-    #[serde(default)]
-    pub guard_retaliate_victim: Option<ObjectId>,
     /// C++ AIUpdateInterface::m_crateCreated residual (notifyCrate).
     #[serde(default)]
     pub crate_created: Option<ObjectId>,
@@ -1227,9 +1224,6 @@ pub struct Object {
     /// C++ ARMORSET_CRATE_UPGRADE_ONE/TWO residual (0/1/2).
     #[serde(default)]
     pub armor_crate_upgrade: u8,
-    /// C++ setGoalPositionClipped anchor for GuardRetaliate return residual.
-    #[serde(default)]
-    pub guard_retaliate_anchor: Option<Vec3>,
 
     /// Force attack mode
     pub force_attack: bool,
@@ -3537,6 +3531,18 @@ impl Object {
 }
 
 impl Object {
+    pub fn guard_retaliate_victim(&self) -> Option<ObjectId> {
+        self.unit_ai_runtime.guard_retaliate_victim()
+    }
+    pub fn guard_retaliate_anchor(&self) -> Option<Vec3> {
+        self.unit_ai_runtime.guard_retaliate_anchor()
+    }
+    pub(crate) fn set_guard_retaliate_victim(&mut self, victim: Option<ObjectId>) {
+        self.unit_ai_runtime.set_guard_retaliate_victim(victim);
+    }
+    pub(crate) fn set_guard_retaliate_anchor(&mut self, anchor: Option<Vec3>) {
+        self.unit_ai_runtime.set_guard_retaliate_anchor(anchor);
+    }
     pub fn guard_chase_phase(&self) -> GuardChasePhase {
         self.unit_ai_runtime.guard_chase_phase()
     }

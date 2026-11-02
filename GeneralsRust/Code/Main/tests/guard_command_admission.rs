@@ -197,15 +197,15 @@ fn replacing_retaliation_exits_its_active_attack_without_touching_peer() {
     let actor = owner.host_object(id).unwrap();
     assert_eq!(actor.ai_state(), AIState::GuardingArea);
     assert_eq!(actor.guard_position(), Some(Vec3::new(10., 0., 20.)));
-    assert_eq!(actor.guard_retaliate_victim, None);
-    assert_eq!(actor.guard_retaliate_anchor, None);
+    assert_eq!(actor.guard_retaliate_victim(), None);
+    assert_eq!(actor.guard_retaliate_anchor(), None);
     assert_eq!(actor.target, None);
     assert!(
         !actor.status.attacking && !actor.status.is_firing_weapon && !actor.status.is_aiming_weapon
     );
     let other = peer.host_object(id).unwrap();
     assert_eq!(other.ai_state(), AIState::GuardRetaliating);
-    assert_eq!(other.guard_retaliate_victim, Some(id));
+    assert_eq!(other.guard_retaliate_victim(), Some(id));
     assert!(
         other.status.attacking && other.status.is_firing_weapon && other.status.is_aiming_weapon
     );

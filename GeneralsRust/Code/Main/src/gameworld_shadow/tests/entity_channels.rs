@@ -572,8 +572,8 @@ fn canonical_ai_request_is_projected_from_receiving_owner() {
         o.requested_destination = Some(glam::Vec3::new(9.0, 0.0, 8.0));
         o.set_prev_victim_pos(Some(glam::Vec3::new(1.0, 2.0, 3.0)));
         o.crate_created = Some(ObjectId(99));
-        o.guard_retaliate_victim = Some(victim);
-        o.guard_retaliate_anchor = Some(glam::Vec3::new(4.0, 0.0, 5.0));
+        o.set_guard_retaliate_victim(Some(victim));
+        o.set_guard_retaliate_anchor(Some(glam::Vec3::new(4.0, 0.0, 5.0)));
         o.path_timestamp = 77;
         o.disguise_pending_template = Some("FakeTank".into());
         o.disguise_pending_team = Some(Team::GLA);

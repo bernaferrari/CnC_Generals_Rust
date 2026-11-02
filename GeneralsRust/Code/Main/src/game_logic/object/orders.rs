@@ -850,9 +850,9 @@ impl Object {
             return;
         }
         let anchor_pos = anchor.unwrap_or_else(|| self.get_position());
-        self.guard_retaliate_victim = Some(victim);
+        self.set_guard_retaliate_victim(Some(victim));
 
-        self.guard_retaliate_anchor = Some(anchor_pos);
+        self.set_guard_retaliate_anchor(Some(anchor_pos));
         // Preserve ordinary guard anchors if already guarding.
         if self.active_guard_position().is_none() && self.active_guard_target().is_none() {
             self.set_guard_position_data(Some(anchor_pos));
@@ -877,8 +877,8 @@ impl Object {
     /// Clear GuardRetaliate data and report the C++ state-machine successor.
     /// The World applies the returned transition after this Object borrow ends.
     pub(crate) fn end_guard_retaliate_state(&mut self) -> AIState {
-        self.guard_retaliate_victim = None;
-        self.guard_retaliate_anchor = None;
+        self.set_guard_retaliate_victim(None);
+        self.set_guard_retaliate_anchor(None);
         self.target = None;
         self.status.attacking = false;
         if self.active_guard_target().is_some() {
@@ -909,8 +909,8 @@ impl Object {
         if !matches!(self.ai_state(), AIState::GuardRetaliating) {
             return None;
         }
-        if !victim_alive || self.guard_retaliate_victim.is_none() {
-            if let Some(anchor) = self.guard_retaliate_anchor {
+        if !victim_alive || self.guard_retaliate_victim().is_none() {
+            if let Some(anchor) = self.guard_retaliate_anchor() {
                 let us = self.get_position();
                 let dx = us.x - anchor.x;
                 let dz = us.z - anchor.z;
@@ -927,7 +927,7 @@ impl Object {
             return Some(self.end_guard_retaliate_state());
         }
         // Keep target locked on victim.
-        if let Some(vid) = self.guard_retaliate_victim {
+        if let Some(vid) = self.guard_retaliate_victim() {
             if self.target != Some(vid) {
                 self.target = Some(vid);
                 self.status.attacking = true;

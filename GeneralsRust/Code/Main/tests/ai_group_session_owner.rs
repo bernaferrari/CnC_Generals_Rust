@@ -1073,6 +1073,121 @@ fn locked_attack_move_parent_allows_child_attack_to_finish() {
 }
 
 #[test]
+fn guard_retaliate_restores_its_victim_and_anchor_in_the_receiving_session() {
+    use generals_main::game_logic::AIState;
+    use generals_main::save_load::SnapshotBuilder;
+
+    fn admit_players(world: &mut GameLogic) {
+        let player = world.get_player_mut(1).unwrap();
+        player.is_human = true;
+        player.alliance_team = 1;
+        player.logical_retaliation_mode_enabled = true;
+        let mut enemy = Player::new(2, Team::GLA, "Enemy", false);
+        enemy.alliance_team = 2;
+        world.add_player(enemy);
+    }
+    let root = tempfile::tempdir().unwrap();
+    let map = map_file(root.path());
+    let (mut owner, victim, actor, _) = world_with_options(&map, true, true, false);
+    let (mut peer, peer_victim, peer_actor, _) = world_with_options(&map, true, true, false);
+    assert_eq!((victim, actor), (peer_victim, peer_actor));
+    admit_players(&mut owner);
+    admit_players(&mut peer);
+    let attacker = owner
+        .create_object_for_player("GroupUnit", 2, Vec3::new(45.0, 0.0, 40.0))
+        .unwrap();
+    assert!(owner.try_friends_retaliate(victim, attacker) > 0);
+    let unit = owner.host_object(actor).unwrap();
+    assert_eq!(unit.ai_state(), AIState::GuardRetaliating);
+    assert_eq!(unit.guard_retaliate_victim(), Some(attacker));
+    let anchor = unit.guard_retaliate_anchor();
+    assert!(anchor.is_some());
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&owner).unwrap();
+    let bytes = bincode_legacy::serialize(&snapshot).unwrap();
+    let decoded = bincode_legacy::deserialize(&bytes).unwrap();
+    builder.restore_from_snapshot(&decoded, &mut peer).unwrap();
+    let restored = peer.host_object(actor).unwrap();
+    assert_eq!(restored.ai_state(), AIState::GuardRetaliating);
+    assert_eq!(restored.guard_retaliate_victim(), Some(attacker));
+    assert_eq!(restored.guard_retaliate_anchor(), anchor);
+    peer.update_with_dt(1.0 / 30.0);
+    assert_eq!(
+        peer.host_object(actor).unwrap().guard_retaliate_victim(),
+        Some(attacker)
+    );
+    assert_eq!(
+        owner.host_object(actor).unwrap().guard_retaliate_anchor(),
+        anchor
+    );
+
+    // Invalid IDs are rejected before the running session is changed.
+    let mut invalid = builder.create_world_snapshot(&peer).unwrap();
+    let before = serde_json::to_value(&invalid.objects[&actor].modules["ReceivingBaseAI"]).unwrap();
+    let frame = invalid.frame_number;
+    let module = invalid
+        .objects
+        .get_mut(&actor)
+        .unwrap()
+        .modules
+        .get_mut("ReceivingBaseAI")
+        .unwrap();
+    let mut value = serde_json::to_value(&*module).unwrap();
+    value["BaseAi"]["continuation"]["retaliate"]["victim"] = 0.into();
+    *module = serde_json::from_value(value).unwrap();
+    assert!(builder.restore_from_snapshot(&invalid, &mut peer).is_err());
+    let after = builder.create_world_snapshot(&peer).unwrap();
+    assert_eq!(after.frame_number, frame);
+    assert_eq!(
+        serde_json::to_value(&after.objects[&actor].modules["ReceivingBaseAI"]).unwrap(),
+        before
+    );
+    peer.reset();
+    // The original machine tolerates a nemesis that no longer resolves.
+    let mut missing_nemesis = builder.create_world_snapshot(&owner).unwrap();
+    let absent = ObjectId(1_000_000);
+    let module = missing_nemesis
+        .objects
+        .get_mut(&actor)
+        .unwrap()
+        .modules
+        .get_mut("ReceivingBaseAI")
+        .unwrap();
+    let mut value = serde_json::to_value(&*module).unwrap();
+    value["BaseAi"]["continuation"]["retaliate"]["victim"] = absent.0.into();
+    *module = serde_json::from_value(value).unwrap();
+    let (mut missing_peer, _, _, _) = world_with_options(&map, true, true, false);
+    admit_players(&mut missing_peer);
+    builder
+        .restore_from_snapshot(&missing_nemesis, &mut missing_peer)
+        .unwrap();
+    assert!(missing_peer.host_object(absent).is_none());
+    assert_eq!(
+        missing_peer
+            .host_object(actor)
+            .unwrap()
+            .guard_retaliate_victim(),
+        Some(absent)
+    );
+    missing_peer.update_with_dt(1.0 / 30.0);
+    assert_ne!(
+        missing_peer
+            .host_object(actor)
+            .unwrap()
+            .guard_retaliate_victim(),
+        Some(absent)
+    );
+    assert_eq!(
+        owner.host_object(actor).unwrap().guard_retaliate_victim(),
+        Some(attacker)
+    );
+    assert_eq!(
+        owner.host_object(actor).unwrap().guard_retaliate_anchor(),
+        anchor
+    );
+}
+
+#[test]
 fn guard_keeps_parent_after_real_aggressor_hit() {
     const GUARD_ATTACK_AGGRESSOR_PHASE: generals_main::game_logic::GuardChasePhase =
         generals_main::game_logic::GuardChasePhase::Aggressor;

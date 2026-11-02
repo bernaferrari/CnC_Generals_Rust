@@ -4,6 +4,7 @@
 //! its three optional deadline fields; AIGuardState saves the active phase and anchor.
 
 use super::GuardChasePhase;
+use crate::game_logic::ObjectId;
 use glam::Vec3;
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -23,6 +24,16 @@ pub(crate) struct GuardRuntime {
     chase_phase: GuardChasePhase,
     #[serde(default)]
     chase_give_up_frame: u32,
+}
+
+/// Saved data of the actor's distinct C++ AIGuardRetaliateMachine.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GuardRetaliateRuntime {
+    /// C++ AIGuardRetaliateMachine::m_nemesisToAttack.
+    victim: Option<ObjectId>,
+    /// C++ AIGuardRetaliateMachine::m_positionToGuard.
+    anchor: Option<Vec3>,
 }
 
 /// Active non-combat states of the object's C++ AIGuardMachine.
@@ -56,6 +67,19 @@ pub(crate) enum WanderState {
 }
 
 impl UnitAiRuntime {
+    pub(crate) fn guard_retaliate_victim(&self) -> Option<ObjectId> {
+        self.machine.retaliate.victim
+    }
+    pub(crate) fn guard_retaliate_anchor(&self) -> Option<Vec3> {
+        self.machine.retaliate.anchor
+    }
+    pub(crate) fn set_guard_retaliate_victim(&mut self, victim: Option<ObjectId>) {
+        self.machine.retaliate.victim = victim;
+    }
+    pub(crate) fn set_guard_retaliate_anchor(&mut self, anchor: Option<Vec3>) {
+        self.machine.retaliate.anchor = anchor;
+    }
+
     pub(crate) fn guard_chase_phase(&self) -> GuardChasePhase {
         self.machine.guard.chase_phase
     }

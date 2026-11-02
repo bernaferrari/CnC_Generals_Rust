@@ -66,6 +66,8 @@ pub struct BaseAiContinuation {
     pub wander_width: f32,
 
     pub(crate) guard: GuardRuntime,
+    #[serde(default)]
+    pub(crate) retaliate: GuardRetaliateRuntime,
     pub(crate) hunt_scan: Option<u32>,
     pub(crate) quick_exit: Option<u32>,
     pub(crate) wander: Option<WanderState>,
@@ -104,6 +106,7 @@ impl Default for BaseAiContinuation {
             wander_width: 0.0,
 
             guard: Default::default(),
+            retaliate: Default::default(),
             hunt_scan: None,
             quick_exit: None,
             wander: None,
@@ -131,6 +134,17 @@ impl BaseAiContinuation {
         self.parent_state().unwrap_or(self.ai_state)
     }
     pub(crate) fn validate(&self) -> Result<(), String> {
+        if self.retaliate.victim == Some(crate::game_logic::INVALID_OBJECT_ID) {
+            return Err("guard retaliation victim cannot be the invalid object ID".into());
+        }
+        if self
+            .retaliate
+            .anchor
+            .is_some_and(|position| !position.is_finite())
+        {
+            return Err("guard retaliation anchor must be finite".into());
+        }
+
         if self.guard.chase_phase == GuardChasePhase::None && self.guard.chase_give_up_frame != 0 {
             return Err("guard chase deadline requires an active chase".into());
         }
@@ -482,6 +496,8 @@ impl BaseAiContinuation {
             && self.approach_timestamp == 0
             && self.prev_victim_pos.is_none()
             && self.attack_original_victim_pos.is_none()
+            && self.retaliate.victim.is_none()
+            && self.retaliate.anchor.is_none()
             && !self.idle_initialized
             && self.goals.object.is_none()
             && self.goals.position == Vec3::ZERO

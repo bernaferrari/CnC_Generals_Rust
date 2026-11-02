@@ -261,7 +261,7 @@ impl GameLogic {
             return true;
         }
         let center = me
-            .guard_retaliate_anchor
+            .guard_retaliate_anchor()
             .or(me.active_guard_position())
             .unwrap_or_else(|| me.get_position());
         let (inner, outer) = self.host_std_guard_ranges(unit_id);
@@ -290,7 +290,7 @@ impl GameLogic {
     fn scan_guard_retaliate_inner(&self, unit_id: ObjectId) -> Option<ObjectId> {
         let me = self.objects.get(&unit_id)?;
         let anchor = me
-            .guard_retaliate_anchor
+            .guard_retaliate_anchor()
             .or(me.active_guard_position())
             .unwrap_or_else(|| me.get_position());
         let (inner, _) = self.host_std_guard_ranges(unit_id);
@@ -805,7 +805,10 @@ impl GameLogic {
                     o.set_guard_chase_give_up_frame(now.saturating_add(frames));
                 }
             }
-            let victim_id = self.objects.get(&id).and_then(|o| o.guard_retaliate_victim);
+            let victim_id = self
+                .objects
+                .get(&id)
+                .and_then(|o| o.guard_retaliate_victim());
             let (alive, vpos) = match victim_id {
                 Some(vid) => match self.objects.get(&vid) {
                     Some(v) if v.is_alive() && !v.status.destroyed => {
@@ -829,7 +832,7 @@ impl GameLogic {
                             .objects
                             .get(&id)
                             .map(|o| {
-                                o.guard_retaliate_anchor
+                                o.guard_retaliate_anchor()
                                     .or(o.active_guard_position())
                                     .unwrap_or_else(|| o.get_position())
                             })
@@ -867,7 +870,7 @@ impl GameLogic {
                     continue;
                 }
                 let transition = self.objects.get_mut(&id).and_then(|o| {
-                    o.guard_retaliate_victim = None;
+                    o.set_guard_retaliate_victim(None);
                     o.target = None;
                     o.status.attacking = false;
                     o.clear_guard_chase();
@@ -889,7 +892,7 @@ impl GameLogic {
                 let (inner, _) = self.host_std_guard_ranges(id);
                 let returning = self.objects.get(&id).is_some_and(|o| {
                     let center = o
-                        .guard_retaliate_anchor
+                        .guard_retaliate_anchor()
                         .or(o.active_guard_position())
                         .unwrap_or_else(|| o.get_position());
                     let us = o.get_position();
@@ -901,7 +904,7 @@ impl GameLogic {
                 if self.guard_acquire_scan_due(id, returning) {
                     if let Some(team_id) = self.host_team_common_target(id) {
                         if let Some(o) = self.objects.get_mut(&id) {
-                            o.guard_retaliate_victim = Some(team_id);
+                            o.set_guard_retaliate_victim(Some(team_id));
                             o.target = Some(team_id);
                             o.status.attacking = true;
                             o.set_guard_chase_phase(GuardChasePhase::Inner);
@@ -911,7 +914,7 @@ impl GameLogic {
                     }
                     if let Some(next) = self.scan_guard_retaliate_inner(id) {
                         if let Some(o) = self.objects.get_mut(&id) {
-                            o.guard_retaliate_victim = Some(next);
+                            o.set_guard_retaliate_victim(Some(next));
                             o.target = Some(next);
                             o.status.attacking = true;
                             o.set_guard_chase_phase(GuardChasePhase::Inner);
@@ -949,7 +952,7 @@ impl GameLogic {
                         });
                     if legal {
                         if let Some(o) = self.objects.get_mut(&id) {
-                            o.guard_retaliate_victim = Some(aid);
+                            o.set_guard_retaliate_victim(Some(aid));
                             o.target = Some(aid);
                             o.status.attacking = true;
                             o.set_guard_chase_phase(GUARD_CHASE_PHASE_RETALIATE);
@@ -2792,7 +2795,7 @@ mod tests {
         if let Some(o) = logic.objects.get_mut(&id) {
             o.template_mut()
                 .set_authored_ai_update_interface(Some(true));
-            o.guard_retaliate_anchor = Some(glam::Vec3::ZERO);
+            o.set_guard_retaliate_anchor(Some(glam::Vec3::ZERO));
         }
         w25_spawn_fighter(
             &mut logic,
@@ -2837,7 +2840,7 @@ mod tests {
         if let Some(o) = logic.objects.get_mut(&id) {
             o.template_mut()
                 .set_authored_ai_update_interface(Some(true));
-            o.guard_retaliate_anchor = Some(glam::Vec3::ZERO);
+            o.set_guard_retaliate_anchor(Some(glam::Vec3::ZERO));
             o.owner_player_id = Some(0);
         }
         logic.add_player(Player::new(0, Team::USA, "Human", true));
@@ -2916,7 +2919,7 @@ mod tests {
             .tick_guard_retaliate_states()
             .expect("valid guard retaliation fixture");
         assert_eq!(
-            logic.objects[&id].guard_retaliate_victim,
+            logic.objects[&id].guard_retaliate_victim(),
             Some(shared),
             "C++ lookForInnerTarget must seed nemesis from team common target first"
         );
