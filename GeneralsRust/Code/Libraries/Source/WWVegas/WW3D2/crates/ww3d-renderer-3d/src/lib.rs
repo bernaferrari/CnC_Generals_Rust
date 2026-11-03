@@ -54,6 +54,7 @@ pub mod math_utilities {
 }
 // DX8 re-exports removed; WGPU is the renderer path
 pub mod config;
+mod process_state;
 pub mod lod_system;
 pub mod material_system;
 pub mod render_object_system;

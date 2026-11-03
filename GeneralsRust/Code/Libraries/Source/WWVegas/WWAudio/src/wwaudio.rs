@@ -145,10 +145,10 @@ impl Default for WWAudioClass {
     }
 }
 
-struct WwAudioInstanceBag {
+struct WwAudioInstanceRuntime {
     ww_audio_instance: std::sync::Mutex<WWAudioClass>,
 }
-static WW_AUDIO_INSTANCE_TLS_BAG: std::sync::LazyLock<WwAudioInstanceBag> = std::sync::LazyLock::new(|| WwAudioInstanceBag {
+static WW_AUDIO_INSTANCE: std::sync::LazyLock<WwAudioInstanceRuntime> = std::sync::LazyLock::new(|| WwAudioInstanceRuntime {
         ww_audio_instance: std::sync::Mutex::new(WWAudioClass::default()),
 });
 
@@ -183,7 +183,7 @@ impl WWAudioClass {
     /// game thread used the C++ singleton; re-entering from inside `f`
     /// panics instead of silently aliasing.
     pub fn with_instance<R>(f: impl FnOnce(&mut WWAudioClass) -> R) -> R {
-        { let mut cell = WW_AUDIO_INSTANCE_TLS_BAG.ww_audio_instance.lock().unwrap_or_else(|p| p.into_inner()); f(&mut cell) }
+        { let mut cell = WW_AUDIO_INSTANCE.ww_audio_instance.lock().unwrap_or_else(|p| p.into_inner()); f(&mut cell) }
     }
 
     /// Create a new WWAudio wrapper without touching the singleton

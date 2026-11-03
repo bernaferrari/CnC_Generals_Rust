@@ -747,12 +747,12 @@ unsafe impl Send for MemoryPoolFactory {}
 unsafe impl Send for DynamicMemoryAllocator {}
 
 /// Global memory pool factory instance
-struct GlobalMemoryPoolFactorySlot(OnceLock<Mutex<MemoryPoolFactory>>);
-impl std::ops::Deref for GlobalMemoryPoolFactorySlot {
+struct GlobalMemoryPoolFactoryRuntime(OnceLock<Mutex<MemoryPoolFactory>>);
+impl std::ops::Deref for GlobalMemoryPoolFactoryRuntime {
     type Target = OnceLock<Mutex<MemoryPoolFactory>>;
     fn deref(&self) -> &Self::Target { &self.0 }
 }
-static GLOBAL_MEMORY_POOL_FACTORY: GlobalMemoryPoolFactorySlot = GlobalMemoryPoolFactorySlot(OnceLock::new());
+static GLOBAL_MEMORY_POOL_FACTORY: GlobalMemoryPoolFactoryRuntime = GlobalMemoryPoolFactoryRuntime(OnceLock::new());
 
 /// Initialize the global memory system
 pub fn init_memory_manager(pool_configs: &[PoolInitRec]) -> Result<(), String> {

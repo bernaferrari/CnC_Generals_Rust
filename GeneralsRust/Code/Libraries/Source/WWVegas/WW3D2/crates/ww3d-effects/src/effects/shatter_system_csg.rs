@@ -884,10 +884,10 @@ impl ShatterSystem {
     }
 }
 
-struct ShatterSystemBag {
+struct ShatterSystemCsgRuntime {
     shatter_system: std::sync::Mutex<Option<ShatterSystem>>,
 }
-static SHATTER_SYSTEM_TLS_BAG: std::sync::LazyLock<ShatterSystemBag> = std::sync::LazyLock::new(|| ShatterSystemBag {
+static SHATTER_SYSTEM_TLS_BAG: std::sync::LazyLock<ShatterSystemCsgRuntime> = std::sync::LazyLock::new(|| ShatterSystemCsgRuntime {
         shatter_system: std::sync::Mutex::new(None),
 });
 

@@ -132,6 +132,7 @@ pub mod attributes;
 pub mod events;
 
 // Utility modules
+mod process_state;
 pub mod assert;
 pub mod audible_sound;
 pub mod handles;

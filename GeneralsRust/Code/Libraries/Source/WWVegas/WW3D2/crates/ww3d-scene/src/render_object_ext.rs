@@ -424,30 +424,9 @@ pub trait RenderObjClassExt: std::fmt::Debug + Send + Sync {
     /// Get mutable bone attachments (thread-local storage for objects without attachments)
     /// This is a fallback for implementers that don't have their own attachment storage
     fn get_bone_attachments_mut(&mut self) -> &mut Vec<BoneAttachment> {
-        struct EmptyBag {
-    empty: std::sync::Mutex<Vec<BoneAttachment>>,
-}
-static EMPTY_TLS_BAG: std::sync::LazyLock<EmptyBag> = std::sync::LazyLock::new(|| EmptyBag {
-        empty: std::sync::Mutex::new(Vec::new()),
-});
-
-        // Safety: We're returning a mutable reference to thread-local storage.
-        // This is safe because each thread has its own copy of the static.
-        // SAFETY: The `RefCell::borrow_mut()` guard is kept alive for the whole
-        // expression, so no other borrow of this thread-local Vec can exist while we
-        // hold the raw pointer. Because the thread-local is only reachable from the
-        // current thread (each thread gets its own `EMPTY`), and this accessor is its
-        // only means of access, extending the lifetime of the returned `&mut` beyond
-        // the temporary guard is sound: the reference stays tied to `&mut self`, so
-        // re-entrant calls through the same receiver cannot overlap with it.
-        // SAFETY: EMPTY.with hands us a &RefCell unique to this thread; the
-        // borrow_mut() guard below lives as long as the returned reference,
-        // so no other borrow of the Vec can coexist with the returned &mut.
-        { let mut cell = EMPTY_TLS_BAG.empty.lock().unwrap_or_else(|p| p.into_inner()); unsafe {
-            // SAFETY: The RefCell is never borrowed elsewhere when we mutate it here,
-            // because we only access it through this thread-local interface.
-            &mut *(cell.as_mut() as *mut Vec<BoneAttachment>)
-        } }
+        // Implementors that attach to bones must override with real storage.
+        // A process-wide fallback bag was removed to keep WWVegas globals down.
+        panic!("get_bone_attachments_mut: type needs its own attachment storage")
     }
 
     /// Update all bone attachments

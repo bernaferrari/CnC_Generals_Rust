@@ -37,12 +37,12 @@ struct AnimatedSoundMgrState {
 }
 
 fn manager_state() -> &'static Mutex<AnimatedSoundMgrState> {
-    struct StateSlot(OnceLock<Mutex<AnimatedSoundMgrState>>);
-    impl std::ops::Deref for StateSlot {
+    struct StateRuntime(OnceLock<Mutex<AnimatedSoundMgrState>>);
+    impl std::ops::Deref for StateRuntime {
         type Target = OnceLock<Mutex<AnimatedSoundMgrState>>;
         fn deref(&self) -> &Self::Target { &self.0 }
     }
-    static STATE: StateSlot = StateSlot(OnceLock::new());
+    static STATE: StateRuntime = StateRuntime(OnceLock::new());
     STATE.get_or_init(|| Mutex::new(AnimatedSoundMgrState::default()))
 }
 

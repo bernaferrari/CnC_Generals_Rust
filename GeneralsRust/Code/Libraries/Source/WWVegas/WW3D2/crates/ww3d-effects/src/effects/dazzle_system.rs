@@ -895,10 +895,10 @@ fn extract_list(
         .unwrap_or_default()
 }
 
-struct DazzleManagerSlotBag {
+struct DazzleManagerRuntime {
     dazzle_manager_slot: std::sync::Mutex<Option<DazzleManager>>,
 }
-static DAZZLE_MANAGER_SLOT_TLS_BAG: std::sync::LazyLock<DazzleManagerSlotBag> = std::sync::LazyLock::new(|| DazzleManagerSlotBag {
+static DAZZLE_MANAGER_SLOT_TLS_BAG: std::sync::LazyLock<DazzleManagerRuntime> = std::sync::LazyLock::new(|| DazzleManagerRuntime {
         dazzle_manager_slot: std::sync::Mutex::new(None),
 });
 

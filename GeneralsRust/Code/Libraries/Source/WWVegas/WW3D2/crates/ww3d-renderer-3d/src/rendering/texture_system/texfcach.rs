@@ -1348,17 +1348,10 @@ fn file_time_seconds(path: &Path) -> Option<u64> {
         .map(|duration| duration.as_secs())
 }
 
-struct TextureCacheBag {
-    texture_cache: std::sync::Mutex<Option<TextureFileCache>>,
-}
-static TEXTURE_CACHE_TLS_BAG: std::sync::LazyLock<TextureCacheBag> = std::sync::LazyLock::new(|| TextureCacheBag {
-        texture_cache: std::sync::Mutex::new(None),
-});
-
 
 /// Run `f` with mutable access to the global texture file cache, if initialised.
 pub fn with_global_texture_cache<R>(f: impl FnOnce(&mut TextureFileCache) -> R) -> Option<R> {
-    { let mut cache = TEXTURE_CACHE_TLS_BAG.texture_cache.lock().unwrap_or_else(|p| p.into_inner()); 
+    { let mut cache = crate::process_state::RENDERER_3D.texture_cache.lock().unwrap_or_else(|p| p.into_inner()); 
         let cache = cache.as_mut()?;
         Some(f(cache))
      }
@@ -1366,10 +1359,10 @@ pub fn with_global_texture_cache<R>(f: impl FnOnce(&mut TextureFileCache) -> R) 
 
 /// Initialise the global texture cache.
 pub fn init_global_texture_cache(file_prefix: &str) {
-    { let mut slot = TEXTURE_CACHE_TLS_BAG.texture_cache.lock().unwrap_or_else(|p| p.into_inner()); *slot = Some(TextureFileCache::new(file_prefix)) };
+    { let mut slot = crate::process_state::RENDERER_3D.texture_cache.lock().unwrap_or_else(|p| p.into_inner()); *slot = Some(TextureFileCache::new(file_prefix)) };
 }
 
 /// Tear down the global cache.
 pub fn shutdown_global_texture_cache() {
-    { let mut slot = TEXTURE_CACHE_TLS_BAG.texture_cache.lock().unwrap_or_else(|p| p.into_inner()); *slot = None };
+    { let mut slot = crate::process_state::RENDERER_3D.texture_cache.lock().unwrap_or_else(|p| p.into_inner()); *slot = None };
 }

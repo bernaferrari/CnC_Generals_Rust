@@ -199,9 +199,12 @@ async fn setup_comprehensive_demo(
 fn setup_particle_demo(_scene: &mut SceneClass) {
     println!("\n🎆 Setting up Particle Demo...");
 
+    // Demo path: local context; GPU wiring needs a registered renderer on it.
+    let ww3d = ww3d_renderer_3d::Ww3dContext::new();
+
     // Create particle system manager using the renderer's GPU context
     let mut particle_manager =
-        match ww3d_renderer_3d::particle_bridge::create_particle_system_manager() {
+        match ww3d_renderer_3d::particle_bridge::create_particle_system_manager(&ww3d) {
             Ok(manager) => manager,
             Err(err) => {
                 eprintln!("  ⚠️ Unable to create particle system manager: {err:?}");
@@ -212,6 +215,7 @@ fn setup_particle_demo(_scene: &mut SceneClass) {
     // Add fire emitter
     let fire_emitter = ParticleSystemManager::create_fire_emitter();
     if let Err(err) = ww3d_renderer_3d::particle_bridge::add_emitter_with_renderer_resources(
+        &ww3d,
         &mut particle_manager,
         fire_emitter,
     ) {
@@ -223,6 +227,7 @@ fn setup_particle_demo(_scene: &mut SceneClass) {
     // Add smoke emitter
     let smoke_emitter = ParticleSystemManager::create_smoke_emitter();
     if let Err(err) = ww3d_renderer_3d::particle_bridge::add_emitter_with_renderer_resources(
+        &ww3d,
         &mut particle_manager,
         smoke_emitter,
     ) {

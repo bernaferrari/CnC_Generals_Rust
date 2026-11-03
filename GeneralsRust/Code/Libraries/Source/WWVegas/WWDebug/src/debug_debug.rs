@@ -90,12 +90,12 @@ impl Debug {
     }
 
     pub fn instance() -> &'static Mutex<Debug> {
-        struct InstanceSlot(OnceCell<Mutex<Debug>>);
-        impl std::ops::Deref for InstanceSlot {
+        struct InstanceRuntime(OnceCell<Mutex<Debug>>);
+        impl std::ops::Deref for InstanceRuntime {
             type Target = OnceCell<Mutex<Debug>>;
             fn deref(&self) -> &Self::Target { &self.0 }
         }
-        static INSTANCE: InstanceSlot = InstanceSlot(OnceCell::new());
+        static INSTANCE: InstanceRuntime = InstanceRuntime(OnceCell::new());
         INSTANCE.get_or_init(|| Mutex::new(Debug::new()))
     }
 

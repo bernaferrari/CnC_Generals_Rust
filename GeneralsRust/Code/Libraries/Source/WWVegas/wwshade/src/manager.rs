@@ -36,12 +36,12 @@ pub struct ShdDefManager {
 }
 
 /// Global shader definition manager instance
-struct GlobalManagerSlot(Lazy<RwLock<ShdDefManager>>);
-impl std::ops::Deref for GlobalManagerSlot {
+struct GlobalManagerRuntime(Lazy<RwLock<ShdDefManager>>);
+impl std::ops::Deref for GlobalManagerRuntime {
     type Target = Lazy<RwLock<ShdDefManager>>;
     fn deref(&self) -> &Self::Target { &self.0 }
 }
-static GLOBAL_MANAGER: GlobalManagerSlot = GlobalManagerSlot(Lazy::new(|| RwLock::new(ShdDefManager::new())));
+static GLOBAL_MANAGER: GlobalManagerRuntime = GlobalManagerRuntime(Lazy::new(|| RwLock::new(ShdDefManager::new())));
 
 impl ShdDefManager {
     /// Create a new shader definition manager

@@ -211,15 +211,25 @@ fn submit_debug_enabled() -> bool {
 ///
 /// `Engine` installs its owned arc at init; shutdown clears this so façades
 /// fall back to the standalone process arc (out-of-engine demos/tests).
-static FRAME_SUBMIT_INSTALL: Mutex<Option<Arc<Mutex<FrameSubmitState>>>> = Mutex::new(None);
+struct FrameSubmitBridgeRuntime {
+    installed: Mutex<Option<Arc<Mutex<FrameSubmitState>>>>,
+    standalone: OnceLock<Arc<Mutex<FrameSubmitState>>>,
+}
+
+static FRAME_SUBMIT_BRIDGE: FrameSubmitBridgeRuntime = FrameSubmitBridgeRuntime {
+    installed: Mutex::new(None),
+    standalone: OnceLock::new(),
+};
 
 fn standalone_frame_submit() -> &'static Arc<Mutex<FrameSubmitState>> {
-    static STANDALONE: OnceLock<Arc<Mutex<FrameSubmitState>>> = OnceLock::new();
-    STANDALONE.get_or_init(|| Arc::new(Mutex::new(FrameSubmitState::new())))
+    FRAME_SUBMIT_BRIDGE
+        .standalone
+        .get_or_init(|| Arc::new(Mutex::new(FrameSubmitState::new())))
 }
 
 fn active_frame_submit() -> Arc<Mutex<FrameSubmitState>> {
-    FRAME_SUBMIT_INSTALL
+    FRAME_SUBMIT_BRIDGE
+        .installed
         .lock()
         .clone()
         .unwrap_or_else(|| Arc::clone(standalone_frame_submit()))
@@ -227,12 +237,12 @@ fn active_frame_submit() -> Arc<Mutex<FrameSubmitState>> {
 
 /// Install the engine-owned frame-submit state for free-function bridges.
 pub fn install_frame_submit(state: Arc<Mutex<FrameSubmitState>>) {
-    *FRAME_SUBMIT_INSTALL.lock() = Some(state);
+    *FRAME_SUBMIT_BRIDGE.installed.lock() = Some(state);
 }
 
 /// Clear the engine install (shutdown). Free functions fall back to standalone.
 pub fn uninstall_frame_submit(state: &Arc<Mutex<FrameSubmitState>>) {
-    let mut slot = FRAME_SUBMIT_INSTALL.lock();
+    let mut slot = FRAME_SUBMIT_BRIDGE.installed.lock();
     if slot.as_ref().is_some_and(|active| Arc::ptr_eq(active, state)) {
         *slot = None;
     }
@@ -320,7 +330,7 @@ mod tests {
     fn noop_begin_end_bookkeeping_without_gpu() {
         let _guard = TEST_LOCK.lock().unwrap();
         // Ensure install bridge is clear so we exercise standalone.
-        *FRAME_SUBMIT_INSTALL.lock() = None;
+        *FRAME_SUBMIT_BRIDGE.installed.lock() = None;
         reset_submit_debug();
         assert!(!frame_is_active());
         assert_eq!(last_frame_submit_count(), 0);

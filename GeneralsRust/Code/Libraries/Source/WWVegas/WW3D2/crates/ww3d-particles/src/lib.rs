@@ -8,6 +8,7 @@
 //! including particle emitters, buffers, streaks, point groups, and line renderers.
 //! It provides a comprehensive solution for particle effects in 3D graphics.
 
+mod process_state;
 pub mod buffer;
 pub mod emitter;
 pub mod integration;

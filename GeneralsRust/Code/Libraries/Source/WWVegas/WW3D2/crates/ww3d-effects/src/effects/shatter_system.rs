@@ -506,10 +506,10 @@ const BPT_EPSILON: f32 = 0.0001;
 #[allow(dead_code)] // C++ parity
 const BPT_COINCIDENCE_EPSILON: f32 = 0.000001;
 
-struct ShatterSystemSlotBag {
+struct ShatterSystemRuntime {
     shatter_system_slot: std::sync::Mutex<Option<ShatterSystem>>,
 }
-static SHATTER_SYSTEM_SLOT_TLS_BAG: std::sync::LazyLock<ShatterSystemSlotBag> = std::sync::LazyLock::new(|| ShatterSystemSlotBag {
+static SHATTER_SYSTEM_SLOT_TLS_BAG: std::sync::LazyLock<ShatterSystemRuntime> = std::sync::LazyLock::new(|| ShatterSystemRuntime {
         shatter_system_slot: std::sync::Mutex::new(None),
 });
 

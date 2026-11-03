@@ -461,26 +461,28 @@ impl CacheStats {
 
 /// Process bridge to the owning Ww3dContext asset manager (C++ TheWW3DAssetManager).
 /// Starts as a standalone arc; [`install_asset_manager`] swaps in the context-owned one.
-static ASSET_MANAGER_BRIDGE: std::sync::LazyLock<std::sync::Mutex<std::sync::Arc<std::sync::Mutex<AssetManager>>>> =
-    std::sync::LazyLock::new(|| {
-        std::sync::Mutex::new(std::sync::Arc::new(std::sync::Mutex::new(AssetManager::new())))
+struct AssetManagerBridgeRuntime {
+    slot: std::sync::Mutex<std::sync::Arc<std::sync::Mutex<AssetManager>>>,
+}
+static ASSET_MANAGER_BRIDGE: std::sync::LazyLock<AssetManagerBridgeRuntime> =
+    std::sync::LazyLock::new(|| AssetManagerBridgeRuntime {
+        slot: std::sync::Mutex::new(std::sync::Arc::new(std::sync::Mutex::new(AssetManager::new()))),
     });
 
 fn active_asset_manager() -> std::sync::Arc<std::sync::Mutex<AssetManager>> {
-    ASSET_MANAGER_BRIDGE
-        .lock()
+    ASSET_MANAGER_BRIDGE.slot.lock()
         .unwrap_or_else(|p| p.into_inner())
         .clone()
 }
 
 /// Install a context-owned asset manager for free-function bridges.
 pub fn install_asset_manager(manager: std::sync::Arc<std::sync::Mutex<AssetManager>>) {
-    *ASSET_MANAGER_BRIDGE.lock().unwrap_or_else(|p| p.into_inner()) = manager;
+    *ASSET_MANAGER_BRIDGE.slot.lock().unwrap_or_else(|p| p.into_inner()) = manager;
 }
 
 /// Restore standalone manager when `manager` is the installed owner.
 pub fn uninstall_asset_manager(manager: &std::sync::Arc<std::sync::Mutex<AssetManager>>) {
-    let mut slot = ASSET_MANAGER_BRIDGE.lock().unwrap_or_else(|p| p.into_inner());
+    let mut slot = ASSET_MANAGER_BRIDGE.slot.lock().unwrap_or_else(|p| p.into_inner());
     if std::sync::Arc::ptr_eq(&*slot, manager) {
         *slot = std::sync::Arc::new(std::sync::Mutex::new(AssetManager::new()));
     }

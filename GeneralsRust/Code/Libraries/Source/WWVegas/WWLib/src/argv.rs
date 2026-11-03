@@ -13,35 +13,15 @@
 //! In typical Argv implementation, the first argument is the name of the application.
 //! This is not the case with this.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 
 /// Maximum number of command-line arguments.
 const MAX_ARGC: usize = 256;
 
-/// Global argument storage matching C++ static members.
-struct GlobalArgs {
-    argc: usize,
-    argv: Vec<String>,
-}
+use crate::process_state::{ArgvStorage as GlobalArgs, WWLIB};
 
-impl GlobalArgs {
-    fn new() -> Self {
-        GlobalArgs {
-            argc: 0,
-            argv: Vec::with_capacity(MAX_ARGC),
-        }
-    }
-}
-
-/// Get the global argument storage instance.
 fn global_args() -> &'static Mutex<GlobalArgs> {
-    struct InstanceSlot(OnceLock<Mutex<GlobalArgs>>);
-    impl std::ops::Deref for InstanceSlot {
-        type Target = OnceLock<Mutex<GlobalArgs>>;
-        fn deref(&self) -> &Self::Target { &self.0 }
-    }
-    static INSTANCE: InstanceSlot = InstanceSlot(OnceLock::new());
-    INSTANCE.get_or_init(|| Mutex::new(GlobalArgs::new()))
+    &WWLIB.argv
 }
 
 /// Flags for argument matching behavior.
