@@ -19,7 +19,7 @@ fn command(world: &mut GameLogic, units: &[ObjectId], kind: CommandType) {
             modifier_keys: ModifierKeys::default(),
         })
         .unwrap();
-    assert_eq!(result, Ok(CommandResult::Success), "actual command {label}");
+    assert!(result.is_ok_and(|r| r == CommandResult::Success), "actual command {label}");
 }
 
 fn frame(world: &mut GameLogic) {

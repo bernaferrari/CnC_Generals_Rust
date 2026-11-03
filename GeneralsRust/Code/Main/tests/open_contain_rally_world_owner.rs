@@ -45,7 +45,7 @@ fn production_exit_rally_does_not_become_open_contain_exit_rally() {
     let rally = Vec3::new(70.0, 0.0, 24.0);
     set_rally(&mut world, factory, rally);
     let owner = world.host_object(factory).unwrap();
-    assert_eq!(owner.building_data.as_ref().and_then(|b| b.rally_point), Some(rally));
+    assert!(owner.building_data.as_ref().and_then(|b| b.rally_point), Some(rally));
     assert_eq!(owner.open_contain_rally_point, None);
 
     let path = exit_path(&mut world, passenger, factory);
@@ -85,9 +85,7 @@ fn set_rally(world: &mut GameLogic, container: ObjectId, point: Vec3) {
     assert_eq!(
         CommandExecutor::new(world, 1)
             .execute_command(command)
-            .expect("SetRallyPoint command"),
-        Ok(CommandResult::Success)
-    );
+            .expect("SetRallyPoint command").is_ok_and(|r| r == CommandResult::Success));
 }
 
 fn exit_path(world: &mut GameLogic, passenger: ObjectId, container: ObjectId) -> Vec<Vec3> {

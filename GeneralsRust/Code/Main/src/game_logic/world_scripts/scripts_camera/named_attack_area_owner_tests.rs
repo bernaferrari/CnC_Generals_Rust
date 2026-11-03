@@ -24,7 +24,7 @@ fn polygon(owner: &GameLogic, min: i32, max: i32) {
 fn named_attack_area_uses_the_driving_polygon_and_persistent_target_selection() {
     let (mut owner, unit, target) = world();
     let (foreign, peer, _) = world();
-    assert_eq!(unit, peer);
+    assert!(unit, peer);
     polygon(&owner, 60, 90);
     polygon(&foreign, 500, 600);
     assert_eq!(
@@ -136,9 +136,7 @@ fn player_attack_area_resolves_owned_polygon_and_retains_player_source_on_rescan
         assert_eq!(
             executor
                 .execute_attack_area(&[unit], Vec3::ZERO, 1.0, Some("OwnedAttackArea"))
-                .expect("valid owned attack-area fixture"),
-            Ok(crate::command_system::CommandResult::Success)
-        );
+                .expect("valid owned attack-area fixture").is_ok_and(|r| r == crate::command_system::CommandResult::Success));
     }
     assert_eq!(owner.host_object(unit).unwrap().target, Some(target));
     assert_eq!(

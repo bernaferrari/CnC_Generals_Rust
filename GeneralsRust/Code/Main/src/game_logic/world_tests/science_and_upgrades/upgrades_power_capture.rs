@@ -171,7 +171,7 @@ fn same_faction_players_keep_upgrade_and_construction_power_separate() {
     }
 
     let p1_drain_object = logic.host_object(p1_drain).expect("player 1 drain object");
-    assert_eq!(p1_drain_object.owner_player_id, Some(1));
+    assert!(p1_drain_object.owner_player_id, Some(1));
     assert!(p1_drain_object.is_alive());
     assert!(p1_drain_object.is_constructed());
     assert_eq!(p1_drain_object.power_provided, 15);
@@ -969,30 +969,20 @@ End
         assert_eq!(
             executor
                 .execute_command(command(name_only_id, 1))
-                .expect("name-only command result"),
-            Ok(CommandResult::InvalidCommand),
-            "a name/KindOf-shaped reactor must not gain Overcharge authority"
-        );
-        assert_eq!(
-            executor
+                .expect("name-only command result").is_ok_and(|r| r == CommandResult::InvalidCommand), "a name/KindOf-shaped reactor must not gain Overcharge authority");
+        assert!(executor
                 .execute_command(command(zero_bonus_id, 2))
-                .expect("zero-bonus command result"),
-            Ok(CommandResult::Success)
-        );
-        assert_eq!(
-            executor
+                .expect("zero-bonus command result").is_ok_and(|r| r == CommandResult::Success));
+        assert!(executor
                 .execute_command(command(plant_id, 3))
-                .expect("retail command result"),
-            Ok(CommandResult::Success)
-        );
+                .expect("retail command result").is_ok_and(|r| r == CommandResult::Success));
     }
 
     let zero_bonus_enabled = logic
         .host_object(zero_bonus_id)
         .expect("zero-bonus enabled object");
     assert!(zero_bonus_enabled.overcharge_enabled);
-    assert_eq!(
-        zero_bonus_enabled.power_provided, 10,
+    assert!(zero_bonus_enabled.power_provided, 10,
         "a missing EnergyBonus toggles but contributes C++'s zero default"
     );
 
@@ -1045,13 +1035,11 @@ End
         assert_eq!(
             executor
                 .execute_command(command(plant_id, 4))
-                .expect("disable command result"),
-            Ok(CommandResult::Success)
-        );
+                .expect("disable command result").is_ok_and(|r| r == CommandResult::Success));
     }
     let disabled = logic.host_object(plant_id).expect("disabled plant");
     assert!(!disabled.overcharge_enabled);
-    assert_eq!(disabled.power_provided, 10);
+    assert!(disabled.power_provided, 10);
     assert_eq!(disabled.model_condition_bits & (1u128 << upgrading), 0);
     assert_eq!(disabled.model_condition_bits & (1u128 << upgraded), 0);
 
@@ -1063,9 +1051,7 @@ End
         assert_eq!(
             executor
                 .execute_command(command(plant_id, 5))
-                .expect("re-enable before lethal drain"),
-            Ok(CommandResult::Success)
-        );
+                .expect("re-enable before lethal drain").is_ok_and(|r| r == CommandResult::Success));
     }
     // The authored Armor path also applies to DAMAGE_PENALTY.  Reuse the
     // positive applied damage observed above rather than assuming raw 4.5

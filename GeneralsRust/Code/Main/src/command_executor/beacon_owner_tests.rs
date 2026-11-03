@@ -26,12 +26,9 @@ fn place(logic: &mut GameLogic, player: u32, text: &str) -> ObjectId {
         selected_units: vec![],
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(
-        CommandExecutor::new(logic, player)
+    assert!(CommandExecutor::new(logic, player)
             .execute_command(command)
-            .unwrap(),
-        Ok(CommandResult::Success)
-    );
+            .unwrap().is_ok_and(|r| r == CommandResult::Success));
     *logic.host_objects().registered_keys().next().unwrap()
 }
 
@@ -96,8 +93,7 @@ fn authored_beacon_settings_and_templates_are_owned_by_each_world() {
         CommandResult::Success => *two.host_objects().registered_keys().next().unwrap(),
         result => panic!("second world rejected its beacon: {result:?}"),
     };
-    assert_eq!(
-        one_id, two_id,
+    assert!(one_id, two_id,
         "sessions deliberately reuse the same object ID"
     );
     assert_eq!(
@@ -112,15 +108,10 @@ fn authored_beacon_settings_and_templates_are_owned_by_each_world() {
     assert!(host_object_is_beacon(&two, two_id));
 
     assert_eq!(
-        place_result(&mut one, 0, 21., "overflow"),
-        Ok(CommandResult::InvalidCommand)
-    );
-    assert_eq!(
-        place_result(&mut two, 0, 21., "second"),
-        Ok(CommandResult::Success)
-    );
+        place_result(&mut one, 0, 21., "overflow").is_ok_and(|r| r == CommandResult::InvalidCommand));
+    assert!(place_result(&mut two, 0, 21., "second").is_ok_and(|r| r == CommandResult::Success));
     assert!(!host_object_is_beacon(&one, two_id));
-    assert_eq!(host_beacon_caption(&one, one_id).as_deref(), Some("one"));
+    assert!(host_beacon_caption(&one, one_id).as_deref(), Some("one"));
     assert_eq!(host_beacon_caption(&two, two_id).as_deref(), Some("two"));
 
     // Snapshot restoration preserves the receiving session's admitted content
@@ -129,9 +120,7 @@ fn authored_beacon_settings_and_templates_are_owned_by_each_world() {
     let snapshot = builder.create_world_snapshot(&two).unwrap();
     let mut restored = authored_beacon_world("RallyMarker", 1);
     assert_eq!(
-        place_result(&mut restored, 0, 31., "prototype"),
-        Ok(CommandResult::Success)
-    );
+        place_result(&mut restored, 0, 31., "prototype").is_ok_and(|r| r == CommandResult::Success));
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();

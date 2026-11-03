@@ -84,26 +84,10 @@ fn service_executor_revalidates_authored_kindof_matrix_not_building_names() {
         .airborne_target = true;
 
     let mut executor = CommandExecutor::new(&mut logic, 0);
-    assert_eq!(
-        executor.execute_get_repaired(&[ground_ok], repair_target),
-        Ok(CommandResult::Success),
-        "ground vehicle requires and accepts authored REPAIR_PAD"
-    );
-    assert_eq!(
-        executor.execute_get_repaired(&[ground_reject], name_only_target),
-        Ok(CommandResult::InvalidCommand),
-        "Repair/Hospital/Airfield spelling without REPAIR_PAD must fail authority"
-    );
-    assert_eq!(
-        executor.execute_get_repaired(&[aircraft_ok], airfield_target),
-        Ok(CommandResult::Success),
-        "airborne VEHICLE+AIRCRAFT requires and accepts authored FS_AIRFIELD"
-    );
-    assert_eq!(
-        executor.execute_get_healed(&[infantry_ok], heal_target),
-        Ok(CommandResult::Success),
-        "infantry requires and accepts authored HEAL_PAD"
-    );
+    assert!(matches!(executor.execute_get_repaired(&[ground_ok], repair_target), Ok(CommandResult::Success)), "ground vehicle requires and accepts authored REPAIR_PAD");
+    assert!(executor.execute_get_repaired(&[ground_reject], name_only_target).is_ok_and(|r| r == CommandResult::InvalidCommand), "Repair/Hospital/Airfield spelling without REPAIR_PAD must fail authority");
+    assert!(executor.execute_get_repaired(&[aircraft_ok], airfield_target).is_ok_and(|r| r == CommandResult::Success), "airborne VEHICLE+AIRCRAFT requires and accepts authored FS_AIRFIELD");
+    assert!(executor.execute_get_healed(&[infantry_ok], heal_target).is_ok_and(|r| r == CommandResult::Success), "infantry requires and accepts authored HEAL_PAD");
 }
 
 #[test]
@@ -145,7 +129,7 @@ fn group_move_destinations_preserves_relative_offset() {
     let click = Vec3::new(100.0, 0.0, 50.0);
     let exec = CommandExecutor::new(&mut logic, 0);
     let goals = exec.group_move_destinations(&[a, b], click);
-    assert_eq!(goals.len(), 2);
+    assert!(goals.len(), 2);
 
     // B at x=40 is nearer the click at x=100 than A at x=0 → B is lead.
     let goal_a = goals.iter().find(|(id, _)| *id == a).unwrap().1;
@@ -196,11 +180,11 @@ fn scatter_pushes_outward_from_group_center() {
     let center = (before_a + before_b) * 0.5;
 
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert_eq!(exec.execute_scatter(&[a, b]), Ok(CommandResult::Success));
+    assert_eq!(exec.execute_scatter(&[a, b]).is_ok_and(|r| r == CommandResult::Success));
 
     for id in [a, b] {
         let u = logic.host_object(id).unwrap();
-        assert_eq!(u.ai_state(), AIState::Moving, "scatter sets Moving");
+        assert!(u.ai_state(), AIState::Moving, "scatter sets Moving");
     }
     for (id, before) in [(a, before_a), (b, before_b)] {
         let u = logic.host_object(id).unwrap();
@@ -233,7 +217,7 @@ fn cheer_uses_three_second_cpp_duration() {
     logic.templates.insert("CH_A".to_string(), tpl);
     let a = logic.create_object("CH_A", Team::USA, Vec3::ZERO).unwrap();
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert_eq!(exec.execute_cheer(&[a]), Ok(CommandResult::Success));
+    assert_eq!(exec.execute_cheer(&[a]).is_ok_and(|r| r == CommandResult::Success));
     let u = logic.host_object(a).unwrap();
     assert!(
         (u.cheer_timer - 3.0).abs() < 0.01,
@@ -264,14 +248,11 @@ fn create_formation_stamps_offsets_not_guard() {
         .create_object("FM_B", Team::USA, Vec3::new(40.0, 0.0, 0.0))
         .unwrap();
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert_eq!(
-        exec.execute_create_formation(&[a, b]),
-        Ok(CommandResult::Success)
-    );
+    assert!(exec.execute_create_formation(&[a, b]).is_ok_and(|r| r == CommandResult::Success));
     let ua = logic.host_object(a).unwrap();
     let ub = logic.host_object(b).unwrap();
     assert_ne!(ua.formation_id, 0);
-    assert_eq!(ua.formation_id, ub.formation_id);
+    assert!(ua.formation_id, ub.formation_id);
     // Center at x=20 → offsets -20 and +20
     assert!(
         (ua.formation_offset.x + 20.0).abs() < 0.1,
@@ -288,10 +269,8 @@ fn create_formation_stamps_offsets_not_guard() {
     // Second call dissolves formation (C++ toggle when already formation).
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(
-        exec.execute_create_formation(&[a, b]),
-        Ok(CommandResult::Success)
-    );
-    assert_eq!(logic.host_object(a).unwrap().formation_id, 0);
+        exec.execute_create_formation(&[a, b]).is_ok_and(|r| r == CommandResult::Success));
+    assert!(logic.host_object(a).unwrap().formation_id, 0);
     assert_eq!(logic.host_object(b).unwrap().formation_id, 0);
 }
 
@@ -318,9 +297,7 @@ fn formation_move_uses_stamped_offsets() {
         .unwrap();
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(
-        exec.execute_create_formation(&[a, b]),
-        Ok(CommandResult::Success)
-    );
+        exec.execute_create_formation(&[a, b]).is_ok_and(|r| r == CommandResult::Success));
     let click = Vec3::new(100.0, 0.0, 50.0);
     let goals = exec.group_move_destinations(&[a, b], click);
     let ga = goals.iter().find(|(id, _)| *id == a).unwrap().1;
@@ -367,14 +344,8 @@ fn formation_move_stamps_group_get_speed_factor() {
         s.refresh_model_condition_bits();
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert_eq!(
-        exec.execute_create_formation(&[fast, slow]),
-        Ok(CommandResult::Success)
-    );
-    assert_eq!(
-        exec.execute_move_formation_to_position(&[fast, slow], Vec3::new(200.0, 0.0, 0.0)),
-        Ok(CommandResult::Success)
-    );
+    assert!(exec.execute_create_formation(&[fast, slow]).is_ok_and(|r| r == CommandResult::Success));
+    assert!(exec.execute_move_formation_to_position(&[fast, slow], Vec3::new(200.0, 0.0, 0.0)).is_ok_and(|r| r == CommandResult::Success));
     let ff = logic.host_object(fast).unwrap().group_speed_factor;
     let sf = logic.host_object(slow).unwrap().group_speed_factor;
     assert!(
@@ -421,7 +392,7 @@ fn infantry_group_move_uses_column_pack() {
     let click = Vec3::new(300.0, 0.0, 0.0);
     let exec = CommandExecutor::new(&mut logic, 0);
     let goals = exec.group_move_destinations(&ids, click);
-    assert_eq!(goals.len(), 4);
+    assert!(goals.len(), 4);
     // Column pack: goals should not all share the same XZ (lateral spread).
     let zs: Vec<f32> = goals.iter().map(|(_, g)| g.z).collect();
     let z_span =
@@ -470,12 +441,9 @@ fn guard_mode_without_pursuit_and_flying_only_are_stored() {
                 &[a],
                 &GuardTarget::Position(Vec3::new(40.0, 0.0, 0.0)),
                 GuardMode::WithoutPursuit
-            ),
-            Ok(CommandResult::Success)
-        );
+            ).is_ok_and(|r| r == CommandResult::Success));
     }
-    assert_eq!(
-        logic.host_object(a).unwrap().guard_mode,
+    assert!(logic.host_object(a).unwrap().guard_mode,
         GuardMode::WithoutPursuit
     );
     {
@@ -485,12 +453,9 @@ fn guard_mode_without_pursuit_and_flying_only_are_stored() {
                 &[b],
                 &GuardTarget::Position(Vec3::new(40.0, 0.0, 0.0)),
                 GuardMode::FlyingUnitsOnly
-            ),
-            Ok(CommandResult::Success)
-        );
+            ).is_ok_and(|r| r == CommandResult::Success));
     }
-    assert_eq!(
-        logic.host_object(b).unwrap().guard_mode,
+    assert!(logic.host_object(b).unwrap().guard_mode,
         GuardMode::FlyingUnitsOnly
     );
 }
@@ -577,9 +542,7 @@ fn guard_uses_vision_radius_and_skips_inert_structures() {
                 &[v, s, t],
                 &GuardTarget::Position(pos),
                 crate::game_logic::GuardMode::Normal
-            ),
-            Ok(CommandResult::Success)
-        );
+            ).is_ok_and(|r| r == CommandResult::Success));
     }
     let u = logic.host_object(v).unwrap();
     assert!(
@@ -597,8 +560,7 @@ fn guard_uses_vision_radius_and_skips_inert_structures() {
         AIState::GuardingArea
     );
     // Turret / stinger-style structure still scans from the post.
-    assert_eq!(
-        logic.host_object(t).unwrap().ai_state(),
+    assert!(logic.host_object(t).unwrap().ai_state(),
         AIState::GuardingArea
     );
 }
@@ -640,12 +602,10 @@ fn group_guard_includes_stunned_member_that_cannot_move() {
                 &[id],
                 &GuardTarget::Position(Vec3::new(80.0, 0.0, 0.0)),
                 crate::game_logic::GuardMode::Normal
-            ),
-            Ok(CommandResult::Success)
-        );
+            ).is_ok_and(|r| r == CommandResult::Success));
     }
     let u = logic.host_object(id).unwrap();
-    assert_eq!(u.ai_state(), AIState::GuardingArea);
+    assert!(u.ai_state(), AIState::GuardingArea);
     assert!(
         !u.can_move(),
         "guard must not clear stun just to walk to the post"
@@ -754,9 +714,9 @@ fn patrol_enables_auto_acquire_hunt_residual() {
         .unwrap()
         .set_auto_acquire_when_idle(false);
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert_eq!(exec.execute_patrol(&[a]), Ok(CommandResult::Success));
+    assert_eq!(exec.execute_patrol(&[a]).is_ok_and(|r| r == CommandResult::Success));
     let u = logic.host_object(a).unwrap();
-    assert_eq!(u.ai_state(), AIState::Patrolling);
+    assert!(u.ai_state(), AIState::Patrolling);
     assert!(u.auto_acquire_when_idle());
 }
 
@@ -793,9 +753,9 @@ fn sleep_mood_ai_rejects_hunt_guard_attack_move() {
         crate::game_logic::GuardMode::Normal
     ));
     let mut exec = CommandExecutor::new(&mut logic, 1);
-    assert_eq!(exec.execute_patrol(&[id]), Ok(CommandResult::InvalidCommand));
+    assert_eq!(exec.execute_patrol(&[id]).is_ok_and(|r| r == CommandResult::InvalidCommand));
     let u = logic.host_object(id).unwrap();
-    assert_eq!(u.ai_state(), AIState::Idle);
+    assert!(u.ai_state(), AIState::Idle);
 }
 
 #[test]
@@ -816,8 +776,8 @@ fn forbid_player_commands_blocks_player_hunt_click() {
         .unwrap();
     logic.host_object_mut(id).unwrap().forbid_player_commands = true;
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert_eq!(exec.execute_patrol(&[id]), Ok(CommandResult::InvalidCommand));
-    assert_eq!(logic.host_object(id).unwrap().ai_state(), AIState::Idle);
+    assert_eq!(exec.execute_patrol(&[id]).is_ok_and(|r| r == CommandResult::InvalidCommand));
+    assert!(logic.host_object(id).unwrap().ai_state(), AIState::Idle);
 }
 
 #[test]
@@ -848,9 +808,7 @@ fn sell_selected_sells_friendly_structures_only() {
         .unwrap();
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(
-        exec.execute_sell_selected(&[s, v], 0),
-        Ok(CommandResult::Success)
-    );
+        exec.execute_sell_selected(&[s, v], 0).is_ok_and(|r| r == CommandResult::Success));
     // Structure entered sell residual; vehicle rejected.
     assert!(
         logic.is_object_being_sold(s)
@@ -882,15 +840,12 @@ fn sell_command_sells_every_selected_structure() {
         .create_object("GS_B", Team::USA, Vec3::new(20.0, 0.0, 0.0))
         .unwrap();
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert_eq!(
-        exec.execute_command(dispatch_test_command(
+    assert!(exec.execute_command(dispatch_test_command(
             CommandType::Sell { object_id: a },
             0,
             vec![a, b],
         ))
-        .expect("sell"),
-        Ok(CommandResult::Success)
-    );
+        .expect("sell").is_ok_and(|r| r == CommandResult::Success));
     for id in [a, b] {
         assert!(
             logic.is_object_being_sold(id)
@@ -926,10 +881,7 @@ fn tighten_paths_all_units_to_same_point() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert!(exec.should_tighten_group_move(&[a, b], dest));
-        assert_eq!(
-            exec.execute_tighten_to_position(&[a, b], dest),
-            Ok(CommandResult::Success)
-        );
+        assert!(exec.execute_tighten_to_position(&[a, b], dest).is_ok_and(|r| r == CommandResult::Success));
     }
     // The command goal is exact; the route is quantized to its cell.
     for id in [a, b] {
@@ -941,8 +893,7 @@ fn tighten_paths_all_units_to_same_point() {
             .copied()
             .or(u.movement.target_position);
         let g = goal.expect("should have path goal");
-        assert_eq!(
-            u.requested_destination,
+        assert!(u.requested_destination,
             Some(dest),
             "unit {id:?} command goal"
         );
@@ -972,12 +923,10 @@ fn override_special_power_destination_stores() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_override_special_power_destination(&[id], loc),
-            Ok(CommandResult::Success)
-        );
+            exec.execute_override_special_power_destination(&[id], loc).is_ok_and(|r| r == CommandResult::Success));
     }
     let o = logic.host_object(id).unwrap();
-    assert_eq!(o.special_power_override_destination, Some(loc));
+    assert!(o.special_power_override_destination, Some(loc));
 }
 
 #[test]
@@ -1010,9 +959,7 @@ fn post_fire_override_steers_live_beam_and_spectre_orbit() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_override_special_power_destination(&[id], click),
-            Ok(CommandResult::Success)
-        );
+            exec.execute_override_special_power_destination(&[id], click).is_ok_and(|r| r == CommandResult::Success));
     }
     {
         let beam = logic
@@ -1158,10 +1105,7 @@ fn spectre_gunship_click_steers_producer_orbit_and_override_target() {
         .spawn_orbit_field(caster, Team::USA, fire_pos, logic.frame, 3);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_override_special_power_destination(&[gunship], click),
-            Ok(CommandResult::Success)
-        );
+        assert!(exec.execute_override_special_power_destination(&[gunship], click).is_ok_and(|r| r == CommandResult::Success));
     }
     let orbit = logic
         .special_power_strikes
@@ -1194,7 +1138,7 @@ fn spectre_gunship_click_steers_producer_orbit_and_override_target() {
         .host_object(gunship)
         .and_then(|o| o.spectre_gunship_update.clone())
         .expect("gunship flight");
-    assert_eq!(flight.status, HostGunshipStatus::Inserting);
+    assert!(flight.status, HostGunshipStatus::Inserting);
     assert!(
         (flight.override_target.x - click.x).abs() < 0.01
             && (flight.override_target.z - click.z).abs() < 0.01,
@@ -1221,13 +1165,8 @@ fn set_weapon_set_flag_carbomb_and_upgrade() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_set_weapon_set_flag(&[id], 2, true),
-            Ok(CommandResult::Success)
-        );
-        assert_eq!(
-            exec.execute_set_weapon_set_flag(&[id], 0, true),
-            Ok(CommandResult::Success)
-        );
+            exec.execute_set_weapon_set_flag(&[id], 2, true).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_set_weapon_set_flag(&[id], 0, true).is_ok_and(|r| r == CommandResult::Success));
     }
     let o = logic.host_object(id).unwrap();
     assert!(o.weapon_set_carbomb);
@@ -1255,10 +1194,7 @@ fn follow_waypoint_path_assigns_multi_point_path() {
     ];
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_follow_waypoint_path(&[id], &wps, true, false),
-            Ok(CommandResult::Success)
-        );
+        assert!(exec.execute_follow_waypoint_path(&[id], &wps, true, false).is_ok_and(|r| r == CommandResult::Success));
     }
     let o = logic.host_object(id).unwrap();
     assert!(
@@ -1294,13 +1230,10 @@ fn attack_position_own_location_and_max_shots() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_attack_ground(&[id], None, 3).unwrap(),
-            Ok(CommandResult::Success)
-        );
+        assert!(exec.execute_attack_ground(&[id], None, 3).unwrap().is_ok_and(|r| r == CommandResult::Success));
     }
     let u = logic.host_object(id).unwrap();
-    assert_eq!(u.ai_state(), AIState::AttackingGround);
+    assert!(u.ai_state(), AIState::AttackingGround);
     assert_eq!(u.max_shots_to_fire, 3);
     assert!(u.force_attack);
 }
@@ -1341,12 +1274,10 @@ fn attack_ground_orders_locked_hive_slaves() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_attack_ground(&[site], Some(dest), -1).unwrap(),
-            Ok(CommandResult::Success)
-        );
+            exec.execute_attack_ground(&[site], Some(dest), -1).unwrap().is_ok_and(|r| r == CommandResult::Success));
     }
     let s = logic.host_object(site).unwrap();
-    assert_eq!(s.ai_state(), AIState::AttackingGround);
+    assert!(s.ai_state(), AIState::AttackingGround);
     assert!(
         s.hive_slaves.iter().filter(|sl| sl.alive).all(|sl| {
             sl.ai_attacking
@@ -1381,9 +1312,7 @@ fn exact_waypoint_path_sets_exact_flag_and_path() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_follow_waypoint_path(&[id], &wps, true, false),
-            Ok(CommandResult::Success)
-        );
+            exec.execute_follow_waypoint_path(&[id], &wps, true, false).is_ok_and(|r| r == CommandResult::Success));
     }
     let u = logic.host_object(id).unwrap();
     assert!(u.is_exact_path, "exact follow must stamp is_exact_path");
@@ -1431,7 +1360,7 @@ fn group_speed_ignores_really_damaged_and_picks_leader() {
         let h = logic.host_object_mut(healthy).unwrap();
         h.movement.max_speed = 40.0;
         h.movement.max_speed_damaged = 20.0;
-        assert_eq!(h.body_damage_state, HostBodyDamageType::Pristine);
+        assert!(h.body_damage_state, HostBodyDamageType::Pristine);
     }
     {
         let d = logic.host_object_mut(damaged).unwrap();
@@ -1630,12 +1559,10 @@ fn attack_move_sets_max_shots_and_path_flag() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
-            exec.execute_attack_move(&[id], Vec3::new(200.0, 0.0, 0.0), 5),
-            Ok(CommandResult::Success)
-        );
+            exec.execute_attack_move(&[id], Vec3::new(200.0, 0.0, 0.0), 5).is_ok_and(|r| r == CommandResult::Success));
     }
     let u = logic.host_object(id).unwrap();
-    assert_eq!(u.ai_state(), AIState::AttackMoving);
+    assert!(u.ai_state(), AIState::AttackMoving);
     assert!(!u.is_attack_path);
     assert_eq!(u.max_shots_to_fire, 5);
     assert!(u.auto_acquire_when_idle());
@@ -1668,16 +1595,11 @@ fn group_geometry_and_formation_move() {
         assert!((max.x - min.x - 40.0).abs() < 0.1);
         assert!(exec.group_speed(&[a, b]) >= 0.0);
         assert_eq!(
-            exec.execute_create_formation(&[a, b]),
-            Ok(CommandResult::Success)
-        );
+            exec.execute_create_formation(&[a, b]).is_ok_and(|r| r == CommandResult::Success));
         // Keep both +/-20 formation offsets inside the map extent.
         let dest = Vec3::new(150.0, 0.0, 0.0);
         assert!(exec.compute_ground_path_should_group(&[a, b], dest));
-        assert_eq!(
-            exec.execute_move_formation_to_position(&[a, b], dest),
-            Ok(CommandResult::Success)
-        );
+        assert!(exec.execute_move_formation_to_position(&[a, b], dest).is_ok_and(|r| r == CommandResult::Success));
     }
     let ga = logic
         .host_object(a)
@@ -1720,11 +1642,8 @@ fn follow_path_alias_paths_units() {
     let path = vec![Vec3::new(10.0, 0.0, 0.0), Vec3::new(50.0, 0.0, 0.0)];
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_follow_path(&[id], &path)
-                .expect("follow path command"),
-            Ok(CommandResult::Success)
-        );
+        assert!(exec.execute_follow_path(&[id], &path)
+                .expect("follow path command").is_ok_and(|r| r == CommandResult::Success));
     }
     let u = logic.host_object(id).unwrap();
     assert!(!u.movement.path.is_empty() || u.movement.target_position.is_some());
@@ -1758,7 +1677,7 @@ fn group_ownership_filter_and_center() {
     assert!(!exec.is_member(&[u], e));
     assert!(exec.contains_any_objects_not_owned_by_player(&[u, e], 0));
     let (kept, empty) = exec.remove_any_objects_not_owned_by_player(&[u, e], 0);
-    assert_eq!(kept, vec![u]);
+    assert!(kept, vec![u]);
     assert!(!empty);
     let c = exec.group_center(&[u, e]).unwrap();
     assert!((c.x - 20.0).abs() < 0.1, "center x={}", c.x);
@@ -1818,9 +1737,7 @@ fn guard_area_stamps_radius() {
                 150.0,
                 GuardMode::Normal,
                 None
-            ),
-            Ok(CommandResult::Success)
-        );
+            ).is_ok_and(|r| r == CommandResult::Success));
     }
     let u = logic.host_object(id).unwrap();
     assert!((u.guard_radius - 150.0).abs() < 0.1, "r={}", u.guard_radius);
@@ -1906,10 +1823,7 @@ fn attack_follow_waypoint_uses_move_path_until_combat_acquisition() {
     let wps = vec![Vec3::new(20.0, 0.0, 0.0), Vec3::new(60.0, 0.0, 0.0)];
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_attack_follow_waypoint_path(&[id], &wps, true, false),
-            Ok(CommandResult::Success)
-        );
+        assert!(exec.execute_attack_follow_waypoint_path(&[id], &wps, true, false).is_ok_and(|r| r == CommandResult::Success));
     }
     let u = logic.host_object(id).unwrap();
     // AIStates.cpp:4402-4407 enters ordinary FollowWaypointPath; its

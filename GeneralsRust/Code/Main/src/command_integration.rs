@@ -1075,7 +1075,7 @@ mod tests {
     #[test]
     fn test_input_processor_creation() {
         let processor = InputCommandProcessor::new();
-        assert_eq!(processor.current_player_id, 0);
+        assert!(processor.current_player_id, 0);
         assert!(!processor.is_dragging);
     }
 
@@ -1271,14 +1271,11 @@ mod tests {
         ));
 
         assert_eq!(
-            commands.execute_command(&command, &mut game_logic),
-            Ok(CommandResult::Success),
-            "the physical Enter command must reach live command authority"
-        );
+            commands.execute_command(&command, &mut game_logic).is_ok_and(|r| r == CommandResult::Success), "the physical Enter command must reach live command authority");
         let infantry_after = game_logic
             .host_object(infantry_id)
             .expect("infantry remains live while walking to carrier");
-        assert_eq!(infantry_after.target, Some(humvee_id));
+        assert!(infantry_after.target, Some(humvee_id));
         assert_eq!(infantry_after.ai_state(), AIState::Entering);
     }
 
@@ -1493,12 +1490,8 @@ End
             CommandType::Enter { target_id } if target_id == bike_id
         ));
         assert_eq!(
-            commands.execute_command(&command, &mut game_logic),
-            Ok(CommandResult::Success),
-            "executor repeats parsed roster/controller authority"
-        );
-        assert_eq!(
-            game_logic
+            commands.execute_command(&command, &mut game_logic).is_ok_and(|r| r == CommandResult::Success), "executor repeats parsed roster/controller authority");
+        assert!(game_logic
                 .host_object(incoming_rider_id)
                 .expect("incoming rider remains live while approaching")
                 .ai_state(),
@@ -1594,14 +1587,12 @@ End
             CommandType::Enter { target_id } if target_id == bike_id
         ));
         assert_eq!(
-            commands.execute_command(&terror_command, &mut game_logic),
-            Ok(CommandResult::Success)
-        );
+            commands.execute_command(&terror_command, &mut game_logic).is_ok_and(|r| r == CommandResult::Success));
         game_logic.update();
         let bike_sluggish = game_logic
             .host_object(bike_id)
             .expect("bike after SET_SLUGGISH enter");
-        assert_eq!(bike_sluggish.contained_units(), vec![slow_rider_id]);
+        assert!(bike_sluggish.contained_units(), vec![slow_rider_id]);
         assert_eq!(
             bike_sluggish.rider_change_locomotor_set.as_deref(),
             Some("SET_SLUGGISH")
@@ -1715,10 +1706,7 @@ End
             CommandType::Enter { target_id } if target_id == garrison_id
         ));
         assert_eq!(
-            commands.execute_command(&command, &mut game_logic),
-            Ok(CommandResult::Success),
-            "the selected infantry must reach the same authority Enter path"
-        );
+            commands.execute_command(&command, &mut game_logic).is_ok_and(|r| r == CommandResult::Success), "the selected infantry must reach the same authority Enter path");
         let infantry_after = game_logic
             .host_object(infantry_id)
             .expect("infantry remains live while approaching the garrison");

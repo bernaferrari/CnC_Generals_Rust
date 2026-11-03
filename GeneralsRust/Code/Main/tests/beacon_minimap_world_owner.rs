@@ -49,12 +49,9 @@ fn place(world: &mut GameLogic, position: glam::Vec3) -> ObjectId {
         selected_units: vec![],
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(
-        CommandExecutor::new(world, 1)
+    assert!(CommandExecutor::new(world, 1)
             .execute_command(command)
-            .unwrap(),
-        Ok(CommandResult::Success)
-    );
+            .unwrap().is_ok_and(|r| r == CommandResult::Success));
     *world.host_objects().registered_keys().next().unwrap()
 }
 
@@ -67,12 +64,9 @@ fn remove(world: &mut GameLogic, id: ObjectId) {
         selected_units: vec![id],
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(
-        CommandExecutor::new(world, 1)
+    assert!(CommandExecutor::new(world, 1)
             .execute_command(command)
-            .unwrap(),
-        Ok(CommandResult::Success)
-    );
+            .unwrap().is_ok_and(|r| r == CommandResult::Success));
 }
 
 #[test]

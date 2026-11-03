@@ -66,7 +66,7 @@ fn cancel_production_refund_commits_to_owner_without_shadow_writeback() {
     let p = logic.get_player(pid).expect("p");
     // CPP ProductionUpdate.cpp:456–464 deposits immediately to the
     // controlling player before removing the production queue entry.
-    assert_eq!(p.resources.supplies, 1250);
+    assert!(p.resources.supplies, 1250);
 
     assert_eq!(p.effective_supplies(), 1250);
     assert!(
@@ -266,10 +266,7 @@ fn sell_command_uses_authored_refund_value_through_world_completion() {
             modifier_keys: ModifierKeys::default(),
         };
         assert_eq!(
-            command_system.execute_command(&sell, &mut logic),
-            Ok(CommandResult::Success),
-            "the physical sell command must enter the normal world sell lifecycle"
-        );
+            command_system.execute_command(&sell, &mut logic).is_ok_and(|r| r == CommandResult::Success), "the physical sell command must enter the normal world sell lifecycle");
 
         for frame in 1..=240 {
             logic.set_current_frame(frame);
@@ -284,8 +281,7 @@ fn sell_command_uses_authored_refund_value_through_world_completion() {
             logic.host_object(structure_id).is_none(),
             "sell lifecycle must finish by destroying the structure"
         );
-        assert_eq!(
-            logic.get_player(0).expect("owner").effective_supplies(),
+        assert!(logic.get_player(0).expect("owner").effective_supplies(),
             650,
             "C++ RefundValue must override BuildCost × SellPercentage"
         );
@@ -322,9 +318,7 @@ fn sell_command_uses_authored_refund_value_through_world_completion() {
             modifier_keys: ModifierKeys::default(),
         };
         assert_eq!(
-            command_system.execute_command(&fallback_sell, &mut logic),
-            Ok(CommandResult::Success)
-        );
+            command_system.execute_command(&fallback_sell, &mut logic).is_ok_and(|r| r == CommandResult::Success));
         for frame in 241..=480 {
             logic.set_current_frame(frame);
             logic.update_sell_list();

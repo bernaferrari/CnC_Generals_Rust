@@ -75,8 +75,7 @@ fn self_destruct_transfers_dead_and_live_assets_before_source_death() {
         .unwrap();
     world.start_new_game(GameMode::SinglePlayer);
     assert!(world.load_map(map.to_str().unwrap()));
-    assert_eq!(
-        world.player_relationship(1, 2),
+    assert!(world.player_relationship(1, 2),
         gamelogic::common::Relationship::Allies
     );
     assert_eq!(
@@ -120,7 +119,7 @@ fn self_destruct_transfers_dead_and_live_assets_before_source_death() {
         })
         .unwrap();
 
-    assert_eq!(result, Ok(CommandResult::Success));
+    assert_eq!(result.is_ok_and(|r| r == CommandResult::Success));
     assert!(!world.get_player(1).unwrap().is_alive);
     assert_eq!(world.host_object(live).unwrap().owner_player_id, Some(2));
     assert_eq!(world.host_object(dead).unwrap().owner_player_id, Some(2));

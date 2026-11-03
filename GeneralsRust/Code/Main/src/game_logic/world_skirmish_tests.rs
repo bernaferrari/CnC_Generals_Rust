@@ -155,11 +155,7 @@ fn america_vehicle_dozer_is_retail_starting_builder() {
             modifier_keys: crate::command_system::ModifierKeys::default(),
         })
         .unwrap();
-    assert_eq!(
-        result,
-        Ok(crate::command_system::CommandResult::Success),
-        "actual spawned constructor command"
-    );
+    assert!(result.is_ok_and(|r| r == crate::command_system::CommandResult::Success), "actual spawned constructor command");
     assert_eq!(logic.get_player(0).unwrap().effective_supplies(), 700);
     let site = logic
         .host_objects()
