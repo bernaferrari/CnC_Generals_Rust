@@ -128,6 +128,8 @@ pub struct SystemStores {
     pub version: Mutex<Option<ParkingRwLock<Version>>>,
     /// C++ TheAudio — owned per CommonServices instance.
     pub the_audio: Mutex<Option<Arc<Mutex<GameAudioManager>>>>,
+    /// WW3D animated-sound definition bag (per CommonServices).
+    pub animated_sound_mgr: Arc<AnimatedSoundMgr>,
     pub sound_playback_hook: Mutex<Option<Arc<dyn SoundPlaybackHook>>>,
     pub audio_locality_resolver: Mutex<Option<Arc<dyn AudioLocalityResolver>>>,
     pub audio_view_resolver: Mutex<Option<Arc<dyn AudioViewResolver>>>,
@@ -141,7 +143,6 @@ pub struct SystemStores {
     pub audio_shroud_resolver: Mutex<Option<Arc<dyn AudioShroudResolver>>>,
     pub speech_registry: RwLock<std::collections::HashMap<String, crate::common::audio::game_speech::Speech>>,
     pub effects_next_handle: std::sync::atomic::AtomicU32,
-    pub animated_sound_mgr: Arc<AnimatedSoundMgr>,
 }
 
 impl SystemStores {
@@ -203,6 +204,7 @@ impl SystemStores {
             recorder: Mutex::new(None),
             version: Mutex::new(None),
             the_audio: Mutex::new(None),
+            animated_sound_mgr: Arc::new(AnimatedSoundMgr::new()),
             sound_playback_hook: Mutex::new(None),
             audio_locality_resolver: Mutex::new(None),
             audio_view_resolver: Mutex::new(None),
@@ -214,7 +216,6 @@ impl SystemStores {
             audio_shroud_resolver: Mutex::new(None),
             speech_registry: RwLock::new(std::collections::HashMap::new()),
             effects_next_handle: std::sync::atomic::AtomicU32::new(10000),
-            animated_sound_mgr: Arc::new(AnimatedSoundMgr::new()),
         }
     }
 
