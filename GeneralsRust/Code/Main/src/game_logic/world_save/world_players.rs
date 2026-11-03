@@ -415,6 +415,7 @@ impl GameLogic {
         // going through LogicMapLoader's global SidesList callback. Retain the
         // prepared value on this world before deriving players and teams;
         // observer and script setup consume these same ordered map rows.
+        let scripts_started = Instant::now();
         if !self.admit_map_script_definitions_with_difficulty(
             &map_path.to_string_lossy(),
             Some(chunky),
@@ -422,18 +423,28 @@ impl GameLogic {
         ) {
             return Ok(false);
         }
-        let script_lists = self.loaded_script_lists.clone();
+        log::info!(
+            "Fast legacy runtime sync scripts admitted for '{}' in {:.2}s (lists={})",
+            map_path.display(),
+            scripts_started.elapsed().as_secs_f32(),
+            self.loaded_script_lists.len()
+        );
+        let sides_write_started = Instant::now();
+        // Borrow via take — ScriptList deep-clone of Lone Eagle lists was multi-second.
+        let script_lists = std::mem::take(&mut self.loaded_script_lists);
         let prepared_team_definitions = self.sync_legacy_sides_list_from_dicts(
             &sides_data.side_dicts,
             &sides_data.team_dicts,
             &sides_data.side_builds,
             &script_lists,
         );
+        self.loaded_script_lists = script_lists;
         log::info!(
-            "Fast legacy runtime sync sides write finished for '{}' in {:.2}s (stage={:.2}s)",
+            "Fast legacy runtime sync sides write finished for '{}' in {:.2}s (stage={:.2}s, sides_dicts={:.2}s)",
             map_path.display(),
             sync_started.elapsed().as_secs_f32(),
-            stage_started.elapsed().as_secs_f32()
+            stage_started.elapsed().as_secs_f32(),
+            sides_write_started.elapsed().as_secs_f32()
         );
         stage_started = Instant::now();
         if !self.uses_lobby_side_foundation() {
