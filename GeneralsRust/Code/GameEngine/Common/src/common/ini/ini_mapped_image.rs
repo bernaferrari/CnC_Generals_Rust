@@ -567,10 +567,76 @@ impl ImageCollection {
     }
 }
 
+fn ensure_mapped_image_game_fs_backends() {
+    use crate::common::system::big_file_system::BigArchiveBackend;
+    use crate::common::system::file_system::{FileSystemBackend, get_file_system};
+    use crate::common::system::local_file_system::LocalFileSystem;
+    use crate::common::system::subsystem_interface::{
+        SubsystemInterface as CommonSubsystemInterface, SubsystemState,
+    };
+    use std::sync::OnceLock;
+
+    static INSTALLED: OnceLock<()> = OnceLock::new();
+    INSTALLED.get_or_init(|| {
+        let mut roots = vec![
+            PathBuf::from("."),
+            PathBuf::from("Data"),
+            PathBuf::from("windows_game/Command & Conquer Generals Zero Hour"),
+            PathBuf::from("windows_game/Command & Conquer Generals Zero Hour/Data"),
+        ];
+        if let Ok(cwd) = env::current_dir() {
+            roots.push(cwd.clone());
+            roots.push(cwd.join("Data"));
+            roots.push(cwd.join("windows_game/Command & Conquer Generals Zero Hour"));
+            roots.push(cwd.join("windows_game/Command & Conquer Generals Zero Hour/Data"));
+        }
+        if let Ok(assets) = env::var("GENERALS_ASSETS_DIR") {
+            let assets = PathBuf::from(assets);
+            roots.push(assets.clone());
+            roots.push(assets.join("Data"));
+        }
+        for root in crate::common::system::install_layout::zh_install_roots() {
+            roots.push(root.clone());
+            roots.push(root.join("Data"));
+        }
+        for root in crate::common::system::install_layout::extracted_asset_roots() {
+            roots.push(root);
+        }
+
+        let mut seen = HashSet::new();
+        roots.retain(|path| {
+            let key = path.to_string_lossy().replace('\\', "/").to_lowercase();
+            seen.insert(key)
+        });
+
+        let file_system = get_file_system();
+        let Ok(mut fs) = file_system.lock() else {
+            return;
+        };
+        {
+            let local: &mut LocalFileSystem = fs.ensure_backend(LocalFileSystem::new);
+            for path in &roots {
+                local.add_search_path(path);
+            }
+        }
+        {
+            let big: &mut BigArchiveBackend = fs.ensure_backend(BigArchiveBackend::new);
+            for path in &roots {
+                big.add_search_path(path);
+            }
+            big.reset();
+        }
+        fs.clear_cache();
+        if fs.state() != SubsystemState::Running {
+            let _ = CommonSubsystemInterface::init(&mut *fs);
+        }
+    });
+}
+
 fn load_global_mapped_image_collection(texture_size: i32) {
     // C++ ImageCollection::load is one-shot (GameClient.cpp:255-256).
     // Re-walking every MappedImage dir on a missing-name lookup stalls Menu
-    // 200ms–1.4s per frame (force-quit).
+    // 200ms-1.4s per frame (force-quit).
     let collection_handle = ensure_mapped_image_collection();
     if !collection_handle.read().is_empty() {
         return;
@@ -579,6 +645,10 @@ fn load_global_mapped_image_collection(texture_size: i32) {
         let mut collection = collection_handle.write();
         collection.clear();
     }
+    // Mount install BIG roots before virtual MappedImages loads. Corrupt loose
+    // extracts under Data/INI/MappedImages are skipped (authority filter); C++
+    // then opens the same virtual paths from INIZH.big.
+    ensure_mapped_image_game_fs_backends();
     let mut ini = INI::new();
     let mapped_image_dirs = discover_mapped_image_source_dirs(texture_size);
     log::info!(
@@ -684,7 +754,7 @@ fn push_unique_dir(dirs: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path: P
 /// C++ `ImageCollection::load` (Image.cpp:208-232) loads from the live INI
 /// root (`Data\\INI\\MappedImages\\TextureSize_N` then `HandCreated`), plus
 /// user-data overlays. Resolve those virtual paths once against cwd and
-/// extracted INIZH — never ancestor × extracted_asset_roots().
+/// extracted INIZH - never ancestor × extracted_asset_roots().
 fn collect_live_ini_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
     let mut seen = HashSet::new();
@@ -714,7 +784,7 @@ fn discover_mapped_image_source_dirs(texture_size: i32) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let mut seen = HashSet::new();
 
-    // C++ Image.cpp:215-222 — user-created mapped images load first.
+    // C++ Image.cpp:215-222 - user-created mapped images load first.
     if let Some(global_data) = get_global_data() {
         let user_data_root = global_data.read().get_path_user_data().to_string();
         if !user_data_root.trim().is_empty() {
@@ -784,7 +854,7 @@ fn load_ini_directory_recursive(ini: &mut INI, dir: &Path) {
     // Repacked INIZH archives interleave binary fragments inside these INIs;
     // recover every intact MappedImage/Animation block instead of dropping
     // the file (plain C++ ImageCollection::load semantics stay for intact
-    // files — strict parse still succeeds first).
+    // files - strict parse still succeeds first).
     ini.set_tolerant_blocks(true);
 
     for file in files {

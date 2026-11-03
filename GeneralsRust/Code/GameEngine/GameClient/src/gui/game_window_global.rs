@@ -13,29 +13,46 @@ use super::window_manager::WindowManager;
 
 /// Visible `win_draw_image` submits (textured or untextured fill).
 /// Tests can read this when UIRenderer/GPU is not bound.
+///
+/// Prefer the live GameClient counter (C++ TheDisplay path). Headless /
+/// fixture draws without a published client use the process fallback so
+/// found-but-untextured placeholders still register as visible submits.
+static FALLBACK_WIN_DRAW_IMAGE_COMMANDS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 pub fn win_draw_image_queued_count() -> usize {
     crate::core::game_client::with_live_game_client_mut(|client| {
         client
             .win_draw_image_commands()
             .load(std::sync::atomic::Ordering::Relaxed)
     })
-    .unwrap_or(0)
+    .unwrap_or_else(|| {
+        FALLBACK_WIN_DRAW_IMAGE_COMMANDS.load(std::sync::atomic::Ordering::Relaxed)
+    })
 }
 
 pub fn reset_win_draw_image_queued_count() {
-    let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+    if crate::core::game_client::with_live_game_client_mut(|client| {
         client
             .win_draw_image_commands()
             .store(0, std::sync::atomic::Ordering::Relaxed);
-    });
+    })
+    .is_none()
+    {
+        FALLBACK_WIN_DRAW_IMAGE_COMMANDS.store(0, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 fn note_win_draw_image_command() {
-    let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+    if crate::core::game_client::with_live_game_client_mut(|client| {
         client
             .win_draw_image_commands()
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    });
+    })
+    .is_none()
+    {
+        FALLBACK_WIN_DRAW_IMAGE_COMMANDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

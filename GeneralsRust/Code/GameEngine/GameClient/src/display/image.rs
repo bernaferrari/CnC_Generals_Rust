@@ -11,7 +11,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use thiserror::Error;
 use wgpu::{Device, Queue, Sampler, Texture, TextureView};
 
@@ -865,14 +865,18 @@ impl SubsystemInterface for ImageCollection {
 }
 
 /// Ensure the mapped image collection exists and return a handle to it.
-/// Prefers the live GameClient slot; otherwise returns a fresh empty collection.
+/// Prefers the live GameClient slot; otherwise the process fallback singleton
+/// (C++ `TheMappedImageCollection` when no client has claimed the slot yet).
 pub fn ensure_mapped_image_collection() -> Arc<RwLock<ImageCollection>> {
     if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
         client.ensure_mapped_image_collection()
     }) {
         return handle;
     }
-    Arc::new(RwLock::new(ImageCollection::new()))
+    static FALLBACK: OnceLock<Arc<RwLock<ImageCollection>>> = OnceLock::new();
+    FALLBACK
+        .get_or_init(|| Arc::new(RwLock::new(ImageCollection::new())))
+        .clone()
 }
 
 fn candidate_texture_resource_names(filename: &str) -> Vec<String> {
