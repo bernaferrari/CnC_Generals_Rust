@@ -1275,12 +1275,23 @@ impl WorkerAIUpdate {
     }
 
     /// Get action delay for a dock (matches C++ WorkerAIUpdate::getActionDelayForDock).
-    pub fn get_action_delay_for_dock(&self, is_warehouse: bool) -> u32 {
-        if is_warehouse {
+    /// C++ WorkerAIUpdate::getActionDelayForDock — warehouse, else center, else 0.
+    pub fn get_action_delay_for_dock_modules(
+        &self,
+        has_warehouse: bool,
+        has_center: bool,
+    ) -> u32 {
+        if has_warehouse {
             self.data.warehouse_delay
-        } else {
+        } else if has_center {
             self.data.center_delay
+        } else {
+            0
         }
+    }
+
+    pub fn get_action_delay_for_dock(&self, is_warehouse: bool) -> u32 {
+        self.get_action_delay_for_dock_modules(is_warehouse, !is_warehouse)
     }
 
     /// Get warehouse scan distance (AI players get 2x distance).
@@ -1323,6 +1334,18 @@ mod worker_dozer_parity_tests {
         data.upgraded_supply_boost = 8;
         let worker = WorkerAIUpdate::new(data, INVALID_ID, 0);
         assert_eq!(worker.get_upgraded_supply_boost(), 0);
+    }
+
+    #[test]
+    fn non_supply_dock_action_delay_is_zero() {
+        // C++ WorkerAIUpdate.cpp:196-213 returns 0 without warehouse/center modules.
+        let mut data = WorkerAIUpdateData::default();
+        data.warehouse_delay = 30;
+        data.center_delay = 20;
+        let worker = WorkerAIUpdate::new(data, INVALID_ID, 0);
+        assert_eq!(worker.get_action_delay_for_dock_modules(false, false), 0);
+        assert_eq!(worker.get_action_delay_for_dock_modules(true, false), 30);
+        assert_eq!(worker.get_action_delay_for_dock_modules(false, true), 20);
     }
 }
 
