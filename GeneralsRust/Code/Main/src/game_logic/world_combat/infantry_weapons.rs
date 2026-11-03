@@ -2550,8 +2550,10 @@ impl GameLogic {
                         self.objects
                             .registered()
                             .filter(|(candidate_id, object)| {
+                                // C++ PartitionFilterFlammable has no death
+                                // check; only destroyed objects left the partition.
                                 **candidate_id != id
-                                    && object.is_alive()
+                                    && !object.status.destroyed
                                     && object
                                         .fire_spread
                                         .as_ref()
