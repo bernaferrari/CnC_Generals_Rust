@@ -3042,15 +3042,19 @@ impl GameLogic {
             Some(v) if v.is_alive() => v.get_position(),
             _ => return Ok(false),
         };
-        if let Some(u) = self.objects.get_mut(&unit_id) {
-            u.set_max_shots_to_fire(max_shots);
-        } else {
+        if !self.objects.contains_key(&unit_id) {
             return Ok(false);
         }
         // C++ AIAttackState::onEnter residual via nested AttackStateMachine.
-        if self.attack_state_enter_with_effects(unit_id, victim_id, presentation_effects)?
-            == AttackMachineResult::Failure
-        {
+        let entered =
+            self.attack_state_enter_with_effects(unit_id, victim_id, presentation_effects)?;
+        // AIUpdate.cpp:3412-3416: install maxShotsToFire *after* setState,
+        // because AttackState::onEnter resets it. C++ installs regardless of
+        // the entry outcome.
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.set_max_shots_to_fire(max_shots);
+        }
+        if entered == AttackMachineResult::Failure {
             return Ok(false);
         }
         // AIUpdate.cpp:3395-3417 only installs the attack state/goal. An

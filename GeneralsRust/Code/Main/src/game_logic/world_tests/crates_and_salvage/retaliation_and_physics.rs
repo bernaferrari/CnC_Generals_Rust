@@ -2503,6 +2503,46 @@ fn private_attack_object_sets_target_and_shots() {
 }
 
 #[test]
+fn private_attack_object_installs_max_shots_after_attack_enter() {
+    // hq-k5dc3: AIUpdate.cpp:3412-3416 installs maxShotsToFire *after*
+    // setState(AI_ATTACK_OBJECT) because AttackState::onEnter resets it.
+    // An explicit 0 must survive entry instead of becoming unlimited.
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut at = ThingTemplate::new("PA0");
+    at.add_kind_of(KindOf::Infantry);
+    let aid = ObjectId(1131);
+    logic.objects.insert(aid, {
+        let mut o = Object::new(at, aid, Team::USA);
+        o.set_position(Vec3::ZERO);
+        o.weapon = Some(Weapon {
+            range: 100.0,
+            damage: 10.0,
+            can_target_ground: true,
+            ..Default::default()
+        });
+        o
+    });
+    let mut vt = ThingTemplate::new("PV0");
+    vt.add_kind_of(KindOf::Infantry);
+    let vid = ObjectId(1132);
+    logic.objects.insert(vid, {
+        let mut o = Object::new(vt, vid, Team::GLA);
+        o.set_position(Vec3::new(5.0, 0.0, 0.0));
+        o
+    });
+    assert!(
+        logic
+            .private_attack_object(aid, vid, 0)
+            .expect("valid private attack fixture")
+    );
+    let a = logic.objects.get(&aid).unwrap();
+    assert_eq!(a.target, Some(vid));
+    assert_eq!(a.max_shots_to_fire, 0);
+}
+
+#[test]
 fn request_object_path_sets_target() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
