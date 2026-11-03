@@ -255,7 +255,10 @@ fn native_garrison_hit_uses_building_pose_and_suppresses_normal_detonation() {
                 } else {
                     assert_eq!(owner.session_view.impulse.intensity, 0.);
                     assert!(owner.objects[&occupant].is_alive());
-                    assert!(!owner.combat_system.take_impact_fx().is_empty());
+                    // Detonation FX/OCL flush synchronously before Body damage
+                    // (Weapon.cpp handleProjectileDetonation), so the deferred
+                    // end-phase queue must already be empty.
+                    assert!(owner.combat_system.take_impact_fx().is_empty());
                 }
             }
         },
@@ -317,6 +320,73 @@ fn native_no_fx_ignition_pose_uses_receiving_visibility_for_colliding_ids() {
                 gamelogic::helpers::host_fx_object_pose(id.0)
                     .unwrap()
                     .is_shrouded
+            );
+        },
+    );
+}
+
+
+#[test]
+#[cfg(feature = "game_client")]
+fn detonation_fx_flushes_before_body_damage_and_empties_deferred_queue() {
+    // C++ Weapon.cpp:889-949 — ProjectileDetonationFX/OCL before Body damage.
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "detonation_fx_flushes_before_body_damage_and_empties_deferred_queue",
+        || {
+            install_shake();
+            let mut owner = world();
+            let shooter = ObjectId(10);
+            let victim = ObjectId(20);
+            let projectile = ObjectId(9007);
+            let pos = Vec3::new(1000., 0., 0.);
+            let mut src = Object::new_simple(
+                shooter,
+                crate::game_logic::ObjectType::Vehicle,
+                "Shooter".into(),
+            );
+            src.set_position(Vec3::ZERO);
+            owner.objects.insert(shooter, src);
+            let mut tgt = Object::new_simple(
+                victim,
+                crate::game_logic::ObjectType::Vehicle,
+                "Victim".into(),
+            );
+            tgt.set_position(pos);
+            tgt.health.current = 100.0;
+            tgt.health.maximum = 100.0;
+            tgt.template_mut().add_kind_of(crate::game_logic::KindOf::Attackable);
+            owner.objects.insert(victim, tgt);
+            reveal_object(&owner, shooter);
+            reveal_object(&owner, victim);
+            reveal_object(&owner, projectile);
+            owner.session_view.target = pos;
+            let mut p = Projectile::new(
+                projectile,
+                pos,
+                pos,
+                40.0,
+                DamageType::Unresistable,
+                shooter,
+                Some(victim),
+            );
+            p.speed = 0.;
+            p.detonation_fx_name = "FX_ReceivingProjectile".into();
+            p.flight = Some(HostProjectileFlight::Dumb(HostDumbProjectileFlight {
+                ..Default::default()
+            }));
+            owner.combat_system.projectiles.insert(projectile, p);
+            let before = owner.objects[&victim].health.current;
+            let retired = owner.update_owned_projectile_impacts(1. / 30.);
+            assert_eq!(retired, vec![projectile], "projectile must detonate");
+            let after = owner.objects[&victim].health.current;
+            assert!(
+                after < before,
+                "Body damage applies in the owned impact path; before={before} after={after}"
+            );
+            assert!(
+                owner.combat_system.take_impact_fx().is_empty(),
+                "flush-before-damage must drain the deferred end-phase impact_fx queue"
             );
         },
     );

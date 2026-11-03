@@ -925,14 +925,15 @@ impl GameLogic {
         // C++ ObjectCreationList.cpp:1524-1534 createInternal walks every nugget
         // independently. A leftover-physics CreateDebris/FireWeapon/etc. must not
         // discard earlier CreateObject results from the same authored list.
+        // FireOCL after FireFX may run with a destroyed source; frozen team/pose
+        // still create (hq-ye145). Only stop when a captured birth no longer
+        // matches — that means a same-ID replacement, not a missing original.
         let mut created = Vec::new();
         for nugget in ocl.nuggets() {
-            if !source_id.is_some_and(|id| {
-                source_birth
-                    .as_ref()
-                    .is_some_and(|birth| self.object_birth_matches(id, birth))
-            }) {
-                break;
+            if let Some(birth) = source_birth.as_ref() {
+                if !source_id.is_some_and(|id| self.object_birth_matches(id, birth)) {
+                    break;
+                }
             }
             let Some(generic) = nugget
                 .as_any()
@@ -1603,11 +1604,15 @@ impl GameLogic {
     ) {
         let fire_ocls = self.combat_system.take_fire_ocl();
         for fire in fire_ocls {
-            // C++ Weapon.cpp handles FireFX before invoking FireOCL.  Do not
-            // synthesize a generic muzzle event for a blank FX reference: the
-            // parsed name is authoritative and a null FXList is genuinely no
-            // visual effect.
-            if !fire.fire_fx_name.trim().is_empty()
+            // C++ Weapon.cpp:889 wraps FireFX/muzzle in getDrawable(); FireOCL
+            // (943+) stays outside that gate. Do not synthesize a generic muzzle
+            // for a blank FX reference: the parsed name is authoritative.
+            let source_has_drawable = self
+                .objects
+                .get(&fire.shooter_id)
+                .is_some_and(|o| o.has_drawable);
+            if source_has_drawable
+                && !fire.fire_fx_name.trim().is_empty()
                 && !fire.fire_fx_name.trim().eq_ignore_ascii_case("None")
             {
                 let radius = host_fire_fx_override_radius(self.objects.get(&fire.shooter_id));
@@ -1673,22 +1678,8 @@ impl GameLogic {
             {
                 continue;
             }
-            if !impact.detonation_ocl_name.is_empty() {
-                let _ = self.execute_parsed_weapon_ocl_at_with_effects(
-                    &impact.detonation_ocl_name,
-                    Some(impact.shooter_id),
-                    impact.source_team,
-                    impact.source_veterancy,
-                    impact.source_orientation,
-                    impact.source_velocity,
-                    impact.position,
-                    presentation_effects,
-                );
-            }
-            // C++ Weapon.cpp:903-939 plays ProjectileDetonationFX exactly once
-            // (handleWeaponFireFX or a single doFXPos). Never invents a
-            // fire-time MuzzleFlash at the crater and never unhides the
-            // shooter's muzzle at detonation.
+            // C++ Weapon.cpp:889-949 — ProjectileDetonationFX (drawable/doFXPos)
+            // before ProjectileDetonationOCL. Keep independent empty-name skips.
             if !impact.detonation_fx_name.trim().is_empty()
                 && !impact
                     .detonation_fx_name
@@ -1707,6 +1698,18 @@ impl GameLogic {
                     0.0,
                     radius,
                     matrix,
+                    presentation_effects,
+                );
+            }
+            if !impact.detonation_ocl_name.is_empty() {
+                let _ = self.execute_parsed_weapon_ocl_at_with_effects(
+                    &impact.detonation_ocl_name,
+                    Some(impact.shooter_id),
+                    impact.source_team,
+                    impact.source_veterancy,
+                    impact.source_orientation,
+                    impact.source_velocity,
+                    impact.position,
                     presentation_effects,
                 );
             }

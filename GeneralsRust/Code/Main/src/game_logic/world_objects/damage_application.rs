@@ -1783,6 +1783,11 @@ impl GameLogic {
             &mut (),
         );
 
+        // C++ Weapon::handleProjectileDetonation → fireWeaponTemplate with
+        // isProjectileDetonation: ProjectileDetonationFX/OCL run before Body
+        // damage (Weapon.cpp:889-949 then dealDamageInternal).
+        self.flush_projectile_impact_fx_with_effects(effects);
+
         for event in events {
             self.apply_owned_combat_damage_with_effects(&event, effects);
         }
