@@ -441,11 +441,12 @@ fn toggle_quit_menu_with_selected(
                 .borrow()
                 .run_shutdown_with_effects(Some(&mut immediate as &mut dyn std::any::Any), effects);
             owner.with_shell_mut(|shell| shell.finish_options_shutdown_receipt(&layout, immediate));
-            effects.with_manager(|manager, _effects| {
-                layout.borrow().hide_with_manager_and_selected(
+            effects.with_manager(|manager, effects| {
+                layout.borrow().hide_with_manager_and_lent(
                     manager,
                     true,
                     selected.as_deref_mut(),
+                    &mut effects.lent_windows,
                 );
             });
         }
@@ -456,7 +457,14 @@ fn toggle_quit_menu_with_selected(
     if let Some(layout) = popup.filter(|layout| !layout.borrow().is_hidden()) {
         if !send_back_button_selection("PopupSaveLoad.wnd:ButtonBack", effects, selected.as_deref())
         {
-            effects.with_manager(|manager, _| layout.borrow_mut().hide(manager, true));
+            effects.with_manager(|manager, effects| {
+                layout.borrow().hide_with_manager_and_lent(
+                    manager,
+                    true,
+                    selected.as_deref_mut(),
+                    &mut effects.lent_windows,
+                );
+            });
         }
         effects.with_quit_menu(|state| state.save_load_layout = None);
         return QuitMenuToggleResult::ClosedInterveningLayout;
@@ -500,11 +508,14 @@ fn toggle_quit_menu_with_selected(
             // menu painted over the resumed match (ButtonReturn resumed the
             // world while the panel stayed on screen). Force the net retail
             // end state: every layout window hidden immediately.
-            effects.with_manager(|manager, _effects| {
-                layout.borrow().hide_with_manager_and_selected(
+            // ButtonReturn stays lent from input dispatch while QuitMenuSystem
+            // selected is the parent root — thread lent through hide.
+            effects.with_manager(|manager, effects| {
+                layout.borrow().hide_with_manager_and_lent(
                     manager,
                     true,
                     selected.as_deref_mut(),
+                    &mut effects.lent_windows,
                 )
             });
         }
@@ -1123,11 +1134,25 @@ mod os_wnd_tests {
         drive_os_wnd_popup_save_load_save_like_cpp, live_popup_save_load_window_present,
     };
     fn with_fixture(operation: impl FnOnce(&mut WindowEventEffects<'_>)) {
+        // Mirror WindowEventEffects::with_standalone loans for quit/save-load paths.
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
         let mut messages = Vec::new();
+        let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+        let mut ime = crate::gui::ime_manager::ImeManager::new();
+        let mut main_menu = crate::gui::shell::main_menu::MainMenu::new();
+        let mut menu_host = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut script_display =
+            crate::core::script_action_handler::ScriptDisplayReceiver::default();
         let mut effects = WindowEventEffects::new(&mut messages);
         effects.window_manager_owner = Some(&owner);
+        effects.ui = Some(&mut ui);
+        effects.ime = Some(&mut ime);
+        effects.main_menu = Some(&mut main_menu);
+        effects.menu_host = Some(&mut menu_host);
+        effects.menu_world =
+            Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts::default());
+        effects.script_display = Some(&mut script_display);
         effects.menus = Some(
             menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
         );

@@ -833,8 +833,23 @@ pub fn drive_os_wnd_loading_screen_finish_like_cpp(
 mod os_wnd_tests {
     use super::*;
     use crate::gui::game_window::WindowEventEffects;
-    
-    fn install_named_button(owner: &crate::gui::window_manager::WindowManagerOwner, name: &str, x: i32, y: i32) {
+
+    fn with_fixture(operation: impl FnOnce(&mut WindowEventEffects<'_>)) {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        operation(&mut effects);
+    }
+
+    fn install_named_button(name: &str, x: i32, y: i32, effects: &mut WindowEventEffects<'_>) {
+        let owner = effects
+            .window_manager_owner
+            .expect("named button install requires receiving owner");
         owner.with_manager(|manager| {
             let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
@@ -845,41 +860,40 @@ mod os_wnd_tests {
     #[test]
     fn os_wnd_loading_screen_prepare_hits_progress_load_then_latches_map() {
         crate::test_support::ensure_ambient_host();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut residual = LoadingScreenResidual::default();
-        install_named_button(&owner, "SinglePlayerLoadScreen.wnd:ProgressLoad", 10, 10);
-        assert!(
-            WindowEventEffects::with_standalone(|effects| {
+        with_fixture(|effects| {
+            install_named_button("SinglePlayerLoadScreen.wnd:ProgressLoad", 10, 10, effects);
+            assert!(
                 drive_os_wnd_loading_screen_prepare_like_cpp(
                     &mut residual,
                     "maps\\MD_USA01\\MD_USA01.map",
                     40,
                     effects,
-                )
-            }),
-            "OS WND click on ProgressLoad must prepare map load residual"
-        );
-        assert_eq!(
-            residual_loading_screen_map_name(&residual).as_deref(),
-            Some("maps\\MD_USA01\\MD_USA01.map")
-        );
-        assert_eq!(residual_loading_screen_progress(&residual), 40);
-        assert!(residual_loading_screen_is_visible(&residual));
-        assert!(!WindowEventEffects::with_standalone(|effects| {
-            drive_os_wnd_loading_screen_prepare_like_cpp(&mut residual, "", 0, effects)
-        }));
+                ),
+                "OS WND click on ProgressLoad must prepare map load residual"
+            );
+            assert_eq!(
+                residual_loading_screen_map_name(&residual).as_deref(),
+                Some("maps\\MD_USA01\\MD_USA01.map")
+            );
+            assert_eq!(residual_loading_screen_progress(&residual), 40);
+            assert!(residual_loading_screen_is_visible(&residual));
+            assert!(!drive_os_wnd_loading_screen_prepare_like_cpp(
+                &mut residual, "", 0, effects
+            ));
+        });
     }
 
     #[test]
     fn os_wnd_loading_screen_finish_hits_shell_progress_gadget() {
         crate::test_support::ensure_ambient_host();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut residual = LoadingScreenResidual::default();
-        install_named_button(&owner, "ShellGameLoadScreen.wnd:ProgressLoad", 10, 40);
-        assert!(WindowEventEffects::with_standalone(|effects| {
-            drive_os_wnd_loading_screen_finish_like_cpp(&mut residual, effects)
-        }));
-        assert!(!residual_loading_screen_is_visible(&residual));
-        assert_eq!(residual_loading_screen_progress(&residual), 100);
+        with_fixture(|effects| {
+            install_named_button("ShellGameLoadScreen.wnd:ProgressLoad", 10, 40, effects);
+            assert!(drive_os_wnd_loading_screen_finish_like_cpp(&mut residual, effects));
+            assert!(!residual_loading_screen_is_visible(&residual));
+            assert_eq!(residual_loading_screen_progress(&residual), 100);
+        });
     }
 }
+

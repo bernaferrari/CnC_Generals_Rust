@@ -1617,7 +1617,22 @@ pub fn drive_os_wnd_message_box_prepare_ok_like_cpp(
 mod os_wnd_tests {
     use super::*;
 
-    fn install_named_button(owner: &crate::gui::window_manager::WindowManagerOwner, name: &str, x: i32, y: i32) {
+    fn with_fixture(operation: impl FnOnce(&mut crate::gui::game_window::WindowEventEffects<'_>)) {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut effects = crate::gui::game_window::WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        operation(&mut effects);
+    }
+
+    fn install_named_button(name: &str, x: i32, y: i32, effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
+        let owner = effects
+            .window_manager_owner
+            .expect("named button install requires receiving owner");
         owner.with_manager(|manager| {
             let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
@@ -1628,36 +1643,42 @@ mod os_wnd_tests {
     #[test]
     fn os_wnd_message_box_yes_hits_button_then_latches() {
         crate::test_support::ensure_ambient_host();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        let system = MessageBoxSystem::new();
-        install_named_button(&owner, "MessageBox.wnd:ButtonYes", 10, 10);
-        assert!(
-            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| drive_os_wnd_message_box_yes_like_cpp(effects)),
-            "OS WND click on ButtonYes must latch Yes residual"
-        );
-        assert_eq!(
-            residual_message_box_last_action(&system),
-            ResidualMessageBoxAction::Yes
-        );
-        assert!(!residual_message_box_is_visible(&system));
-        assert!(!crate::gui::game_window::WindowEventEffects::with_standalone(|effects| drive_os_wnd_message_box_ok_like_cpp(effects)));
+        with_fixture(|effects| {
+            install_named_button("MessageBox.wnd:ButtonYes", 10, 10, effects);
+            assert!(
+                drive_os_wnd_message_box_yes_like_cpp(effects),
+                "OS WND click on ButtonYes must latch Yes residual"
+            );
+            effects.with_message_boxes(|system| {
+                assert_eq!(
+                    residual_message_box_last_action(system),
+                    ResidualMessageBoxAction::Yes
+                );
+                assert!(!residual_message_box_is_visible(system));
+            });
+            assert!(!drive_os_wnd_message_box_ok_like_cpp(effects));
+        });
     }
 
     #[test]
     fn os_wnd_message_box_prepare_ok_hits_title_and_ok() {
         crate::test_support::ensure_ambient_host();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        install_named_button(&owner, "MessageBox.wnd:StaticTextTitle", 10, 40);
-        install_named_button(&owner, "MessageBox.wnd:StaticTextMessage", 10, 70);
-        install_named_button(&owner, "MessageBox.wnd:ButtonOk", 10, 100);
-        let system = MessageBoxSystem::new();
-        assert!(crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
-            drive_os_wnd_message_box_prepare_ok_like_cpp("GUI:Message", "GUI:Confirm", effects)
-        }));
-        assert_eq!(
-            residual_message_box_last_action(&system),
-            ResidualMessageBoxAction::Ok
-        );
+        with_fixture(|effects| {
+            install_named_button("MessageBox.wnd:StaticTextTitle", 10, 40, effects);
+            install_named_button("MessageBox.wnd:StaticTextMessage", 10, 70, effects);
+            install_named_button("MessageBox.wnd:ButtonOk", 10, 100, effects);
+            assert!(drive_os_wnd_message_box_prepare_ok_like_cpp(
+                "GUI:Message",
+                "GUI:Confirm",
+                effects
+            ));
+            effects.with_message_boxes(|system| {
+                assert_eq!(
+                    residual_message_box_last_action(system),
+                    ResidualMessageBoxAction::Ok
+                );
+            });
+        });
     }
 }
 

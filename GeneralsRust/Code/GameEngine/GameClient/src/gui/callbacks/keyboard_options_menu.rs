@@ -797,7 +797,7 @@ pub fn simulate_keyboard_options_select_category(category_index: usize) -> bool 
     state.residual_category = category_index;
     state.residual_command = -1;
     residual_kb_action_store(&mut state, ResidualKeyboardOptionsAction::SelectCategory);
-    residual_keyboard_options_category_index() == category_index
+    state.residual_category == category_index
 }
 
 /// Residual: select command list row without live listbox widget.
@@ -808,7 +808,7 @@ pub fn simulate_keyboard_options_select_command(command_index: usize) -> bool {
     state.selected_command_index = Some(command_index);
     state.residual_command = command_index as i32;
     residual_kb_action_store(&mut state, ResidualKeyboardOptionsAction::SelectCommand);
-    residual_keyboard_options_command_index() == Some(command_index)
+    state.residual_command == command_index as i32
 }
 
 /// Residual: fire ButtonAssign without mutating the real command map.
@@ -816,8 +816,9 @@ pub fn simulate_keyboard_options_assign_button_gadget_selected() -> bool {
     let state_handle = keyboard_options_menu_state(None);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     ensure_keyboard_options_control_ids(&mut state);
-    if residual_keyboard_options_command_index().is_none() && state.selected_command_index.is_none()
-    {
+    // Read selection from the already-locked state — residual_* would re-lock
+    // the same Mutex and deadlock under std::sync::Mutex.
+    if state.residual_command < 0 && state.selected_command_index.is_none() {
         // C++ ignores Assign with no selection.
         return false;
     }
@@ -956,7 +957,22 @@ pub fn drive_os_wnd_keyboard_options_prepare_assign_like_cpp(
 mod os_wnd_tests {
     use super::*;
 
-    fn install_named_button(owner: &crate::gui::window_manager::WindowManagerOwner, name: &str, x: i32, y: i32) {
+    fn with_fixture(operation: impl FnOnce(&mut crate::gui::game_window::WindowEventEffects<'_>)) {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut effects = crate::gui::game_window::WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        operation(&mut effects);
+    }
+
+    fn install_named_button(name: &str, x: i32, y: i32, effects: &mut crate::gui::game_window::WindowEventEffects<'_>) {
+        let owner = effects
+            .window_manager_owner
+            .expect("named button install requires receiving owner");
         owner.with_manager(|manager| {
             let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
@@ -967,34 +983,36 @@ mod os_wnd_tests {
     #[test]
     fn os_wnd_keyboard_options_assign_hits_combo_list_and_assign() {
         crate::test_support::ensure_ambient_host();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        install_named_button(&owner, "KeyboardOptionsMenu.wnd:ComboBoxCategoryList", 10, 10);
-        install_named_button(&owner, "KeyboardOptionsMenu.wnd:ListBoxCommandList", 10, 40);
-        install_named_button(&owner, "KeyboardOptionsMenu.wnd:ButtonAssign", 10, 70);
-        assert!(
-            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| drive_os_wnd_keyboard_options_prepare_assign_like_cpp(1, 2, effects)),
-            "OS WND clicks must latch category+command+Assign"
-        );
-        assert_eq!(residual_keyboard_options_category_index(), 1);
-        assert_eq!(residual_keyboard_options_command_index(), Some(2));
-        assert_eq!(
-            residual_keyboard_options_last_action(),
-            ResidualKeyboardOptionsAction::Assign
-        );
-        assert!(!crate::gui::game_window::WindowEventEffects::with_standalone(|effects| drive_os_wnd_keyboard_options_back_like_cpp(effects)));
+        with_fixture(|effects| {
+            install_named_button("KeyboardOptionsMenu.wnd:ComboBoxCategoryList", 10, 10, effects);
+            install_named_button("KeyboardOptionsMenu.wnd:ListBoxCommandList", 10, 40, effects);
+            install_named_button("KeyboardOptionsMenu.wnd:ButtonAssign", 10, 70, effects);
+            assert!(
+                drive_os_wnd_keyboard_options_prepare_assign_like_cpp(1, 2, effects),
+                "OS WND clicks must latch category+command+Assign"
+            );
+            assert_eq!(residual_keyboard_options_category_index(), 1);
+            assert_eq!(residual_keyboard_options_command_index(), Some(2));
+            assert_eq!(
+                residual_keyboard_options_last_action(),
+                ResidualKeyboardOptionsAction::Assign
+            );
+            assert!(!drive_os_wnd_keyboard_options_back_like_cpp(effects));
+        });
     }
 
     #[test]
     fn os_wnd_keyboard_options_reset_hits_button_reset_all() {
         crate::test_support::ensure_ambient_host();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        install_named_button(&owner, "KeyboardOptionsMenu.wnd:ButtonResetAll", 10, 100);
-        assert!(crate::gui::game_window::WindowEventEffects::with_standalone(|effects| drive_os_wnd_keyboard_options_reset_like_cpp(effects)));
-        assert_eq!(
-            residual_keyboard_options_last_action(),
-            ResidualKeyboardOptionsAction::ResetAll
-        );
-        assert_eq!(residual_keyboard_options_category_index(), 0);
-        assert_eq!(residual_keyboard_options_command_index(), None);
+        with_fixture(|effects| {
+            install_named_button("KeyboardOptionsMenu.wnd:ButtonResetAll", 10, 100, effects);
+            assert!(drive_os_wnd_keyboard_options_reset_like_cpp(effects));
+            assert_eq!(
+                residual_keyboard_options_last_action(),
+                ResidualKeyboardOptionsAction::ResetAll
+            );
+            assert_eq!(residual_keyboard_options_category_index(), 0);
+            assert_eq!(residual_keyboard_options_command_index(), None);
+        });
     }
 }
