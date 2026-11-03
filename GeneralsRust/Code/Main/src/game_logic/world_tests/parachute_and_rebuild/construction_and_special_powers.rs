@@ -146,7 +146,7 @@ fn resume_construction_assigns_dozer_and_model_bits() {
             glam::Vec3::new(10.0, 0.0, 0.0),
         )
         .expect("dozer");
-    assert!(logic.resume_construction(&[did], sid));
+    assert_eq!(logic.resume_construction(&[did], sid), Ok(true));
     assert!(logic.honesty_resume_construction_ok());
     let d = logic.host_object(did).expect("d");
     assert_eq!(d.ai_state(), AIState::Constructing);
@@ -173,7 +173,7 @@ fn resume_construction_assigns_dozer_and_model_bits() {
         )
         .expect("dozer2");
     assert!(!logic.can_resume_construction_of(did2, sid));
-    assert!(!logic.resume_construction(&[did2], sid));
+    assert_eq!(logic.resume_construction(&[did2], sid), Ok(false));
     // Completed structure rejects resume.
     if let Some(o) = logic.host_object_mut(sid) {
         o.set_status_under_construction(false);
@@ -215,7 +215,7 @@ fn resume_construction_allows_allied_dozer() {
         .create_object_for_player("AmericaVehicleDozer", 0, glam::Vec3::new(10.0, 0.0, 0.0))
         .expect("dozer");
     assert!(logic.can_resume_construction_of(did, sid));
-    assert!(logic.resume_construction(&[did], sid));
+    assert_eq!(logic.resume_construction(&[did], sid), Ok(true));
 }
 
 #[test]
@@ -255,7 +255,7 @@ fn resume_construction_paths_distant_dozer_without_constructing_anim() {
             glam::Vec3::new(400.0, 0.0, 0.0),
         )
         .expect("dozer");
-    assert!(logic.resume_construction(&[did], sid));
+    assert_eq!(logic.resume_construction(&[did], sid), Ok(true));
     let d = logic.host_object(did).expect("d");
     assert_eq!(d.ai_state(), AIState::Constructing);
     assert_eq!(d.target, Some(sid));
@@ -320,7 +320,7 @@ fn resume_construction_crosses_the_scaffold_obstacle() {
         );
     }
     logic.force_map_loaded_for_path_test(true);
-    assert!(logic.resume_construction(&[did], sid));
+    assert_eq!(logic.resume_construction(&[did], sid), Ok(true));
     logic.process_pathfind_queue();
     let d = logic.host_object(did).expect("d");
     assert_eq!(d.ai_state(), AIState::Constructing);
@@ -381,7 +381,7 @@ fn resume_construction_allows_dead_or_retasked_builder() {
         logic.can_resume_construction_of(did, sid),
         "dead builder_id must not block resume"
     );
-    assert!(logic.resume_construction(&[did], sid));
+    assert_eq!(logic.resume_construction(&[did], sid), Ok(true));
     assert_eq!(logic.host_object(sid).and_then(|o| o.builder_id), Some(did));
 
     let did2 = logic
@@ -406,7 +406,7 @@ fn resume_construction_allows_dead_or_retasked_builder() {
         logic.can_resume_construction_of(did2, sid),
         "re-tasked builder must not block resume"
     );
-    assert!(logic.resume_construction(&[did2], sid));
+    assert_eq!(logic.resume_construction(&[did2], sid), Ok(true));
     assert_eq!(
         logic.host_object(sid).and_then(|o| o.builder_id),
         Some(did2)
@@ -471,7 +471,7 @@ fn worker_build_or_repair_releases_supply_dock() {
         w.preferred_dock_id = Some(dock_id);
         w.supply_truck_state = SupplyTruckState::Wanting;
     }
-    assert!(logic.unit_command_begin_construct(wid, glam::Vec3::new(20.0, 0.0, 20.0)));
+    assert_eq!(logic.unit_command_begin_construct(wid, glam::Vec3::new(20.0, 0.0, 20.0)), Ok(true));
     assert_eq!(
         logic
             .host_object(dock_id)

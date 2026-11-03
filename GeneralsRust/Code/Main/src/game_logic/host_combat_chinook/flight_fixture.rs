@@ -155,7 +155,7 @@ pub(super) fn combat_drop(logic: &mut GameLogic, transport: ObjectId) {
         CommandExecutor::new(logic, 0)
             .execute_command(command)
             .unwrap(),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     let object = logic.host_object(transport).unwrap();
     assert_eq!(

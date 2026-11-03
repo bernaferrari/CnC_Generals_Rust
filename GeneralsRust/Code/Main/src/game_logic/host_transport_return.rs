@@ -330,7 +330,7 @@ mod tests {
                 destination,
                 true
             ),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
         let mut saw_return = false;
         for _ in 0..3000 {
@@ -561,7 +561,7 @@ mod tests {
         assert_eq!(
             crate::command_executor::CommandExecutor::new(&mut logic, 0)
                 .execute_move_to_and_evacuate(&[id], Vec3::new(70.0, 0.0, 70.0), true),
-            crate::command_system::CommandResult::Success
+            Ok(crate::command_system::CommandResult::Success)
         );
         assert_eq!(logic.host_object(id).unwrap().movement.path, path);
         assert_eq!(

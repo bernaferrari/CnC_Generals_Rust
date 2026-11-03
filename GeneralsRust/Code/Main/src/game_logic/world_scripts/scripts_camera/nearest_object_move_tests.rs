@@ -149,7 +149,7 @@ fn nearest_actual_script_tracks_selected_identity_and_preserves_missing_goal() {
             .movement_goal_object(),
         Some(target)
     );
-    assert!(world.unit_command_stop(unit));
+    assert_eq!(world.unit_command_stop(unit), Ok(true));
     assert_eq!(
         world.host_object(unit).unwrap().movement_goal_object(),
         None
@@ -257,8 +257,8 @@ fn nearest_actual_script_snapshot_preserves_moving_goal_continuation() {
         source.host_object(unit).unwrap().requested_destination,
         Some(future)
     );
-    assert!(source.unit_command_stop(unit));
-    assert!(restored.unit_command_stop(unit));
+    assert_eq!(source.unit_command_stop(unit), Ok(true));
+    assert_eq!(restored.unit_command_stop(unit), Ok(true));
     for world in [&source, &restored] {
         let mover = world.host_object(unit).unwrap();
         assert_eq!(mover.movement_goal_object(), None);
@@ -300,14 +300,14 @@ fn nearest_cpp_filters_allow_dead_and_queued_bodies_until_physical_removal() {
         world.host_object(unit).unwrap().movement_goal_object(),
         Some(target)
     );
-    assert!(world.unit_command_stop(unit));
+    assert_eq!(world.unit_command_stop(unit), Ok(true));
     world.host_object_mut(target).unwrap().status.destroyed = true;
     execute(&mut world, false, "NamedUnit");
     assert_eq!(
         world.host_object(unit).unwrap().movement_goal_object(),
         Some(target)
     );
-    assert!(world.unit_command_stop(unit));
+    assert_eq!(world.unit_command_stop(unit), Ok(true));
     world.objects.remove(&target);
     execute(&mut world, false, "NamedUnit");
     assert_eq!(

@@ -157,7 +157,7 @@ fn america_vehicle_dozer_is_retail_starting_builder() {
         .unwrap();
     assert_eq!(
         result,
-        crate::command_system::CommandResult::Success,
+        Ok(crate::command_system::CommandResult::Success),
         "actual spawned constructor command"
     );
     assert_eq!(logic.get_player(0).unwrap().effective_supplies(), 700);

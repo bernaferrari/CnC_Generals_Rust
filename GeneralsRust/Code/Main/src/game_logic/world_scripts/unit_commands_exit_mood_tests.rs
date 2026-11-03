@@ -58,14 +58,14 @@ End
     }
     // Capture removal detaches the occupant before issuing its drop command.
     assert!(logic.unit_command_remove_occupant(bunker, ranger));
-    assert!(logic.unit_command_exit_drop_with_effects(
+    assert_eq!(logic.unit_command_exit_drop_with_effects(
         ranger,
         glam::Vec3::new(4.0, 0.0, 0.0),
         &mut crate::game_logic::ScriptPresentationEffects {
             audio: Some(&mut output),
             ..Default::default()
         }
-    ));
+    ), Ok(true));
     let u = logic.host_object(ranger).unwrap();
     assert_eq!(u.next_mood_check_time, 9999);
     assert!(!u.randomly_offset_mood_check);

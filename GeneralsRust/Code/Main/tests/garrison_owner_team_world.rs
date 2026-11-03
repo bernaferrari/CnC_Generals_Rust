@@ -307,7 +307,7 @@ fn enter(world: &mut GameLogic, host: ObjectId, rider: ObjectId) {
             modifier_keys: ModifierKeys::default(),
         })
         .expect("production Enter command executes");
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     assert_eq!(
         world.host_object(rider).unwrap().ai_state(),
         AIState::Entering
@@ -438,7 +438,7 @@ fn collision_entry_records_receiving_player_without_touching_peer() {
             modifier_keys: ModifierKeys::default(),
         })
         .expect("issue authored Enter command");
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     game.try_physics_collide(rider, host, 1.0).unwrap();
     assert_eq!(game.host_object(rider).unwrap().contained_by, Some(host));
     assert_eq!(game.host_object(host).unwrap().player_who_entered, Some(2));
@@ -500,7 +500,7 @@ fn collision_transport_rechecks_slot_capacity_and_controller() {
                     modifier_keys: ModifierKeys::default(),
                 })
                 .unwrap(),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     game.try_physics_collide(small, transport, 1.0).unwrap();
@@ -539,7 +539,7 @@ fn collision_transport_rechecks_slot_capacity_and_controller() {
                 modifier_keys: ModifierKeys::default(),
             })
             .unwrap(),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     peer.host_object_mut(peer_heavy).unwrap().owner_player_id = Some(1);
     peer.try_physics_collide(peer_heavy, peer_transport, 1.0)
@@ -644,7 +644,7 @@ fn cave_enter_queries_use_shared_capacity_and_occupants() {
                 modifier_keys: ModifierKeys::default(),
             })
             .unwrap(),
-        CommandResult::InvalidCommand
+        Ok(CommandResult::InvalidCommand)
     );
 
     // A stale entrance-local list must not manufacture a shared passenger.
@@ -667,7 +667,7 @@ fn cave_enter_queries_use_shared_capacity_and_occupants() {
                 modifier_keys: ModifierKeys::default(),
             })
             .unwrap(),
-        CommandResult::InvalidCommand
+        Ok(CommandResult::InvalidCommand)
     );
     assert_eq!(
         peer.host_object(peer_outsider).unwrap().get_position(),
@@ -950,7 +950,7 @@ fn connected_caves_transfer_and_restore_exact_player_team_across_save() {
                 modifier_keys: ModifierKeys::default(),
             })
             .unwrap(),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     assert_eq!(game.host_object(rider).unwrap().contained_by, None);
     assert!(restored.exit_cave_unit(rider, b));
@@ -1366,7 +1366,7 @@ fn collision_garrison_rejects_invalid_rider_and_reports_missing_owner() {
             modifier_keys: ModifierKeys::default(),
         })
         .unwrap();
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     let team = game.host_object(host).unwrap().team_instance_identity();
     game.host_object_mut(rider).unwrap().owner_player_id = Some(u32::MAX);
     let error = game.try_physics_collide(rider, host, 1.0).unwrap_err();
@@ -1399,7 +1399,7 @@ fn transport_exit_door_continues_across_bincode_and_direct_xfer() {
             modifier_keys: ModifierKeys::default(),
         })
         .expect("execute passenger exit");
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     let remaining = original
         .host_object(transport)
         .unwrap()
@@ -2856,7 +2856,7 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
                 modifier_keys: ModifierKeys::default(),
             })
             .unwrap(),
-        CommandResult::Success,
+        Ok(CommandResult::Success),
     );
     first.try_physics_collide(second_rider, ta, 1.0).unwrap();
     assert_eq!(
@@ -2984,7 +2984,7 @@ fn full_shared_pools_do_not_readmit_a_contained_passenger_at_another_entrance() 
                     modifier_keys: ModifierKeys::default(),
                 })
                 .unwrap(),
-            CommandResult::Success,
+            Ok(CommandResult::Success),
             "cave={cave} capacity={capacity}"
         );
         assert_eq!(game.host_object(rider).unwrap().contained_by, None);
@@ -3127,7 +3127,7 @@ fn cave_and_tunnel_entry_eligibility_matches_shared_tracker() {
                 modifier_keys: ModifierKeys::default(),
             })
             .unwrap(),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     game.try_physics_collide(ally, tunnel, 1.0).unwrap();
     assert_eq!(game.host_object(ally).unwrap().contained_by, Some(tunnel));

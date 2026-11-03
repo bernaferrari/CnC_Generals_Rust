@@ -52,7 +52,7 @@ fn frenzy_execute_rejects_selection_without_module() {
                 &SpecialPowerType::Frenzy,
                 Vec3::new(50.0, 0.0, 50.0),
             ),
-            CommandResult::InvalidCommand,
+            Ok(CommandResult::InvalidCommand),
             "any-unit Frenzy fallback must be removed"
         );
     }
@@ -135,7 +135,7 @@ fn cash_hack_and_defector_consume_only_on_valid_object() {
                 &SpecialPowerType::CashHack,
                 Vec3::new(90.0, 0.0, 90.0),
             ),
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         );
     }
     assert!(
@@ -151,7 +151,7 @@ fn cash_hack_and_defector_consume_only_on_valid_object() {
                 &SpecialPowerType::Defector,
                 Vec3::new(90.0, 0.0, 90.0),
             ),
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         );
     }
     assert!(
@@ -163,7 +163,7 @@ fn cash_hack_and_defector_consume_only_on_valid_object() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_special_power_at_object(&[caster], &SpecialPowerType::CashHack, tank_id,),
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         );
     }
     assert!(
@@ -175,7 +175,7 @@ fn cash_hack_and_defector_consume_only_on_valid_object() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_special_power_at_object(&[caster], &SpecialPowerType::Defector, depot_id,),
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         );
     }
     assert!(
@@ -187,7 +187,7 @@ fn cash_hack_and_defector_consume_only_on_valid_object() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_special_power_at_object(&[caster], &SpecialPowerType::CashHack, depot_id,),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     assert!(
@@ -260,7 +260,7 @@ fn microwave_disable_building_starts_hdb_channel() {
                 &SpecialPowerType::MicrowaveDisableBuilding,
                 &PowerTarget::Object(building_id),
             ),
-            CommandResult::Success,
+            Ok(CommandResult::Success),
             "Microwave Disable Building must not be hard-rejected"
         );
     }
@@ -329,7 +329,7 @@ fn baikonur_location_does_not_open_door_object_does_not_spend() {
                 &SpecialPowerType::BaikonurRocket,
                 &PowerTarget::Object(dummy_id),
             ),
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         );
     }
     assert!(
@@ -347,7 +347,7 @@ fn baikonur_location_does_not_open_door_object_does_not_spend() {
                 &SpecialPowerType::BaikonurRocket,
                 &PowerTarget::Location(Vec3::new(100.0, 0.0, 50.0)),
             ),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let bits = logic.host_object(tower_id).unwrap().model_condition_bits;
@@ -415,7 +415,7 @@ fn battleship_object_target_locks_object_not_position() {
                 &SpecialPowerType::BattleshipBombardment,
                 &PowerTarget::Object(tgt_id),
             ),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let ship = logic.host_object(ship_id).expect("ship after fire");
@@ -797,7 +797,7 @@ fn object_target_click_rejects_fogged_ghost() {
                 &SpecialPowerType::CashHack,
                 &PowerTarget::Object(depot_id),
             ),
-            CommandResult::InvalidCommand,
+            Ok(CommandResult::InvalidCommand),
             "FOGGED supply ghost must refuse CashHack"
         );
         assert_eq!(
@@ -806,7 +806,7 @@ fn object_target_click_rejects_fogged_ghost() {
                 &SpecialPowerType::BattleshipBombardment,
                 &PowerTarget::Object(tank_id),
             ),
-            CommandResult::InvalidCommand,
+            Ok(CommandResult::InvalidCommand),
             "FOGGED tank ghost must refuse Battleship"
         );
         assert_eq!(
@@ -815,7 +815,7 @@ fn object_target_click_rejects_fogged_ghost() {
                 &SpecialPowerType::TankHunterTnt,
                 &PowerTarget::Object(tank_id),
             ),
-            CommandResult::InvalidCommand,
+            Ok(CommandResult::InvalidCommand),
             "FOGGED tank ghost must refuse Tank Hunter TNT"
         );
     }
@@ -847,7 +847,7 @@ fn object_target_click_rejects_fogged_ghost() {
                 &SpecialPowerType::CashHack,
                 &PowerTarget::Object(depot_id),
             ),
-            CommandResult::Success,
+            Ok(CommandResult::Success),
             "CLEAR depot must accept CashHack"
         );
     }
@@ -909,7 +909,7 @@ fn location_power_unit_click_leftover_gates_shroud() {
                 &SpecialPowerType::Airstrike,
                 &PowerTarget::Object(enemy_id),
             ),
-            CommandResult::InvalidLocation,
+            Ok(CommandResult::InvalidLocation),
             "C++/leftover refuse NEED_TARGET_POS unit clicks on CELLSHROUD_SHROUDED"
         );
     }
@@ -979,7 +979,7 @@ fn location_power_unit_click_leftover_gates_underwater_paradrop() {
                 &SpecialPowerType::Paradrop,
                 &PowerTarget::Object(enemy_id),
             ),
-            CommandResult::InvalidLocation,
+            Ok(CommandResult::InvalidLocation),
             "C++/leftover refuse NEED_TARGET_POS unit clicks underwater for paradrop"
         );
     }
@@ -1035,7 +1035,7 @@ fn battleship_object_click_rejects_allies_without_consuming() {
                 &SpecialPowerType::BattleshipBombardment,
                 &PowerTarget::Object(ally_id),
             ),
-            CommandResult::InvalidCommand,
+            Ok(CommandResult::InvalidCommand),
             "C++ ActionManager refuses allied battleship object clicks"
         );
     }
@@ -1118,7 +1118,7 @@ fn laser_object_click_requires_enemy_vehicle() {
                 &SpecialPowerType::MissileDefenderLaserGuided,
                 &PowerTarget::Object(enemy_inf),
             ),
-            CommandResult::InvalidCommand,
+            Ok(CommandResult::InvalidCommand),
             "leftover ActionManager refuses infantry laser lock"
         );
         assert_eq!(
@@ -1127,7 +1127,7 @@ fn laser_object_click_requires_enemy_vehicle() {
                 &SpecialPowerType::MissileDefenderLaserGuided,
                 &PowerTarget::Object(ally_tank),
             ),
-            CommandResult::InvalidCommand,
+            Ok(CommandResult::InvalidCommand),
             "leftover ActionManager refuses allied laser lock"
         );
         assert_eq!(
@@ -1136,7 +1136,7 @@ fn laser_object_click_requires_enemy_vehicle() {
                 &SpecialPowerType::MissileDefenderLaserGuided,
                 &PowerTarget::Object(enemy_tank),
             ),
-            CommandResult::Success,
+            Ok(CommandResult::Success),
             "leftover ActionManager allows enemy vehicle laser lock"
         );
     }

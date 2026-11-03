@@ -2412,7 +2412,7 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
     assert!(
         game_logic
             .host_object(enemy_id)
-            .map(|e| e.target == Some(tunnel_id) && e.ai_state == AIState::Attacking)
+            .map(|e| e.target == Some(tunnel_id) && e.ai_state() == AIState::Attacking)
             .unwrap_or(false)
             || game_logic.honesty_camo_netting_order_idle_enemies_ok(),
         "idle enemy residual must attempt to target revealed structure"

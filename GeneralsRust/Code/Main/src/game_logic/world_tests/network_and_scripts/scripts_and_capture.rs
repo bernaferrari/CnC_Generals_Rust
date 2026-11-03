@@ -425,7 +425,7 @@ fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
     // Repairing must not be clobbered to Idle mid-approach without finishing.
     let dozer = game_logic.host_object(dozer_id).expect("dozer");
     assert!(
-        matches!(dozer.ai_state, AIState::Repairing | AIState::Idle),
+        matches!(dozer.ai_state(), AIState::Repairing | AIState::Idle),
         "dozer should still be repairing or finished idle, got {:?}",
         dozer.ai_state()
     );

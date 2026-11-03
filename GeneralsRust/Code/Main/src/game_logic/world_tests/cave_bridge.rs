@@ -642,7 +642,7 @@ fn ordinary_repair_command_rejects_bridge_and_tower() {
         let result = CommandExecutor::new(&mut logic, 0)
             .execute_command(command)
             .expect("repair dispatch");
-        assert_eq!(result, CommandResult::InvalidTarget);
+        assert_eq!(result, Ok(CommandResult::InvalidTarget));
         assert!(
             logic
                 .host_object(dozer)

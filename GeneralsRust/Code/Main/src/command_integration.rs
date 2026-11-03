@@ -1272,7 +1272,7 @@ mod tests {
 
         assert_eq!(
             commands.execute_command(&command, &mut game_logic),
-            CommandResult::Success,
+            Ok(CommandResult::Success),
             "the physical Enter command must reach live command authority"
         );
         let infantry_after = game_logic
@@ -1494,7 +1494,7 @@ End
         ));
         assert_eq!(
             commands.execute_command(&command, &mut game_logic),
-            CommandResult::Success,
+            Ok(CommandResult::Success),
             "executor repeats parsed roster/controller authority"
         );
         assert_eq!(
@@ -1595,7 +1595,7 @@ End
         ));
         assert_eq!(
             commands.execute_command(&terror_command, &mut game_logic),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
         game_logic.update();
         let bike_sluggish = game_logic
@@ -1716,7 +1716,7 @@ End
         ));
         assert_eq!(
             commands.execute_command(&command, &mut game_logic),
-            CommandResult::Success,
+            Ok(CommandResult::Success),
             "the selected infantry must reach the same authority Enter path"
         );
         let infantry_after = game_logic

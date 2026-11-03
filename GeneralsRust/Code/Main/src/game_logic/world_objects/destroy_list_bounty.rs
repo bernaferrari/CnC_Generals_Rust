@@ -1103,7 +1103,7 @@ End
         assert!(r.contained_by.is_none());
         // TransportContain.cpp389-393 scatters, then wakes the surviving rider
         // to target; the installed aggressive exit phase admits attack-move.
-        assert_eq!(r.ai_state, crate::game_logic::AIState::AttackMoving);
+        assert_eq!(r.ai_state(), crate::game_logic::AIState::AttackMoving);
         assert_eq!(r.ignored_obstacle_id, Some(transport));
         assert_eq!(r.ignore_collisions_with, Some(transport));
         let pos = r.get_position();

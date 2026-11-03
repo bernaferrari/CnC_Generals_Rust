@@ -1959,7 +1959,7 @@ fn attack_move_to_command_sets_moving_residual() {
     let o = logic.host_object(id).expect("alive");
     assert!(
         matches!(
-            o.ai_state,
+            o.ai_state(),
             AIState::Moving | AIState::AttackMoving | AIState::Attacking
         ) || o.movement.target_position.is_some()
             || !o.movement.path.is_empty(),
@@ -2874,7 +2874,7 @@ fn script_idle_and_guard_for_framecount_write_live() {
         logic
             .host_object(named)
             .map(|o| matches!(
-                o.ai_state,
+                o.ai_state(),
                 AIState::GuardingArea | AIState::GuardingObject | AIState::Idle
             ))
             .unwrap_or(false),

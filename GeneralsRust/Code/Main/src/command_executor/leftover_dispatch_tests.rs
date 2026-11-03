@@ -66,7 +66,7 @@ fn switch_weapons_locks_button_slot() {
     let result = CommandExecutor::new(&mut logic, 0)
         .execute_command(command(0, CommandType::SwitchWeapons { slot: 1 }, vec![id]))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     let unit = logic.host_object(id).expect("obj");
     assert_eq!(unit.weapon_lock_slot, 1);
     assert_eq!(unit.active_weapon_slot, 1);
@@ -94,7 +94,7 @@ fn enable_retaliation_reaches_host_player() {
             vec![],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     assert!(
         logic
             .get_player(0)
@@ -148,7 +148,7 @@ fn self_destruct_transfers_to_living_ally() {
             vec![],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     assert!(!logic.get_player(0).unwrap().is_alive);
     assert_eq!(logic.host_object(id).unwrap().owner_player_id, Some(1));
     assert_eq!(logic.get_player(0).unwrap().effective_supplies(), 0);
@@ -170,7 +170,7 @@ fn self_destruct_without_ally_wipes_cash() {
             vec![],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     assert!(!logic.get_player(0).unwrap().is_alive);
     assert_eq!(logic.get_player(0).unwrap().effective_supplies(), 0);
 }
@@ -223,7 +223,7 @@ fn place_beacon_spawns_world_object_and_respects_cap() {
             vec![],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     let beacons: Vec<_> = logic
         .host_objects()
         .registered()
@@ -248,7 +248,7 @@ fn place_beacon_spawns_world_object_and_respects_cap() {
                 vec![],
             ))
             .expect("exec");
-        assert_eq!(r, CommandResult::Success);
+        assert_eq!(r, Ok(CommandResult::Success));
     }
     let overflow = CommandExecutor::new(&mut logic, 0)
         .execute_command(command(
@@ -260,7 +260,7 @@ fn place_beacon_spawns_world_object_and_respects_cap() {
             vec![],
         ))
         .expect("exec");
-    assert_eq!(overflow, CommandResult::InvalidCommand);
+    assert_eq!(overflow, Ok(CommandResult::InvalidCommand));
 }
 
 #[test]
@@ -292,7 +292,7 @@ fn set_beacon_text_updates_selected_caption() {
             vec![id],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     assert_eq!(host_beacon_caption(&logic, id).as_deref(), Some("go"));
 }
 
@@ -316,7 +316,7 @@ fn enemy_place_hides_drawable_and_skips_host_beacons() {
             vec![],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     let id = logic
         .host_objects()
         .registered()
@@ -356,7 +356,7 @@ fn remove_beacon_empty_selection_is_noop_and_silent() {
     let result = CommandExecutor::new(&mut logic, 0)
         .execute_command(command(0, CommandType::RemoveBeacon, vec![]))
         .expect("exec");
-    assert_eq!(result, CommandResult::InvalidCommand);
+    assert_eq!(result, Ok(CommandResult::InvalidCommand));
     let after = logic
         .host_objects()
         .registered_values()
@@ -392,7 +392,7 @@ fn remove_selected_beacon_is_silent() {
     let result = CommandExecutor::new(&mut logic, 0)
         .execute_command(command(0, CommandType::RemoveBeacon, vec![id]))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     assert_eq!(logic.queued_audio_events.len(), audio_before);
     assert!(logic.host_object(id).is_none() || !logic.host_object(id).unwrap().is_alive());
 }
@@ -501,7 +501,7 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
             vec![dozer],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     {
         let dz = logic.host_object(dozer).expect("dz");
         assert_eq!(dz.ai_state(), AIState::Repairing);
@@ -763,7 +763,7 @@ fn player_stop_cancels_current_build_so_idle_does_not_resume() {
     let result = CommandExecutor::new(&mut logic, 0)
         .execute_command(command(0, CommandType::Stop, vec![dozer]))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     {
         let dz = logic.host_object(dozer).expect("dz");
         assert_eq!(
@@ -834,7 +834,7 @@ fn execute_build_records_build_slot_and_docks_off_center() {
             vec![dozer],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     let scaffold = logic
         .host_objects()
         .registered()
@@ -950,7 +950,7 @@ fn gather_cancels_build_and_blocks_idle_resume_while_supply() {
             vec![worker],
         ))
         .expect("exec");
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     {
         let w = logic.host_object(worker).expect("w");
         assert!(

@@ -126,8 +126,8 @@ fn authored_beacon_cap_and_template_are_session_owned_through_admission_and_rese
     let mut one = world(one_root.path(), "one.map", "SignalGlyph", 1);
     let mut two = world(two_root.path(), "two.map", "RallyMarker", 2);
 
-    assert_eq!(place(&mut one, 1, 11.0, "one"), CommandResult::Success);
-    assert_eq!(place(&mut two, 1, 11.0, "two"), CommandResult::Success);
+    assert_eq!(place(&mut one, 1, 11.0, "one"), Ok(CommandResult::Success));
+    assert_eq!(place(&mut two, 1, 11.0, "two"), Ok(CommandResult::Success));
     let id = *one.host_objects().registered_keys().next().unwrap();
     assert_eq!(*two.host_objects().registered_keys().next().unwrap(), id);
     assert_eq!(one.host_object(id).unwrap().template_name, "SignalGlyph");
@@ -141,7 +141,7 @@ fn authored_beacon_cap_and_template_are_session_owned_through_admission_and_rese
 
     assert_eq!(
         place(&mut one, 1, 21.0, "overflow"),
-        CommandResult::InvalidCommand
+        Ok(CommandResult::InvalidCommand)
     );
     // C++ countObjectsByThingTemplate is called with ignoreDead=false. A
     // beacon retained as effectively dead and awaiting destruction still
@@ -154,13 +154,13 @@ fn authored_beacon_cap_and_template_are_session_owned_through_admission_and_rese
     two.destroy_object(id).unwrap();
     assert!(two.host_object(id).is_some(), "destruction remains pending");
     assert!(host_local_player_can_place_beacon(&two, 1));
-    assert_eq!(place(&mut two, 1, 21.0, "second"), CommandResult::Success);
+    assert_eq!(place(&mut two, 1, 21.0, "second"), Ok(CommandResult::Success));
     assert!(!host_local_player_can_place_beacon(&two, 1));
     assert_eq!(
         place(&mut two, 1, 26.0, "third"),
-        CommandResult::InvalidCommand
+        Ok(CommandResult::InvalidCommand)
     );
-    assert_eq!(remove(&mut one, 1, id), CommandResult::Success);
+    assert_eq!(remove(&mut one, 1, id), Ok(CommandResult::Success));
     assert!(
         one.host_object(id).unwrap().status.destroyed,
         "C++ destroyObject marks the beacon before deferred physical removal"
@@ -180,10 +180,10 @@ fn authored_beacon_cap_and_template_are_session_owned_through_admission_and_rese
     assert!(one.load_map(one_root.path().join("one.map").to_str().unwrap()));
     assert_eq!(
         place(&mut one, 1, 31.0, "after reset"),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     assert_eq!(
         place(&mut one, 1, 41.0, "still capped"),
-        CommandResult::InvalidCommand
+        Ok(CommandResult::InvalidCommand)
     );
 }

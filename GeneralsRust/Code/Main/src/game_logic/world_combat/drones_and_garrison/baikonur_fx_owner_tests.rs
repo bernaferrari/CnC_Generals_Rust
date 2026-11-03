@@ -14,7 +14,7 @@ fn baikonur_neutron_spawn_fx_shakes_only_receiving_view() {
                 shake_type: CameraShakeType::Normal,
             });
             let list = game_client::fx_list::FXList::from_definition(&definition);
-            game_client::fx_list::get_fx_list_store_mut().add_fx_list("FX_Nuke".into(), list);
+            game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list("FX_Nuke".into(), list); })
             game_client::display::view::with_tactical_view(|view| {
                 let target = game_client::display::view::Point3::new(-10000., -20000., 7.);
                 view.set_position(&target);

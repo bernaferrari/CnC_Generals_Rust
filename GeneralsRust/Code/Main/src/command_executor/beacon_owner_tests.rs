@@ -30,7 +30,7 @@ fn place(logic: &mut GameLogic, player: u32, text: &str) -> ObjectId {
         CommandExecutor::new(logic, player)
             .execute_command(command)
             .unwrap(),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     *logic.host_objects().registered_keys().next().unwrap()
 }
@@ -113,11 +113,11 @@ fn authored_beacon_settings_and_templates_are_owned_by_each_world() {
 
     assert_eq!(
         place_result(&mut one, 0, 21., "overflow"),
-        CommandResult::InvalidCommand
+        Ok(CommandResult::InvalidCommand)
     );
     assert_eq!(
         place_result(&mut two, 0, 21., "second"),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     assert!(!host_object_is_beacon(&one, two_id));
     assert_eq!(host_beacon_caption(&one, one_id).as_deref(), Some("one"));
@@ -130,7 +130,7 @@ fn authored_beacon_settings_and_templates_are_owned_by_each_world() {
     let mut restored = authored_beacon_world("RallyMarker", 1);
     assert_eq!(
         place_result(&mut restored, 0, 31., "prototype"),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
