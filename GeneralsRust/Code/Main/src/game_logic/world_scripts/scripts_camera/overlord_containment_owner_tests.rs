@@ -210,7 +210,7 @@ fn overlord_on_die_deactivates_then_completes_installed_payload_before_removal()
             .objects
             .get_mut(&hull)
             .unwrap()
-            .kill(&mut owner.health_events)
+            .kill(0, &mut owner.health_events)
     );
     owner.mark_object_for_destruction(hull, None);
     assert!(!owner.host_object(hull).unwrap().overlord_redirection_active);
@@ -334,7 +334,7 @@ End
             .objects
             .get_mut(&hull)
             .unwrap()
-            .kill(&mut owner.health_events)
+            .kill(0, &mut owner.health_events)
     );
     owner.mark_object_for_destruction(hull, None);
     let rider_witness = owner

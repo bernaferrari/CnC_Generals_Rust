@@ -2367,6 +2367,7 @@ fn healing_and_water_damage_residuals() {
         25.0,
         Some(ObjectId(99)),
         DamageType::Healing,
+        0,
         &mut health_events
     ));
     assert!((unit.health.current - 65.0).abs() < 1e-3);
@@ -2379,7 +2380,7 @@ fn healing_and_water_damage_residuals() {
     assert!(unit.last_healing_timestamp.is_some());
 
     // Cap at maximum.
-    assert!(!unit.take_damage_from_typed(1000.0, None, DamageType::Healing, &mut health_events));
+    assert!(!unit.take_damage_from_typed(1000.0, None, DamageType::Healing, 0, &mut health_events));
     assert!((unit.health.current - 100.0).abs() < 1e-3);
 
     // Water deals normal HP damage.
@@ -2392,7 +2393,7 @@ fn healing_and_water_damage_residuals() {
     // Dead units do not heal.
     unit.health.current = 0.0;
     unit.status.destroyed = true;
-    assert!(!unit.take_damage_from_typed(50.0, None, DamageType::Healing, &mut health_events));
+    assert!(!unit.take_damage_from_typed(50.0, None, DamageType::Healing, 0, &mut health_events));
     assert!((unit.health.current - 0.0).abs() < 1e-3);
 }
 
@@ -2408,7 +2409,7 @@ fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
     tt.set_health(100.0);
     let mut crawler = Object::new(tt, ObjectId(1), Team::China);
     crawler.health.current = 100.0;
-    assert!(!crawler.take_damage_from_typed(50.0, None, DamageType::Deploy, &mut health_events));
+    assert!(!crawler.take_damage_from_typed(50.0, None, DamageType::Deploy, 0, &mut health_events));
     assert!((crawler.health.current - 100.0).abs() < 1e-3);
     assert!(!crawler.status.destroyed);
 
@@ -2418,7 +2419,7 @@ fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
     ht.add_kind_of(KindOf::Vehicle);
     let mut tank = Object::new(ht, ObjectId(2), Team::USA);
     tank.health.current = 100.0;
-    assert!(!tank.take_damage_from_typed(40.0, None, DamageType::Hack, &mut health_events));
+    assert!(!tank.take_damage_from_typed(40.0, None, DamageType::Hack, 0, &mut health_events));
     assert!((tank.health.current - 100.0).abs() < 1e-3);
 
     // SURRENDER: retail ALLOW_SURRENDER off — lethal hit is normal HP death
@@ -2428,7 +2429,7 @@ fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
     it.add_kind_of(KindOf::Infantry);
     let mut ranger = Object::new(it, ObjectId(3), Team::USA);
     ranger.health.current = 50.0;
-    assert!(ranger.take_damage_from_typed(50.0, None, DamageType::Surrender, &mut health_events));
+    assert!(ranger.take_damage_from_typed(50.0, None, DamageType::Surrender, 0, &mut health_events));
     assert!(!ranger.is_surrendered);
     assert!(!ranger.is_alive());
 
@@ -2484,7 +2485,7 @@ fn disarm_damage_clears_mine_without_hp_on_tank() {
         ..HostMineData::land_mine()
     });
     mine.health.current = 10.0;
-    assert!(mine.take_damage_from_typed(1.0, None, DamageType::Disarm, &mut health_events));
+    assert!(mine.take_damage_from_typed(1.0, None, DamageType::Disarm, 0, &mut health_events));
     assert!(mine.status.destroyed);
     assert!(mine.mine_data.as_ref().unwrap().detonated);
 
@@ -2493,7 +2494,7 @@ fn disarm_damage_clears_mine_without_hp_on_tank() {
     tt.add_kind_of(KindOf::Vehicle);
     let mut tank = Object::new(tt, ObjectId(2), Team::USA);
     tank.health.current = 100.0;
-    assert!(!tank.take_damage_from_typed(50.0, None, DamageType::Disarm, &mut health_events));
+    assert!(!tank.take_damage_from_typed(50.0, None, DamageType::Disarm, 0, &mut health_events));
     assert!((tank.health.current - 100.0).abs() < 1e-3);
 }
 
@@ -2509,7 +2510,7 @@ fn disarm_keeps_regenerating_china_pad() {
     let mut mine = Object::new(mt, ObjectId(3), Team::China);
     mine.mine_data = Some(HostMineData::land_mine_for_template("ChinaStandardMine"));
     mine.health.current = 100.0;
-    assert!(!mine.take_damage_from_typed(1.0, None, DamageType::Disarm, &mut health_events));
+    assert!(!mine.take_damage_from_typed(1.0, None, DamageType::Disarm, 0, &mut health_events));
     assert!(!mine.status.destroyed);
     assert!((mine.health.current - MINE_MIN_HEALTH).abs() < 1e-3);
     assert_eq!(mine.mine_data.as_ref().unwrap().virtual_mines_remaining, 0);
@@ -2530,7 +2531,7 @@ fn disarm_damage_defuses_demo_trap_without_hp_splash_path() {
     trap.mine_data = Some(HostMineData::demo_trap());
     trap.health.current = 100.0;
     assert!(trap.is_disarmable_mine());
-    assert!(trap.take_damage_from_typed(1.0, None, DamageType::Disarm, &mut health_events));
+    assert!(trap.take_damage_from_typed(1.0, None, DamageType::Disarm, 0, &mut health_events));
     assert!(trap.status.destroyed);
     assert!(trap.mine_data.as_ref().unwrap().detonated);
 }
@@ -2547,7 +2548,7 @@ fn kill_pilot_damage_unmans_vehicle_without_hp_loss() {
     let mut o = Object::new(tmpl, ObjectId(5), Team::China);
     o.health.current = 200.0;
     o.health.maximum = 200.0;
-    assert!(!o.take_damage_from_typed(1.0, None, DamageType::KillPilot, &mut health_events));
+    assert!(!o.take_damage_from_typed(1.0, None, DamageType::KillPilot, 0, &mut health_events));
     assert!((o.health.current - 200.0).abs() < 1e-3);
     assert!(o.is_unmanned());
     assert_eq!(o.team, Team::Neutral);
@@ -2567,11 +2568,11 @@ fn microwave_is_hp_through_armor_not_emp_subdual() {
     let mut o = Object::new(tmpl, ObjectId(4), Team::USA);
     o.health.current = 100.0;
     o.health.maximum = 100.0;
-    assert!(!o.take_damage_from_typed(40.0, None, DamageType::Microwave, &mut health_events));
+    assert!(!o.take_damage_from_typed(40.0, None, DamageType::Microwave, 0, &mut health_events));
     assert!((o.health.current - 100.0).abs() < 1e-3);
     assert!(o.subdual_damage.abs() < 1e-3);
     assert!(!o.is_subdued());
-    assert!(!o.take_damage_from_typed(70.0, None, DamageType::EMP, &mut health_events));
+    assert!(!o.take_damage_from_typed(70.0, None, DamageType::EMP, 0, &mut health_events));
     assert!((o.health.current - 100.0).abs() < 1e-3);
     assert!(o.subdual_damage.abs() < 1e-3);
     assert!(!o.is_subdued());

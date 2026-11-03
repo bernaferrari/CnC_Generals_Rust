@@ -1774,7 +1774,7 @@ mod tests {
                 armor: Some("RadTankArmor".into()),
                 damage_fx: None,
             });
-        assert!(!tank.take_radiation_field_tick(20.0, None, &mut health_events));
+        assert!(!tank.take_radiation_field_tick(20.0, None, 0, &mut health_events));
         assert!(
             (tank.health.current - 90.0).abs() < 1e-3,
             "Radiation must apply armor (50% of 20), got {}",
@@ -1794,14 +1794,14 @@ mod tests {
         }];
         jet.status.airborne_target = true;
         // Weapon.cpp:1351 tests real height, not aircraft/target classification.
-        assert!(!jet.take_radiation_field_tick(25.0, None, &mut health_events));
+        assert!(!jet.take_radiation_field_tick(25.0, None, 0, &mut health_events));
         assert_eq!(
             jet.health.current, 75.0,
             "grounded aircraft flags do not prevent radiation"
         );
         jet.health.current = 100.0;
         jet.set_position(glam::Vec3::new(0.0, 100.0, 0.0));
-        assert!(!jet.take_radiation_field_tick(25.0, None, &mut health_events));
+        assert!(!jet.take_radiation_field_tick(25.0, None, 0, &mut health_events));
         assert!(
             (jet.health.current - 100.0).abs() < 1e-3,
             "NOT_AIRBORNE must skip flying victims, got {}",

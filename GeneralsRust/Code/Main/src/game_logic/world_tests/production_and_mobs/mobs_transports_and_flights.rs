@@ -2306,7 +2306,7 @@ fn fire_spread_tree_ignites_neighbor() {
     assert!(logic.host_object(b).unwrap().has_fire_spread());
     assert!(logic.fire_spread_reg.installed >= 2);
 
-    assert!(logic.ignite_object_fire_spread(a));
+    assert!(logic.ignite_object_fire_spread(a, &mut crate::game_logic::ScriptPresentationEffects::default()));
     // Force spread due immediately.
     {
         let o = logic.host_object_mut(a).unwrap();
@@ -2396,7 +2396,7 @@ fn fire_spread_spawns_burning_embers_and_uses_3d_range() {
             Vec3::new(30.0, 80.0, 0.0),
         )
         .expect("cliff");
-    assert!(logic.ignite_object_fire_spread(a));
+    assert!(logic.ignite_object_fire_spread(a, &mut crate::game_logic::ScriptPresentationEffects::default()));
     {
         let o = logic.host_object_mut(a).unwrap();
         if let Some(fs) = o.fire_spread.as_mut() {
@@ -2439,7 +2439,7 @@ fn tree_smolders_while_still_aflame() {
     let id = logic
         .create_object("DogwoodTreeA", Team::Neutral, Vec3::ZERO)
         .expect("tree");
-    assert!(logic.ignite_object_fire_spread(id));
+    assert!(logic.ignite_object_fire_spread(id, &mut crate::game_logic::ScriptPresentationEffects::default()));
     {
         let o = logic.host_object_mut(id).unwrap();
         if let Some(fs) = o.fire_spread.as_mut() {

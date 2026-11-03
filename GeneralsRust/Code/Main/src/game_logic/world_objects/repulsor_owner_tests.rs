@@ -88,7 +88,7 @@ fn standalone_object_damage_has_no_ambient_match_repulsor_policy() {
             world.set_enable_repulsors(true);
             let mut standalone = world.objects[&id].clone();
             let mut events = crate::game_logic::HostHealthEvents::default();
-            assert!(!standalone.take_damage(10.0, &mut events));
+            assert!(!standalone.take_damage(10.0, 0, &mut events));
             assert!(
                 !standalone.status.repulsor,
                 "a standalone wrapper has no driving match policy"

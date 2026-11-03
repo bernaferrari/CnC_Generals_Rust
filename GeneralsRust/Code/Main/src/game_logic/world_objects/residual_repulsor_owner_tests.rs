@@ -106,7 +106,7 @@ fn fuel_air_radius_damage_reads_the_driving_world_repulsor_policy() {
             let mut standalone = first.host_object(id).unwrap().clone();
             standalone.set_status_repulsor(false);
             let mut events = crate::game_logic::HostHealthEvents::default();
-            assert!(!standalone.take_damage_from_immediate(10.0, None, &mut events));
+            assert!(!standalone.take_damage_from_immediate(10.0, None, 0, &mut events));
             assert!(!standalone.status.repulsor);
             assert!(first.host_object(id).unwrap().status.repulsor);
         },
