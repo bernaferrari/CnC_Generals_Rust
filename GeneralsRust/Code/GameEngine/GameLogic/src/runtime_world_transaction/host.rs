@@ -97,7 +97,7 @@ pub struct HostRuntimeWorldStage {
     /// Explicit driving services; their terrain/shroud/visual values are never swapped.
     live_bundle: Arc<WorldServices>,
     effect_scope: Option<WorldRuntimeStageScope>,
-    transaction_lock: Option<MutexGuard<'static, ()>>,
+    transaction_lock: Option<crate::runtime_world_transaction::WorldRuntimeTransactionLock>,
 }
 
 impl HostRuntimeWorldStage {
@@ -109,10 +109,7 @@ impl HostRuntimeWorldStage {
             !world_runtime_staging_active(),
             "nested HostRuntimeWorldStage would overwrite the outer candidate world"
         );
-        let transaction_lock = match world_runtime_transaction_lock().lock() {
-            Ok(lock) => lock,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let transaction_lock = world_runtime_transaction_lock();
         let effect_scope = WorldRuntimeStageScope::enter();
         // The caller supplies the driving services; no active-world selection.
         let live_bundle = Arc::clone(live_bundle);
@@ -226,9 +223,7 @@ impl StagedHostRuntimeWorld {
         );
         // Reacquire BEFORE either service publication or raw singleton swaps.
         // NativeRuntimeWorldCommit retains this through the matching Main swap.
-        let transaction_lock = world_runtime_transaction_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let transaction_lock = world_runtime_transaction_lock();
         // Make the candidate bundle the ambient target for the commit swap;
         // the host installs the matching GameLogic immediately after, and the
         // old world's drop then only removes that old bundle's stack entry.

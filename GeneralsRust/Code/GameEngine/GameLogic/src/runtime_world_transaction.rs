@@ -21,17 +21,62 @@ use crate::team::{
     replace_pending_team_script_events_for_world_boundary,
     take_pending_team_script_events_for_world_boundary,
 };
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Singleton contents are process-global, so staging cannot run concurrently
 /// on two threads even though the side-effect marker itself is thread-local.
 /// The host normally owns this lock implicitly through its game thread; the
 /// explicit mutex also makes test/worker misuse serialize rather than swap two
 /// candidate worlds through the same wrappers.
-static WORLD_RUNTIME_TRANSACTION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+/// RAII lock for host staging. Keeps the world's `Arc<Mutex<()>>` alive so the
+/// guard can be stored without a process-wide `'static` mutex.
+pub struct WorldRuntimeTransactionLock {
+    _arc: Arc<Mutex<()>>,
+    guard: Option<MutexGuard<'static, ()>>,
+}
 
-fn world_runtime_transaction_lock() -> &'static Mutex<()> {
-    WORLD_RUNTIME_TRANSACTION_LOCK.get_or_init(|| Mutex::new(()))
+impl WorldRuntimeTransactionLock {
+    pub fn acquire() -> Self {
+        let arc = Arc::clone(
+            crate::system::engine_stores::active_services().runtime_transaction_lock(),
+        );
+        let guard = arc.lock().unwrap_or_else(|e| e.into_inner());
+        // SAFETY: `_arc` is stored in the same struct and outlives `guard`.
+        let guard: MutexGuard<'static, ()> = unsafe { std::mem::transmute(guard) };
+        Self {
+            _arc: arc,
+            guard: Some(guard),
+        }
+    }
+
+    pub fn try_acquire() -> Option<Self> {
+        let arc = Arc::clone(
+            crate::system::engine_stores::active_services().runtime_transaction_lock(),
+        );
+        let guard = arc.try_lock().ok()?;
+        let guard: MutexGuard<'static, ()> = unsafe { std::mem::transmute(guard) };
+        Some(Self {
+            _arc: arc,
+            guard: Some(guard),
+        })
+    }
+
+    pub fn is_free() -> bool {
+        crate::system::engine_stores::active_services()
+            .runtime_transaction_lock()
+            .try_lock()
+            .is_ok()
+    }
+}
+
+impl Drop for WorldRuntimeTransactionLock {
+    fn drop(&mut self) {
+        self.guard.take();
+    }
+}
+
+pub(crate) fn world_runtime_transaction_lock() -> WorldRuntimeTransactionLock {
+    WorldRuntimeTransactionLock::acquire()
 }
 
 fn staging_services() -> Arc<crate::system::engine_stores::WorldServices> {
@@ -175,7 +220,7 @@ fn validate_native_team_effects(effects: &[TeamFactoryDeferredEffects]) -> Resul
 #[must_use = "call execute_after_logic_commit after installing the staged host GameLogic"]
 pub struct CommittedRuntimeWorldEffects {
     team_factory_effects: Option<Vec<TeamFactoryDeferredEffects>>,
-    transaction_lock: Option<MutexGuard<'static, ()>>,
+    transaction_lock: Option<WorldRuntimeTransactionLock>,
 }
 
 impl CommittedRuntimeWorldEffects {

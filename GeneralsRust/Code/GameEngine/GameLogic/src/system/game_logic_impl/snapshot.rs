@@ -276,7 +276,7 @@ impl XferSnapshotTrait for TerrainLogicSnapshotBridge {
 }
 
 fn register_game_logic_snapshot_block() {
-    let logic = GAME_LOGIC.get_or_init(|| Mutex::new(GameLogic::default()));
+    let logic = get_game_logic();
     let script_engine = get_script_engine();
     let mut state = game_engine::System::get_game_state();
     state.add_snapshot_block(
