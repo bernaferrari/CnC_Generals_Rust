@@ -622,6 +622,8 @@ fn possible_destination_uses_the_receivers_aircraft_goal_rules() {
 
 #[test]
 fn core_bridge_line_uses_the_deck_then_falls_back_to_blocked_ground() {
+    let services = gamelogic::system::engine_stores::new_world_services();
+    gamelogic::system::engine_stores::with_world_services(&services, || {
     use gamelogic::ai::pathfind_astar::{GridCoord, PathfindCellType, PathfindLayerEnum};
     use gamelogic::ai::pathfind_complete::{PathfindingSystem as CorePathfinder, SURFACE_GROUND};
     let mut finder = CorePathfinder::new(20, 20);
@@ -667,10 +669,13 @@ fn core_bridge_line_uses_the_deck_then_falls_back_to_blocked_ground() {
         layer,
         None
     ));
+    });
 }
 
 #[test]
 fn core_bridge_changes_recalculate_zones_before_draining_the_queue() {
+    let services = gamelogic::system::engine_stores::new_world_services();
+    gamelogic::system::engine_stores::with_world_services(&services, || {
     use gamelogic::ai::pathfind_astar::{GridCoord, PathfindCellType, PathfindLayerEnum};
     use gamelogic::ai::pathfind_complete::{PathfindingSystem as CorePathfinder, SURFACE_GROUND};
     let mut finder = CorePathfinder::new(20, 20);
@@ -763,10 +768,13 @@ fn core_bridge_changes_recalculate_zones_before_draining_the_queue() {
         );
     }
     assert_eq!(calls, 3);
+    });
 }
 
 #[test]
 fn core_possible_candidate_uses_bridge_cell_and_zone() {
+    let services = gamelogic::system::engine_stores::new_world_services();
+    gamelogic::system::engine_stores::with_world_services(&services, || {
     use gamelogic::ai::pathfind_astar::{GridCoord, PathfindCellType, PathfindLayerEnum};
     use gamelogic::ai::pathfind_complete::{
         PathfindingSystem as CorePathfinder, SURFACE_AIR, SURFACE_GROUND,
@@ -949,6 +957,7 @@ fn core_possible_candidate_uses_bridge_cell_and_zone() {
         ),
         "an impassable layer slot falls back to the clear ground cell"
     );
+    });
 }
 
 #[test]
