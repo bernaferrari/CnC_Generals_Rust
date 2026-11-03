@@ -187,6 +187,10 @@ pub(super) fn seed_damage_type_for(name: &str, weapon_speed: f32) -> gamelogic::
     match n.as_str() {
         "missiledefenderlaserguidedmissileweapon" => return D::ArmorPiercing,
         "missiledefendermissileweapon" => return D::InfantryMissile,
+        // Retail Weapon.ini DamageType=AURORA_BOMB (ordinal 25), not Explosion.
+        "aurorabombweapon" | "airf_aurorabombweapon" | "supw_aurorafuelbombweapon" => {
+            return D::AuroraBomb;
+        }
         _ => {}
     }
     if n.contains("laser") || n.contains("point_defense") || n.contains("pointdefense") {
@@ -231,12 +235,14 @@ pub(super) fn seed_damage_type_for(name: &str, weapon_speed: f32) -> gamelogic::
     if n.contains("flashbang") {
         return D::Surrender;
     }
+    if n.contains("aurora") {
+        return D::AuroraBomb;
+    }
     if n.contains("bomb")
         || n.contains("scud")
         || n.contains("missile")
         || n.contains("rocket")
         || n.contains("tomahawk")
-        || n.contains("aurora")
         || n.contains("grenade")
         || n.contains("demo")
     {

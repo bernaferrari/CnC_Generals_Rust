@@ -1629,5 +1629,23 @@ fn nearer_bridge_end_is_not_span_center() {
     assert!((aim.x - 60.0).abs() < 1.0);
 }
 
+
+#[test]
+fn aurora_seed_damage_type_is_aurora_bomb_not_explosion() {
+    use super::store::seed_damage_type_for;
+    use gamelogic::damage::DamageType;
+    for name in [
+        "AuroraBombWeapon",
+        "AirF_AuroraBombWeapon",
+        "SupW_AuroraFuelBombWeapon",
+    ] {
+        assert_eq!(
+            seed_damage_type_for(name, 99999.0),
+            DamageType::AuroraBomb,
+            "{name} fallback must keep AURORA_BOMB"
+        );
+    }
+}
+
 #[path = "bootstrap_owner_tests.rs"]
 mod bootstrap_owner_tests;
