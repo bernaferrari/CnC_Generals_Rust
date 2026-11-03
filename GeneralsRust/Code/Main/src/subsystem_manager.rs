@@ -478,7 +478,8 @@ impl_bootstrap_subsystem!(ObjectCreationListSubsystem, "ObjectCreationListStore"
 });
 
 impl_bootstrap_subsystem!(BuildAssistantSubsystem, "BuildAssistant", {
-    gamelogic::system::build_assistant_bridge::install_build_assistant_backend();
+    // Needs CommonServices TLS (install_common_services). GameLogic::init
+    // installs the backend after world/common services are published.
     Ok(())
 });
 
