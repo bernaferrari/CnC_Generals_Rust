@@ -77,7 +77,7 @@ fn install_death_fx() {
     game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(
         "FX_ImmediateShakeDeath".into(),
         game_client::fx_list::FXList::from_definition(&definition),
-    ); })
+    ); });
 }
 fn action(kind: ScriptActionType, parameter: Parameter) -> Box<ScriptAction> {
     let mut action = ScriptAction::new(kind);

@@ -39,7 +39,7 @@ fn install() -> Receiver<(&'static str, Option<u32>)> {
         });
         let mut list = game_client::fx_list::FXList::from_definition(&definition);
         list.add_fx_nugget(Box::new(Observe(name, send.clone())));
-        game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(name.into(), list); })
+        game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(name.into(), list); });
     }
     let mut rules = damage::DamageFX::new();
     for kind in [

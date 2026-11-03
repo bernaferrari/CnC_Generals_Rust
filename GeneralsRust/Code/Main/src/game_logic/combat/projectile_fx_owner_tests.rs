@@ -44,7 +44,7 @@ fn install_shake() {
     game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(
         definition.name.to_string(),
         game_client::fx_list::FXList::from_definition(&definition),
-    ); })
+    ); });
 }
 fn reveal_object(world: &GameLogic, id: ObjectId) {
     world
