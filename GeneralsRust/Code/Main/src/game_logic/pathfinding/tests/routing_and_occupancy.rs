@@ -1950,3 +1950,30 @@ fn pathfind_cluster_diameter_aircraft_human_extent() {
         );
     }
 }
+
+/// Cluster proof for hq-8vmd8e (+ su78f overflow): pending max is PATHFIND_QUEUE_LEN-1.
+#[test]
+fn pathfind_cluster_reserved_slot_capacity_matches_cpp() {
+    assert_eq!(
+        MAX_PENDING_PATH_REQUESTS, 511,
+        "C++ admits while nextSlot != head over a 512-slot ring"
+    );
+    let mut sys = PathfindingSystem::new(100.0, 100.0);
+    let mk = |id: u32| PendingHostPath {
+        unit_id: ObjectId(id),
+        start: Vec3::ZERO,
+        destination: Vec3::new(id as f32, 0.0, 0.0),
+        waypoints: Vec::new(),
+        aircraft: false,
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        ignore_obstacle: None,
+        adjust_destinations: true,
+        follow_path_appends: Vec::new(),
+    };
+    for i in 1..=MAX_PENDING_PATH_REQUESTS as u32 {
+        assert!(sys.queue_path(mk(i)));
+    }
+    assert!(!sys.queue_path(mk(9000)));
+    assert_eq!(sys.pending_path_count(), 511);
+}
