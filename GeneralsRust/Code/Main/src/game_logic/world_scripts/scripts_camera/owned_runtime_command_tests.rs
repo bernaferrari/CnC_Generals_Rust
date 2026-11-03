@@ -7,15 +7,20 @@ use gamelogic::scripting::core::{
 use gamelogic::scripting::engine::ScriptEngine;
 
 fn roster(owner: &GameLogic, name: &str, unit: ObjectId, player: u32) -> u32 {
-    let mut factory = owner.team_factory.lock().unwrap();
-    factory
-        .init_team(name.into(), "NamedOwner".into(), false, None)
-        .unwrap();
-    let team = factory.create_team(name).unwrap();
-    let mut team = team.write().unwrap();
-    team.set_controlling_player_id_for_owned_members(Some(player));
-    team.add_member(unit.0);
-    team.get_id()
+    // GameLogic::new leaves ambient WorldServices clear; TeamFactory player
+    // bind needs the owning bag published for the call.
+    let services = owner.world_services.clone();
+    gamelogic::system::engine_stores::with_world_services(&services, || {
+        let mut factory = owner.team_factory.lock().unwrap();
+        factory
+            .init_team(name.into(), "NamedOwner".into(), false, None)
+            .unwrap();
+        let team = factory.create_team(name).unwrap();
+        let mut team = team.write().unwrap();
+        team.set_controlling_player_id_for_owned_members(Some(player));
+        team.add_member(unit.0);
+        team.get_id()
+    })
 }
 
 #[test]
@@ -182,17 +187,24 @@ fn team_move_this_team_uses_calling_team_identity() {
     let condition_unit = owner
         .create_object_for_player("OwnedNamedInfantry", 2, Vec3::new(110.0, 0.0, 110.0))
         .unwrap();
-    let mut factory = owner.team_factory.lock().unwrap();
-    factory
-        .init_team("SameNameMoveTeam".into(), "NamedOwner".into(), false, None)
-        .unwrap();
-    let calling = factory.create_inactive_team("SameNameMoveTeam").unwrap();
-    calling.write().unwrap().add_member(calling_unit.0);
-    let calling_id = calling.read().unwrap().get_id();
-    let condition = factory.create_inactive_team("SameNameMoveTeam").unwrap();
-    condition.write().unwrap().add_member(condition_unit.0);
-    let condition_id = condition.read().unwrap().get_id();
-    drop(factory);
+    let services = owner.world_services.clone();
+    let (calling_id, condition_id) = gamelogic::system::engine_stores::with_world_services(
+        &services,
+        || {
+            let mut factory = owner.team_factory.lock().unwrap();
+            factory
+                .init_team("SameNameMoveTeam".into(), "NamedOwner".into(), false, None)
+                .unwrap();
+            let calling = factory.create_inactive_team("SameNameMoveTeam").unwrap();
+            calling.write().unwrap().add_member(calling_unit.0);
+            let calling_id = calling.read().unwrap().get_id();
+            let condition = factory.create_inactive_team("SameNameMoveTeam").unwrap();
+            condition.write().unwrap().add_member(condition_unit.0);
+            let condition_id = condition.read().unwrap().get_id();
+            drop(factory);
+            (calling_id, condition_id)
+        },
+    );
 
     let mut map = gamelogic::system::map_loader::MapData::new();
     map.waypoints
@@ -227,12 +239,15 @@ fn team_move_this_team_uses_calling_team_identity() {
         .unwrap();
     let mut engine = ScriptEngine::new().unwrap();
     engine.set_external_eval_context(None, Some(condition_id));
-    engine.friend_execute_action_with_driver(
-        &action,
-        Some(calling_id),
-        gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
-        &mut super::script_execution_driver::HostScriptExecutionDriver::new(&mut owner),
-    );
+    let services = owner.world_services.clone();
+    gamelogic::system::engine_stores::with_world_services(&services, || {
+        engine.friend_execute_action_with_driver(
+            &action,
+            Some(calling_id),
+            gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+            &mut super::script_execution_driver::HostScriptExecutionDriver::new(&mut owner),
+        );
+    });
 
     assert_eq!(
         owner
@@ -256,17 +271,24 @@ fn team_move_this_team_prefers_calling_team_identity_over_condition_team() {
     let condition_unit = owner
         .create_object_for_player("OwnedNamedInfantry", 2, Vec3::new(100.0, 0.0, 100.0))
         .unwrap();
-    let mut factory = owner.team_factory.lock().unwrap();
-    factory
-        .init_team("SameNameMoveTeam".into(), "NamedOwner".into(), false, None)
-        .unwrap();
-    let calling = factory.create_inactive_team("SameNameMoveTeam").unwrap();
-    calling.write().unwrap().add_member(calling_unit.0);
-    let calling_id = calling.read().unwrap().get_id();
-    let condition = factory.create_inactive_team("SameNameMoveTeam").unwrap();
-    condition.write().unwrap().add_member(condition_unit.0);
-    let condition_id = condition.read().unwrap().get_id();
-    drop(factory);
+    let services = owner.world_services.clone();
+    let (calling_id, condition_id) = gamelogic::system::engine_stores::with_world_services(
+        &services,
+        || {
+            let mut factory = owner.team_factory.lock().unwrap();
+            factory
+                .init_team("SameNameMoveTeam".into(), "NamedOwner".into(), false, None)
+                .unwrap();
+            let calling = factory.create_inactive_team("SameNameMoveTeam").unwrap();
+            calling.write().unwrap().add_member(calling_unit.0);
+            let calling_id = calling.read().unwrap().get_id();
+            let condition = factory.create_inactive_team("SameNameMoveTeam").unwrap();
+            condition.write().unwrap().add_member(condition_unit.0);
+            let condition_id = condition.read().unwrap().get_id();
+            drop(factory);
+            (calling_id, condition_id)
+        },
+    );
 
     let mut map = gamelogic::system::map_loader::MapData::new();
     map.waypoints
@@ -301,12 +323,15 @@ fn team_move_this_team_prefers_calling_team_identity_over_condition_team() {
         .unwrap();
     let mut engine = ScriptEngine::new().unwrap();
     engine.set_external_eval_context(None, Some(condition_id));
-    engine.friend_execute_action_with_driver(
-        &action,
-        Some(calling_id),
-        gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
-        &mut super::script_execution_driver::HostScriptExecutionDriver::new(&mut owner),
-    );
+    let services = owner.world_services.clone();
+    gamelogic::system::engine_stores::with_world_services(&services, || {
+        engine.friend_execute_action_with_driver(
+            &action,
+            Some(calling_id),
+            gamelogic::scripting::executor::ScriptContext::at_frame(owner.frame),
+            &mut super::script_execution_driver::HostScriptExecutionDriver::new(&mut owner),
+        );
+    });
 
     assert_eq!(
         owner
@@ -855,3 +880,114 @@ fn borrowed_script_topple_override_reaches_immediate_named_and_negative_team_dea
         );
     }
 }
+
+
+
+
+#[test]
+fn team_move_admits_roster_order_before_waypoint_and_keeps_membership_when_missing() {
+    // hq-exam6e / C++ ScriptActions::doMoveToWaypoint:
+    // createGroup → getTeamAsAIGroup (roster order) → waypoint lookup → groupMove.
+    // C++ Team::addMember prepends (Object.cpp:853); registration order must not
+    // replace that roster walk.
+    let (mut owner, first, _) = world();
+    let team_id = roster(&owner, "RosterMoveTeam", first, 1);
+    let second = owner
+        .create_object_for_player("OwnedNamedInfantry", 1, Vec3::new(40.0, 0.0, 40.0))
+        .unwrap();
+    assert!(first.0 < second.0, "registration order is ascending ObjectId");
+    {
+        let factory = owner.team_factory.lock().unwrap();
+        let team = factory.find_team_by_id(team_id).expect("team");
+        let mut team = team.write().unwrap();
+        team.add_member(second.0);
+        assert_eq!(
+            team.get_members(),
+            &[second.0, first.0],
+            "C++ prepend roster must walk newest-first"
+        );
+    }
+
+    // Missing waypoint: C++ still builds the AIGroup from the roster.
+    assert_eq!(
+        execute(
+            &mut owner,
+            &[(
+                ScriptActionType::MoveTeamTo,
+                "RosterMoveTeam",
+                "NoSuchWaypoint"
+            )]
+        ),
+        1
+    );
+    let group = owner
+        .ai_group_id_of(second)
+        .expect("newest roster member must join the script AIGroup before waypoint lookup");
+    assert_eq!(owner.ai_group_id_of(first), Some(group));
+    assert_eq!(
+        owner.ai_group_members(group),
+        vec![second, first],
+        "AIGroup membership must keep Team roster order, not ObjectId registration order"
+    );
+    assert_eq!(owner.host_object(first).unwrap().requested_destination, None);
+    assert_eq!(owner.host_object(second).unwrap().requested_destination, None);
+
+    let mut map = gamelogic::system::map_loader::MapData::new();
+    map.width = 64;
+    map.height = 64;
+    map.heightmap = vec![0; 64 * 64];
+    map.boundaries = vec![gamelogic::common::ICoord2D::new(64, 64)];
+    map.waypoints
+        .push(gamelogic::system::map_loader::MapWaypoint {
+            id: 9301,
+            name: "RosterWaypoint".into(),
+            location: gamelogic::common::Coord3D::new(300.0, 300.0, 0.0),
+            path_label1: String::new(),
+            path_label2: String::new(),
+            path_label3: String::new(),
+            bi_directional: false,
+        });
+    owner
+        .world_services
+        .terrain()
+        .write()
+        .unwrap()
+        .load_map_data(map);
+
+    assert_eq!(
+        execute(
+            &mut owner,
+            &[(
+                ScriptActionType::MoveTeamTo,
+                "RosterMoveTeam",
+                "RosterWaypoint"
+            )]
+        ),
+        1
+    );
+    let group = owner.ai_group_id_of(second).expect("group after move");
+    assert_eq!(
+        owner.ai_group_members(group),
+        vec![second, first],
+        "successful TeamMove must keep roster order through groupMoveToPosition"
+    );
+    // groupMoveToPosition packs offsets around the waypoint; both movers must
+    // receive a destination near the authored point while keeping roster order.
+    let second_dest = owner
+        .host_object(second)
+        .unwrap()
+        .requested_destination
+        .expect("newest roster member moves");
+    let first_dest = owner
+        .host_object(first)
+        .unwrap()
+        .requested_destination
+        .expect("older roster member moves");
+    for dest in [second_dest, first_dest] {
+        assert!(
+            (dest.x - 300.0).abs() < 80.0 && (dest.z - 300.0).abs() < 80.0,
+            "script TeamMove destination {dest:?} must stay near waypoint (300,0,300)"
+        );
+    }
+}
+

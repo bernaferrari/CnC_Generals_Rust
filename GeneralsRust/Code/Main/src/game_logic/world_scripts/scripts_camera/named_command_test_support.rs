@@ -123,11 +123,14 @@ pub(super) fn execute(world: &mut GameLogic, actions: &[(ScriptActionType, &str,
     engine
         .set_script_list_for_player(0, Some(Box::new(list)))
         .unwrap();
-    engine
-        .update_with_driver(
-            gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
-            &mut HostScriptExecutionDriver::new(world),
-        )
-        .unwrap();
+    let services = world.world_services.clone();
+    gamelogic::system::engine_stores::with_world_services(&services, || {
+        engine
+            .update_with_driver(
+                gamelogic::scripting::executor::ScriptContext::at_frame(world.frame),
+                &mut HostScriptExecutionDriver::new(world),
+            )
+            .unwrap();
+    });
     engine.get_counter("NamedObserved").unwrap().value
 }
