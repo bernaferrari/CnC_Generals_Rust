@@ -343,4 +343,21 @@ impl GameClient {
     pub fn rays_mut(&mut self) -> &mut crate::effects::ray_effect_system::RayFxState {
         &mut self.drawables.rays
     }
+
+    pub fn ensure_mapped_image_collection(
+        &mut self,
+    ) -> std::sync::Arc<parking_lot::RwLock<crate::display::image::ImageCollection>> {
+        self.mapped_image_collection
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(parking_lot::RwLock::new(
+                    crate::display::image::ImageCollection::new(),
+                ))
+            })
+            .clone()
+    }
+
+    /// Returns true the first time `key` is seen for this client (log it).
+    pub fn note_startup_shell_image_log(&mut self, key: &str) -> bool {
+        self.startup_shell_image_reported.insert(key.to_string())
+    }
 }

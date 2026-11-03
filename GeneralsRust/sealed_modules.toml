@@ -258,3 +258,8 @@ path = "Code/GameEngine/GameClient/src/effects/ray_effect_system.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/RayEffect.cpp"
 note = "RayFxState on GameClient::drawables.rays; removed process OnceLock Mutex store; peels use live-client loan."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/display/image.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/System/Image.cpp"
+note = "Mapped ImageCollection + startup-shell log dedupe on GameClient; removed MAPPED_IMAGE_COLLECTION/REPORTED TLS; peels use live-client loan."
+

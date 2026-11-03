@@ -72,6 +72,8 @@ pub struct GameClient {
     command_hints: crate::gui::command_hints::CommandHintState,
     owned_world_animations: OwnedWorldAnimations,
     receiving_ui_images: Option<crate::display::image::ImageCollection>,
+    mapped_image_collection: Option<std::sync::Arc<parking_lot::RwLock<crate::display::image::ImageCollection>>>,
+    startup_shell_image_reported: std::collections::HashSet<String>,
     /// DrawIconUI admitted from the driving Main session before native draw.
     receiving_draw_icon_ui: bool,
     snow: crate::snow::SnowManager,
