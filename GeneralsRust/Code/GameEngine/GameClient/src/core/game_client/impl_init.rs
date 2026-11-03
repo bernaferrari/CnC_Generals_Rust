@@ -108,6 +108,8 @@ impl GameClient {
             snow_manager: None,
             supply_and_tech_images: None,
             map_cache_manager: None,
+            video_player_slot: None,
+            video_stream_provider_slot: None,
             startup_shell_image_reported: std::collections::HashSet::new(),
             receiving_draw_icon_ui: true,
             snow: crate::snow::SnowManager::new(),

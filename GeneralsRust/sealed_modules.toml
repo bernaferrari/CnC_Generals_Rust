@@ -347,3 +347,8 @@ path = "Code/GameEngine/GameClient/src/map_util.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/MapUtil.cpp"
 note = "MapCache + TechAndSupplyImages on GameClient; removed process OnceLocks; peels use live-client loan / cfg(test) TLS fallback."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/video_player.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/VideoPlayer.cpp"
+note = "VideoPlayer + stream provider slots on GameClient; removed process OnceLocks; peels use live-client loan / cfg(test) TLS fallback."
+
