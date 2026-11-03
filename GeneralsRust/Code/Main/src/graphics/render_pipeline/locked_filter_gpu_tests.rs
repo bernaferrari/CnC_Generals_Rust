@@ -124,7 +124,7 @@ fn locked_drawable_is_excluded_from_capture_redrawn_with_post_filter_camera_befo
         engine.lock().depth_format(),
     )
     .unwrap();
-    let mut forward = ForwardPass::initialize(&graphics).unwrap();
+    let mut forward = ForwardPass::initialize(engine.clone(), &graphics).unwrap();
     let locked = item(7, "locked", Vec3::new(-0.45, -0.2, 0.));
     let ordinary = item(8, "ordinary", Vec3::new(0., 0.65, 0.));
     for (item, color) in [
