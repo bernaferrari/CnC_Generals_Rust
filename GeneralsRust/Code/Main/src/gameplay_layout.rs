@@ -1269,7 +1269,7 @@ mod tests {
             game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
                 owner.with_manager(|wm| {
                     wm.destroy_all_windows(effects);
-                    wm.update();
+                    wm.update(effects);
                     for i in 0..98 {
                         let win = wm.create_window(None, 0, 0, 8, 8, effects).unwrap();
                         win.borrow_mut()
@@ -1289,7 +1289,7 @@ mod tests {
             game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
                 owner.with_manager(|wm| {
                     wm.destroy_all_windows(effects);
-                    wm.update();
+                    wm.update(effects);
                 });
             });
         }

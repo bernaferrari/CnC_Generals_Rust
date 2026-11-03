@@ -1737,7 +1737,7 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
             .host_object_and_health_events_mut(ordinary)
             .expect("ordinary");
         assert!(!object.status.destroyed);
-        assert!(!object.take_damage(20.0, health_events));
+        assert!(!object.take_damage(20.0, 0, health_events));
         assert_eq!(object.health.current, 80.0);
         assert_eq!(object.previous_health, 100.0);
         assert!(!object.status.destroyed);
@@ -1771,7 +1771,7 @@ fn no_shadow_boundary_does_not_replay_committed_damage_and_is_idempotent() {
     let zero_previous = logic.host_object(zero).unwrap().previous_health;
     {
         let (object, health_events) = logic.host_object_and_health_events_mut(zero).expect("zero");
-        assert!(!object.take_damage(0.0, health_events));
+        assert!(!object.take_damage(0.0, 0, health_events));
         assert_eq!(object.health.current, 100.0);
         assert_eq!(object.previous_health, zero_previous);
     }
@@ -1843,10 +1843,10 @@ fn no_shadow_boundary_preserves_committed_heal_damage_order() {
             if heal_first {
                 object.heal(50.0, health_events, body_frame);
                 assert_eq!(object.health.current, 90.0);
-                assert!(!object.take_damage(20.0, health_events));
+                assert!(!object.take_damage(20.0, 0, health_events));
                 previous = 90.0;
             } else {
-                assert!(!object.take_damage(20.0, health_events));
+                assert!(!object.take_damage(20.0, 0, health_events));
                 assert_eq!(object.health.current, 20.0);
                 object.heal(50.0, health_events, body_frame);
                 previous = 20.0;

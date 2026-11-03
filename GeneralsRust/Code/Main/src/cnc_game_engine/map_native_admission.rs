@@ -710,7 +710,7 @@ mod failed_attempt_native_tests {
             engine.lock().depth_format(),
         )
         .unwrap();
-        let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+        let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
         let mut world = GameLogic::new();
         world
             .admit_receiving_module_content(

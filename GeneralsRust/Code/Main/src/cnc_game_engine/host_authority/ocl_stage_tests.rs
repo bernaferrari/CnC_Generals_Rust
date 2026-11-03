@@ -26,7 +26,7 @@ impl OclNativeStageHarness {
                 engine.lock().depth_format(),
             )
             .unwrap();
-            let pipeline = RenderPipeline::initialize(&graphics).unwrap();
+            let pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
             Self { graphics, pipeline }
         }
         #[cfg(not(feature = "game_client"))]
@@ -257,6 +257,8 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                     info(),
                     None,
                     None,
+                    None,
+                    None,
                     None, // no paired TerrainVisual in this direct staging fixture
                     "ocl",
                     GameMode::Skirmish,
@@ -290,6 +292,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                     &active.ocl_application_definitions(),
                     source.ai_definitions.baseline(),
                     source.production_energy_baseline(),
+                    source.combat_system.historic_damage_limit(),
                     source.physics_rules_baseline(),
                     source.effective_terrain_definitions(),
                     active.current_armor_definitions(),
@@ -341,6 +344,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                         info(),
                         None,
                         None,
+                        None,
                         None, // no paired TerrainVisual in this direct staging fixture
                         "ocl",
                         GameMode::Skirmish,
@@ -374,6 +378,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                         &active.ocl_application_definitions(),
                         source.ai_definitions.baseline(),
                         source.production_energy_baseline(),
+                        source.combat_system.historic_damage_limit(),
                         source.physics_rules_baseline(),
                         source.effective_terrain_definitions(),
                         active.current_armor_definitions(),
@@ -464,6 +469,7 @@ fn actual_saved_map_ocl_candidate_uses_own_base_and_solo_without_mutating_active
                         &active.ocl_application_definitions(),
                         source.ai_definitions.baseline(),
                         source.production_energy_baseline(),
+                        source.combat_system.historic_damage_limit(),
                         source.physics_rules_baseline(),
                         source.effective_terrain_definitions(),
                         active.current_armor_definitions(),

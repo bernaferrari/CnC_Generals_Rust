@@ -2447,7 +2447,7 @@ fn staged_native_fixture_gpu() -> (StagedNativeGpuScope, GraphicsSystem, RenderP
         engine.lock().depth_format(),
     )
     .unwrap();
-    let pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     (StagedNativeGpuScope(engine), graphics, pipeline)
 }
 #[cfg(feature = "game_client")]

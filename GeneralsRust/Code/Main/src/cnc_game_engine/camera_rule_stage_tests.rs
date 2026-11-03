@@ -141,7 +141,8 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
                 info.clone(),
                 None,
                 None,
-                        None, // no paired TerrainVisual in this direct staging fixture
+                None,
+                None, // no paired TerrainVisual in this direct staging fixture
                 "camera",
                 crate::game_logic::GameMode::Skirmish,
                 super::host_authority::RestoreTemplateCatalog::from_world(&source),
@@ -150,6 +151,7 @@ fn legacy_camera_restore_uses_saved_map_rules_not_active_or_application_maximum(
                 &source.ocl_application_definitions(),
                 source.ai_definitions.baseline(),
                 source.production_energy_baseline(),
+                source.combat_system.historic_damage_limit(),
                 source.physics_rules_baseline(),
                 source.effective_terrain_definitions(),
                 source.current_armor_definitions(),

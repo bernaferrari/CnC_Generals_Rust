@@ -37,13 +37,13 @@ fn frozen_frames_apply_power_only_to_their_control_bar() {
             frame_b.local_power_produced = 10;
             frame_b.local_power_consumed = 50;
             let mut bar_b = ControlBar::new();
-            frame_a.apply_to_control_bar(&mut bar_a);
-            frame_b.apply_to_control_bar(&mut bar_b);
+            frame_a.apply_to_control_bar(&mut bar_a, manager, effects);
+            frame_b.apply_to_control_bar(&mut bar_b, manager, effects);
             frame_a.local_power_produced = 999;
             check(&mut bar_a, manager, 80, 20);
             check(&mut bar_b, manager, 10, 50);
             frame_a.local_power_produced = 80;
-            frame_a.apply_to_control_bar(&mut bar_a);
+            frame_a.apply_to_control_bar(&mut bar_a, manager, effects);
             check(&mut bar_b, manager, 10, 50);
             check(&mut bar_a, manager, 80, 20);
         });

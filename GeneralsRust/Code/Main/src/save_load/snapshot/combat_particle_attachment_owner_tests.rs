@@ -26,6 +26,7 @@ fn world_and_manager(delay: u32) -> (GameLogic, ParticleSystemManager, ObjectId,
             PARTICLE,
             CombatParticleKind::ParticleSysBone,
             None,
+            &mut (),
         )
         .unwrap();
     let mut manager = ParticleSystemManager::new();

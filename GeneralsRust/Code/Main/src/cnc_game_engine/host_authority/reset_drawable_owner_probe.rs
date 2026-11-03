@@ -166,8 +166,8 @@ pub(crate) fn run() -> anyhow::Result<()> {
         camera_model(),
     );
     eprintln!("reset probe: graphics owner constructed");
-    let mut pipeline = crate::graphics::RenderPipeline::initialize(&graphics)?;
-    let mut peer_pipeline = crate::graphics::RenderPipeline::initialize(&graphics)?;
+    let mut pipeline = crate::graphics::RenderPipeline::initialize(engine.clone(), &graphics)?;
+    let mut peer_pipeline = crate::graphics::RenderPipeline::initialize(engine.clone(), &graphics)?;
     eprintln!("reset probe: render pipelines constructed");
     let mut client = game_client::core::game_client::GameClient::new()?;
     let mut peer_client = game_client::core::game_client::GameClient::new()?;

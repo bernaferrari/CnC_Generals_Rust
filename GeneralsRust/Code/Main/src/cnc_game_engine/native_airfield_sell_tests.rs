@@ -99,8 +99,8 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model("CameraModel", 0.),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
-    let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut peer_client = GameClient::new().unwrap();
     let mut world = airfield_sell_world();

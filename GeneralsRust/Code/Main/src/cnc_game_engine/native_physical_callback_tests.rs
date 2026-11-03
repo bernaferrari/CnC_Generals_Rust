@@ -103,8 +103,8 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
         model("CameraModel", 0.),
     );
     for fail in [false, true] {
-        let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
-        let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+        let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+        let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
         let mut client = GameClient::new().unwrap();
         let mut peer_client = GameClient::new().unwrap();
         let mut world = physical_retirement_world();
@@ -445,9 +445,9 @@ fn actual_team_creation_panic_retains_exact_team_partial_native_life_and_peer() 
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model("CameraModel", 0.),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
-    let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut peer_client = GameClient::new().unwrap();
     let mut world = physical_retirement_world();
     let mut peer = physical_retirement_world();

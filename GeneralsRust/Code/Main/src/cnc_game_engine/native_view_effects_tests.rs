@@ -178,7 +178,7 @@ fn actual_view_backend_uses_current_dirty_source_and_rejects_peer_or_unobserved_
             model(name, x),
         );
     }
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut world = GameLogic::new();
     admit(&mut world, 3.);
@@ -367,8 +367,8 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model("CameraModel", 0.),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
-    let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut peer_client = GameClient::new().unwrap();
     let mut world = receiving_factory_world();
@@ -610,7 +610,7 @@ fn detached_no_client_chunk_snapshot_rebuild_removes_absent_actor_and_rejects_ol
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model("CameraModel", 0.),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut candidate = super::map_native_admission::NativeMapCandidate::with_epoch(EPOCH);
     let mut world = receiving_factory_world();
     world.add_player(crate::game_logic::Player::new(0, Team::USA, "USA", true));
@@ -814,8 +814,8 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model("CameraModel", 0.),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
-    let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut peer_client = GameClient::new().unwrap();
     let mut world = physical_retirement_world();
@@ -1130,7 +1130,7 @@ fn missing_client_key_with_canonical_constructor_is_not_prebirth_absence() {
         engine.lock().depth_format(),
     )
     .unwrap();
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut world = physical_retirement_world();
     let id = birth_physical_retirement_actor(
@@ -1190,8 +1190,8 @@ fn actual_client_reset_retires_renderer_receipts_before_logic_reset_and_preserve
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model("CameraModel", 0.),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
-    let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut peer_client = GameClient::new().unwrap();
     let mut world = physical_retirement_world();
@@ -1303,8 +1303,8 @@ fn actual_native_bulk_clear_retires_each_owner_without_touching_peer() {
         model("CameraModel", 0.),
     );
     {
-        let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
-        let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+        let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+        let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
         let mut client = GameClient::new().unwrap();
         let mut peer_client = GameClient::new().unwrap();
         let mut world = physical_retirement_world();
@@ -1429,8 +1429,8 @@ fn actual_tree_prop_render_collection_preserves_constructor_retirement_and_peer(
             .unwrap();
         world.require_native_drawable_owner();
         let mut peer = physical_retirement_world();
-        let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
-        let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+        let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+        let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
         let mut client = GameClient::new().unwrap();
         let mut peer_client = GameClient::new().unwrap();
         let id = birth_physical_retirement_actor(
@@ -1597,7 +1597,7 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model("CameraModel", 0.0),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut world = GameLogic::new();
     world.admit_receiving_module_content(crate::assets::ReceivingObjectContent::from_sources([(
@@ -1653,7 +1653,8 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
                 false,
                 Some(TimeOfDay::Night),
                 None,
-                &locality
+                &locality,
+                &game_engine::common::audio::script_policy::ScriptAudioPolicy::default(),
             )
             .is_err()
     );
@@ -1665,7 +1666,8 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
                 true,
                 Some(TimeOfDay::Night),
                 None,
-                &locality
+                &locality,
+                &game_engine::common::audio::script_policy::ScriptAudioPolicy::default(),
             )
             .unwrap()
     );
@@ -1686,7 +1688,8 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
                 false,
                 None,
                 None,
-                &locality
+                &locality,
+                &game_engine::common::audio::script_policy::ScriptAudioPolicy::default(),
             )
             .unwrap()
     );

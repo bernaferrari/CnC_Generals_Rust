@@ -124,7 +124,7 @@ fn ordinary_boundary_admits_owned_damage_and_removes_dead_objects_before_next_fr
     let (mut logic, id, mut shadow) = fixture("OwnedFrameDamage", 100.0);
     let entity = shadow.entity_for_host(id).unwrap();
     let (object, events) = logic.host_object_and_health_events_mut(id).unwrap();
-    assert!(!object.take_damage_from(40.0, None, events));
+    assert!(!object.take_damage_from(40.0, None, 0, events));
     assert_eq!(logic.host_authoritative_health(id), Some(60.0));
     shadow
         .world_mut()

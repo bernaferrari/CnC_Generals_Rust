@@ -754,23 +754,28 @@ fn presentation_feeds_control_bar_radar_and_queues() {
 
     #[cfg(feature = "game_client")]
     {
-        let mut bar = game_client::gui::control_bar::ControlBar::new();
-        frame.apply_to_control_bar(&mut bar);
-        assert_eq!(bar.presentation_radar_count(), 3);
-        assert!(!bar.presentation_radar_disabled());
-        assert!(
-            bar.presentation_queued_upgrades()
-                .iter()
-                .any(|u| u.contains("AdvancedTraining"))
-        );
-        assert!(
-            !bar.get_special_power_shortcuts().is_empty(),
-            "expected special power shortcuts from ready selection"
-        );
-        assert_eq!(
-            bar.get_special_power_shortcuts()[0].availability,
-            game_client::gui::control_bar::CommandAvailability::Available
-        );
+        let owner = game_client::gui::window_manager::WindowManagerOwner::new();
+        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.with_manager(|manager| {
+                let mut bar = game_client::gui::control_bar::ControlBar::new();
+                frame.apply_to_control_bar(&mut bar, manager, effects);
+                assert_eq!(bar.presentation_radar_count(), 3);
+                assert!(!bar.presentation_radar_disabled());
+                assert!(
+                    bar.presentation_queued_upgrades()
+                        .iter()
+                        .any(|u| u.contains("AdvancedTraining"))
+                );
+                assert!(
+                    !bar.get_special_power_shortcuts().is_empty(),
+                    "expected special power shortcuts from ready selection"
+                );
+                assert_eq!(
+                    bar.get_special_power_shortcuts()[0].availability,
+                    game_client::gui::control_bar::CommandAvailability::Available
+                );
+            });
+        });
     }
 }
 
@@ -807,21 +812,26 @@ fn presentation_feeds_control_bar_sciences() {
 
     #[cfg(feature = "game_client")]
     {
-        let mut bar = game_client::gui::control_bar::ControlBar::new();
-        frame.apply_to_control_bar(&mut bar);
-        let sci = bar.get_science_state();
-        assert!(
-            sci.unlocked_sciences
-                .iter()
-                .any(|s| s == "SCIENCE_RedGuards")
-        );
-        assert!(
-            sci.rank1_buttons
-                .iter()
-                .any(|b| b.is_purchased && b.command_name.contains("RedGuards")),
-            "expected purchased science button, got {:?}",
-            sci.rank1_buttons
-        );
+        let owner = game_client::gui::window_manager::WindowManagerOwner::new();
+        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.with_manager(|manager| {
+                let mut bar = game_client::gui::control_bar::ControlBar::new();
+                frame.apply_to_control_bar(&mut bar, manager, effects);
+                let sci = bar.get_science_state();
+                assert!(
+                    sci.unlocked_sciences
+                        .iter()
+                        .any(|s| s == "SCIENCE_RedGuards")
+                );
+                assert!(
+                    sci.rank1_buttons
+                        .iter()
+                        .any(|b| b.is_purchased && b.command_name.contains("RedGuards")),
+                    "expected purchased science button, got {:?}",
+                    sci.rank1_buttons
+                );
+            });
+        });
     }
 }
 
@@ -869,21 +879,26 @@ fn presentation_feeds_control_bar_upgrade_cameos() {
 
     #[cfg(feature = "game_client")]
     {
-        let mut bar = game_client::gui::control_bar::ControlBar::new();
-        let mut upgrades = gamelogic::upgrade::center::UpgradeCenter::new();
-        upgrades.new_upgrade("UpgradeAdvancedTraining".into());
-        upgrades.new_upgrade("UpgradeCaptureBuilding".into());
-        bar.set_receiving_upgrade_definitions(&upgrades, None);
-        frame.apply_to_control_bar(&mut bar);
-        let portrait = bar.get_portrait_state();
-        assert_eq!(portrait.upgrade_cameos.len(), 5);
-        assert!(
-            portrait
-                .upgrade_cameos
-                .iter()
-                .any(|c| c.upgrade_name == "UpgradeAdvancedTraining" && c.is_completed)
-        );
-        assert!(portrait.special_power_ready);
+        let owner = game_client::gui::window_manager::WindowManagerOwner::new();
+        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.with_manager(|manager| {
+                let mut bar = game_client::gui::control_bar::ControlBar::new();
+                let mut upgrades = gamelogic::upgrade::center::UpgradeCenter::new();
+                upgrades.new_upgrade("UpgradeAdvancedTraining".into());
+                upgrades.new_upgrade("UpgradeCaptureBuilding".into());
+                bar.set_receiving_upgrade_definitions(&upgrades, None);
+                frame.apply_to_control_bar(&mut bar, manager, effects);
+                let portrait = bar.get_portrait_state();
+                assert_eq!(portrait.upgrade_cameos.len(), 5);
+                assert!(
+                    portrait
+                        .upgrade_cameos
+                        .iter()
+                        .any(|c| c.upgrade_name == "UpgradeAdvancedTraining" && c.is_completed)
+                );
+                assert!(portrait.special_power_ready);
+            });
+        });
     }
 }
 
@@ -933,29 +948,34 @@ fn presentation_feeds_control_bar_garrison_inventory() {
 
     #[cfg(feature = "game_client")]
     {
-        let mut bar = game_client::gui::control_bar::ControlBar::new();
-        frame.apply_to_control_bar(&mut bar);
-        let guard = bar.get_context();
-        let names: Vec<_> = guard
-            .available_commands
-            .iter()
-            .map(|b| b.command_name.as_str())
-            .collect();
-        assert!(
-            names
-                .iter()
-                .any(|n| n.eq_ignore_ascii_case("Command_StructureExit")),
-            "expected StructureExit, got {:?}",
-            names
-        );
-        assert!(
-            names
-                .iter()
-                .any(|n| n.eq_ignore_ascii_case("Command_Evacuate")),
-            "expected Evacuate, got {:?}",
-            names
-        );
-        assert_eq!(guard.last_recorded_inventory_count, 1);
+        let owner = game_client::gui::window_manager::WindowManagerOwner::new();
+        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.with_manager(|manager| {
+                let mut bar = game_client::gui::control_bar::ControlBar::new();
+                frame.apply_to_control_bar(&mut bar, manager, effects);
+                let guard = bar.get_context();
+                let names: Vec<_> = guard
+                    .available_commands
+                    .iter()
+                    .map(|b| b.command_name.as_str())
+                    .collect();
+                assert!(
+                    names
+                        .iter()
+                        .any(|n| n.eq_ignore_ascii_case("Command_StructureExit")),
+                    "expected StructureExit, got {:?}",
+                    names
+                );
+                assert!(
+                    names
+                        .iter()
+                        .any(|n| n.eq_ignore_ascii_case("Command_Evacuate")),
+                    "expected Evacuate, got {:?}",
+                    names
+                );
+                assert_eq!(guard.last_recorded_inventory_count, 1);
+            });
+        });
     }
 }
 
@@ -1016,14 +1036,19 @@ fn presentation_feeds_control_bar_veterancy_and_production() {
 
     #[cfg(feature = "game_client")]
     {
-        let mut bar = game_client::gui::control_bar::ControlBar::new();
-        frame.apply_to_control_bar(&mut bar);
-        let portrait = bar.get_portrait_state();
-        assert_eq!(portrait.veterancy_overlay.as_deref(), Some("SSChevron2L"));
-        assert_eq!(portrait.production_template.as_deref(), Some("Ranger"));
-        assert!((portrait.production_progress.unwrap_or(0.0) - (0.55 / 10.0)).abs() < 0.01);
-        assert_eq!(bar.get_build_queue_data().len(), 1);
-        assert_eq!(bar.get_build_queue_data()[0].upgrade_name, "Ranger");
+        let owner = game_client::gui::window_manager::WindowManagerOwner::new();
+        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.with_manager(|manager| {
+                let mut bar = game_client::gui::control_bar::ControlBar::new();
+                frame.apply_to_control_bar(&mut bar, manager, effects);
+                let portrait = bar.get_portrait_state();
+                assert_eq!(portrait.veterancy_overlay.as_deref(), Some("SSChevron2L"));
+                assert_eq!(portrait.production_template.as_deref(), Some("Ranger"));
+                assert!((portrait.production_progress.unwrap_or(0.0) - (0.55 / 10.0)).abs() < 0.01);
+                assert_eq!(bar.get_build_queue_data().len(), 1);
+                assert_eq!(bar.get_build_queue_data()[0].upgrade_name, "Ranger");
+            });
+        });
     }
 }
 
@@ -1090,23 +1115,28 @@ fn presentation_feeds_control_bar_selection_panel_health() {
     // GameClient ControlBar portrait/health strip (no OBJECT_REGISTRY).
     #[cfg(feature = "game_client")]
     {
-        let mut bar = game_client::gui::control_bar::ControlBar::new();
-        // Poison live world after snapshot so a re-read would be wrong.
-        if let Some(o) = logic.host_object_mut(id) {
-            o.health.current = 1.0;
-        }
-        snap.apply_to_control_bar(&mut bar);
-        let (hp, max) = bar
-            .selection_panel_health()
-            .expect("ControlBar selection panel health from presentation");
-        assert!(
-            (hp - 77.0).abs() < 0.01,
-            "ControlBar must keep snapshot HP 77, not live 1: {hp}"
-        );
-        assert!((max - 77.0).abs() < 0.01);
-        assert_eq!(bar.get_portrait_state().portrait_image, "CbPanelUnit");
-        assert!(bar.get_portrait_state().is_visible);
-        assert_eq!(bar.get_portrait_state().selected_count, 1);
+        let owner = game_client::gui::window_manager::WindowManagerOwner::new();
+        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.with_manager(|manager| {
+                let mut bar = game_client::gui::control_bar::ControlBar::new();
+                // Poison live world after snapshot so a re-read would be wrong.
+                if let Some(o) = logic.host_object_mut(id) {
+                    o.health.current = 1.0;
+                }
+                snap.apply_to_control_bar(&mut bar, manager, effects);
+                let (hp, max) = bar
+                    .selection_panel_health()
+                    .expect("ControlBar selection panel health from presentation");
+                assert!(
+                    (hp - 77.0).abs() < 0.01,
+                    "ControlBar must keep snapshot HP 77, not live 1: {hp}"
+                );
+                assert!((max - 77.0).abs() < 0.01);
+                assert_eq!(bar.get_portrait_state().portrait_image, "CbPanelUnit");
+                assert!(bar.get_portrait_state().is_visible);
+                assert_eq!(bar.get_portrait_state().selected_count, 1);
+            });
+        });
     }
 }
 
@@ -2367,18 +2397,23 @@ fn leftover_wnd_stamps_single_use_subdued_and_unsellable() {
     assert!(ro.disabled_subdued);
     assert!(ro.script_unsellable);
 
-    let mut bar = game_client::gui::control_bar::ControlBar::new();
-    frame.apply_to_control_bar(&mut bar);
-    let residual = bar.presentation_availability();
-    assert!(
-        residual.single_use_used,
-        "leftover WND must stamp SINGLE_USE"
-    );
-    assert!(residual.disabled_subdued, "leftover WND must stamp SUBDUED");
-    assert!(
-        residual.script_unsellable,
-        "leftover WND must stamp SCRIPT_UNSELLABLE"
-    );
+    let owner = game_client::gui::window_manager::WindowManagerOwner::new();
+    game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+        owner.with_manager(|manager| {
+            let mut bar = game_client::gui::control_bar::ControlBar::new();
+            frame.apply_to_control_bar(&mut bar, manager, effects);
+            let residual = bar.presentation_availability();
+            assert!(
+                residual.single_use_used,
+                "leftover WND must stamp SINGLE_USE"
+            );
+            assert!(residual.disabled_subdued, "leftover WND must stamp SUBDUED");
+            assert!(
+                residual.script_unsellable,
+                "leftover WND must stamp SCRIPT_UNSELLABLE"
+            );
+        });
+    });
 }
 
 #[test]

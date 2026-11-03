@@ -194,8 +194,8 @@ fn real_receiver_owns_constructor_dirty_setters_and_peer_reset_lifetimes_before_
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
         model(),
     );
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
-    let mut peer_pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    let mut peer_pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut client = GameClient::new().unwrap();
     let mut peer_client = GameClient::new().unwrap();
     let mut a = GameLogic::new();

@@ -21,7 +21,7 @@ fn borrowed_filter_finishes_on_current_renderer_frame_and_peak_is_not_replayed()
         engine.lock().depth_format(),
     )
     .unwrap();
-    let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
+    let mut pipeline = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut logic = crate::game_logic::GameLogic::new();
     let presentation =
         Rc::new(crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0));
