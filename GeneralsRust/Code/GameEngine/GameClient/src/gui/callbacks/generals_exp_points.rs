@@ -209,15 +209,18 @@ use crate::gui::game_window::WindowEventEffects;
         );
 
         let mut window = GameWindow::new();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.ui = Some(ui);
         assert_eq!(
-            WindowEventEffects::with_standalone(|effects| generals_exp_points_input(&mut window, WindowMessage::MouseEntering, 0, 0, effects)),
+            generals_exp_points_input(&mut window, WindowMessage::MouseEntering, 0, 0, &mut effects),
             WindowMsgHandled::Handled
         );
         assert!(
-            ui.get_pending_place_template().is_none(),
+            effects.ui.as_ref().unwrap().get_pending_place_template().is_none(),
             "standalone GameClient must retain C++ placement cancellation"
         );
-        assert_eq!(ui.get_pending_place_source_object_id(), 0);
+        assert_eq!(effects.ui.as_ref().unwrap().get_pending_place_source_object_id(), 0);
         assert!(
             crate::gui::control_bar::take_host_control_bar_requests(&mut transport_ui).is_empty()
         );
@@ -232,10 +235,14 @@ use crate::gui::game_window::WindowEventEffects;
         transport_ui.admit_native_control_bar_transport();
 
         let mut window = GameWindow::new();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.ui = Some(&mut transport_ui);
         assert_eq!(
-            WindowEventEffects::with_standalone(|effects| generals_exp_points_input(&mut window, WindowMessage::MouseEntering, 0, 0, effects)),
+            generals_exp_points_input(&mut window, WindowMessage::MouseEntering, 0, 0, &mut effects),
             WindowMsgHandled::Handled
         );
+        effects.ui = None;
         assert!(matches!(
             crate::gui::control_bar::take_host_control_bar_requests(&mut transport_ui).as_slice(),
             [crate::gui::control_bar::HostControlBarRequest::CancelStructurePlacement]

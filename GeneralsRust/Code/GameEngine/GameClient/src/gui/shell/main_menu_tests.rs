@@ -76,14 +76,18 @@ mod tests {
         });
     }
 
-    fn install_named_button(name: &str, x: i32, y: i32) {
-        with_game_client_window_owner(|client| {
-            let owner = client.window_manager_owner();
-            owner.with_manager(|manager| {
-                let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
-                button.borrow_mut().set_name(name);
-                let _ = button.borrow_mut().hide_without_manager_side_effects(false);
-            });
+    fn install_named_button(
+        client: &mut crate::core::game_client::GameClient,
+        name: &str,
+        x: i32,
+        y: i32,
+    ) {
+        // Must use the same receiving owner the OS WND drive clicks against.
+        let owner = client.window_manager_owner();
+        owner.with_manager(|manager| {
+            let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
+            button.borrow_mut().set_name(name);
+            let _ = button.borrow_mut().hide_without_manager_side_effects(false);
         });
     }
 
@@ -165,15 +169,15 @@ mod tests {
         with_game_client_window_owner(|client| {
             let (_, menu, _) = client.campaign_menu_and_host_mut();
             reset_main_menu_for_os_wnd(menu);
-            install_named_button("MainMenu.wnd:ButtonSinglePlayer", 10, 10);
+            install_named_button(client, "MainMenu.wnd:ButtonSinglePlayer", 10, 10);
             let faction = match side {
                 ShowSide::USA => "MainMenu.wnd:ButtonUSA",
                 ShowSide::GLA => "MainMenu.wnd:ButtonGLA",
                 ShowSide::China => "MainMenu.wnd:ButtonChina",
                 _ => "MainMenu.wnd:ButtonUSA",
             };
-            install_named_button(faction, 10, 40);
-            install_named_button("MainMenu.wnd:ButtonMedium", 10, 70);
+            install_named_button(client, faction, 10, 40);
+            install_named_button(client, "MainMenu.wnd:ButtonMedium", 10, 70);
             client.campaign_menu_and_host_mut().0.init();
             assert!(
                 with_shell_menu_effects(client, |effects| {
@@ -238,9 +242,9 @@ mod tests {
                 let (_, menu, _) = client.campaign_menu_and_host_mut();
                 reset_main_menu_for_os_wnd(menu);
             }
-            install_named_button("MainMenu.wnd:ButtonSinglePlayer", 10, 10);
-            install_named_button("MainMenu.wnd:ButtonUSA", 10, 40);
-            install_named_button("MainMenu.wnd:ButtonMedium", 10, 70);
+            install_named_button(client, "MainMenu.wnd:ButtonSinglePlayer", 10, 10);
+            install_named_button(client, "MainMenu.wnd:ButtonUSA", 10, 40);
+            install_named_button(client, "MainMenu.wnd:ButtonMedium", 10, 70);
             client.campaign_menu_and_host_mut().0.init();
             assert!(
                 with_shell_menu_effects(client, |effects| {

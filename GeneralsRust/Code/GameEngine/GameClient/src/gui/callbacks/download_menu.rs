@@ -499,7 +499,7 @@ mod tests {
         );
         assert_eq!(
             WindowEventEffects::with_standalone(|effects| download_menu_system(&mut window, WindowMessage::InputFocus, 1, 0, effects)),
-            WindowMsgHandled::Handled
+            WindowMsgHandled::FocusResponse(true)
         );
         assert_eq!(
             WindowEventEffects::with_standalone(|effects| download_menu_system(&mut window, WindowMessage::MousePos, 0, 0, effects)),
