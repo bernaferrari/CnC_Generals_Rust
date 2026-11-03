@@ -2258,6 +2258,35 @@ impl GameLogic {
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
         birth_out: Option<&mut Option<(ObjectId, std::sync::Weak<()>)>>,
     ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
+        // Bind World+Main for Object birth (asset manager / squish / NameKey).
+        // Nested with outer create_object wraps is fine (same Arc stack).
+        self.with_own_services_mut(|this| {
+            this.create_object_with_initial_team_and_ui_birth_checked_inner(
+                template_name,
+                team,
+                owner_player_id,
+                position,
+                creation_purpose,
+                initial_team,
+                interpreter,
+                ui,
+                birth_out,
+            )
+        })
+    }
+
+    fn create_object_with_initial_team_and_ui_birth_checked_inner(
+        &mut self,
+        template_name: &str,
+        team: Team,
+        owner_player_id: Option<u32>,
+        position: Vec3,
+        creation_purpose: FactoryCreationPurpose,
+        initial_team: Option<(&str, u32, bool)>,
+        interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
+        ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        birth_out: Option<&mut Option<(ObjectId, std::sync::Weak<()>)>>,
+    ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
         if let Some(error) = self.object_retirement_error() {
             return Err(error);
         }

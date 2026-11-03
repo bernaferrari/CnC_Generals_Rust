@@ -328,14 +328,16 @@ impl PresentationFrame {
     /// Build presentation and consume this world's completed health receipts.
     /// Pending accepted-shot cues stay with the world until publication.
     pub fn build_from_logic(logic: &mut GameLogic, local_player_id: u32) -> Self {
-        Self::build_from_logic_with_tint_update(
-            logic,
-            local_player_id,
-            None,
-            true,
-            Vec::new(),
-            super::camera_fade::FrameFade::Compatibility,
-        )
+        logic.with_own_services_mut(|logic| {
+            Self::build_from_logic_with_tint_update(
+                logic,
+                local_player_id,
+                None,
+                true,
+                Vec::new(),
+                super::camera_fade::FrameFade::Compatibility,
+            )
+        })
     }
 
     pub(super) fn build_from_logic_with_tint_update(
