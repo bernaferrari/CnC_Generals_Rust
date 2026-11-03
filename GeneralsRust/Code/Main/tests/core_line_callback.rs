@@ -4,29 +4,34 @@ use glam::Vec3;
 
 #[test]
 fn core_line_uses_clear_deck_shortcut_after_first_cell() {
-    let mut owner = PathfindingSystem::new(20, 20);
-    let mut peer = PathfindingSystem::new(20, 20);
-    let bounds = (GridCoord::new(5, 4), GridCoord::new(11, 6));
-    let bridge = PathfindLayerEnum::from_u32(owner.add_bridge(bounds));
-    assert_eq!(peer.add_bridge(bounds), bridge as u32);
-    let from = Vec3::new(65.0, 55.0, 0.0);
-    let to = Vec3::new(85.0, 55.0, 0.0);
-    owner.set_cell_type_at_layer(&from, bridge, PathfindCellType::Water);
+    // hq-9tdj6w: PathfindingSystem::new installs then clears WorldServices; bind one
+    // for the clear-deck line callback residual.
+    let services = std::sync::Arc::new(gamelogic::system::engine_stores::WorldServices::new_for_world());
+    gamelogic::system::engine_stores::with_world_services(&services, || {
+        let mut owner = PathfindingSystem::new(20, 20);
+        let mut peer = PathfindingSystem::new(20, 20);
+        let bounds = (GridCoord::new(5, 4), GridCoord::new(11, 6));
+        let bridge = PathfindLayerEnum::from_u32(owner.add_bridge(bounds));
+        assert_eq!(peer.add_bridge(bounds), bridge as u32);
+        let from = Vec3::new(65.0, 55.0, 0.0);
+        let to = Vec3::new(85.0, 55.0, 0.0);
+        owner.set_cell_type_at_layer(&from, bridge, PathfindCellType::Water);
 
-    assert!(owner.is_line_passable_for_surfaces_on_layer(&from, &to, SURFACE_WATER, bridge, None));
-    assert!(!peer.is_line_passable_for_surfaces_on_layer(&from, &to, SURFACE_WATER, bridge, None));
-    assert!(owner.is_line_passable_for_surfaces_on_layer(&from, &to, SURFACE_WATER, bridge, None));
-    assert!(peer.is_line_passable_for_surfaces_on_layer(&from, &to, SURFACE_GROUND, bridge, None));
-    let shore = Vec3::new(45.0, 45.0, 0.0);
-    let entry = Vec3::new(55.0, 45.0, 0.0);
-    owner.set_cell_type(&shore, PathfindCellType::Water);
-    assert!(!owner.is_line_passable_for_surfaces_on_layer(
-        &shore,
-        &entry,
-        SURFACE_WATER,
-        bridge,
-        None
-    ));
+        assert!(owner.is_line_passable_for_surfaces_on_layer(&from, &to, SURFACE_WATER, bridge, None));
+        assert!(!peer.is_line_passable_for_surfaces_on_layer(&from, &to, SURFACE_WATER, bridge, None));
+        assert!(owner.is_line_passable_for_surfaces_on_layer(&from, &to, SURFACE_WATER, bridge, None));
+        assert!(peer.is_line_passable_for_surfaces_on_layer(&from, &to, SURFACE_GROUND, bridge, None));
+        let shore = Vec3::new(45.0, 45.0, 0.0);
+        let entry = Vec3::new(55.0, 45.0, 0.0);
+        owner.set_cell_type(&shore, PathfindCellType::Water);
+        assert!(!owner.is_line_passable_for_surfaces_on_layer(
+            &shore,
+            &entry,
+            SURFACE_WATER,
+            bridge,
+            None
+        ));
+    });
 }
 
 #[test]
