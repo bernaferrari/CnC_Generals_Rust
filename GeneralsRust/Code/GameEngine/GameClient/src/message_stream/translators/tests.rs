@@ -172,6 +172,7 @@ fn give_test_damage_weapon(object: &Arc<RwLock<gamelogic::object::Object>>, rang
 
 #[test]
 fn test_command_translator() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     let mut translator = CommandTranslator::new();
 
@@ -193,6 +194,7 @@ fn test_command_translator() {
 
 #[test]
 fn command_translator_selection_limit_disabled_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
 
     assert!(!CommandTranslator::selection_count_limit_reached_for(0, 45));
@@ -203,6 +205,7 @@ fn command_translator_selection_limit_disabled_like_cpp() {
 
 #[test]
 fn command_translator_selection_limit_positive_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
 
     assert!(!CommandTranslator::selection_count_limit_reached_for(
@@ -213,6 +216,7 @@ fn command_translator_selection_limit_positive_like_cpp() {
 
 #[test]
 fn command_pick_profile_accepts_registered_selectable_objects_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     let team = setup_local_player_team();
     let object = register_test_object(78_001, vec![KindOf::Selectable, KindOf::Infantry], team);
@@ -229,6 +233,7 @@ fn command_pick_profile_accepts_registered_selectable_objects_like_cpp() {
 
 #[test]
 fn command_pick_profile_respects_force_attackable_option_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     let team = setup_local_player_team();
     let object = register_test_object(78_002, vec![KindOf::ForceAttackable], team);
@@ -254,6 +259,7 @@ fn command_pick_profile_respects_force_attackable_option_like_cpp() {
 
 #[test]
 fn command_object_pick_distance_matches_point_radius_and_region_bounds() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     let pos = Coord3D::new(10.0, 10.0, 0.0);
     let point_region = IRegion2D {
@@ -276,6 +282,7 @@ fn command_object_pick_distance_matches_point_radius_and_region_bounds() {
 
 #[test]
 fn command_context_attack_accepts_after_moving_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     let team = setup_local_player_team();
     let attacker = register_test_object(
@@ -303,6 +310,7 @@ fn command_context_attack_accepts_after_moving_like_cpp() {
 
 #[test]
 fn command_context_attack_rejects_not_possible_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     let local_team = setup_local_player_team();
     let other_team = Arc::new(RwLock::new(Team::new(AsciiString::from("teamOther"), 2)));
@@ -341,6 +349,7 @@ fn command_context_attack_rejects_not_possible_like_cpp() {
 
 #[test]
 fn command_context_enter_accepts_local_infantry_into_unmanned_vehicle_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     let team = setup_local_player_team();
     {
@@ -376,6 +385,7 @@ fn command_context_enter_accepts_local_infantry_into_unmanned_vehicle_like_cpp()
 
 #[test]
 fn command_context_repair_rejects_unrepairable_targets_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     let team = setup_local_player_team();
     let dozer = register_test_object(78_040, vec![KindOf::Selectable, KindOf::Dozer], team);
@@ -398,6 +408,7 @@ fn command_context_repair_rejects_unrepairable_targets_like_cpp() {
 
 #[test]
 fn command_context_resume_construction_accepts_local_dozer_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     let team = setup_local_player_team();
     {
@@ -445,6 +456,7 @@ fn command_context_resume_construction_accepts_local_dozer_like_cpp() {
 
 #[test]
 fn command_context_pickup_crate_returns_target_position_for_local_mobile_selection() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     let team = setup_local_player_team();
     let unit = register_test_object(
@@ -470,6 +482,7 @@ fn command_context_pickup_crate_returns_target_position_for_local_mobile_selecti
 
 #[test]
 fn command_context_salvage_rejects_non_salvage_crates_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     let team = setup_local_player_team();
     let salvager = register_test_object(
@@ -491,6 +504,7 @@ fn command_context_salvage_rejects_non_salvage_crates_like_cpp() {
 
 #[test]
 fn test_meta_stop_enqueues_do_stop_command() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     get_command_list().write().unwrap().clear_all_commands();
 
@@ -508,6 +522,7 @@ fn test_meta_stop_enqueues_do_stop_command() {
 
 #[test]
 fn test_meta_scatter_enqueues_do_scatter_command() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     get_command_list().write().unwrap().clear_all_commands();
 
@@ -525,6 +540,7 @@ fn test_meta_scatter_enqueues_do_scatter_command() {
 
 #[test]
 fn test_meta_create_formation_enqueues_create_formation_command() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     get_command_list().write().unwrap().clear_all_commands();
 
@@ -545,6 +561,7 @@ fn test_meta_create_formation_enqueues_create_formation_command() {
 
 #[test]
 fn test_meta_path_build_commands_are_enqueued() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
 
     for message_type in [
@@ -568,6 +585,7 @@ fn test_meta_path_build_commands_are_enqueued() {
 
 #[test]
 fn test_meta_view_last_radar_event_centers_tactical_view() {
+    crate::test_support::ensure_ambient_host();
     with_receiving_ui(|ui| {
     let _guard = test_state_lock();
     let mut radar = RadarSystem::new();
@@ -610,6 +628,7 @@ fn test_meta_view_last_radar_event_centers_tactical_view() {
 
 #[test]
 fn test_meta_all_cheer_only_enqueues_in_multiplayer() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     get_command_list().write().unwrap().clear_all_commands();
 
@@ -649,6 +668,7 @@ fn test_meta_all_cheer_only_enqueues_in_multiplayer() {
 
 #[test]
 fn test_meta_toggle_fast_forward_replay_only_toggles_in_replay() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     game_engine::common::ini::ini_game_data::init_global_data();
     let global_data = get_global_data().expect("global data initialized");
@@ -689,6 +709,7 @@ fn test_meta_toggle_fast_forward_replay_only_toggles_in_replay() {
 
 #[test]
 fn test_meta_demo_instant_quit_sets_engine_quitting_and_clears_game() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     let engine = init_game_engine();
     engine.lock().set_quitting(false);
@@ -714,6 +735,7 @@ fn test_meta_demo_instant_quit_sets_engine_quitting_and_clears_game() {
 
 #[test]
 fn test_unimplemented_cpp_meta_commands_are_consumed_without_commands() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
 
     for message_type in [
@@ -741,6 +763,7 @@ fn test_unimplemented_cpp_meta_commands_are_consumed_without_commands() {
 
 #[test]
 fn test_pending_command_for_beacon_position() {
+    crate::test_support::ensure_ambient_host();
     with_receiving_ui(|ui| {
     let _guard = test_state_lock();
     let position = Coord3D::new(123.0, 456.0, 7.0);
@@ -774,6 +797,7 @@ fn test_pending_command_for_beacon_position() {
 
 #[test]
 fn test_pending_command_for_evacuate_position_emits_location_payload() {
+    crate::test_support::ensure_ambient_host();
     with_receiving_ui(|ui| {
     let _guard = test_state_lock();
     let target = Coord3D::new(11.0, 22.0, 0.0);
@@ -807,6 +831,7 @@ fn test_pending_command_for_evacuate_position_emits_location_payload() {
 
 #[test]
 fn test_pending_command_maps_special_power_and_combatdrop_variants() {
+    crate::test_support::ensure_ambient_host();
     with_receiving_ui(|ui| {
     let _guard = test_state_lock();
     let pos = Coord3D::new(50.0, 60.0, 0.0);
@@ -922,6 +947,7 @@ fn test_pending_command_maps_special_power_and_combatdrop_variants() {
 
 #[test]
 fn test_pending_special_power_hover_uses_valid_gui_hint() {
+    crate::test_support::ensure_ambient_host();
     with_receiving_ui(|ui| {
     let _guard = test_state_lock();
     ui.clear_pending_command();
@@ -945,6 +971,7 @@ fn test_pending_special_power_hover_uses_valid_gui_hint() {
 
 #[test]
 fn test_pending_command_helper_masks_and_object_mapping() {
+    crate::test_support::ensure_ambient_host();
     with_receiving_ui(|ui| {
     let _guard = test_state_lock();
     assert!(pending_command_accepts_object(CMD_NEED_TARGET_ENEMY_OBJECT));
@@ -971,6 +998,7 @@ fn test_pending_command_helper_masks_and_object_mapping() {
 
 #[test]
 fn test_pending_command_click_falls_back_to_invalid_gui_hint_when_unresolved() {
+    crate::test_support::ensure_ambient_host();
     with_receiving_ui(|ui| {
     let _guard = test_state_lock();
     ui.clear_pending_command();
@@ -988,6 +1016,7 @@ fn test_pending_command_click_falls_back_to_invalid_gui_hint_when_unresolved() {
 
 #[test]
 fn test_pending_set_rally_point_fans_out_to_all_selected_sources() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     let pending = PendingCommand {
         command_type: CommandType::SetRallyPoint,
@@ -1015,6 +1044,7 @@ fn test_pending_set_rally_point_fans_out_to_all_selected_sources() {
 
 #[test]
 fn test_point_click_is_actionable_matches_cpp_gating() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     assert!(point_click_is_actionable(false, false, false));
     assert!(!point_click_is_actionable(false, true, false));
@@ -1026,6 +1056,7 @@ fn test_point_click_is_actionable_matches_cpp_gating() {
 
 #[test]
 fn test_raw_right_button_up_does_not_issue_commands() {
+    crate::test_support::ensure_ambient_host();
     with_receiving_ui(|ui| {
     let _guard = test_state_lock();
     let mut translator = CommandTranslator::new();
@@ -1045,6 +1076,7 @@ fn test_raw_right_button_up_does_not_issue_commands() {
 
 #[test]
 fn test_raw_right_button_up_click_clears_pending_build_placement() {
+    crate::test_support::ensure_ambient_host();
     with_receiving_ui(|ui| {
     let _guard = test_state_lock();
     let mut translator = CommandTranslator::new();
@@ -1078,6 +1110,7 @@ fn test_raw_right_button_up_click_clears_pending_build_placement() {
 
 #[test]
 fn test_raw_right_button_up_regular_mouse_deselects_current_selection() {
+    crate::test_support::ensure_ambient_host();
     with_receiving_ui(|ui| {
     let _guard = test_state_lock();
     game_engine::common::ini::ini_game_data::init_global_data();
@@ -1122,6 +1155,7 @@ fn test_raw_right_button_up_regular_mouse_deselects_current_selection() {
 
 #[test]
 fn test_command_translator_keeps_raw_right_down_up_for_cpp_forwarding_parity() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     let mut translator = CommandTranslator::new();
 
@@ -1148,6 +1182,7 @@ fn test_command_translator_keeps_raw_right_down_up_for_cpp_forwarding_parity() {
 
 #[test]
 fn test_pending_object_command_hovering_location_returns_invalid_gui_hint() {
+    crate::test_support::ensure_ambient_host();
     with_receiving_ui(|ui| {
     let _guard = test_state_lock();
     ui.clear_pending_command();
@@ -1164,6 +1199,7 @@ fn test_pending_object_command_hovering_location_returns_invalid_gui_hint() {
 
 #[test]
 fn test_right_click_alt_mouse_does_not_execute_pending_position_command() {
+    crate::test_support::ensure_ambient_host();
     with_receiving_ui(|ui| {
     let _guard = test_state_lock();
     game_engine::common::ini::ini_game_data::init_global_data();
@@ -1198,6 +1234,7 @@ fn test_right_click_alt_mouse_does_not_execute_pending_position_command() {
 
 #[test]
 fn test_double_click_guard_command_gated_by_mouse_mode() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     game_engine::common::ini::ini_game_data::init_global_data();
     let (previous_alt_mouse, previous_double_click_attack_move) = get_global_data()
@@ -1238,6 +1275,7 @@ fn test_double_click_guard_command_gated_by_mouse_mode() {
 
 #[test]
 fn force_attack_object_uses_new_target_forced_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     // C++ CommandXlat.cpp:163-178 canObjectForceAttack uses ATTACK_NEW_TARGET_FORCED.
     let src = include_str!("attack.rs");
     let start = src
@@ -1256,6 +1294,7 @@ fn force_attack_object_uses_new_target_forced_like_cpp() {
 
 #[test]
 fn evaluate_context_action_checks_hijack_before_enter_and_attack() {
+    crate::test_support::ensure_ambient_host();
     // C++ CommandXlat.cpp:1856-1962 — hijack/carbomb/sabotage before enter/attack.
     let src = include_str!("command_translator.rs");
     let start = src
@@ -1279,6 +1318,7 @@ fn evaluate_context_action_checks_hijack_before_enter_and_attack() {
 
 #[test]
 fn select_next_worker_is_dozer_only_and_looks_at() {
+    crate::test_support::ensure_ambient_host();
     // C++ CommandXlat.cpp:2573-2798 MSG_META_SELECT_NEXT/PREV_WORKER.
     let _guard = test_state_lock();
     let team = setup_local_player_team();
@@ -1306,6 +1346,7 @@ fn select_next_worker_is_dozer_only_and_looks_at() {
 
 #[test]
 fn command_translate_wires_select_next_prev_worker() {
+    crate::test_support::ensure_ambient_host();
     let src = include_str!("command_translate.rs");
     assert!(
         src.contains("GameMessageType::MetaSelectNextWorker")
@@ -1317,6 +1358,7 @@ fn command_translate_wires_select_next_prev_worker() {
 
 #[test]
 fn selection_can_set_rally_point_requires_auto_rallypoint_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     let team = setup_local_player_team();
     let factory = register_test_object(78_200, vec![KindOf::AutoRallypoint], team.clone());

@@ -87,6 +87,7 @@ mod tests {
 
     #[test]
     fn test_game_audio_trait_impl() {
+        crate::test_support::ensure_ambient_host();
         let mut engine = AudioEngine::new().expect("AudioEngine::new");
         engine.init().expect("AudioEngine::init");
         // Playing a non-existent event should not panic.

@@ -2,6 +2,7 @@
 
 #[test]
 fn map_transfer_progress_timeout_and_filename_cache_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -135,6 +136,7 @@ fn map_transfer_progress_timeout_and_filename_cache_like_cpp() {
 
 #[test]
 fn multiplayer_process_progress_uses_cpp_player_lookup_mapping() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -215,6 +217,7 @@ fn multiplayer_process_progress_uses_cpp_player_lookup_mapping() {
 
 #[test]
 fn multiplayer_update_without_lookup_does_not_fallback_to_slot_zero() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -283,6 +286,7 @@ fn multiplayer_update_without_lookup_does_not_fallback_to_slot_zero() {
 
 #[test]
 fn multiplayer_update_reports_progress_before_local_ui_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -372,6 +376,7 @@ fn multiplayer_update_reports_progress_before_local_ui_like_cpp() {
 
 #[test]
 fn multiplayer_update_above_complete_only_pumps_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -458,6 +463,7 @@ fn multiplayer_update_above_complete_only_pumps_like_cpp() {
 
 #[test]
 fn gamespy_update_reports_progress_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -530,6 +536,7 @@ fn gamespy_update_reports_progress_like_cpp() {
 
 #[test]
 fn set_progress_window_uses_cpp_progress_message_range_rules() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -593,6 +600,7 @@ fn set_progress_window_uses_cpp_progress_message_range_rules() {
 
 #[test]
 fn update_load_screen_clears_cursor_tooltip_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -620,6 +628,7 @@ fn update_load_screen_clears_cursor_tooltip_like_cpp() {
 
 #[test]
 fn map_transfer_update_pumps_liteupdate_before_clearing_tooltip_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -668,6 +677,7 @@ fn map_transfer_update_pumps_liteupdate_before_clearing_tooltip_like_cpp() {
 
 #[test]
 fn non_map_transfer_updates_do_not_pump_liteupdate() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -703,6 +713,7 @@ fn non_map_transfer_updates_do_not_pump_liteupdate() {
 
 #[test]
 fn non_multiplayer_updates_do_not_report_load_progress() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -752,6 +763,7 @@ fn non_multiplayer_updates_do_not_report_load_progress() {
 
 #[test]
 fn update_load_screen_finishes_every_branch_after_local_work_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),

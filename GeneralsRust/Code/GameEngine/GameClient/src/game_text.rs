@@ -541,6 +541,7 @@ mod csf_tests {
 
     #[test]
     fn csf_source_selection_keeps_the_complete_table() {
+        crate::test_support::ensure_ambient_host();
         let small = HashMap::from([("GUI:Back".to_string(), "BACK".to_string())]);
         let full = HashMap::from([
             ("GUI:Back".to_string(), "BACK".to_string()),
@@ -557,6 +558,7 @@ mod csf_tests {
 
     #[test]
     fn csf_recovery_uses_only_the_active_language_archives() {
+        crate::test_support::ensure_ambient_host();
         assert!(is_csf_archive_for_language("EnglishZH.big", "english"));
         assert!(is_csf_archive_for_language("W3DEnglishZH.big", "english"));
         assert!(!is_csf_archive_for_language("GermanZH.big", "english"));
@@ -569,6 +571,7 @@ mod csf_tests {
 
     #[test]
     fn recovered_zero_hour_csf_contains_missing_menu_labels() {
+        crate::test_support::ensure_ambient_host();
         // The retail archive is optional for source-only builds. When it is
         // installed, verify the recovery source without mutating global text
         // state shared with other tests.
@@ -587,6 +590,7 @@ mod csf_tests {
 
     #[test]
     fn csf_runtime_strings_include_shell_labels() {
+        crate::test_support::ensure_ambient_host();
         let path = find_csf_path().expect("expected generals.csf in repo assets");
         let bytes = fs::read(path).expect("read generals.csf");
         let entries = parse_csf_strings(&bytes).expect("parse generals.csf");
@@ -599,6 +603,7 @@ mod csf_tests {
 
     #[test]
     fn missing_labels_use_cpp_missing_prefix() {
+        crate::test_support::ensure_ambient_host();
         GameText::reset();
         let (text, exists) = GameText::fetch_with_exists("DefinitelyNotARealLabel");
         assert!(!exists);

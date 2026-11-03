@@ -248,6 +248,7 @@ mod hot_key_dedup_tests {
 
     #[test]
     fn duplicate_hotkey_registration_is_ignored_and_warns_once_per_session() {
+        crate::test_support::ensure_ambient_host();
         let key = "z";
         let first_window = std::rc::Rc::new(std::cell::RefCell::new(GameWindow::new()));
         let second_window = std::rc::Rc::new(std::cell::RefCell::new(GameWindow::new()));
@@ -277,6 +278,7 @@ mod hot_key_dedup_tests {
 
     #[test]
     fn duplicate_warn_records_exactly_one_session_entry_per_key() {
+        crate::test_support::ensure_ambient_host();
         let key = "zz_dedup_probe";
         let mut manager = HotKeyManager::default();
         let window = std::rc::Rc::new(std::cell::RefCell::new(GameWindow::new()));
@@ -291,6 +293,7 @@ mod hot_key_dedup_tests {
     }
     #[test]
     fn duplicate_warnings_follow_the_receiving_manager_lifetime() {
+        crate::test_support::ensure_ambient_host();
         let window = std::rc::Rc::new(std::cell::RefCell::new(GameWindow::new()));
         let other = std::rc::Rc::new(std::cell::RefCell::new(GameWindow::new()));
         let mut first = HotKeyManager::default();

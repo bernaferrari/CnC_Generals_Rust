@@ -2266,6 +2266,7 @@ mod tests {
 
     #[test]
     fn test_road_creation() {
+        crate::test_support::ensure_ambient_host();
         let road = Road::new(
             1,
             "Main Street".to_string(),
@@ -2282,6 +2283,7 @@ mod tests {
 
     #[test]
     fn test_segment_creation() {
+        crate::test_support::ensure_ambient_host();
         let start = Vec3::new(0.0, 0.0, 0.0);
         let end = Vec3::new(100.0, 0.0, 0.0);
         let segment = RoadSegment::new(1, 1, start, end, 8.0);
@@ -2294,6 +2296,7 @@ mod tests {
 
     #[test]
     fn test_segment_length() {
+        crate::test_support::ensure_ambient_host();
         let start = Vec3::new(0.0, 0.0, 0.0);
         let end = Vec3::new(100.0, 0.0, 0.0);
         let segment = RoadSegment::new(1, 1, start, end, 8.0);
@@ -2304,6 +2307,7 @@ mod tests {
 
     #[test]
     fn test_curve_sampling() {
+        crate::test_support::ensure_ambient_host();
         let start = Vec3::new(0.0, 0.0, 0.0);
         let end = Vec3::new(100.0, 0.0, 0.0);
         let mut segment = RoadSegment::new(1, 1, start, end, 8.0);
@@ -2319,6 +2323,7 @@ mod tests {
 
     #[test]
     fn test_road_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = RoadManager::new();
 
         let road_id = manager.create_road(
@@ -2343,6 +2348,7 @@ mod tests {
 
     #[test]
     fn test_geometry_generation() {
+        crate::test_support::ensure_ambient_host();
         let mut segment = RoadSegment::new(
             1,
             1,
@@ -2365,6 +2371,7 @@ mod tests {
 
     #[test]
     fn test_geometry_generation_produces_slope_aware_normals() {
+        crate::test_support::ensure_ambient_host();
         let mut segment = RoadSegment::new(
             1,
             1,
@@ -2386,6 +2393,7 @@ mod tests {
 
     #[test]
     fn test_geometry_generation_handles_vertical_tangent_without_nan() {
+        crate::test_support::ensure_ambient_host();
         let mut segment = RoadSegment::new(
             1,
             1,
@@ -2406,6 +2414,7 @@ mod tests {
 
     #[test]
     fn test_straight_geometry_uses_map_cell_tessellation_density() {
+        crate::test_support::ensure_ambient_host();
         let mut segment = RoadSegment::new(
             1,
             1,
@@ -2425,6 +2434,7 @@ mod tests {
 
     #[test]
     fn test_render_validation_passes_for_generated_geometry() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = RoadManager::new();
         let road_id = manager.create_road(
             "Render Test".to_string(),
@@ -2445,6 +2455,7 @@ mod tests {
 
     #[test]
     fn test_render_validation_rejects_out_of_bounds_indices() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = RoadManager::new();
         let road_id = manager.create_road(
             "Broken".to_string(),
@@ -2483,6 +2494,7 @@ mod tests {
 
     #[test]
     fn test_apply_terrain_normals_reprojects_surface_normals() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = RoadManager::new();
         let road_id = manager.create_road(
             "Normal Project".to_string(),
@@ -2512,6 +2524,7 @@ mod tests {
 
     #[test]
     fn test_apply_terrain_heights_and_normals_clamps_rows_to_max_height() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = RoadManager::new();
         let road_id = manager.create_road(
             "Height Project".to_string(),
@@ -2549,6 +2562,7 @@ mod tests {
 
     #[test]
     fn test_apply_terrain_heights_samples_full_width_before_collapsing_rows() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = RoadManager::new();
         let road_id = manager.create_road(
             "Center Ridge Project".to_string(),
@@ -2586,6 +2600,7 @@ mod tests {
 
     #[test]
     fn test_apply_terrain_heights_and_normals_clamps_synthetic_intersections_too() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = RoadManager::new();
         let road_id = manager.create_road(
             "Synthetic Height Project".to_string(),
@@ -2638,6 +2653,7 @@ mod tests {
 
     #[test]
     fn test_apply_terrain_diffuse_updates_road_vertex_colors() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = RoadManager::new();
         let road_id = manager.create_road(
             "Lit Road".to_string(),
@@ -2699,6 +2715,7 @@ mod tests {
 
     #[test]
     fn test_three_way_y_geometry_uses_w3d_join_constants() {
+        crate::test_support::ensure_ambient_host();
         let segment = RoadSegment::new(
             1,
             1,
@@ -2719,6 +2736,7 @@ mod tests {
 
     #[test]
     fn test_kind_segment_uses_w3d_preload_segment_quad() {
+        crate::test_support::ensure_ambient_host();
         let mut segment = RoadSegment::new(
             1,
             1,
@@ -2746,6 +2764,7 @@ mod tests {
 
     #[test]
     fn test_three_way_h_geometry_uses_w3d_join_constants_and_flip() {
+        crate::test_support::ensure_ambient_host();
         let mut segment = RoadSegment::new(
             1,
             1,
@@ -2774,6 +2793,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_minimap_samples_emits_segment_points() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = RoadManager::new();
         let road_id = manager.create_road(
             "Overlay".to_string(),

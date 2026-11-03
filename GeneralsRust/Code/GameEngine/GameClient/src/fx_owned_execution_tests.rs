@@ -91,6 +91,7 @@ fn list(sound: &str) -> FXList {
 
 #[test]
 fn actual_fx_list_creates_receiving_particle_light_scorch_and_sound() {
+    crate::test_support::ensure_ambient_host();
     let mut catalog = FXListStore::new();
     catalog.add_fx_list("OwnedImpact".into(), list("OwnedSound"));
     let mut particles = ParticleSystemManager::new();
@@ -127,6 +128,7 @@ fn actual_fx_list_creates_receiving_particle_light_scorch_and_sound() {
 
 #[test]
 fn missing_late_sound_preflights_before_any_fx_owner_mutates() {
+    crate::test_support::ensure_ambient_host();
     let mut catalog = FXListStore::new();
     catalog.add_fx_list("OwnedImpact".into(), list("MissingSound"));
     let mut particles = ParticleSystemManager::new();

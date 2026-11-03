@@ -1387,6 +1387,7 @@ mod receiving_tod_tests {
     use super::*;
     #[test]
     fn receiving_tod_projection_survives_peer_and_core_pending_message_without_audio() {
+        crate::test_support::ensure_ambient_host();
         let mut owner = BasicDrawable::new(DrawableId(17));
         let mut peer = BasicDrawable::new(DrawableId(17));
         owner.admit_receiving_time_of_day(Some(TimeOfDay::Night));

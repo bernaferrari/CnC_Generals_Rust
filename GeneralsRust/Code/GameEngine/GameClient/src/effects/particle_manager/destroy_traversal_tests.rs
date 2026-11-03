@@ -70,6 +70,7 @@ fn isolated(name: &str, body: impl FnOnce()) {
 
 #[test]
 fn particle_destroy_traversal_long_chain_preserves_registered_state_and_peer() {
+    crate::test_support::ensure_ambient_host();
     isolated(
         "particle_destroy_traversal_long_chain_preserves_registered_state_and_peer",
         || {
@@ -122,6 +123,7 @@ fn particle_destroy_traversal_long_chain_preserves_registered_state_and_peer() {
 
 #[test]
 fn particle_destroy_traversal_cycles_terminate_without_detaching_or_deleting() {
+    crate::test_support::ensure_ambient_host();
     isolated(
         "particle_destroy_traversal_cycles_terminate_without_detaching_or_deleting",
         || {
@@ -168,6 +170,7 @@ fn particle_destroy_traversal_cycles_terminate_without_detaching_or_deleting() {
 
 #[test]
 fn particle_destroy_traversal_premarked_root_and_middle_still_reach_descendants() {
+    crate::test_support::ensure_ambient_host();
     let template = definition();
     let mut manager = ParticleSystemManager::new();
     let ids: Vec<_> = (0..4).map(|_| admit(&mut manager, &template)).collect();
@@ -187,6 +190,7 @@ fn particle_destroy_traversal_premarked_root_and_middle_still_reach_descendants(
 
 #[test]
 fn particle_destroy_traversal_retains_particles_until_original_update_cleanup() {
+    crate::test_support::ensure_ambient_host();
     let template = definition();
     let mut manager = ParticleSystemManager::new();
     let ids: Vec<_> = (0..3).map(|_| admit(&mut manager, &template)).collect();
@@ -222,6 +226,7 @@ fn particle_destroy_traversal_retains_particles_until_original_update_cleanup() 
 
 #[test]
 fn particle_destroy_traversal_missing_ids_stop_at_receiving_lookup() {
+    crate::test_support::ensure_ambient_host();
     let template = definition();
     let mut manager = ParticleSystemManager::new();
     let root = admit(&mut manager, &template);

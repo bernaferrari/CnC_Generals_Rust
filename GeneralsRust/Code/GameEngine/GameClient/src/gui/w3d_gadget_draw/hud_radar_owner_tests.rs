@@ -3,6 +3,7 @@ use std::{cell::Cell, rc::Rc};
 
 #[test]
 fn owned_radar_role_preserves_custom_callback_and_hierarchy_order() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = crate::gui::window_manager::WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager.test_create_window(Some(&parent), 1, 1, 10, 10).unwrap();
@@ -36,6 +37,7 @@ fn owned_radar_role_preserves_custom_callback_and_hierarchy_order() {
 
 #[test]
 fn explicit_missing_radar_and_geometry_fail_closed_without_core_projection() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = crate::gui::window_manager::WindowManager::new();
     let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     window.borrow_mut().set_status(WindowStatus::ENABLED);
@@ -61,6 +63,7 @@ fn explicit_missing_radar_and_geometry_fail_closed_without_core_projection() {
 
 #[test]
 fn owned_corner_lines_use_receiving_radar_and_original_cell_order() {
+    crate::test_support::ensure_ambient_host();
     let mut radar = game_engine::common::system::radar::RadarSystem::new();
     radar.new_map_owned(Coord3D::new(0., 0., 0.), Coord3D::new(128., 128., 0.), &[]);
     let presentation = radar.presentation();

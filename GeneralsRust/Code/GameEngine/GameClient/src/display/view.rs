@@ -3103,6 +3103,7 @@ mod tests {
 
     #[test]
     fn test_view_creation() {
+        crate::test_support::ensure_ambient_host();
         let view = View::new();
         assert!(view.id() > 0);
         assert_eq!(view.width(), 0);
@@ -3111,6 +3112,7 @@ mod tests {
 
     #[test]
     fn test_view_initialization() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3125,6 +3127,7 @@ mod tests {
 
     #[test]
     fn test_angle_and_pitch_limits() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
 
         // Test pitch limiting
@@ -3142,6 +3145,7 @@ mod tests {
 
     #[test]
     fn test_zoom_limits() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.min_zoom = 0.2;
@@ -3174,6 +3178,7 @@ mod tests {
 
     #[test]
     fn test_position_and_look_at() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_position(&Point3::new(0.0, 0.0, 12.0));
@@ -3193,6 +3198,7 @@ mod tests {
 
     #[test]
     fn test_view_location_save_restore() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3226,6 +3232,7 @@ mod tests {
 
     #[test]
     fn test_3d_camera_position_calculation() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3245,6 +3252,7 @@ mod tests {
 
     #[test]
     fn test_projection_mode_switching() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         assert_eq!(view.projection_mode(), ProjectionMode::Perspective);
 
@@ -3254,6 +3262,7 @@ mod tests {
 
     #[test]
     fn test_move_camera_to_animated_ends_at_look_at_position() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3271,6 +3280,7 @@ mod tests {
 
     #[test]
     fn test_move_camera_along_waypoint_path_reaches_last_waypoint() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3294,6 +3304,7 @@ mod tests {
 
     #[test]
     fn test_camera_mod_final_time_multiplier_speeds_waypoint_path() {
+        crate::test_support::ensure_ambient_host();
         let path = vec![
             Point3::new(100.0, 120.0, 0.0),
             Point3::new(260.0, 260.0, 0.0),
@@ -3324,6 +3335,7 @@ mod tests {
 
     #[test]
     fn test_camera_mod_freeze_time_clears_after_scripted_movement_finishes() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.camera_mod_freeze_time();
@@ -3347,6 +3359,7 @@ mod tests {
 
     #[test]
     fn test_camera_mod_freeze_angle_stops_rotation_progress() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.rotate_camera(0.5, 1000, 0.0, 0.0);
@@ -3363,6 +3376,7 @@ mod tests {
 
     #[test]
     fn test_wireframe_mode_applies_with_frame_delay() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3396,6 +3410,7 @@ mod tests {
 
     #[test]
     fn test_camera_commands_zero_duration_apply_immediately() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3433,6 +3448,7 @@ mod tests {
 
     #[test]
     fn test_camera_transition_frame_thresholds_match_cpp_division() {
+        crate::test_support::ensure_ambient_host();
         // C++ parity: frame count uses integer division by frame length with minimum 1.
         assert_eq!(ms_to_frames(1), 1);
         assert_eq!(ms_to_frames(33), 1);
@@ -3443,6 +3459,7 @@ mod tests {
 
     #[test]
     fn test_rotate_camera_34ms_finishes_in_one_update() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_angle(0.0);
@@ -3458,6 +3475,7 @@ mod tests {
 
     #[test]
     fn test_set_default_view_does_not_mutate_current_camera_immediately() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_angle(0.35);
@@ -3481,6 +3499,7 @@ mod tests {
 
     #[test]
     fn test_shake_overflow_clamps_to_cpp_constant() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_position(&Point3::origin());
@@ -3502,6 +3521,7 @@ mod tests {
 
     #[test]
     fn tick_impulse_shake_seeds_and_decays_offset() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_position(&Point3::origin());
@@ -3517,6 +3537,7 @@ mod tests {
 
     #[test]
     fn test_camera_mod_final_zoom_uses_remaining_movement_time() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3537,6 +3558,7 @@ mod tests {
 
     #[test]
     fn test_camera_mod_final_pitch_uses_remaining_movement_time() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
 
@@ -3556,6 +3578,7 @@ mod tests {
 
     #[test]
     fn test_camera_mod_look_toward_only_applies_while_path_active() {
+        crate::test_support::ensure_ambient_host();
         let mut idle = View::new();
         idle.init();
         idle.set_angle(0.33);
@@ -3586,6 +3609,7 @@ mod tests {
 
     #[test]
     fn test_camera_mod_final_move_to_retargets_path_endpoint() {
+        crate::test_support::ensure_ambient_host();
         let path = vec![
             Point3::new(100.0, 120.0, 0.0),
             Point3::new(260.0, 260.0, 0.0),
@@ -3620,6 +3644,7 @@ mod tests {
 
     #[test]
     fn test_camera_mod_look_toward_applies_to_active_move_transition() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_angle(0.0);
@@ -3635,6 +3660,7 @@ mod tests {
 
     #[test]
     fn test_reset_camera_animated_targets_w3d_pitch_endpoint() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_fx_pitch(0.25);
@@ -3652,6 +3678,7 @@ mod tests {
 
     #[test]
     fn test_camera_locking() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
 
         assert_eq!(view.camera_lock_id(), None);
@@ -3665,6 +3692,7 @@ mod tests {
 
     #[test]
     fn test_field_of_view_limits() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
 
         // Test FOV limiting
@@ -3681,6 +3709,7 @@ mod tests {
 
     #[test]
     fn test_basic_vector_math() {
+        crate::test_support::ensure_ambient_host();
         let v1 = Vector3::new(1.0, 0.0, 0.0);
         let v2 = Vector3::new(0.0, 1.0, 0.0);
 
@@ -3695,6 +3724,7 @@ mod tests {
 
     #[test]
     fn test_point_vector_operations() {
+        crate::test_support::ensure_ambient_host();
         let p1 = Point3::new(1.0, 2.0, 3.0);
         let p2 = Point3::new(4.0, 5.0, 6.0);
         let v = Vector3::new(1.0, 1.0, 1.0);
@@ -3708,6 +3738,7 @@ mod tests {
 
     #[test]
     fn init_height_for_map_rebuilds_camera_offset_from_ground() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_position(&Point3::new(10.0, 20.0, 0.0));
@@ -3718,6 +3749,7 @@ mod tests {
 
     #[test]
     fn real_zoom_mode_changes_field_of_view() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.set_zoom_limited(false);
@@ -3734,6 +3766,7 @@ mod tests {
 
     #[test]
     fn slave_mode_attaches_until_named_object_missing() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.camera_enable_slave_mode("MissingCameraBone", "CAMERABONE");
@@ -3744,6 +3777,7 @@ mod tests {
 
     #[test]
     fn screen_to_terrain_returns_finite_point() {
+        crate::test_support::ensure_ambient_host();
         let mut view = View::new();
         view.init();
         view.look_at(&Point3::new(100.0, 200.0, 0.0));
@@ -3755,6 +3789,7 @@ mod tests {
 
     #[test]
     fn pick_drawable_skips_when_view_uninitialized() {
+        crate::test_support::ensure_ambient_host();
         let view = View::new();
         assert!(
             view.pick_drawable(

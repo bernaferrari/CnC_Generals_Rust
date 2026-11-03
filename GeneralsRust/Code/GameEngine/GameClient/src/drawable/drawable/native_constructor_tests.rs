@@ -44,6 +44,7 @@ fn isolated(name: &str) -> bool {
 }
 #[test]
 fn native_constructor_template_is_inert_then_owned_gate_controls_local_ambient() {
+    crate::test_support::ensure_ambient_host();
     if isolated("native_constructor_template_is_inert_then_owned_gate_controls_local_ambient") {
         return;
     }
@@ -75,6 +76,7 @@ fn native_constructor_template_is_inert_then_owned_gate_controls_local_ambient()
 }
 #[test]
 fn object_binding_does_not_bypass_suppressed_constructor_ambient() {
+    crate::test_support::ensure_ambient_host();
     if isolated("object_binding_does_not_bypass_suppressed_constructor_ambient") {
         return;
     }
@@ -94,6 +96,7 @@ fn object_binding_does_not_bypass_suppressed_constructor_ambient() {
 }
 #[test]
 fn retained_template_observation_preserves_same_arc_and_restarts_replacement() {
+    crate::test_support::ensure_ambient_host();
     if isolated("retained_template_observation_preserves_same_arc_and_restarts_replacement") {
         return;
     }
@@ -123,6 +126,7 @@ fn retained_template_observation_preserves_same_arc_and_restarts_replacement() {
 
 #[test]
 fn explicit_native_retirement_stops_local_ambient_after_dropping_modules() {
+    crate::test_support::ensure_ambient_host();
     if isolated("explicit_native_retirement_stops_local_ambient_after_dropping_modules") {
         return;
     }

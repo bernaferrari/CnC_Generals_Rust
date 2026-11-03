@@ -3,6 +3,7 @@ use super::*;
 
 #[test]
 fn shake_uses_receiving_view_position_and_rules_without_changing_peer() {
+    crate::test_support::ensure_ambient_host();
     let mut first = View::new();
     let mut peer = View::new();
     peer.position = Point3::new(1000.0, 0.0, 0.0);
@@ -35,6 +36,7 @@ fn shake_uses_receiving_view_position_and_rules_without_changing_peer() {
 
 #[test]
 fn cpp_shake_overflow_clamps_to_three_after_supplied_impulse() {
+    crate::test_support::ensure_ambient_host();
     let mut view = View::new();
     let mut rules = game_engine::common::global_data::GlobalData::default();
     rules.shake_normal_intensity = 5.0;

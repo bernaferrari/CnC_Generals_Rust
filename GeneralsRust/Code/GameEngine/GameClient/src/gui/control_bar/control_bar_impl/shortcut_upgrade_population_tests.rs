@@ -3,6 +3,7 @@
 // is receiving-owned in this bounded migration.
 #[test]
 fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
+    crate::test_support::ensure_ambient_host();
     let owner = crate::gui::window_manager::WindowManagerOwner::new();
     { // was owner.with_scope
         use game_engine::common::ini::{ini_command_button, ini_command_set};

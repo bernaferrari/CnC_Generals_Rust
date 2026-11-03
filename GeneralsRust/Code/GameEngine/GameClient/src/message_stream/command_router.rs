@@ -657,6 +657,7 @@ mod tests {
 
     #[test]
     fn convert_evacuate_without_location_uses_basic_command() {
+        crate::test_support::ensure_ambient_host();
         let msg = GameMessage::with_player(GameMessageType::Evacuate, 3);
         let command = convert_game_message(&msg).expect("evacuate should route");
 
@@ -668,6 +669,7 @@ mod tests {
 
     #[test]
     fn convert_evacuate_with_location_appends_location_argument() {
+        crate::test_support::ensure_ambient_host();
         let target = Coord3D::new(12.0, 34.0, 5.0);
         let msg = GameMessage::with_player(GameMessageType::EvacuateAtLocation(target), 7);
         let command = convert_game_message(&msg).expect("targeted evacuate should route");
@@ -686,6 +688,7 @@ mod tests {
 
     #[test]
     fn convert_queue_unit_create_preserves_production_id_argument() {
+        crate::test_support::ensure_ambient_host();
         let msg = GameMessage::with_player(GameMessageType::QueueUnitCreate(1234, 77), 3);
         let command = convert_game_message(&msg).expect("queue unit create should route");
 
@@ -704,6 +707,7 @@ mod tests {
 
     #[test]
     fn convert_special_power_override_destination_preserves_legacy_argument_layout() {
+        crate::test_support::ensure_ambient_host();
         let target = Coord3D::new(4.5, 8.25, 1.0);
         let msg = GameMessage::with_player(
             GameMessageType::DoSpecialPowerOverrideDestination(target, 11, 23),
@@ -738,6 +742,7 @@ mod tests {
 
     #[test]
     fn route_commands_delivers_set_replay_camera_to_host_authority() {
+        crate::test_support::ensure_ambient_host();
         // C++ Recorder.cpp:415 appends playback commands to TheCommandList;
         // AuthorityOnly must not drop them on the crate-only queue.
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -765,6 +770,7 @@ mod tests {
 
     #[test]
     fn route_commands_skips_frame_tick_without_queuing_or_warning() {
+        crate::test_support::ensure_ambient_host();
         // C++ CommandXlat.cpp:5151 treats MSG_FRAME_TICK as expected stream
         // bookkeeping: consumed by the translators, never a routed command.
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));

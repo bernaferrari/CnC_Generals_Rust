@@ -57,6 +57,7 @@ mod tests {
 
     #[test]
     fn network_command_classifier_matches_command_messages_in_default_build() {
+        crate::test_support::ensure_ambient_host();
         assert!(is_network_command_message(&GameMessageType::DoMoveTo(
             Coord3D::default()
         )));

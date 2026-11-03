@@ -1548,6 +1548,7 @@ mod tests {
 
     #[test]
     fn ascii_string_from_owned_listbox_text_uses_as_str() {
+        crate::test_support::ensure_ambient_host();
         let text = String::from("NickName");
         let nick = AsciiString::from(text.as_str());
         assert_eq!(nick.as_str(), "NickName");
@@ -1555,6 +1556,7 @@ mod tests {
 
     #[test]
     fn rc_item_type_discriminants_are_stable() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(RcItemType::Buddy as i32, 0);
         assert_eq!(RcItemType::Request as i32, 1);
         assert_eq!(RcItemType::NonBuddy as i32, 2);

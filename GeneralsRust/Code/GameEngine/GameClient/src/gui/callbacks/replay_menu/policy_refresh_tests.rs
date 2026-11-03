@@ -17,6 +17,7 @@ impl ReplayMenuReceiver for Receiver {
 }
 #[test]
 fn admitted_content_crc_refresh_preserves_active_native_selection_and_release() {
+    crate::test_support::ensure_ambient_host();
     use crate::gui::callbacks::control_bar_callbacks::ControlBarViewport;
     use crate::gui::control_bar::ControlBar;
     use crate::gui::gadgets::{ListBox, PushButton};

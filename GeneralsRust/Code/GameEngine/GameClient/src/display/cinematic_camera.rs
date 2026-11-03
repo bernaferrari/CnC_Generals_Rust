@@ -1410,6 +1410,7 @@ mod tests {
 
     #[test]
     fn test_camera_shake_basic() {
+        crate::test_support::ensure_ambient_host();
         let mut system = CameraShakeSystem::new();
 
         // Add a shake
@@ -1428,6 +1429,7 @@ mod tests {
 
     #[test]
     fn test_camera_shake_expiration() {
+        crate::test_support::ensure_ambient_host();
         let mut system = CameraShakeSystem::new();
 
         system.add_camera_shake(Vec3::ZERO, 50.0, 0.1, 1.0);
@@ -1440,6 +1442,7 @@ mod tests {
 
     #[test]
     fn camera_shake_clamps_accumulated_angles_to_cpp_axis_limits() {
+        crate::test_support::ensure_ambient_host();
         let angles = clamp_shake_angles(AXIS_ROTATION * 4.0);
         assert_eq!(angles, AXIS_ROTATION);
 
@@ -1449,6 +1452,7 @@ mod tests {
 
     #[test]
     fn test_parabolic_ease() {
+        crate::test_support::ensure_ambient_host();
         let ease = ParabolicEase::new(0.5, 0.5);
 
         // Start should be 0
@@ -1464,6 +1468,7 @@ mod tests {
 
     #[test]
     fn test_camera_path() {
+        crate::test_support::ensure_ambient_host();
         let waypoints = vec![
             CameraWaypoint {
                 position: Vec3::ZERO,
@@ -1495,6 +1500,7 @@ mod tests {
 
     #[test]
     fn test_camera_constraints() {
+        crate::test_support::ensure_ambient_host();
         let mut constraints = CameraConstraints::new();
         constraints.set_bounds(Vec2::new(-100.0, -100.0), Vec2::new(100.0, 100.0));
 
@@ -1512,6 +1518,7 @@ mod tests {
 
     #[test]
     fn test_camera_follow_system() {
+        crate::test_support::ensure_ambient_host();
         let mut follow = CameraFollowSystem::new();
 
         // Set target
@@ -1526,6 +1533,7 @@ mod tests {
 
     #[test]
     fn test_death_camera() {
+        crate::test_support::ensure_ambient_host();
         let mut death = DeathCamera::new();
 
         death.activate(Vec3::new(100.0, 100.0, 0.0), Vec3::ZERO, 1.0, 60);
@@ -1541,6 +1549,7 @@ mod tests {
 
     #[test]
     fn test_cinematic_camera_integration() {
+        crate::test_support::ensure_ambient_host();
         let mut system = CinematicCameraSystem::new();
         let state = CameraState::default();
 

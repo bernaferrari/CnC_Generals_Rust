@@ -3,6 +3,7 @@ use super::*;
 
 #[test]
 fn actual_init_callback_activates_layout_head_immediately_under_shared_layout_loan() {
+    crate::test_support::ensure_ambient_host();
     let manager = Rc::new(RefCell::new(WindowManager::new()));
     let (layout, older, target, unrelated) = {
         let mut manager = manager.borrow_mut();
@@ -67,6 +68,7 @@ fn actual_init_callback_activates_layout_head_immediately_under_shared_layout_lo
 
 #[test]
 fn ordinary_nonfirst_activation_still_promotes_manager_and_layout_synchronously() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let layout = manager.create_layout("OrdinaryPromotion.wnd".into());
     let first = manager.test_create_window(None, 0, 0, 40, 40).unwrap();

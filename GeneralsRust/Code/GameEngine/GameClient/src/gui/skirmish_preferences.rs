@@ -284,6 +284,7 @@ mod tests {
 
     #[test]
     fn set_preferred_map_preserves_cpp_raw_value() {
+        crate::test_support::ensure_ambient_host();
         let mut prefs = SkirmishPreferences::default();
         prefs.set_preferred_map("Maps\\Official Map".to_string());
 

@@ -1208,6 +1208,7 @@ mod tests {
 
     #[test]
     fn login_system_handles_edit_done_like_cpp_gem_edit_done() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
         assert_eq!(
             wol_login_menu_system(&mut window, WindowMessage::GadgetEditDone, 0, 0),
@@ -1221,6 +1222,7 @@ mod tests {
 
     #[test]
     fn login_input_esc_key_down_is_handled_when_not_pushed() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
         wol_login_state().borrow_mut().button_pushed = false;
         assert_eq!(

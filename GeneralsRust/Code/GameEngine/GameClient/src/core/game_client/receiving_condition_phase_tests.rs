@@ -270,6 +270,7 @@ fn native_saved_no_decal_fade_continues_at_original_condition_phase() {
 // these scenarios. The service-only witness below needs neither publication.
 #[test]
 fn public_condition_phase_lifecycle() {
+    crate::test_support::ensure_ambient_host();
     public_no_decal_cu_leaves_conditions_for_visible_draw();
     public_decal_cu_applies_conditions_before_next_cu_not_again_at_draw();
     public_no_decal_expiration_drops_without_draw_condition_callbacks();
@@ -278,6 +279,7 @@ fn public_condition_phase_lifecycle() {
 
 #[test]
 fn receiving_native_draw_applies_conditions_without_an_earlier_cu() {
+    crate::test_support::ensure_ambient_host();
     use gamelogic::object::draw::w3d_model_draw::ModelConditionInfo;
     let mut template = template();
     let mut data = W3DModelDrawModuleData::new();

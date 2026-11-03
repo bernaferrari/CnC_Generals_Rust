@@ -1806,6 +1806,7 @@ mod tests {
 
     #[test]
     fn dispatch_releases_catalog_guard_before_nugget_callbacks() {
+        crate::test_support::ensure_ambient_host();
         struct WritesCatalog;
         impl FXNugget for WritesCatalog {
             fn do_fx_pos(
@@ -1834,6 +1835,7 @@ mod tests {
 
     #[test]
     fn shared_rules_feed_client_and_logic_without_consuming_rng() {
+        crate::test_support::ensure_ambient_host();
         use game_engine::common::ini::ini_fx_list::{
             Distribution, FXNugget as Rule, get_fx_list_store as authored_store,
         };
@@ -1878,6 +1880,7 @@ mod tests {
 
     #[test]
     fn owned_catalog_lookup_survives_a_different_name_key_namespace() {
+        crate::test_support::ensure_ambient_host();
         let mut store = std::thread::spawn(|| {
             NameKeyGenerator::init();
             let mut store = FXListStore::new();
@@ -1903,6 +1906,7 @@ mod tests {
 
     #[test]
     fn runtime_fx_parser_accepts_retail_labeled_values() {
+        crate::test_support::ensure_ambient_host();
         use game_engine::common::ini::ini_fx_list::{FXNugget as Rule, parse_fx_nugget_definition};
         let fields = HashMap::from([("Color".into(), "R:255 G:128 B:0".into())]);
         let Rule::Tracer { color, .. } = parse_fx_nugget_definition("Tracer", &fields).unwrap()
@@ -1921,6 +1925,7 @@ mod tests {
 
     #[test]
     fn runtime_fx_parser_loads_complete_retail_file_when_present() {
+        crate::test_support::ensure_ambient_host();
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../windows_game/extracted_big_files_v2/INI/FXList.ini");
         let Ok(source) = std::fs::read_to_string(&path) else {
@@ -1945,6 +1950,7 @@ mod tests {
 
     #[test]
     fn fx_list_at_bone_pos_queries_cpp_current_client_bone_sequence() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             FXListAtBonePosFXNugget::client_bone_name("WeaponFireFXBone", 0),
             "WeaponFireFXBone"
@@ -1967,6 +1973,7 @@ mod tests {
 
     #[test]
     fn fx_list_at_bone_pos_empty_name_queries_no_bones() {
+        crate::test_support::ensure_ambient_host();
         let nugget = FXListAtBonePosFXNugget::default();
         assert!(nugget.bone_name.is_empty());
         assert!(nugget.orient_to_bone);
@@ -1974,6 +1981,7 @@ mod tests {
 
     #[test]
     fn fx_obj_is_visible_fail_closes_when_local_player_invalid() {
+        crate::test_support::ensure_ambient_host();
         let prev_player = gamelogic::player::player_list()
             .read()
             .ok()
@@ -1999,6 +2007,7 @@ if let Ok(mut players) = __arc_bind.write() {
 
     #[test]
     fn sound_fx_nugget_do_fx_obj_sets_player_index_on_audio_event() {
+        crate::test_support::ensure_ambient_host();
         let mut event =
             game_engine::common::audio::audio_event_rts::AudioEventRts::with_event_name("UnitDie");
         event.set_player_index(3);
@@ -2011,6 +2020,7 @@ if let Ok(mut players) = __arc_bind.write() {
 
     #[test]
     fn ray_nugget_spawns_one_cpp_template_ray() {
+        crate::test_support::ensure_ambient_host();
         use crate::effects::ray_effect_system::{live_ray_effects, reset_ray_effects};
 
         reset_ray_effects();
@@ -2035,6 +2045,7 @@ if let Ok(mut players) = __arc_bind.write() {
 
     #[test]
     fn light_pulse_fx_nugget_creates_display_light_not_decal() {
+        crate::test_support::ensure_ambient_host();
         let mut fx = FxClientState::default();
         let _ = fx.drain_display_light_pulses();
         let nugget = LightPulseFXNugget {
@@ -2108,6 +2119,7 @@ if let Ok(mut players) = __arc_bind.write() {
 
     #[test]
     fn scene_dynamic_lights_fade_like_cpp_w3d_dynamic_light() {
+        crate::test_support::ensure_ambient_host();
         let mut fx = FxClientState::default();
         let _ = fx.drain_display_light_pulses();
         fx.clear_scene_dynamic_lights();
@@ -2143,6 +2155,7 @@ if let Ok(mut players) = __arc_bind.write() {
 
     #[test]
     fn do_the_dynamic_light_matches_cpp_heightmap_far_atten() {
+        crate::test_support::ensure_ambient_host();
         let mut fx = FxClientState::default();
         assert!(far_atten_factor(40.0, 10.0, 40.0).is_none());
         assert!(far_atten_factor(5.0, 0.05, 40.0).is_none());
@@ -2193,6 +2206,7 @@ if let Ok(mut players) = __arc_bind.write() {
 
     #[test]
     fn light_pulse_fx_nugget_culls_sub_cell_radius_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut fx = FxClientState::default();
         let _ = fx.drain_display_light_pulses();
         let nugget = LightPulseFXNugget {
@@ -2218,6 +2232,7 @@ if let Ok(mut players) = __arc_bind.write() {
 
     #[test]
     fn tracer_fx_nugget_do_fx_pos_calls_create_tracer_fx() {
+        crate::test_support::ensure_ambient_host();
         use crate::effects::tracer_fx::{
             bake_tracer_gpu_mesh, clear_tracer_fx, live_tracer_fx, lock_tracer_fx_tests,
             update_tracer_fx,
@@ -2301,6 +2316,7 @@ if let Ok(mut players) = __arc_bind.write() {
 
     #[test]
     fn fx_list_do_fx_pos_runs_light_pulse_nugget() {
+        crate::test_support::ensure_ambient_host();
         let mut fx = FxClientState::default();
         let _ = fx.drain_display_light_pulses();
         let nugget = LightPulseFXNugget {
@@ -2331,6 +2347,7 @@ if let Ok(mut players) = __arc_bind.write() {
 
     #[test]
     fn fx_list_do_fx_pos_skips_audio_and_particles_on_unexplored_cell() {
+        crate::test_support::ensure_ambient_host();
         let mut fx = FxClientState::default();
         use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -2409,6 +2426,7 @@ if let Ok(mut players) = __arc_bind.write() {
 
     #[test]
     fn sound_fx_nugget_without_hook_routes_via_gameplay_dispatch_fallback() {
+        crate::test_support::ensure_ambient_host();
         // Residual: FXList SoundFX must not be a silent no-op when the GameClient
         // audio hook is absent — falls back to dispatch_positional_sound.
         let nugget = SoundFXNugget {
@@ -2430,6 +2448,7 @@ if let Ok(mut players) = __arc_bind.write() {
 
     #[test]
     fn light_pulse_host_radius_as_percent_uses_geometry() {
+        crate::test_support::ensure_ambient_host();
         let mut fx = FxClientState::default();
         let _ = fx.drain_display_light_pulses();
         let nugget = LightPulseFXNugget {

@@ -11,6 +11,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_particle_manager_creation() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         assert_eq!(manager.particle_count(), 0);
         assert_eq!(manager.system_count(), 0);
@@ -18,6 +19,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_template_creation_and_retrieval() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
 
         // Create template
@@ -36,6 +38,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_particle_system_creation() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let template = manager.new_template("TestSystem".to_string());
 
@@ -49,6 +52,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_particle_creation_and_lifecycle() {
+        crate::test_support::ensure_ambient_host();
         let info = ParticleInfo {
             position: Vec3::new(1.0, 2.0, 3.0),
             velocity: Vec3::new(0.1, 0.2, 0.3),
@@ -101,6 +105,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_random_variable_sampling() {
+        crate::test_support::ensure_ambient_host();
         let var = GameClientRandomVariable::new(1.0, 5.0);
 
         // Test multiple samples are within range
@@ -116,6 +121,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_emission_volumes() {
+        crate::test_support::ensure_ambient_host();
         // Test point emission (should always return zero)
         let point_volume = EmissionVolume::Point;
 
@@ -145,6 +151,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_emission_velocities() {
+        crate::test_support::ensure_ambient_host();
         // Test ortho velocity
         let ortho_vel = EmissionVelocity::Ortho {
             x: GameClientRandomVariable::new(-1.0, 1.0),
@@ -179,6 +186,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_particle_priority_ordering() {
+        crate::test_support::ensure_ambient_host();
         assert!(ParticlePriorityType::AlwaysRender > ParticlePriorityType::Critical);
         assert!(ParticlePriorityType::Critical > ParticlePriorityType::WeaponExplosion);
         assert!(ParticlePriorityType::WeaponTrail > ParticlePriorityType::DebrisTrail);
@@ -194,6 +202,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_shader_types() {
+        crate::test_support::ensure_ambient_host();
         let additive = ParticleShaderType::Additive;
         let alpha = ParticleShaderType::Alpha;
         let alpha_test = ParticleShaderType::AlphaTest;
@@ -207,6 +216,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_particle_system_info_defaults() {
+        crate::test_support::ensure_ambient_host();
         let info = ParticleSystemInfo::default();
 
         assert!(!info.is_one_shot);
@@ -228,6 +238,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_color_tinting() {
+        crate::test_support::ensure_ambient_host();
         let mut info = ParticleSystemInfo::default();
 
         // Set some initial colors
@@ -254,6 +265,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_wind_motion_types() {
+        crate::test_support::ensure_ambient_host();
         let not_used = WindMotion::NotUsed;
         let ping_pong = WindMotion::PingPong;
         let circular = WindMotion::Circular;
@@ -264,6 +276,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_particle_system_attachment() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let template = manager.new_template("AttachedSystem".to_string());
 
@@ -282,6 +295,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_keyframe_interpolation() {
+        crate::test_support::ensure_ambient_host();
         let info = ParticleInfo {
             alpha_keys: [
                 Keyframe {
@@ -343,6 +357,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_particle_invisibility_detection() {
+        crate::test_support::ensure_ambient_host();
         let mut particle = Particle::new(&ParticleInfo::default(), 1, 0);
 
         // Test additive shader with black color
@@ -368,6 +383,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_global_particle_system_manager() {
+        crate::test_support::ensure_ambient_host();
         // Test initialization
         initialize_particle_system_manager().unwrap();
 
@@ -394,6 +410,7 @@ mod particle_optimization_tests {
 
     #[test]
     fn test_optimizer_creation() {
+        crate::test_support::ensure_ambient_host();
         let optimizer = ParticleOptimizer::new();
         assert_eq!(optimizer.current_quality_scale, 1.0);
         assert_eq!(optimizer.performance_trend, 0.0);
@@ -401,6 +418,7 @@ mod particle_optimization_tests {
 
     #[test]
     fn test_lod_calculation() {
+        crate::test_support::ensure_ambient_host();
         let mut optimizer = ParticleOptimizer::new();
         optimizer.update_camera_position(Vec3::ZERO);
 
@@ -420,6 +438,7 @@ mod particle_optimization_tests {
 
     #[test]
     fn test_lod_multipliers() {
+        crate::test_support::ensure_ambient_host();
         let optimizer = ParticleOptimizer::new();
 
         // Test particle multipliers
@@ -469,6 +488,7 @@ mod particle_optimization_tests {
 
     #[test]
     fn test_performance_budget() {
+        crate::test_support::ensure_ambient_host();
         let budget = ParticlePerformanceBudget::default();
 
         // Always render should have unlimited budget
@@ -501,6 +521,7 @@ mod particle_optimization_tests {
 
     #[test]
     fn test_adaptive_quality() {
+        crate::test_support::ensure_ambient_host();
         let mut optimizer = ParticleOptimizer::new();
 
         // Simulate good performance
@@ -533,6 +554,7 @@ mod particle_ini_tests {
 
     #[test]
     fn test_ini_parser_creation() {
+        crate::test_support::ensure_ambient_host();
         let parser = ParticleSystemINIParser::default();
 
         // Verify name mappings are populated
@@ -544,6 +566,7 @@ mod particle_ini_tests {
 
     #[test]
     fn test_value_parsing() {
+        crate::test_support::ensure_ambient_host();
         let parser = ParticleSystemINIParser::default();
 
         // Test boolean parsing
@@ -602,6 +625,7 @@ mod particle_ini_tests {
 
     #[test]
     fn test_enum_parsing() {
+        crate::test_support::ensure_ambient_host();
         let parser = ParticleSystemINIParser::default();
 
         // Test shader types
@@ -732,6 +756,7 @@ mod particle_renderer_tests {
 
     #[test]
     fn test_particle_vertex_size() {
+        crate::test_support::ensure_ambient_host();
         // Ensure ParticleVertex has the expected size and alignment
         assert_eq!(std::mem::size_of::<ParticleVertex>(), 64);
         assert_eq!(std::mem::align_of::<ParticleVertex>(), 4);
@@ -739,6 +764,7 @@ mod particle_renderer_tests {
 
     #[test]
     fn test_particle_vertex_creation() {
+        crate::test_support::ensure_ambient_host();
         let vertex = ParticleVertex {
             position: [1.0, 2.0, 3.0],
             size: [5.0, 5.0],
@@ -758,12 +784,14 @@ mod particle_renderer_tests {
 
     #[test]
     fn test_particle_uniforms_size() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(std::mem::size_of::<ParticleUniforms>(), 144); // 2 mat4x4 + vec3 + padding + vec2 + u32 + padding
         assert_eq!(std::mem::align_of::<ParticleUniforms>(), 4);
     }
 
     #[test]
     fn test_particle_batch() {
+        crate::test_support::ensure_ambient_host();
         let mut batch =
             ParticleBatch::new(ParticleShaderType::Alpha, "test_texture.tga".to_string());
 
@@ -778,6 +806,7 @@ mod particle_renderer_tests {
 
     #[test]
     fn test_render_stats() {
+        crate::test_support::ensure_ambient_host();
         let mut stats = ParticleRenderStats::default();
 
         assert_eq!(stats.particles_rendered, 0);
@@ -807,6 +836,7 @@ mod integration_tests {
 
     #[test]
     fn test_complete_explosion_effect() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
 
         // Create explosion template
@@ -892,6 +922,7 @@ mod integration_tests {
 
     #[test]
     fn test_complete_optimization_pipeline() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let mut optimizer = ParticleOptimizer::new();
 
@@ -953,6 +984,7 @@ mod integration_tests {
 
     #[test]
     fn test_wind_motion_simulation() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
 
         // Create system with ping-pong wind motion

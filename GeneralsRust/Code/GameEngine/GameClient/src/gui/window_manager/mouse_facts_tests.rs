@@ -42,6 +42,7 @@ fn deliver(
 
 #[test]
 fn receiving_managers_keep_scrolling_lmb_exception_and_peer_independence() {
+    crate::test_support::ensure_ambient_host();
     let (mut first, first_calls) = receiver();
     let (mut peer, peer_calls) = receiver();
     let scrolling = WindowMouseFacts {
@@ -132,6 +133,7 @@ fn receiving_managers_keep_scrolling_lmb_exception_and_peer_independence() {
 
 #[test]
 fn shell_override_occurs_after_dispatch_and_never_after_lock_rejection() {
+    crate::test_support::ensure_ambient_host();
     let calls = std::cell::Cell::new(0);
     let result = dispatch_mouse_with_facts(
         WindowMessage::MousePos,
@@ -162,6 +164,7 @@ fn shell_override_occurs_after_dispatch_and_never_after_lock_rejection() {
 
 #[test]
 fn hover_callbacks_keep_cpp_packed_screen_coordinates_and_order() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let first = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let second = manager.test_create_window(None, 200, 0, 100, 100).unwrap();

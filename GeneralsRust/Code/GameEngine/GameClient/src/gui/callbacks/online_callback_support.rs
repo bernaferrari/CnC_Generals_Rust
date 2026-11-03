@@ -126,6 +126,7 @@ mod tests {
 
     #[test]
     fn packed_ui_color_matches_game_make_color_bit_order() {
+        crate::test_support::ensure_ambient_host();
         let packed = game_make_color(0x11, 0x22, 0x33, 0xAA);
         let color = packed_ui_color(packed);
         assert_eq!(color.r, 0x11);
@@ -137,6 +138,7 @@ mod tests {
 
     #[test]
     fn name_to_window_id_is_stable_i32_when_same_name() {
+        crate::test_support::ensure_ambient_host();
         let first = name_to_window_id("WOLWelcomeMenu.wnd:ButtonBack");
         let second = name_to_window_id("WOLWelcomeMenu.wnd:ButtonBack");
         assert_eq!(first, second);
@@ -145,6 +147,7 @@ mod tests {
 
     #[test]
     fn refcell_reentry_is_rejected_so_esc_must_drop_borrow_first() {
+        crate::test_support::ensure_ambient_host();
         // Documents why dispatch_esc_gadget_selected clones the Rc out of
         // thread-local state before send_system_message (C++ file-statics
         // re-enter; RefCell panics).
@@ -161,11 +164,13 @@ mod tests {
 
     #[test]
     fn dispatch_esc_gadget_selected_is_silent_when_parent_missing() {
+        crate::test_support::ensure_ambient_host();
         dispatch_esc_gadget_selected(None, 1);
     }
 
     #[test]
     fn combo_item_data_eq_casts_signed_gadget_data_to_usize() {
+        crate::test_support::ensure_ambient_host();
         assert!(combo_item_data_eq(Some((-1i32) as usize), -1));
         assert!(combo_item_data_eq(Some(3), 3));
         assert!(!combo_item_data_eq(Some(3), 4));
@@ -174,11 +179,13 @@ mod tests {
 
     #[test]
     fn mapped_image_size_falls_back_to_ten_when_collection_empty() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(mapped_image_size("Password"), (10, 10));
     }
 
     #[test]
     fn challenge_general_starts_enabled_is_true_when_persona_missing() {
+        crate::test_support::ensure_ambient_host();
         assert!(challenge_general_starts_enabled("NoSuchTemplate"));
     }
 }

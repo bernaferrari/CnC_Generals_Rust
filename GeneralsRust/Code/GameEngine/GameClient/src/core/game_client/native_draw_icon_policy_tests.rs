@@ -23,6 +23,7 @@ fn visible(client: &mut GameClient, id: DrawableId) -> bool {
 }
 #[test]
 fn actual_client_icon_dispatch_uses_only_its_admitted_policy() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "actual_client_icon_dispatch_uses_only_its_admitted_policy",

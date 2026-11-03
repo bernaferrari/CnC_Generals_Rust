@@ -1562,6 +1562,7 @@ mod tests {
 
     #[test]
     fn reset_script_action_runtime_state_clears_audio_and_ui_state() {
+        crate::test_support::ensure_ambient_host();
         with_script_runtime(|state| {
             state.audio_waits.insert("audio".into(), vec![1]);
             state.speech_waits.insert("speech".into(), vec![2]);
@@ -1582,6 +1583,7 @@ mod tests {
 
     #[test]
     fn create_win_lose_window_loads_victorious_layout_when_present() {
+        crate::test_support::ensure_ambient_host();
         // C++ ScriptActions.cpp:204 TheWindowManager->winCreateFromScript("Menus/Victorious.wnd")
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
@@ -1607,6 +1609,7 @@ mod tests {
 
     #[test]
     fn music_set_track_fade_does_not_hard_stop_before_ahsv_fade() {
+        crate::test_support::ensure_ambient_host();
         let handler = GameClientScriptActionHandler::new();
         let mut manager = music_audio::test_audio(&["HqOb62ThemeA", "HqOb62ThemeB"]);
         let mut peer = music_audio::test_audio(&["HqOb62ThemeA"]);
@@ -1652,6 +1655,7 @@ mod tests {
 
     #[test]
     fn stop_music_uses_ahsv_fade_not_hard_stop() {
+        crate::test_support::ensure_ambient_host();
         let handler = GameClientScriptActionHandler::new();
         let mut manager = music_audio::test_audio(&["HqOb62StopTheme"]);
         handler.music_set_track_with_recipient(

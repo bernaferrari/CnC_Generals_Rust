@@ -221,6 +221,7 @@ mod tests {
 
     #[test]
     fn create_platform_context() {
+        crate::test_support::ensure_ambient_host();
         let result = PlatformContext::new("Test", 800, 600);
         assert!(result.is_ok());
     }

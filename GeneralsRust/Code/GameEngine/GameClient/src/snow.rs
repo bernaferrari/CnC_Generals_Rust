@@ -520,6 +520,7 @@ mod tests {
 
     #[test]
     fn terrain_visual_update_does_not_double_tick_snow() {
+        crate::test_support::ensure_ambient_host();
         // C++ GameClient.cpp:560 is the only TheSnowManager->UPDATE.
         let traits = include_str!("terrain/terrain_visual/traits.rs");
         let update_fn = traits
@@ -540,6 +541,7 @@ mod tests {
 
     #[test]
     fn weather_setting_defaults_match_cpp_constructor() {
+        crate::test_support::ensure_ambient_host();
         let setting = WeatherSetting::default();
 
         assert_eq!(setting.snow_texture, "EXSnowFlake.tga");
@@ -559,6 +561,7 @@ mod tests {
 
     #[test]
     fn weather_fields_accept_cpp_ini_token_style() {
+        crate::test_support::ensure_ambient_host();
         let mut setting = WeatherSetting::default();
 
         setting
@@ -582,6 +585,7 @@ mod tests {
 
     #[test]
     fn snow_update_advances_and_wraps_time() {
+        crate::test_support::ensure_ambient_host();
         let mut snow = SnowManager::new();
         snow.full_time_period = 2.0;
         snow.update(0.75);
@@ -592,6 +596,7 @@ mod tests {
 
     #[test]
     fn update_ini_settings_does_not_overwrite_script_visibility() {
+        crate::test_support::ensure_ambient_host();
         let settings = WeatherSetting {
             snow_enabled: true,
             snow_box_dimensions: 50.0,
@@ -621,6 +626,7 @@ mod tests {
 
     #[test]
     fn explicit_definition_lifecycle_is_instance_owned() {
+        crate::test_support::ensure_ambient_host();
         let mut first = SnowManager::new();
         let mut peer = SnowManager::new();
         assert!(first.starting_heights().is_empty());
@@ -692,6 +698,7 @@ mod tests {
 
     #[test]
     fn reset_restores_script_visibility() {
+        crate::test_support::ensure_ambient_host();
         let mut snow = SnowManager::new();
         snow.set_visible(false);
         snow.reset();
@@ -703,6 +710,7 @@ mod tests {
 
     #[test]
     fn flake_positions_clip_to_terrain_visible_box() {
+        crate::test_support::ensure_ambient_host();
         let settings = WeatherSetting {
             snow_enabled: true,
             snow_box_dimensions: 50.0,
@@ -751,6 +759,7 @@ mod tests {
 
     #[test]
     fn camera_facing_quads_are_not_world_axis_cards() {
+        crate::test_support::ensure_ambient_host();
         let corners =
             camera_facing_quad_corners([0.0, 10.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.8, 0.6], 1.0);
         // C++ half-size is 0.5 * quadSize, not ±quadSize.
@@ -773,6 +782,7 @@ mod tests {
 
     #[test]
     fn game_client_reset_source_resets_snow_manager() {
+        crate::test_support::ensure_ambient_host();
         let init = include_str!("core/game_client/impl_init.rs");
         let reset_fn = init
             .split("pub fn reset(&mut self)")

@@ -59,11 +59,13 @@ fn combo_fixture() -> (
 
 #[test]
 fn undefined_window_color_matches_cpp_transparent_white_sentinel() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(WIN_COLOR_UNDEFINED, 0x00FF_FFFF);
 }
 
 #[test]
 fn window_instance_data_defaults_match_cpp_init() {
+    crate::test_support::ensure_ambient_host();
     let data = WindowInstanceData::default();
     assert_eq!(data.tooltip_delay, -1);
     assert_eq!(data.enabled_draw_data[0].color, WIN_COLOR_UNDEFINED);
@@ -75,6 +77,7 @@ fn window_instance_data_defaults_match_cpp_init() {
 
 #[test]
 fn legacy_virtual_keys_map_to_gadget_key_codes_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(map_keycode(0x21), KeyCode::PageUp);
     assert_eq!(map_keycode(0x22), KeyCode::PageDown);
     assert_eq!(map_keycode(0x23), KeyCode::End);
@@ -87,6 +90,7 @@ fn legacy_virtual_keys_map_to_gadget_key_codes_like_cpp() {
 
 #[test]
 fn static_text_label_system_messages_match_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -127,6 +131,7 @@ fn static_text_label_system_messages_match_cpp() {
 
 #[test]
 fn garbage_window_msg_data_is_not_a_payload_and_does_not_panic() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -178,6 +183,7 @@ fn garbage_window_msg_data_is_not_a_payload_and_does_not_panic() {
 
 #[test]
 fn typed_text_payload_roundtrip_works() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -211,6 +217,7 @@ fn typed_text_payload_roundtrip_works() {
 
 #[test]
 fn write_input_focus_response_uses_payload_token_not_raw_ptr() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -251,6 +258,7 @@ fn write_input_focus_response_uses_payload_token_not_raw_ptr() {
 
 #[test]
 fn static_text_create_destroy_are_consumed_like_cpp_system_callback() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_widget(WindowWidget::StaticText(StaticText::new(8, 0, 0, 120, 24)));
 
@@ -266,6 +274,7 @@ fn static_text_create_destroy_are_consumed_like_cpp_system_callback() {
 
 #[test]
 fn static_text_input_focus_is_ignored_like_cpp_system_callback() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -303,6 +312,7 @@ fn static_text_input_focus_is_ignored_like_cpp_system_callback() {
 
 #[test]
 fn test_window_creation() {
+    crate::test_support::ensure_ambient_host();
     let window = GameWindow::new();
     assert_eq!(window.get_id(), WINDOW_ID_INVALID);
     assert_eq!(window.get_size(), (0, 0));
@@ -313,6 +323,7 @@ fn test_window_creation() {
 
 #[test]
 fn test_window_properties() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
 
     window.set_id(123);
@@ -337,6 +348,7 @@ fn test_window_properties() {
 
 #[test]
 fn is_enabled_fail_closed_when_parent_mutably_borrowed() {
+    crate::test_support::ensure_ambient_host();
     let parent = Rc::new(RefCell::new(GameWindow::new()));
     let child = Rc::new(RefCell::new(GameWindow::new()));
 
@@ -356,6 +368,7 @@ fn is_enabled_fail_closed_when_parent_mutably_borrowed() {
 
 #[test]
 fn text_length_counts_characters_like_cpp_unicode_string() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
 
     window.set_text("Aé中").unwrap();
@@ -366,6 +379,7 @@ fn text_length_counts_characters_like_cpp_unicode_string() {
 
 #[test]
 fn user_window_focus_does_not_select_hilite_draw_bank() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_widget(WindowWidget::User);
     let _ = window.test_send_system_message(WindowMessage::InputFocus, 1, 0);
@@ -377,6 +391,7 @@ fn user_window_focus_does_not_select_hilite_draw_bank() {
 
 #[test]
 fn gadget_messages_route_to_owner_not_parent_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let parent_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
@@ -431,6 +446,7 @@ fn gadget_messages_route_to_owner_not_parent_like_cpp() {
 
 #[test]
 fn gadget_messages_to_self_owner_do_not_reborrow_window() {
+    crate::test_support::ensure_ambient_host();
     let seen = Rc::new(RefCell::new(Vec::new()));
     let parent = Rc::new(RefCell::new(GameWindow::new()));
     let child = Rc::new(RefCell::new(GameWindow::new()));
@@ -472,6 +488,7 @@ fn gadget_messages_to_self_owner_do_not_reborrow_window() {
 
 #[test]
 fn set_size_sends_resized_system_message_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     let seen = Rc::new(RefCell::new(Vec::new()));
 
@@ -493,6 +510,7 @@ fn set_size_sends_resized_system_message_like_cpp() {
 
 #[test]
 fn text_color_getters_return_all_state_colors_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
 
     window.set_enabled_text_colors(0x01020304, 0x05060708);
@@ -512,6 +530,7 @@ fn text_color_getters_return_all_state_colors_like_cpp() {
 
 #[test]
 fn combo_box_text_color_setters_propagate_to_sub_gadgets_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut combo = GameWindow::new();
     combo.set_id(1);
 
@@ -588,6 +607,7 @@ fn combo_box_text_color_setters_propagate_to_sub_gadgets_like_cpp() {
 
 #[test]
 fn combo_box_set_colors_propagates_to_sub_gadgets_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let (mut combo, edit_box, list_box, drop_down) = combo_fixture();
     fn assert_combo_button_colors(window: &GameWindow) {
         assert_eq!(window.get_enabled_draw_data(0).unwrap().color, 0x01020304);
@@ -638,6 +658,7 @@ fn combo_box_set_colors_propagates_to_sub_gadgets_like_cpp() {
 
 #[test]
 fn combo_box_set_text_uses_edit_child_without_selecting_matching_item_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -684,6 +705,7 @@ fn combo_box_set_text_uses_edit_child_without_selecting_matching_item_like_cpp()
 
 #[test]
 fn combo_box_item_data_round_trips_pointer_sized_values_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -714,6 +736,7 @@ fn combo_box_item_data_round_trips_pointer_sized_values_like_cpp() {
 
 #[test]
 fn combo_box_selection_hides_list_updates_edit_and_notifies_owner_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -776,6 +799,7 @@ fn combo_box_selection_hides_list_updates_edit_and_notifies_owner_like_cpp() {
 
 #[test]
 fn combo_box_edit_update_clears_selection_hides_list_and_notifies_owner_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -822,6 +846,7 @@ fn combo_box_edit_update_clears_selection_hides_list_and_notifies_owner_like_cpp
 
 #[test]
 fn combo_box_dropdown_height_matches_cpp_font_formula() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(GameWindow::combo_box_dropdown_height(3, 5, 14), 52);
     assert_eq!(GameWindow::combo_box_dropdown_height(7, 5, 14), 84);
     assert_eq!(GameWindow::combo_box_dropdown_height(0, 5, 14), 4);
@@ -829,6 +854,7 @@ fn combo_box_dropdown_height_matches_cpp_font_formula() {
 
 #[test]
 fn test_window_status_flags() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
 
     window.set_status(WindowStatus::ENABLED | WindowStatus::ACTIVE);
@@ -842,6 +868,7 @@ fn test_window_status_flags() {
 
 #[test]
 fn win_is_hidden_checks_only_own_status_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let parent = Rc::new(RefCell::new(GameWindow::new()));
     let child = Rc::new(RefCell::new(GameWindow::new()));
     child.borrow_mut().set_parent(Some(&parent));
@@ -858,6 +885,7 @@ fn win_is_hidden_checks_only_own_status_like_cpp() {
 
 #[test]
 fn win_is_child_checks_full_parent_chain_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let parent = Rc::new(RefCell::new(GameWindow::new()));
     let child = Rc::new(RefCell::new(GameWindow::new()));
     let grandchild = Rc::new(RefCell::new(GameWindow::new()));
@@ -877,6 +905,7 @@ fn win_is_child_checks_full_parent_chain_like_cpp() {
 
 #[test]
 fn leaf_helpers_walk_window_tree_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let root = Rc::new(RefCell::new(GameWindow::new()));
     let trailing_leaf = Rc::new(RefCell::new(GameWindow::new()));
     let branch = Rc::new(RefCell::new(GameWindow::new()));
@@ -917,6 +946,7 @@ fn leaf_helpers_walk_window_tree_like_cpp() {
 
 #[test]
 fn leaf_helpers_stop_descent_at_tab_stop_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let root = Rc::new(RefCell::new(GameWindow::new()));
     let tab_branch = Rc::new(RefCell::new(GameWindow::new()));
     let leading_leaf = Rc::new(RefCell::new(GameWindow::new()));
@@ -942,6 +972,7 @@ fn leaf_helpers_stop_descent_at_tab_stop_like_cpp() {
 
 #[test]
 fn show_tab_pane_falls_back_and_updates_active_tab_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut tab_window = GameWindow::new();
     let mut tab_control = TabControl::new(7, 0, 0, 100, 80);
     tab_control.set_tab_data(TabControlData {
@@ -974,6 +1005,7 @@ fn show_tab_pane_falls_back_and_updates_active_tab_like_cpp() {
 
 #[test]
 fn resizing_tab_control_resizes_panes_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut tab_window = GameWindow::new();
     let mut tab_control = TabControl::new(7, 0, 0, 100, 80);
     tab_control.set_tab_data(TabControlData {
@@ -1007,6 +1039,7 @@ fn resizing_tab_control_resizes_panes_like_cpp() {
 
 #[test]
 fn progress_bar_system_message_matches_cpp_range_rules() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_widget(WindowWidget::ProgressBar(ProgressBar::new(
         42, 0, 0, 100, 10,
@@ -1038,6 +1071,7 @@ fn progress_bar_system_message_matches_cpp_range_rules() {
 
 #[test]
 fn slider_system_messages_match_cpp_numeric_rules() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_widget(WindowWidget::HorizontalSlider(
         HorizontalSlider::new(7, 0, 0, 100, 20).with_range(0, 100),
@@ -1079,6 +1113,7 @@ fn slider_system_messages_match_cpp_numeric_rules() {
 
 #[test]
 fn slider_mouse_enter_leave_hilites_thumb_child_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_id(7);
     window.enable(true).unwrap();
@@ -1128,6 +1163,7 @@ fn slider_mouse_enter_leave_hilites_thumb_child_like_cpp() {
 
 #[test]
 fn vertical_slider_system_messages_use_cpp_inverted_axis() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_widget(WindowWidget::VerticalSlider(
         VerticalSlider::new(7, 0, 0, 20, 120).with_range(0, 100),
@@ -1156,6 +1192,7 @@ fn vertical_slider_system_messages_use_cpp_inverted_axis() {
 
 #[test]
 fn radio_set_selection_system_message_matches_cpp_notify_rules() {
+    crate::test_support::ensure_ambient_host();
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -1230,6 +1267,7 @@ fn radio_set_selection_system_message_matches_cpp_notify_rules() {
 
 #[test]
 fn radio_set_selection_clears_group_peers_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let parent = Rc::new(RefCell::new(GameWindow::new()));
     let first = Rc::new(RefCell::new(GameWindow::new()));
     let second = Rc::new(RefCell::new(GameWindow::new()));
@@ -1303,6 +1341,7 @@ fn radio_set_selection_clears_group_peers_like_cpp() {
 
 #[test]
 fn radio_create_destroy_are_consumed_like_cpp_system_callback() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_widget(WindowWidget::RadioButton(RadioButton::new(
         43,
@@ -1324,6 +1363,7 @@ fn radio_create_destroy_are_consumed_like_cpp_system_callback() {
 
 #[test]
 fn radio_mouse_track_gate_and_payloads_match_cpp() {
+    crate::test_support::ensure_ambient_host();
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -1385,6 +1425,7 @@ fn radio_mouse_track_gate_and_payloads_match_cpp() {
 
 #[test]
 fn checkbox_widget_sync_sets_selected_state_like_cpp_instance_data() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_id(19);
     window.enable(true).unwrap();
@@ -1401,6 +1442,7 @@ fn checkbox_widget_sync_sets_selected_state_like_cpp_instance_data() {
 
 #[test]
 fn checkbox_set_selection_notifies_owner_even_when_unchanged_like_cpp_helper() {
+    crate::test_support::ensure_ambient_host();
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -1442,6 +1484,7 @@ fn checkbox_set_selection_notifies_owner_even_when_unchanged_like_cpp_helper() {
 
 #[test]
 fn checkbox_create_destroy_are_consumed_like_cpp_system_callback() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_widget(WindowWidget::CheckBox(CheckBox::new(21, 0, 0, 16)));
 
@@ -1457,6 +1500,7 @@ fn checkbox_create_destroy_are_consumed_like_cpp_system_callback() {
 
 #[test]
 fn checkbox_mouse_track_gate_and_payloads_match_cpp() {
+    crate::test_support::ensure_ambient_host();
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -1525,6 +1569,7 @@ fn checkbox_mouse_track_gate_and_payloads_match_cpp() {
 
 #[test]
 fn checkbox_right_up_notifies_without_right_click_status_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -1561,6 +1606,7 @@ fn checkbox_right_up_notifies_without_right_click_status_like_cpp() {
 
 #[test]
 fn input_focus_notifies_owner_and_updates_hilite_like_cpp_gadgets() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -1616,6 +1662,7 @@ fn input_focus_notifies_owner_and_updates_hilite_like_cpp_gadgets() {
 
 #[test]
 fn radio_input_focus_does_not_set_hilite_on_gain_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -1678,6 +1725,7 @@ fn radio_input_focus_does_not_set_hilite_on_gain_like_cpp() {
 
 #[test]
 fn text_entry_input_focus_sets_selected_and_hilite_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -1728,6 +1776,7 @@ fn text_entry_input_focus_sets_selected_and_hilite_like_cpp() {
 
 #[test]
 fn listbox_delete_system_messages_match_cpp_state_rules() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     let mut listbox = ListBox::new(42, 0, 0, 100, 60);
     listbox.add_item("alpha");
@@ -1763,6 +1812,7 @@ fn listbox_delete_system_messages_match_cpp_state_rules() {
 
 #[test]
 fn listbox_selection_system_message_notifies_owner_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -1815,6 +1865,7 @@ fn listbox_selection_system_message_notifies_owner_like_cpp() {
 
 #[test]
 fn titled_listbox_input_maps_title_click_to_first_row_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_id(42);
     window.test_set_size(100, 60).unwrap();
@@ -1839,6 +1890,7 @@ fn titled_listbox_input_maps_title_click_to_first_row_like_cpp() {
 
 #[test]
 fn listbox_input_sends_glm_selected_row_to_owner_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -1880,6 +1932,7 @@ fn listbox_input_sends_glm_selected_row_to_owner_like_cpp() {
 
 #[test]
 fn listbox_double_click_sends_glm_double_clicked_before_selection_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -1932,6 +1985,7 @@ fn listbox_double_click_sends_glm_double_clicked_before_selection_like_cpp() {
 
 #[test]
 fn listbox_scroll_buffer_and_update_display_system_messages_match_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     let mut listbox = ListBox::new(42, 0, 0, 100, 40);
     listbox.add_item("alpha");
@@ -1973,6 +2027,7 @@ fn listbox_scroll_buffer_and_update_display_system_messages_match_cpp() {
 
 #[test]
 fn listbox_visible_entry_helpers_match_cpp_public_api() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     let mut listbox = ListBox::new(42, 0, 0, 100, 30).with_item_height(10);
     listbox.add_item("alpha");
@@ -2001,6 +2056,7 @@ fn listbox_visible_entry_helpers_match_cpp_public_api() {
 
 #[test]
 fn listbox_column_helpers_match_cpp_public_api() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     let mut listbox = ListBox::new(42, 0, 0, 120, 30);
     listbox.set_columns(3);
@@ -2021,6 +2077,7 @@ fn listbox_column_helpers_match_cpp_public_api() {
 
 #[test]
 fn listbox_set_colors_propagates_to_scrollbar_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut listbox = GameWindow::new();
     listbox.set_widget(WindowWidget::ListBox(ListBox::new(42, 0, 0, 120, 60)));
 
@@ -2119,6 +2176,7 @@ fn listbox_set_colors_propagates_to_scrollbar_like_cpp() {
 
 #[test]
 fn listbox_linked_slider_tracks_cpp_inverted_position() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     let mut listbox = ListBox::new(42, 0, 0, 100, 40);
     listbox.add_item("alpha");
@@ -2188,6 +2246,7 @@ fn listbox_linked_slider_tracks_cpp_inverted_position() {
 
 #[test]
 fn listbox_toggle_multi_selection_system_message_matches_cpp() {
+    crate::test_support::ensure_ambient_host();
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -2272,6 +2331,7 @@ fn listbox_toggle_multi_selection_system_message_matches_cpp() {
 
 #[test]
 fn listbox_pointer_system_messages_bridge_cpp_payloads() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -2400,6 +2460,7 @@ fn listbox_pointer_system_messages_bridge_cpp_payloads() {
 
 #[test]
 fn listbox_selection_system_messages_match_cpp_out_pointer_shape() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -2459,6 +2520,7 @@ fn listbox_selection_system_messages_match_cpp_out_pointer_shape() {
 
 #[test]
 fn test_window_region() {
+    crate::test_support::ensure_ambient_host();
     let region = WindowRegion::new(10, 20, 100, 200);
     assert_eq!(region.low.x, 10);
     assert_eq!(region.low.y, 20);
@@ -2474,6 +2536,7 @@ fn test_window_region() {
 
 #[test]
 fn test_point_in_window() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_position(10, 10).unwrap();
     window.test_set_size(100, 100).unwrap();
@@ -2485,6 +2548,7 @@ fn test_point_in_window() {
 
 #[test]
 fn point_in_child_returns_deepest_enabled_visible_child_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let parent = Rc::new(RefCell::new(GameWindow::new()));
     let child = Rc::new(RefCell::new(GameWindow::new()));
     let grandchild = Rc::new(RefCell::new(GameWindow::new()));
@@ -2518,6 +2582,7 @@ fn point_in_child_returns_deepest_enabled_visible_child_like_cpp() {
 
 #[test]
 fn point_in_any_child_matches_hidden_and_disabled_cpp_rules() {
+    crate::test_support::ensure_ambient_host();
     let parent = Rc::new(RefCell::new(GameWindow::new()));
     let child = Rc::new(RefCell::new(GameWindow::new()));
 
@@ -2547,6 +2612,7 @@ fn point_in_any_child_matches_hidden_and_disabled_cpp_rules() {
 
 #[test]
 fn test_user_data() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
 
     window.set_user_data(42i32);
@@ -2560,6 +2626,7 @@ fn test_user_data() {
 
 #[test]
 fn edit_data_stores_gui_editor_callback_names_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     assert!(window.get_edit_data().is_none());
 
@@ -2579,6 +2646,7 @@ fn edit_data_stores_gui_editor_callback_names_like_cpp() {
 
 #[test]
 fn test_callbacks() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_status(WindowStatus::ENABLED);
 
@@ -2600,6 +2668,7 @@ fn test_callbacks() {
 
 #[test]
 fn callback_getters_return_installed_handlers_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
 
     assert!(window.get_draw_callback().is_some());
@@ -2616,6 +2685,7 @@ fn callback_getters_return_installed_handlers_like_cpp() {
 
 #[test]
 fn callback_resets_restore_default_handlers_like_cpp_null_setters() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_status(WindowStatus::ENABLED);
     let drawn = Rc::new(RefCell::new(0));
@@ -2661,6 +2731,7 @@ fn callback_resets_restore_default_handlers_like_cpp_null_setters() {
 
 #[test]
 fn set_callbacks_updates_input_draw_and_tooltip_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_status(WindowStatus::ENABLED);
     let drawn = Rc::new(RefCell::new(0));
@@ -2711,6 +2782,7 @@ fn set_callbacks_updates_input_draw_and_tooltip_like_cpp() {
 
 #[test]
 fn destroyed_window_ignores_non_destroy_system_messages_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     let seen = Rc::new(RefCell::new(Vec::new()));
 
@@ -2736,6 +2808,7 @@ fn destroyed_window_ignores_non_destroy_system_messages_like_cpp() {
 
 #[test]
 fn destroyed_window_ignores_non_destroy_input_messages_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     let seen = Rc::new(RefCell::new(Vec::new()));
 
@@ -2761,6 +2834,7 @@ fn destroyed_window_ignores_non_destroy_input_messages_like_cpp() {
 
 #[test]
 fn char_key_state_up_maps_to_widget_key_up() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_id(7);
     window.set_status(WindowStatus::ENABLED);
@@ -2792,6 +2866,7 @@ fn char_key_state_up_maps_to_widget_key_up() {
 
 #[test]
 fn image_status_with_defined_color_does_not_emit_draw_rect_fill() {
+    crate::test_support::ensure_ambient_host();
     // Regression windows: MainMenu.wnd:MainMenuParent, MainMenu.wnd:Logo,
     // MainMenu.wnd:MainMenuRuler are WIN_STATUS_IMAGE USER windows that
     // use default_draw_callback. IMAGE + defined color must not fill.
@@ -2821,6 +2896,7 @@ fn image_status_with_defined_color_does_not_emit_draw_rect_fill() {
 
 #[test]
 fn clamp_border_span_rejects_runaway_window_size() {
+    crate::test_support::ensure_ambient_host();
     use super::window_impl_draw::{MAX_BORDER_SPAN, clamp_border_span};
     assert_eq!(clamp_border_span(-20), 0);
     assert_eq!(clamp_border_span(800), 800);
@@ -2833,6 +2909,7 @@ fn clamp_border_span_rejects_runaway_window_size() {
 
 #[test]
 fn image_status_missing_image_draws_nothing() {
+    crate::test_support::ensure_ambient_host();
     let ops = plan_w3d_game_win_default_draw(true, true, true, false);
     assert!(
         ops.is_empty(),
@@ -2842,6 +2919,7 @@ fn image_status_missing_image_draws_nothing() {
 
 #[test]
 fn non_image_status_emits_color_fill_and_border() {
+    crate::test_support::ensure_ambient_host();
     let ops = plan_w3d_game_win_default_draw(false, true, true, false);
     assert_eq!(
         ops,
@@ -2851,6 +2929,7 @@ fn non_image_status_emits_color_fill_and_border() {
 
 #[test]
 fn combo_left_up_toggles_child_list_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -2884,6 +2963,7 @@ fn combo_left_up_toggles_child_list_like_cpp() {
 
 #[test]
 fn combo_drop_down_button_toggles_via_shared_open_path() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -2914,6 +2994,7 @@ fn combo_drop_down_button_toggles_via_shared_open_path() {
 
 #[test]
 fn combo_input_focus_forwards_to_edit_child_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -2943,6 +3024,7 @@ fn combo_input_focus_forwards_to_edit_child_like_cpp() {
 
 #[test]
 fn slider_left_drag_updates_value_and_sends_track() {
+    crate::test_support::ensure_ambient_host();
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -2987,6 +3069,7 @@ fn slider_left_drag_updates_value_and_sends_track() {
 
 #[test]
 fn slider_keyboard_sends_gsm_slider_track_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -3024,6 +3107,7 @@ fn slider_keyboard_sends_gsm_slider_track_like_cpp() {
 
 #[test]
 fn listbox_right_click_sends_right_click_struct_payload() {
+    crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
@@ -3073,6 +3157,7 @@ fn listbox_right_click_sends_right_click_struct_payload() {
 
 #[test]
 fn tab_pane_forwards_selected_to_tab_control_parent_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let root_seen = Rc::new(RefCell::new(Vec::new()));
     let root = Rc::new(RefCell::new(GameWindow::new()));
     {

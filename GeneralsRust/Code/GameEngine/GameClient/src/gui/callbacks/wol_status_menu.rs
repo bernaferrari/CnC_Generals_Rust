@@ -144,6 +144,7 @@ mod tests {
 
     #[test]
     fn status_system_handles_create_and_ignores_unknown_when_dispatched() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
         assert_eq!(
             wol_status_menu_system(&mut window, WindowMessage::Create, 0, 0),
@@ -161,6 +162,7 @@ mod tests {
 
     #[test]
     fn status_input_ignores_non_escape_when_char_is_other_key() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
         assert_eq!(
             wol_status_menu_input(&mut window, WindowMessage::Char, 0x41, KEY_STATE_UP),
@@ -174,6 +176,7 @@ mod tests {
 
     #[test]
     fn status_input_esc_does_not_panic_when_parent_missing() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
         assert_eq!(
             wol_status_menu_input(&mut window, WindowMessage::Char, KEY_ESC, 0),

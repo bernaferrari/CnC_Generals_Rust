@@ -9,6 +9,7 @@ mod tests {
 
     #[test]
     fn score_push_payload_is_owned_while_deferred_and_plain_push_supersedes_it() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let mut shell = Shell::new();
@@ -201,6 +202,7 @@ mod tests {
 
     #[test]
     fn test_shell_creation() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let shell = Shell::new();
@@ -212,6 +214,7 @@ mod tests {
 
     #[test]
     fn test_shell_init() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let mut shell = Shell::new();
@@ -222,6 +225,7 @@ mod tests {
 
     #[test]
     fn test_push_before_init() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let mut shell = Shell::new();
@@ -232,6 +236,7 @@ mod tests {
 
     #[test]
     fn test_push_empty_filename() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let mut shell = Shell::new();
@@ -243,6 +248,7 @@ mod tests {
 
     #[test]
     fn test_pop_empty_stack() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let mut shell = Shell::new();
@@ -254,6 +260,7 @@ mod tests {
 
     #[test]
     fn test_basic_window_layout() {
+        crate::test_support::ensure_ambient_host();
         let mut layout = BasicWindowLayout::new("test.wnd".to_string());
 
         assert_eq!(layout.get_filename(), "test.wnd");
@@ -276,6 +283,7 @@ mod tests {
 
     #[test]
     fn test_coord2d() {
+        crate::test_support::ensure_ambient_host();
         let coord = Coord2D::new(10, 20);
         assert_eq!(coord.x, 10);
         assert_eq!(coord.y, 20);
@@ -287,6 +295,7 @@ mod tests {
 
     #[test]
     fn test_color() {
+        crate::test_support::ensure_ambient_host();
         let color = Color::new(255, 128, 64, 200);
         assert_eq!(color.r, 255);
         assert_eq!(color.g, 128);
@@ -300,6 +309,7 @@ mod tests {
 
     #[test]
     fn test_shell_menu_scheme() {
+        crate::test_support::ensure_ambient_host();
         let mut scheme = ShellMenuScheme::new("test".to_string());
         assert_eq!(scheme.name, "test");
         assert_eq!(scheme.images.len(), 0);
@@ -325,6 +335,7 @@ mod tests {
 
     #[test]
     fn test_scheme_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ShellMenuSchemeManager::new();
         manager.init().unwrap();
 
@@ -338,6 +349,7 @@ mod tests {
 
     #[test]
     fn test_scheme_manager_clears_current_scheme_on_empty_name() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ShellMenuSchemeManager::new();
         manager.new_shell_menu_scheme("test_scheme".to_string());
         manager.set_shell_menu_scheme("test_scheme");
@@ -348,6 +360,7 @@ mod tests {
 
     #[test]
     fn test_scheme_manager_replaces_duplicates_in_cpp_list_order() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ShellMenuSchemeManager::new();
 
         manager.new_shell_menu_scheme("first".to_string());
@@ -368,6 +381,7 @@ mod tests {
 
     #[test]
     fn test_parse_shell_menu_schemes_replaces_duplicate_blocks() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ShellMenuSchemeManager::new();
 
         manager.parse_shell_menu_schemes(
@@ -401,6 +415,7 @@ End
 
     #[test]
     fn test_shell_menu_scheme_discovery_uses_deterministic_order() {
+        crate::test_support::ensure_ambient_host();
         use std::fs;
         use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -510,6 +525,7 @@ End
 
     #[test]
     fn test_animation_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = AnimateWindowManager::new();
         assert!(manager.is_finished());
 
@@ -524,6 +540,7 @@ End
 
     #[test]
     fn animation_slide_start_positions_match_cpp_display_width_travel() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = AnimateWindowManager::new();
         manager.set_screen_size(800, 600);
 
@@ -548,6 +565,7 @@ End
 
     #[test]
     fn shell_animation_adapter_updates_actual_window_and_restores_without_shared_model_state() {
+        crate::test_support::ensure_ambient_host();
         let mut first = AnimateWindowManager::new();
         let mut second = AnimateWindowManager::new();
         let first_window = Rc::new(RefCell::new(GameWindow::new()));
@@ -583,6 +601,7 @@ End
 
     #[test]
     fn shell_register_with_animate_manager_respects_global_animate_windows_flag() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let _guard = shell_global_test_lock()
@@ -612,6 +631,7 @@ End
 
     #[test]
     fn test_animation_types() {
+        crate::test_support::ensure_ambient_host();
         let anim = AnimationType::SlideRight;
         assert_eq!(anim, AnimationType::SlideRight);
         assert_ne!(anim, AnimationType::Spiral);
@@ -619,6 +639,7 @@ End
 
     #[test]
     fn test_window_rect() {
+        crate::test_support::ensure_ambient_host();
         let rect = WindowRect::new(10, 20, 100, 200);
         assert_eq!(rect.x, 10);
         assert_eq!(rect.y, 20);
@@ -632,6 +653,7 @@ End
 
     #[test]
     fn test_global_shell() {
+        crate::test_support::ensure_ambient_host();
         let mut shell = Shell::new();
         assert!(shell.init().is_ok());
         assert!(shell.is_shell_active());
@@ -639,6 +661,7 @@ End
 
     #[test]
     fn reentrant_shell_operations_drain_at_lifecycle_boundary_and_survive_unwind() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         let _guard = shell_global_test_lock()
             .lock()
@@ -719,6 +742,7 @@ End
 
     #[test]
     fn test_find_screen_by_filename_is_case_insensitive() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let mut shell = Shell::new();
@@ -735,6 +759,7 @@ End
 
     #[test]
     fn test_shell_show_hide() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let _guard = shell_global_test_lock()
@@ -768,6 +793,7 @@ End
 
     #[test]
     fn test_show_shell_does_not_push_main_menu_when_shell_map_is_on() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let _guard = shell_global_test_lock()
@@ -793,6 +819,7 @@ End
 
     #[test]
     fn shell_game_start_pushes_main_menu_when_stack_is_empty_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let mut shell = Shell::new();
@@ -810,6 +837,7 @@ End
 
     #[test]
     fn shell_game_start_reveals_existing_top_screen_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let mut shell = Shell::new();
@@ -836,6 +864,7 @@ End
 
     #[test]
     fn test_show_shell_map_reapplies_background_image_status() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let _guard = shell_global_test_lock()
@@ -874,6 +903,7 @@ End
 
     #[test]
     fn shell_update_uses_each_receiving_clients_shell_map_setting() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let _guard = shell_global_test_lock()
@@ -939,6 +969,7 @@ End
 
     #[test]
     fn test_shutdown_complete_keeps_clear_background_when_no_background_exists() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let mut shell = Shell::new();
@@ -952,6 +983,7 @@ End
 
     #[test]
     fn test_reset_keeps_special_layouts_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let events = StdRc::new(StdRefCell::new(Vec::new()));
@@ -1017,6 +1049,7 @@ End
 
     #[test]
     fn test_push_hidden_top_completes_immediately_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
 
@@ -1053,6 +1086,7 @@ End
 
     #[test]
     fn test_pop_immediate_runs_shutdown_before_destroy() {
+        crate::test_support::ensure_ambient_host();
         let test_owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was test_owner.with_scope
             let events = StdRc::new(StdRefCell::new(Vec::new()));

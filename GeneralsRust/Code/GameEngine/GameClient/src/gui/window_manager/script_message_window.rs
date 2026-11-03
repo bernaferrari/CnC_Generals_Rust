@@ -94,6 +94,7 @@ mod tests {
 
     #[test]
     fn script_message_window_is_owned_by_its_exact_manager_even_for_same_id() {
+        crate::test_support::ensure_ambient_host();
         let mut first = WindowManager::new();
         let mut second = WindowManager::new();
 
@@ -117,6 +118,7 @@ mod tests {
 
     #[test]
     fn external_destroy_and_reused_id_do_not_redirect_a_stale_script_pointer() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = WindowManager::new();
         let tracked_id =             crate::gui::game_window::WindowEventEffects::with_standalone(|effects| manager.replace_script_message_window_with(create_window, effects))
             .expect("create tracked window");
@@ -140,6 +142,7 @@ mod tests {
 
     #[test]
     fn manager_shutdown_leaves_a_stale_weak_owner_harmless() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = WindowManager::new();
         let tracked_id =             crate::gui::game_window::WindowEventEffects::with_standalone(|effects| manager.replace_script_message_window_with(create_window, effects))
             .expect("create tracked window");
@@ -156,6 +159,7 @@ mod tests {
 
     #[test]
     fn failed_replacement_destroys_and_clears_the_previous_window_first() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = WindowManager::new();
         let previous_id =             crate::gui::game_window::WindowEventEffects::with_standalone(|effects| manager.replace_script_message_window_with(create_window, effects))
             .expect("create previous message window");

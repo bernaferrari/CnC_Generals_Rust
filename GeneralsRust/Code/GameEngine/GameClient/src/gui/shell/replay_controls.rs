@@ -231,6 +231,7 @@ mod tests {
 
     #[test]
     fn test_replay_controls_creation() {
+        crate::test_support::ensure_ambient_host();
         let controls = ReplayControls::new();
         assert!(!controls.is_playing());
         assert!(!controls.is_paused());
@@ -240,6 +241,7 @@ mod tests {
 
     #[test]
     fn test_replay_controls_playback() {
+        crate::test_support::ensure_ambient_host();
         let mut controls = ReplayControls::new();
 
         controls.play();
@@ -258,6 +260,7 @@ mod tests {
 
     #[test]
     fn test_replay_controls_speed() {
+        crate::test_support::ensure_ambient_host();
         let mut controls = ReplayControls::new();
 
         controls.set_speed(2.0);
@@ -276,6 +279,7 @@ mod tests {
 
     #[test]
     fn test_window_message_handlers() {
+        crate::test_support::ensure_ambient_host();
         let window = GameWindow::new(1, "TestWindow".to_string());
 
         let result = replay_control_input(&window, WindowMsg::Ignored, None, None);

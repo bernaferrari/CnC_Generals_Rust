@@ -958,6 +958,7 @@ mod tests {
 
     #[test]
     fn layout_cache_measures_once_until_text_changes() {
+        crate::test_support::ensure_ambient_host();
         let measures = Arc::new(AtomicU32::new(0));
         let mut string = DisplayString::new();
         string.set_font(counting_font(measures.clone()));
@@ -991,6 +992,7 @@ mod tests {
 
     #[test]
     fn hotkey_prefix_is_measured_at_layout_not_draw() {
+        crate::test_support::ensure_ambient_host();
         let measures = Arc::new(AtomicU32::new(0));
         let mut string = DisplayString::new();
         string.set_font(counting_font(measures.clone()));
@@ -1018,6 +1020,7 @@ mod tests {
 
     #[test]
     fn lru_reclaims_stale_strings_in_checkpoint_windows() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DisplayStringManager::new();
         let mut handles = Vec::new();
         for _ in 0..12 {

@@ -1505,6 +1505,7 @@ mod overlay_gpu_tests {
 
     #[test]
     fn trapezoid_bake_uses_authored_z_and_world_uvs() {
+        crate::test_support::ensure_ambient_host();
         let points = [
             [0.0, 10.0, 0.0],
             [80.0, 12.0, 0.0],
@@ -1539,6 +1540,7 @@ mod overlay_gpu_tests {
 
     #[test]
     fn river_bake_uses_bank_pairs_not_centerline_offset() {
+        crate::test_support::ensure_ambient_host();
         let points = [
             [0.0, 5.0, 0.0],
             [0.0, 5.0, 20.0],
@@ -1561,6 +1563,7 @@ mod overlay_gpu_tests {
 
     #[test]
     fn leftover_add_water_velocity_drains_into_live_grid() {
+        crate::test_support::ensure_ambient_host();
         let Some(tv) = gamelogic::helpers::TheTerrainVisual::get() else {
             return;
         };
@@ -1583,6 +1586,7 @@ mod overlay_gpu_tests {
     /// in world sampling, and treat an identical re-feed as a no-op state.
     #[test]
     fn shroud_overlay_r8_feed_replaces_fallback_state() {
+        crate::test_support::ensure_ambient_host();
         let mut visual = TerrainVisualImpl::new();
         assert!(
             visual.shroud_alpha_at_world(0.0, 0.0) == 1.0,

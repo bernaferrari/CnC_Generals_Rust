@@ -74,6 +74,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn position_shroud_status_uses_shroud_grid_like_cpp_partition_manager() {
+        crate::test_support::ensure_ambient_host();
         let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
         {
             let mut shroud = shroud_manager.lock().expect("shroud manager lock");
@@ -230,6 +231,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_create_drawable_from_template_attaches_w3d_snapshot_modules() {
+        crate::test_support::ensure_ambient_host();
         use game_engine::common::rts::AsciiString;
         use game_engine::common::thing::module::{ModuleData, ModuleInterfaceType};
 
@@ -267,6 +269,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_create_drawable_from_template_attaches_tank_laser_debris_modules() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DModuleFactory.cpp:38-52 addModule(W3DTankDraw/W3DLaserDraw/W3DDebrisDraw).
         use game_engine::common::rts::AsciiString;
         use game_engine::common::thing::module::{ModuleData, ModuleInterfaceType};
@@ -316,6 +319,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn presentation_sync_attaches_tank_draw_residual_and_scrolls_treads() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DTankDraw.cpp:197-379 updateTreadPositions / doDrawModule.
         let mut client = GameClient::new().unwrap();
         let mut first = presentation_drawable_sync_for_test(
@@ -371,6 +375,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn presentation_sync_laser_width_is_not_hairline() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DLaserDraw::getLaserTemplateWidth = OuterBeamWidth * 0.5
         // (W3DLaserDraw.h / LaserUpdate.cpp:374-381).
         let mut client = GameClient::new().unwrap();
@@ -400,6 +405,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn presentation_sync_debris_anim_reaches_flying() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DDebrisDraw.cpp:127-228 INITIAL/FLYING/FINAL via Is_Animation_Complete.
         let mut client = GameClient::new().unwrap();
         let mut entry = presentation_drawable_sync_for_test(
@@ -433,6 +439,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn infer_draw_modules_match_cpp_w3d_factory_names() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DModuleFactory.cpp:38-52.
         assert_eq!(
             infer_presentation_draw_module_names("AmericaTankCrusader", &["TANK".into()]),
@@ -483,6 +490,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_create_drawable_from_template_attaches_client_update_snapshot_modules() {
+        crate::test_support::ensure_ambient_host();
         use game_engine::common::rts::AsciiString;
         use game_engine::common::thing::module::{BaseModuleData, ModuleData, ModuleInterfaceType};
 
@@ -520,6 +528,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_context_command_uses_stored_translator() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().expect("GameClient::new should succeed");
         client.command_translator = Some(Arc::new(StubCommandTranslator));
 
@@ -553,6 +562,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_no_draw_skip_condition_matches_cpp_guard() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_no_draw_skip_condition_matches_cpp_guard",
@@ -601,6 +611,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_freeze_visual_time_same_frame_guard_uses_logic_frame() {
+        crate::test_support::ensure_ambient_host();
         let saved_logic_frame = gamelogic::system::game_logic::get_game_logic()
             .lock()
             .map(|logic| logic.get_current_frame())
@@ -669,6 +680,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_drawable_id_creation() {
+        crate::test_support::ensure_ambient_host();
         let id = DrawableId(42);
         assert!(id.is_valid());
         assert_eq!(id.0, 42);
@@ -679,6 +691,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_game_client_creation() {
+        crate::test_support::ensure_ambient_host();
         let client = GameClient::new();
         assert!(client.is_ok());
 
@@ -689,6 +702,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_startup_movie_action_prefers_logo_before_after_intro() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             startup_movie_action(true, true, true, true, false),
             Some(StartupMovieAction::PlayLogo("EALogoMovie"))
@@ -697,6 +711,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_startup_movie_action_uses_low_res_variants() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             startup_movie_action(true, false, false, false, true),
             Some(StartupMovieAction::PlayLogo("EALogoMovie640"))
@@ -709,6 +724,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_startup_movie_action_only_plays_sizzle_when_pending() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             startup_movie_action(false, true, true, true, false),
             Some(StartupMovieAction::PlaySizzle("Sizzle"))
@@ -721,11 +737,13 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_startup_movie_action_ignores_sizzle_when_after_intro_is_clear() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(startup_movie_action(false, false, true, true, false), None);
     }
 
     #[test]
     fn update_startup_movies_without_display_finishes_movie_state() {
+        crate::test_support::ensure_ambient_host();
         init_global_data();
         let global_data = get_global_data().expect("global data should be initialized");
         {
@@ -757,6 +775,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn ensure_shell_visible_does_not_requeue_active_shell_map() {
+        crate::test_support::ensure_ambient_host();
         init_global_data();
         let global_data = get_global_data().expect("global data should be initialized");
         {
@@ -809,6 +828,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn game_client_reset_does_not_destroy_main_menu_wnd() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
             // C++ GameClient::reset (GameClient.cpp:426-457) resets InGameUI,
@@ -845,6 +865,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn game_client_reset_restores_snow_visibility() {
+        crate::test_support::ensure_ambient_host();
         // C++ GameClient.cpp:451-452 TheSnowManager->reset() → m_isVisible=TRUE
         let mut client = GameClient::new().expect("GameClient::new");
         client.snow_mut().set_visible(false);
@@ -854,6 +875,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_drawable_id_allocation() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
 
         let id1 = client.alloc_drawable_id();
@@ -865,6 +887,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_apply_lod_texture_reduction_clamps_and_updates_renderer_state() {
+        crate::test_support::ensure_ambient_host();
         init_global_data();
         let global_data = get_global_data().expect("global data should be available for LOD test");
         global_data.write().texture_reduction_factor = 0;
@@ -887,6 +910,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_adjust_lod_texture_reduction_respects_cpp_delta_clamp() {
+        crate::test_support::ensure_ambient_host();
         init_global_data();
         let global_data = get_global_data().expect("global data should be available for LOD test");
         global_data.write().texture_reduction_factor = 0;
@@ -903,6 +927,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_register_drawable_replaces_object_lookup_owner() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
 
         let mut first = BasicDrawable::new(DrawableId::INVALID);
@@ -924,6 +949,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_bind_drawable_to_object_rebinds_and_destroy_keeps_new_owner() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
 
         let first_id = client
@@ -1012,6 +1038,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn direct_visual_binding_uses_residency_and_replaces_on_visual_identity_change() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let object_id = 101;
         let host_epoch = 7;
@@ -1139,6 +1166,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn direct_scene_candidate_refreshes_clear_history_only_for_the_current_binding() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let object_id = 212;
         let host_epoch = 8;
@@ -1238,6 +1266,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn hidden_direct_scene_candidate_does_not_refresh_clear_history() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let object_id = 213;
         let host_epoch = 8;
@@ -1310,6 +1339,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn presentation_visible_flag_does_not_suppress_cxx_direct_scene_clear_history() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let object_id = 214;
         let host_epoch = 8;
@@ -1375,6 +1405,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn direct_scene_uses_viewer_relative_stealth_not_generic_effective_stealth() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let object_id = 215;
         let host_epoch = 8;
@@ -1452,6 +1483,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn direct_visual_binding_prunes_nonresident_and_world_invalidation_mints_a_new_generation() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let object_id = 313;
         let first_epoch = 17;
@@ -1565,6 +1597,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn presentation_pose_keeps_world_translation_out_of_instance_transform() {
+        crate::test_support::ensure_ambient_host();
         // C++ Drawable::draw begins from the attached Object/Thing world
         // transform, then post-multiplies the local instance matrix exactly
         // once.  The host presentation sync must therefore put its frozen
@@ -1628,6 +1661,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn post_draw_pass_populates_drawable_icon_ui() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let mut drawable = BasicDrawable::new(DrawableId::INVALID);
         drawable.set_caption_text("Beacon Alpha");
@@ -1650,6 +1684,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn live_present_path_draws_packed_ingame_hud() {
+        crate::test_support::ensure_ambient_host();
         // C++ InGameUI::preDraw/postDraw + Drawable::drawIconUI: packed HUD
         // must be submitted on the live present path, not only computed.
         let mut client = GameClient::new().unwrap();
@@ -1714,6 +1749,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn military_caption_same_text_rearms_when_remaining_ms_jumps() {
+        crate::test_support::ensure_ambient_host();
         // C++ InGameUI::militarySubtitle always remove+recreate. Live
         // apply used to ignore same-text re-fires; remaining_ms increase
         // is the leftover re-arm edge (scripts_camera re-fire).
@@ -1735,6 +1771,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn named_timers_do_not_replace_superweapon_strip() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         client.subsystem_manager.in_game_ui = Some(InGameUISubsystem::default());
         client.apply_presentation_superweapon_timers(&[(
@@ -1757,6 +1794,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn live_world_anim_apply_keeps_money_pickup() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         client.subsystem_manager.in_game_ui = Some(InGameUISubsystem::default());
         client.apply_presentation_world_anims(
@@ -1784,6 +1822,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_snapshot_serialization_is_deterministic_for_same_state() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_snapshot_serialization_is_deterministic_for_same_state",
@@ -1816,6 +1855,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_snapshot_serialization_uses_native_roster_not_hashmap_iteration() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_snapshot_serialization_uses_native_roster_not_hashmap_iteration",
@@ -1839,6 +1879,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_snapshot_round_trip_reconstructs_cpp_prepend_order() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_snapshot_round_trip_reconstructs_cpp_prepend_order",
@@ -1896,6 +1937,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_snapshot_archive_tracks_native_roster_with_nonmonotonic_ids() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_snapshot_archive_tracks_native_roster_with_nonmonotonic_ids",
@@ -1944,6 +1986,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_collect_saveable_drawables_follows_roster_and_skips_nonsave() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         insert_basic_drawable_for_test(&mut client, 7, "Seven", Vector3::new(0.0, 0.0, 0.0));
         insert_basic_drawable_for_test(&mut client, 2, "Two", Vector3::new(0.0, 0.0, 0.0));
@@ -1968,6 +2011,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_save_uses_object_template_when_drawable_template_missing() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_save_uses_object_template_when_drawable_template_missing",
@@ -2012,6 +2056,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_snapshot_round_trip_mixed_no_save_drawables_matches_cpp_rules() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_snapshot_round_trip_mixed_no_save_drawables_matches_cpp_rules",
@@ -2087,6 +2132,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn load_bound_drawable_can_resolve_ambient_template_without_factory_deadlock() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "load_bound_drawable_can_resolve_ambient_template_without_factory_deadlock",
@@ -2120,6 +2166,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_register_drawable_preserves_explicit_template_name_over_object_fallback() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_register_drawable_preserves_explicit_template_name_over_object_fallback",
@@ -2171,6 +2218,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_drawable_template_equivalence_uses_final_override() {
+        crate::test_support::ensure_ambient_host();
         let mut factory = CommonThingFactory::new();
         let base_a = factory.new_template("TemplateA");
         let base_b = factory.new_template("TemplateB");
@@ -2193,6 +2241,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_message_dispatcher() {
+        crate::test_support::ensure_ambient_host();
         let dispatcher = GameClientMessageDispatcher::new();
         assert_eq!(dispatcher.message_filters.len(), 0);
 
@@ -2223,6 +2272,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_replay_update_culls_local_network_commands_but_keeps_crc() {
+        crate::test_support::ensure_ambient_host();
         let temp = tempfile::tempdir().expect("temp dir should be created");
         if let Some(global) = get_global_data() {
             let mut data = global.write();
@@ -2311,6 +2361,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_recorder_update_records_network_commands_from_source() {
+        crate::test_support::ensure_ambient_host();
         let temp = tempfile::tempdir().expect("temp dir should be created");
         if let Some(global) = get_global_data() {
             let mut data = global.write();
@@ -2383,6 +2434,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_playback_file_clears_stale_pending_commands_when_sink_absent() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "test_playback_file_clears_stale_pending_commands_when_sink_absent",
@@ -2475,6 +2527,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_replay_version_playback_detects_combined_header_mismatches() {
+        crate::test_support::ensure_ambient_host();
         let temp = tempfile::tempdir().expect("temp dir should be created");
         if let Some(global) = get_global_data() {
             let mut data = global.write();
@@ -2599,6 +2652,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn test_region_3d_containment() {
+        crate::test_support::ensure_ambient_host();
         let region = Region3D {
             lo: Coord3D {
                 x: 0.0,
@@ -2644,6 +2698,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn local_drawable_flash_consumes_on_client_frame_multiple() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "local_drawable_flash_consumes_on_client_frame_multiple",
@@ -2713,6 +2768,7 @@ use crate::message_stream::game_message::GameMessageType;
 
     #[test]
     fn local_drawable_tick_destroys_expired_drawable_that_frame() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "local_drawable_tick_destroys_expired_drawable_that_frame",
@@ -2770,6 +2826,7 @@ use crate::message_stream::game_message::GameMessageType;
     }
     #[test]
     fn presentation_material_replacement_copies_only_same_world_owner() {
+        crate::test_support::ensure_ambient_host();
         let mut client = GameClient::new().unwrap();
         let object_id = 701;
         let first =

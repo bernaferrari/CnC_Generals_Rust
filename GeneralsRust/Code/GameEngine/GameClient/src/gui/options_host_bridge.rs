@@ -50,6 +50,7 @@ mod tests {
     use super::*;
     #[test]
     fn peers_cannot_drain_or_reset_each_others_preferences() {
+        crate::test_support::ensure_ambient_host();
         let mut a = HostOptionsBridge::default();
         let mut b = HostOptionsBridge::default();
         a.publish(HostOptionsRequest::AlternateMouse { enabled: true });
@@ -70,6 +71,7 @@ mod tests {
 
     #[test]
     fn session_track_rule_effects_stay_in_the_receiving_options_mailbox() {
+        crate::test_support::ensure_ambient_host();
         let mut a = HostOptionsBridge::default();
         let mut b = HostOptionsBridge::default();
         let mut first = game_engine::common::ini::ini_game_data::TerrainTrackRules::default();

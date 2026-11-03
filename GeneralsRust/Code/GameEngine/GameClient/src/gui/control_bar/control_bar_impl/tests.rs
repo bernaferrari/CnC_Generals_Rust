@@ -30,6 +30,7 @@ mod tests {
 
     #[test]
     fn revealing_control_bar_preserves_authored_parent_position() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
             // ControlBar.cpp:3001-3014 restores the authored default position;
@@ -57,6 +58,7 @@ mod tests {
 
     #[test]
     fn low_stage_keeps_cpp_default_marker_base_before_first_draw() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
             // Retail ControlBar.wnd at 640x480: the parent starts at 416/600 of
@@ -132,6 +134,7 @@ mod tests {
 
     #[test]
     fn first_multi_selection_enables_shared_order_when_one_unit_can_act() {
+        crate::test_support::ensure_ambient_host();
         let mut control_bar = ControlBar::new();
         let mut attack_move = CommandButton::default();
         attack_move.command_name = "Command_AttackMove".to_string();
@@ -182,6 +185,7 @@ mod tests {
 
     #[test]
     fn local_beacon_windows_show_editor_and_caption_text() {
+        crate::test_support::ensure_ambient_host();
         let text_entry = Some(named_window("ControlBar.wnd:EditBeaconText"));
         let static_text = Some(named_window("ControlBar.wnd:StaticTextBeaconLabel"));
         let clear_button = Some(named_window("ControlBar.wnd:ButtonClearBeaconText"));
@@ -211,6 +215,7 @@ mod tests {
 
     #[test]
     fn nonlocal_beacon_windows_hide_editor_label_and_clear() {
+        crate::test_support::ensure_ambient_host();
         let text_entry = Some(named_window("ControlBar.wnd:EditBeaconText"));
         let static_text = Some(named_window("ControlBar.wnd:StaticTextBeaconLabel"));
         let clear_button = Some(named_window("ControlBar.wnd:ButtonClearBeaconText"));
@@ -232,6 +237,7 @@ mod tests {
 
     #[test]
     fn place_beacon_button_enabled_state_tracks_limit() {
+        crate::test_support::ensure_ambient_host();
         let place_button = Some(named_window("ControlBar.wnd:ButtonPlaceBeacon"));
 
         ControlBar::apply_place_beacon_button_enabled(&place_button, false);
@@ -243,6 +249,7 @@ mod tests {
 
     #[test]
     fn upgrade_cameo_does_not_use_command_button_image() {
+        crate::test_support::ensure_ambient_host();
         const UPGRADE: &str = "Upgrade_TestCameoImageLookup";
         const IMAGE: &str = "SNTestCameoArt";
         const BUTTON: &str = "Command_TestCameoImageLookup";
@@ -282,6 +289,7 @@ mod tests {
 
     #[test]
     fn upgrade_cameo_uses_upgrade_template_button_image() {
+        crate::test_support::ensure_ambient_host();
         const UPGRADE: &str = "Upgrade_TestTemplateCameoImage";
         const IMAGE: &str = "SSTestTemplateCameo";
 
@@ -316,6 +324,7 @@ mod tests {
 
     #[test]
     fn update_for_selection_runs_real_update_and_clears_dirty() {
+        crate::test_support::ensure_ambient_host();
         crate::helpers::register_legacy_core_control_bar_ui_ingress();
         let mut control_bar = ControlBar::new();
         let mut wm = crate::gui::window_manager::WindowManager::new();
@@ -332,6 +341,7 @@ mod tests {
 
     #[test]
     fn live_ui_hooks_mark_control_bar_dirty_until_update() {
+        crate::test_support::ensure_ambient_host();
         crate::helpers::register_legacy_core_control_bar_ui_ingress();
         gamelogic::control_bar::mark_ui_dirty();
         let mut control_bar = ControlBar::new();
@@ -348,6 +358,7 @@ mod tests {
 
     #[test]
     fn unknown_upgrade_cameo_is_hidden() {
+        crate::test_support::ensure_ambient_host();
         const UPGRADE: &str = "Upgrade_UnknownCameoNoArtRegistered";
         let mut control_bar = ControlBar::new();
         control_bar.sync_upgrade_cameos_from_presentation(
@@ -367,6 +378,7 @@ mod tests {
 
     #[test]
     fn presentation_special_power_cooldown_feeds_inverse_clock_percent() {
+        crate::test_support::ensure_ambient_host();
         // C++ SpecialPowerModule::getPercentReady = 1.0 - remaining/reloadTime.
         // ControlBarCommand.cpp:1404-1407 GadgetButtonDrawInverseClock(percentReady*100).
         let mut bar = ControlBar::new();
@@ -382,6 +394,7 @@ mod tests {
 
     #[test]
     fn control_bar_background_draw_ships_nothing_without_scheme() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DControlBar.cpp:615-623 + ControlBarScheme.cpp:794-799: with no
         // scheme manager (or a missing scheme image) the background draw paints
         // NOTHING — the old black HUD-strip fallback was non-C++ and removed.
@@ -401,6 +414,7 @@ mod tests {
 
     #[test]
     fn control_bar_money_display_formats_like_cpp_ingame_ui() {
+        crate::test_support::ensure_ambient_host();
         // C++ InGameUI.cpp:1803 buffer.format(TheGameText->fetch("GUI:ControlBarMoneyDisplay"), currentMoney)
         let formatted = ControlBar::format_control_bar_money_display(1250);
         assert!(
@@ -415,6 +429,7 @@ mod tests {
 
     #[test]
     fn presentation_power_is_owned_by_each_control_bar() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
             if matches!(
@@ -487,6 +502,7 @@ mod tests {
 
     #[test]
     fn presentation_money_is_written_after_the_window_appears_and_reappears() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
             // This classic-adapter fixture deliberately replaces Core PlayerList.
@@ -565,6 +581,7 @@ if let Ok(mut list) = __arc_bind.write() {
 
     #[test]
     fn control_bar_update_writes_money_display_window_text() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
 
@@ -601,6 +618,7 @@ if let Ok(mut list) = __arc_bind.write() {
 
     #[test]
     fn default_and_none_context_window_matrix_matches_cpp() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
             // C++ switchToContext hide matrix (ControlBar.cpp:2128-2137): every
@@ -665,6 +683,7 @@ if let Ok(mut list) = __arc_bind.write() {
 
     #[test]
     fn bind_command_windows_hides_unpopulated_slots_in_every_state() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
             // C++ populateCommand (ControlBarCommand.cpp:262-306): every slot
@@ -702,6 +721,7 @@ if let Ok(mut list) = __arc_bind.write() {
 
     #[test]
     fn scheme_apply_gives_right_hud_image_status() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
             // C++ ControlBarScheme.cpp:407 -> updateRightHUDImage
@@ -744,6 +764,7 @@ if let Ok(mut list) = __arc_bind.write() {
 
     #[test]
     fn scheme_slot_size_applies_command_bar_size_offset() {
+        crate::test_support::ensure_ambient_host();
         // Zero Hour authors COMMAND_BAR_SIZE_OFFSET = 0 (ControlBarScheme.cpp:51)
         // and adds it on every scheme winSetSize (432-620).
         assert_eq!(COMMAND_BAR_SIZE_OFFSET, 0);
@@ -755,6 +776,7 @@ if let Ok(mut list) = __arc_bind.write() {
 
     #[test]
     fn shortcut_bar_stays_hidden_before_first_purchased_power() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
             // C++ showSpecialPowerShortcut (ControlBar.cpp:3719-3738): without an

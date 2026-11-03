@@ -48,6 +48,7 @@ fn admit(manager: &mut ParticleSystemManager, id: u32, position: Vec3, size: f32
 
 #[test]
 fn prepared_volume_group_limits_512_sources_not_the_3072_layer_instances() {
+    crate::test_support::ensure_ambient_host();
     for apply_visible_cull in [false, true] {
         let mut manager = ParticleSystemManager::new();
         add_system(&mut manager, 19, true, 0);
@@ -94,6 +95,7 @@ fn prepared_volume_group_limits_512_sources_not_the_3072_layer_instances() {
 
 #[test]
 fn prepared_volume_layers_keep_cpp_order_first_visible_size_shift_and_full_alpha() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = ParticleSystemManager::new();
     add_system(&mut manager, 19, false, 0);
     admit(&mut manager, 19, Vec3::new(100.0, 0.0, 0.0), 900.0, 0.2);
@@ -124,6 +126,7 @@ fn prepared_volume_layers_keep_cpp_order_first_visible_size_shift_and_full_alpha
 
 #[test]
 fn prepared_volume_ground_layers_and_camera_coincidence_do_not_invent_offsets() {
+    crate::test_support::ensure_ambient_host();
     for (ground, camera) in [(true, [0.0; 3]), (false, [1.0, 2.0, 3.0])] {
         let mut manager = ParticleSystemManager::new();
         add_system(&mut manager, 19, ground, 0);
@@ -141,6 +144,7 @@ fn prepared_volume_ground_layers_and_camera_coincidence_do_not_invent_offsets() 
 
 #[test]
 fn prepared_volume_uses_fixed_cpp_render_depth_without_mutating_native_metadata() {
+    crate::test_support::ensure_ambient_host();
     for saved_depth in [0, 1, 6, 16, u32::MAX] {
         let mut manager = ParticleSystemManager::new();
         add_system(&mut manager, 19, true, saved_depth);
@@ -155,6 +159,7 @@ fn prepared_volume_uses_fixed_cpp_render_depth_without_mutating_native_metadata(
 
 #[test]
 fn prepared_volume_finishes_all_layers_before_the_next_actual_system() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = ParticleSystemManager::new();
     for (id, x) in [(19, 1.0), (3, 2.0)] {
         add_system(&mut manager, id, true, 0);

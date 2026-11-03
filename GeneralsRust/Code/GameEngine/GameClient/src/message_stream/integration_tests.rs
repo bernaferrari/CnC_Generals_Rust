@@ -11,6 +11,7 @@ mod tests {
     /// Test complete message flow from input to command execution
     #[test]
     fn test_complete_message_flow() {
+        crate::test_support::ensure_ambient_host();
         let mut stream = MessageStream::new();
 
         // Attach translators
@@ -43,6 +44,7 @@ mod tests {
     /// Test serialization round-trip
     #[test]
     fn test_serialization_round_trip() {
+        crate::test_support::ensure_ambient_host();
         let mut original = GameMessage::with_player(
             GameMessageType::DoMoveTo(Coord3D {
                 x: 10.0,
@@ -69,6 +71,7 @@ mod tests {
     /// Test batch serialization
     #[test]
     fn test_batch_serialization() {
+        crate::test_support::ensure_ambient_host();
         let mut batch = MessageBatch::new();
 
         for i in 0..10 {
@@ -87,6 +90,7 @@ mod tests {
     /// Test message filtering
     #[test]
     fn test_message_filtering() {
+        crate::test_support::ensure_ambient_host();
         let mut router = MessageRouter::new(0);
 
         // Create filter for player 1 only
@@ -113,6 +117,7 @@ mod tests {
     /// Test broadcast manager
     #[test]
     fn test_broadcast_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = BroadcastManager::new(0);
 
         // Queue messages
@@ -134,6 +139,7 @@ mod tests {
     /// Test message priority routing
     #[test]
     fn test_priority_routing() {
+        crate::test_support::ensure_ambient_host();
         let router = MessageRouter::new(0);
 
         let critical_msg = GameMessage::new(GameMessageType::FrameTick(100));
@@ -148,6 +154,7 @@ mod tests {
     /// Test message logging
     #[test]
     fn test_message_logging() {
+        crate::test_support::ensure_ambient_host();
         let mut logger = MessageLogger::new();
 
         // Log different message types
@@ -183,6 +190,7 @@ mod tests {
     /// Test replay recording
     #[test]
     fn test_replay_recording() {
+        crate::test_support::ensure_ambient_host();
         let mut recorder = ReplayRecorder::new("/tmp/test_replay.bin");
         recorder.set_metadata("TestMap".to_string(), 2);
 
@@ -204,6 +212,7 @@ mod tests {
     /// Test command list processing
     #[test]
     fn test_command_list_processing() {
+        crate::test_support::ensure_ambient_host();
         let mut command_list = CommandList::with_limit(5);
 
         // Add messages
@@ -227,6 +236,7 @@ mod tests {
     /// Test command list statistics
     #[test]
     fn test_command_list_statistics() {
+        crate::test_support::ensure_ambient_host();
         let mut command_list = CommandList::new();
 
         command_list.append_message(GameMessage::new(
@@ -249,6 +259,7 @@ mod tests {
     /// Test translator priority ordering
     #[test]
     fn test_translator_priority_ordering() {
+        crate::test_support::ensure_ambient_host();
         let mut stream = MessageStream::new();
 
         let trans1 = TranslatorFactory::create_command_translator();
@@ -271,6 +282,7 @@ mod tests {
     /// Test end-to-end network simulation
     #[test]
     fn test_network_simulation() {
+        crate::test_support::ensure_ambient_host();
         // Simulate two players exchanging messages
 
         // Player 1
@@ -312,6 +324,7 @@ mod tests {
     /// Test message debugger
     #[test]
     fn test_message_debugger() {
+        crate::test_support::ensure_ambient_host();
         let mut debugger = MessageDebugger::new();
 
         for i in 0..100 {
@@ -333,6 +346,7 @@ mod tests {
     /// Test integrated system with all components
     #[test]
     fn test_integrated_system() {
+        crate::test_support::ensure_ambient_host();
         // Setup
         let mut stream = MessageStream::new();
         let mut command_list = CommandList::new();
@@ -381,6 +395,7 @@ mod tests {
     /// Test subsystem interface compliance
     #[test]
     fn test_subsystem_interface() {
+        crate::test_support::ensure_ambient_host();
         let mut stream = MessageStream::new();
         let mut command_list = CommandList::new();
 

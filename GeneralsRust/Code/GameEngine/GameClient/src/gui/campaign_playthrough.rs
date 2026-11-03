@@ -311,6 +311,7 @@ mod tests {
 
     #[test]
     fn usa_gla_china_and_all_challenge_generals_playthrough() {
+        crate::test_support::ensure_ambient_host();
         let report = run_retail_campaign_and_challenge_playthrough();
         assert!(
             report.playthrough_ok(),

@@ -76,6 +76,7 @@ fn direct(client: &mut GameClient, epoch: u64, position: [f32; 3]) -> NativeMate
 
 #[test]
 fn native_views_filter_actual_factory_draws_and_repeat_overlap_without_touching_peer() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut client = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
@@ -261,6 +262,7 @@ fn native_views_filter_actual_factory_draws_and_repeat_overlap_without_touching_
 
 #[test]
 fn native_views_empty_view_list_does_not_advance_draw_or_install_emitters() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut client = GameClient::new().unwrap();
     let id = authored(&mut client, Vector3::new(0., 0., 0.), false);
@@ -287,6 +289,7 @@ fn native_views_empty_view_list_does_not_advance_draw_or_install_emitters() {
 
 #[test]
 fn public_split_shell_defers_draw_and_rejects_changed_client_frame() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     client.window_manager_owner().shell_handle().init().unwrap();
     client.initialized = true;
@@ -347,6 +350,7 @@ fn public_split_shell_defers_draw_and_rejects_changed_client_frame() {
 
 #[test]
 fn split_shell_rejects_equal_frame_peer_reset_and_superseded_operation() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
     client.window_manager_owner().shell_handle().init().unwrap();
@@ -405,6 +409,7 @@ fn split_shell_rejects_equal_frame_peer_reset_and_superseded_operation() {
 
 #[test]
 fn failed_map_discard_requires_particles_before_unlink_and_preserves_peer() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut client = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
@@ -480,6 +485,7 @@ fn failed_map_discard_requires_particles_before_unlink_and_preserves_peer() {
 
 #[test]
 fn failed_constructor_retirement_selects_only_its_actual_drawable() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut client = GameClient::new().unwrap();
     let failed = authored(&mut client, Vector3::new(0., 0., 0.), false);
@@ -544,6 +550,7 @@ fn failed_constructor_retirement_selects_only_its_actual_drawable() {
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn client_chunk_replacement_retires_actual_manager_before_roster_clear() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "client_chunk_replacement_retires_actual_manager_before_roster_clear",
@@ -624,6 +631,7 @@ fn client_chunk_replacement_retires_actual_manager_before_roster_clear() {
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn native_retirement_releases_particle_guard_before_actual_module_drop() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "native_retirement_releases_particle_guard_before_actual_module_drop",

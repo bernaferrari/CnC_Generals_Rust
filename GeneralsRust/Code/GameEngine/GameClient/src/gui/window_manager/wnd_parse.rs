@@ -453,6 +453,7 @@ mod asset_root_tests {
     }
     #[test]
     fn explicit_loose_layouts_resolve_without_cwd_copy() {
+        crate::test_support::ensure_ambient_host();
         let private = tempfile::tempdir().unwrap();
         for layout in [
             "windows_game/extracted_big_files_v2/WindowZH/Window/Menus",
@@ -491,6 +492,7 @@ mod asset_root_tests {
     }
     #[test]
     fn existing_cwd_extracted_precedence_and_configured_root_order_are_preserved() {
+        crate::test_support::ensure_ambient_host();
         let cwd = tempfile::tempdir().unwrap();
         let first_root = tempfile::tempdir().unwrap();
         let second_root = tempfile::tempdir().unwrap();
@@ -518,6 +520,7 @@ mod asset_root_tests {
     }
     #[test]
     fn configured_environment_loads_actual_window_in_private_child() {
+        crate::test_support::ensure_ambient_host();
         const CHILD: &str = "GENERALS_WND_ASSET_ROOT_TEST_CHILD";
         if std::env::var_os(CHILD).is_some() {
             let expected = PathBuf::from(std::env::var_os(CHILD).unwrap());

@@ -31,6 +31,7 @@ fn native_color_offset(name: &str) -> usize {
 
 #[test]
 fn authored_color_scale_runtime_normalizes_once_without_mutating_shared_definition() {
+    crate::test_support::ensure_ambient_host();
     let template = definition("NormalizedColor", 51.0);
     let mut a = ParticleSystem::new(template.clone(), 1, false);
     let b = ParticleSystem::new(template.clone(), 1, false);
@@ -70,6 +71,7 @@ fn authored_color_scale_runtime_normalizes_once_without_mutating_shared_definiti
 
 #[test]
 fn source_native_uniform_color_scale_load_emits_runtime_units_and_resaves_them() {
+    crate::test_support::ensure_ambient_host();
     let template = definition("NativeColor", 51.0);
     let mut source = ParticleSystemManager::new();
     source.register_template(template.clone());

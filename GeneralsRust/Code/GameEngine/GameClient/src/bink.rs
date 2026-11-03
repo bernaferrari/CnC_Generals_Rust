@@ -722,6 +722,7 @@ mod tests {
 
     #[test]
     fn parses_bink1_header() {
+        crate::test_support::ensure_ambient_host();
         let bytes = make_bink_blob(*b"BIKi");
         let header = BinkHeader::parse(&bytes).expect("header should parse");
         assert_eq!(header.version, BinkVersion::Bink1);
@@ -733,6 +734,7 @@ mod tests {
 
     #[test]
     fn extracts_frame_packets() {
+        crate::test_support::ensure_ambient_host();
         let bytes = make_bink_blob(*b"KB2i");
         let decoder = BinkDecoder::from_bytes(bytes).expect("decoder should parse");
         assert_eq!(decoder.header().version, BinkVersion::Bink2);
@@ -742,6 +744,7 @@ mod tests {
 
     #[test]
     fn pseudo_decode_outputs_rgba() {
+        crate::test_support::ensure_ambient_host();
         let bytes = make_bink_blob(*b"BIKi");
         let mut decoder = BinkDecoder::from_bytes(bytes).expect("decoder should parse");
         let rgba = decoder.decode_current_frame_rgba();
@@ -751,6 +754,7 @@ mod tests {
 
     #[test]
     fn video_stream_tracks_playback_state() {
+        crate::test_support::ensure_ambient_host();
         let path = std::env::temp_dir().join(format!("bink_stream_{}.bik", std::process::id()));
         fs::write(&path, make_bink_blob(*b"BIKi")).expect("write temp bink");
         let mut stream = BinkVideoStream::open(&path).expect("open");
@@ -773,6 +777,7 @@ mod tests {
 
     #[test]
     fn bink_has_audio_bitstream_parser_wired_to_miles() {
+        crate::test_support::ensure_ambient_host();
         let bytes = make_bink_blob(*b"BIKi");
         let header = BinkHeader::parse(&bytes).expect("header");
         assert_eq!(header.audio_track_count, 0);
@@ -790,6 +795,7 @@ mod tests {
 
     #[test]
     fn bink_speech_slider_matches_create_stream_formula() {
+        crate::test_support::ensure_ambient_host();
         // C++ BinkVideoPlayer::createStream (BinkVideoPlayer.cpp:88-96)
         // mod = (speechVolume*0.8*100)+1; volume = 32768*mod/100.
         let expected = |speech: f32| {

@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn particle_emission_truncates_fractional_samples_before_coefficients() {
+    crate::test_support::ensure_ambient_host();
     let mut template = ParticleSystemTemplate::new("FractionalEmission".into());
     template.info_mut().burst_count = GameClientRandomVariable::new(2.9, 2.9);
     template.info_mut().burst_delay = GameClientRandomVariable::new(2.9, 2.9);
@@ -23,6 +24,7 @@ fn particle_emission_truncates_fractional_samples_before_coefficients() {
 
 #[test]
 fn particle_zero_burst_still_finishes_delay_before_next_attempt() {
+    crate::test_support::ensure_ambient_host();
     let mut template = ParticleSystemTemplate::new("ZeroBurstDelay".into());
     template.info_mut().burst_count = GameClientRandomVariable::new(0.9, 0.9);
     template.info_mut().burst_delay = GameClientRandomVariable::new(2.9, 2.9);
@@ -43,6 +45,7 @@ fn particle_zero_burst_still_finishes_delay_before_next_attempt() {
 
 #[test]
 fn particle_stop_start_destroy_preserve_native_saved_lifecycle_identity() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
@@ -85,6 +88,7 @@ fn particle_stop_start_destroy_preserve_native_saved_lifecycle_identity() {
 
 #[test]
 fn actual_parent_expiry_detaches_delayed_controlled_child_before_destroy() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = ParticleSystemManager::new();
     let mut parent = ParticleSystemTemplate::new("ExpiringControlParent".into());
     let info = parent.info_mut();
@@ -157,6 +161,7 @@ fn actual_parent_expiry_detaches_delayed_controlled_child_before_destroy() {
 
 #[test]
 fn destroyed_empty_preparation_advances_wind_before_retirement() {
+    crate::test_support::ensure_ambient_host();
     let mut template = ParticleSystemTemplate::new("RetiringWindPhase".into());
     let info = template.info_mut();
     info.wind_motion = WindMotion::PingPong;

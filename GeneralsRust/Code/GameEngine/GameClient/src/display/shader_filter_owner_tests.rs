@@ -5,6 +5,7 @@ use crate::display::view_filter::ViewFilterState;
 
 #[test]
 fn filter_gpu_resource_slots_are_distinct_without_gpu_initialization() {
+    crate::test_support::ensure_ambient_host();
     let a = ShaderFilterResources::default();
     let b = ShaderFilterResources::default();
     assert!(!std::ptr::eq(&a, &b));
@@ -17,6 +18,7 @@ fn filter_gpu_resource_slots_are_distinct_without_gpu_initialization() {
 #[test]
 #[ignore = "requires a native WGPU adapter; run this explicit GPU acceptance test"]
 fn owned_filter_gpu_admits_zero_fade_and_preserves_independent_cpu_phase_on_resize() {
+    crate::test_support::ensure_ambient_host();
     let instance = wgpu::Instance::default();
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::LowPower,

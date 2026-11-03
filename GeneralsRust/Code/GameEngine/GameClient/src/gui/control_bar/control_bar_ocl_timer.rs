@@ -333,6 +333,7 @@ mod tests {
 
     #[test]
     fn test_format_ocl_timer_display() {
+        crate::test_support::ensure_ambient_host();
         let (text, progress) = format_ocl_timer_display(65, 0.5);
         assert_eq!(text, "1:05");
         assert!((progress - 50.0).abs() < 0.01);
@@ -348,6 +349,7 @@ mod tests {
 
     #[test]
     fn test_ocl_frames_to_display() {
+        crate::test_support::ensure_ambient_host();
         // 900 frames = 30 seconds at 30 fps
         let (secs, pct) = ocl_frames_to_display(900, 900);
         assert_eq!(secs, 30);
@@ -366,6 +368,7 @@ mod tests {
 
     #[test]
     fn test_should_update_timer_text() {
+        crate::test_support::ensure_ambient_host();
         let state = OCLTimerDisplayState {
             displayed_seconds: 10,
         };
@@ -376,6 +379,7 @@ mod tests {
 
     #[test]
     fn test_update_context_ocl_timer() {
+        crate::test_support::ensure_ambient_host();
         let mut state = OCLTimerDisplayState::default();
         let mut wm = crate::gui::window_manager::WindowManager::new();
 
@@ -400,6 +404,7 @@ mod tests {
 
     #[test]
     fn test_ocl_timer_button_kind_matches_cpp() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             ocl_timer_button_kind(false, false),
             OclTimerButtonKind::Sell

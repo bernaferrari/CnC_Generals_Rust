@@ -535,6 +535,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
 
         assert_eq!(
@@ -549,6 +550,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn replay_double_click_uses_current_listbox_selection_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut state = ReplayMenuState::new();
         state.listbox_id = 42;
 
@@ -578,6 +580,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn replay_menu_system_handles_glm_double_clicked_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let listbox_id = 42;
         let listbox_window = Rc::new(RefCell::new(GameWindow::new()));
         listbox_window
@@ -922,6 +925,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_replay_menu_prepare_load_hits_list_and_load() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         install_named_button(&owner, "ReplayMenu.wnd:ListboxReplayFiles", 10, 10);
         install_named_button(&owner, "ReplayMenu.wnd:ButtonLoadReplay", 10, 40);
@@ -939,6 +943,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_replay_menu_back_hits_button_back() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         install_named_button(&owner, "ReplayMenu.wnd:ButtonBack", 10, 70);
         assert!(WindowEventEffects::with_standalone(|effects| drive_os_wnd_replay_menu_back_like_cpp(effects)));

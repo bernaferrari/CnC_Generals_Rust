@@ -2790,6 +2790,7 @@ mod authored_road_texture_tests {
 
     #[test]
     fn each_source_road_and_synthetic_join_uses_its_own_texture() {
+        crate::test_support::ensure_ambient_host();
         let mut roads = TerrainRoadCollection::new();
         let cobble = roads.new_road(AsciiString::from("Cobblestone"));
         cobble.texture = AsciiString::from("TRCobbleStones.tga");
@@ -2894,6 +2895,7 @@ mod splat_texture_class_tests {
 
     #[test]
     fn get_texture_class_from_ndx_includes_tile_zero() {
+        crate::test_support::ensure_ambient_host();
         // C++ WorldHeightMap::getTextureClassFromNdx (WorldHeightMap.cpp:2308)
         // after tileNdx>>2. firstTile==0 is a valid class.
         let classes = [class(0, 4, "Grass"), class(4, 4, "Rock")];
@@ -2905,6 +2907,7 @@ mod splat_texture_class_tests {
 
     #[test]
     fn adjacent_classes_bind_different_texture_id_slots() {
+        crate::test_support::ensure_ambient_host();
         let (textures, classes, stable, slot_map) = bound_fixture();
         let grass = bound_texture_id_for_source_tile(0, &classes, &textures, &stable, &slot_map);
         let rock = bound_texture_id_for_source_tile(4, &classes, &textures, &stable, &slot_map);
@@ -2921,6 +2924,7 @@ mod splat_texture_class_tests {
 
     #[test]
     fn unmapped_tile_is_not_used_as_slot_index() {
+        crate::test_support::ensure_ambient_host();
         let (textures, classes, stable, slot_map) = bound_fixture();
         // packed 99 is outside firstTile/numTiles — must not become 99%4.
         assert_eq!(
@@ -2945,6 +2949,7 @@ mod directional_blend_alpha_tests {
     /// Corner fractions: corner 0=(0,0), 1=(1,0), 2=(1,1), 3=(0,1).
     #[test]
     fn horiz_blend_covers_one_x_edge_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         // C++ :2062-2070 — uninverted horiz sets alpha[1]=alpha[2]=255 (the
         // x1 edge); inverted sets alpha[0]=alpha[3]=255 (the x0 edge).
         let mut b = blend();
@@ -2960,6 +2965,7 @@ mod directional_blend_alpha_tests {
 
     #[test]
     fn vert_blend_covers_one_z_edge_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         // C++ :2071-2079 — uninverted vert sets alpha[2]=alpha[3]=255.
         let mut b = blend();
         b.vert = 1;
@@ -2972,6 +2978,7 @@ mod directional_blend_alpha_tests {
 
     #[test]
     fn diagonal_blends_ramp_across_the_cell() {
+        crate::test_support::ensure_ambient_host();
         // C++ :2080-2096 — uninverted right diagonal covers corner 2.
         let mut b = blend();
         b.right_diagonal = 1;
@@ -2993,6 +3000,7 @@ mod directional_blend_alpha_tests {
 
     #[test]
     fn long_diagonal_widens_the_ramp_across_the_cell() {
+        crate::test_support::ensure_ambient_host();
         let mut b = blend();
         b.right_diagonal = 1;
         let plain = directional_blend_alpha(&b, 0.75, 0.5);
@@ -3004,6 +3012,7 @@ mod directional_blend_alpha_tests {
 
     #[test]
     fn flipped_blends_swap_the_axes_before_evaluating() {
+        crate::test_support::ensure_ambient_host();
         // FLIPPED_MASK (TileData.h:28) mirrors the cell before the table.
         let mut b = blend();
         b.horiz = 1;
@@ -3014,6 +3023,7 @@ mod directional_blend_alpha_tests {
 
     #[test]
     fn custom_edge_class_disables_the_alpha_blend() {
+        crate::test_support::ensure_ambient_host();
         // C++ :2023-2027 — customBlendEdgeClass >= 0: no alpha, no flip.
         let mut b = blend();
         b.horiz = 1;

@@ -1008,6 +1008,7 @@ mod tests {
 
     #[test]
     fn parse_video_ini_contents_extracts_filename_and_comment() {
+        crate::test_support::ensure_ambient_host();
         let videos = parse_video_ini_contents(
             r#"
                 Video EALogoMovie
@@ -1025,6 +1026,7 @@ mod tests {
 
     #[test]
     fn video_player_init_loads_known_video_registry_entries() {
+        crate::test_support::ensure_ambient_host();
         let mut player = VideoPlayer::new();
         player.init();
 
@@ -1036,6 +1038,7 @@ mod tests {
 
     #[test]
     fn init_video_player_restores_singleton_after_shutdown() {
+        crate::test_support::ensure_ambient_host();
         init_video_player();
         shutdown_video_player();
         init_video_player();
@@ -1047,6 +1050,7 @@ mod tests {
 
     #[test]
     fn resolve_movie_asset_path_finds_localized_movie_file() {
+        crate::test_support::ensure_ambient_host();
         let path = resolve_movie_asset_path("EA_LOGO").expect("expected movie file to resolve");
         let normalized = path.to_string_lossy().replace('\\', "/");
 
@@ -1055,6 +1059,7 @@ mod tests {
 
     #[test]
     fn resolve_movie_path_uses_video_registry_filename() {
+        crate::test_support::ensure_ambient_host();
         let mut player = VideoPlayer::new();
         player.init();
 
@@ -1068,6 +1073,7 @@ mod tests {
 
     #[test]
     fn resolve_movie_asset_path_accepts_bik_extension() {
+        crate::test_support::ensure_ambient_host();
         let path =
             resolve_movie_asset_path("EA_LOGO.BIK").expect("expected .bik movie file to resolve");
         let normalized = path.to_string_lossy().replace('\\', "/");
@@ -1077,6 +1083,7 @@ mod tests {
 
     #[test]
     fn resolve_movie_path_falls_back_to_direct_movie_name() {
+        crate::test_support::ensure_ambient_host();
         let player = VideoPlayer::new();
         let path = player
             .resolve_movie_path("EA_LOGO.BIK")
@@ -1088,6 +1095,7 @@ mod tests {
 
     #[test]
     fn resolve_movie_asset_path_accepts_existing_direct_path() {
+        crate::test_support::ensure_ambient_host();
         let path = PathBuf::from(
             "windows_game/Command & Conquer Generals Zero Hour/Data/English/Movies/EA_LOGO.BIK",
         );
@@ -1100,6 +1108,7 @@ mod tests {
 
     #[test]
     fn resolved_video_ini_paths_include_mod_overlay_files() {
+        crate::test_support::ensure_ambient_host();
         init_global_data();
         let temp_root = std::env::temp_dir().join("generalsrust_video_ini_overlay_test");
         let default_dir = temp_root.join("Data/INI/Default");
@@ -1143,6 +1152,7 @@ mod tests {
 
     #[test]
     fn tracked_provider_streams_are_updated_by_video_player() {
+        crate::test_support::ensure_ambient_host();
         let updates = Arc::new(AtomicUsize::new(0));
         let closes = Arc::new(AtomicUsize::new(0));
         register_video_stream_provider(Arc::new(MockProvider {
@@ -1164,6 +1174,7 @@ mod tests {
 
     #[test]
     fn close_all_streams_closes_provider_streams() {
+        crate::test_support::ensure_ambient_host();
         let updates = Arc::new(AtomicUsize::new(0));
         let closes = Arc::new(AtomicUsize::new(0));
         register_video_stream_provider(Arc::new(MockProvider {
@@ -1189,6 +1200,7 @@ mod tests {
 
     #[test]
     fn register_video_stream_provider_notifies_existing_player() {
+        crate::test_support::ensure_ambient_host();
         clear_video_stream_provider();
         init_video_player();
 
@@ -1216,6 +1228,7 @@ mod tests {
 
     #[test]
     fn provider_notification_skips_locked_global_player() {
+        crate::test_support::ensure_ambient_host();
         init_video_player();
 
         let player = get_video_player().expect("video player singleton should exist");
@@ -1229,6 +1242,7 @@ mod tests {
 
     #[test]
     fn clear_video_stream_provider_notifies_existing_player() {
+        crate::test_support::ensure_ambient_host();
         init_video_player();
         register_video_stream_provider(Arc::new(MockProvider {
             updates: Arc::new(AtomicUsize::new(0)),
@@ -1255,6 +1269,7 @@ mod tests {
 
     #[test]
     fn init_video_player_restores_provider_validity_after_shutdown() {
+        crate::test_support::ensure_ambient_host();
         register_video_stream_provider(Arc::new(MockProvider {
             updates: Arc::new(AtomicUsize::new(0)),
             closes: Arc::new(AtomicUsize::new(0)),
@@ -1274,6 +1289,7 @@ mod tests {
 
     #[test]
     fn shutdown_video_player_deinitializes_active_streams() {
+        crate::test_support::ensure_ambient_host();
         let closes = Arc::new(AtomicUsize::new(0));
         register_video_stream_provider(Arc::new(MockProvider {
             updates: Arc::new(AtomicUsize::new(0)),

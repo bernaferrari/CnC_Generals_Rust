@@ -162,6 +162,7 @@ mod marker_tests {
 
     #[test]
     fn both_scheme_layers_follow_background_marker_when_bar_moves() {
+        crate::test_support::ensure_ambient_host();
         let parent = Rc::new(RefCell::new(GameWindow::new()));
         parent.borrow_mut().set_position(0, 332).unwrap();
         let background = Rc::new(RefCell::new(GameWindow::new()));

@@ -1857,6 +1857,7 @@ mod tests {
 
     #[test]
     fn test_texture_creation() {
+        crate::test_support::ensure_ambient_host();
         let texture = TerrainTexture::new(1, "grass".to_string(), "grass.jpg".to_string());
         assert_eq!(texture.id, 1);
         assert_eq!(texture.name, "grass");
@@ -1865,6 +1866,7 @@ mod tests {
 
     #[test]
     fn tile_data_matches_cpp_supported_width_table() {
+        crate::test_support::ensure_ambient_host();
         let tile = TileData::new();
 
         for width in [
@@ -1890,6 +1892,7 @@ mod tests {
 
     #[test]
     fn tile_data_update_mips_averages_2x2_blocks_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut tile = TileData::new();
 
         for y in 0..TILE_PIXEL_EXTENT as usize {
@@ -1935,6 +1938,7 @@ mod tests {
 
     #[test]
     fn test_border_padding_and_uv_rect() {
+        crate::test_support::ensure_ambient_host();
         let mut image = RgbaImage::new(16, 16);
         image.put_pixel(0, 0, image::Rgba([10, 20, 30, 255]));
         image.put_pixel(15, 0, image::Rgba([40, 50, 60, 255]));
@@ -1959,6 +1963,7 @@ mod tests {
 
     #[test]
     fn test_texture_weights_normalization() {
+        crate::test_support::ensure_ambient_host();
         let mut weights = TextureWeights::new([0, 1, 2, 3], [0.5, 0.5, 0.5, 0.5]);
         let sum: f32 = weights.weights.iter().sum();
         assert!((sum - 1.0).abs() < 0.001);
@@ -1966,6 +1971,7 @@ mod tests {
 
     #[test]
     fn test_texture_weights_blend() {
+        crate::test_support::ensure_ambient_host();
         let weights = TextureWeights::blend_two(0, 1, 0.7);
         assert_eq!(weights.indices[0], 0);
         assert_eq!(weights.indices[1], 1);
@@ -1975,6 +1981,7 @@ mod tests {
 
     #[test]
     fn test_texture_weights_from_pairs() {
+        crate::test_support::ensure_ambient_host();
         let weights = TextureWeights::from_weight_pairs(vec![(10, 2.0), (5, 1.0)]);
         assert_eq!(weights.indices[0], 10);
         assert_eq!(weights.indices[1], 5);
@@ -1984,6 +1991,7 @@ mod tests {
 
     #[test]
     fn test_texture_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = TextureManager::new();
         let texture = TerrainTexture::new(0, "test".to_string(), "test.jpg".to_string());
         let id = manager.register_texture(texture);
@@ -1995,6 +2003,7 @@ mod tests {
 
     #[test]
     fn test_texture_rule() {
+        crate::test_support::ensure_ambient_host();
         let rule = TextureRule {
             texture_id: 1,
             height_min: 0.0,
@@ -2015,6 +2024,7 @@ mod tests {
 
     #[test]
     fn test_generate_texture_weights_priority_bias() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = TextureManager::new();
         let rules = vec![
             TextureRule {
@@ -2046,6 +2056,7 @@ mod tests {
 
     #[test]
     fn test_generate_texture_weights_fallback() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = TextureManager::new();
         let rules = vec![TextureRule {
             texture_id: 4,
@@ -2065,6 +2076,7 @@ mod tests {
 
     #[test]
     fn test_texture_rule_gradient_preference() {
+        crate::test_support::ensure_ambient_host();
         let rock_rule = TextureRule {
             texture_id: 1,
             height_min: 0.0,
@@ -2103,6 +2115,7 @@ mod tests {
 
     #[test]
     fn test_generate_texture_weights_height_slope_only() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = TextureManager::new();
 
         let rules = vec![

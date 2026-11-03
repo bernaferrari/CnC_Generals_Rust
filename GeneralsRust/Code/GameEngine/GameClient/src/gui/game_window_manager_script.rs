@@ -3006,6 +3006,7 @@ mod tests {
 
     #[test]
     fn test_parse_bit_string() {
+        crate::test_support::ensure_ambient_host();
         let mut bits: u32 = 0;
         parse_bit_string("ENABLED+HIDDEN", &mut bits, WINDOW_STATUS_NAMES);
         assert_ne!(bits & (1 << 3), 0); // ENABLED
@@ -3014,6 +3015,7 @@ mod tests {
 
     #[test]
     fn test_parse_bit_string_null() {
+        crate::test_support::ensure_ambient_host();
         let mut bits: u32 = 0xFFFF;
         parse_bit_string("NULL", &mut bits, WINDOW_STATUS_NAMES);
         assert_eq!(bits, 0xFFFF); // NULL should not change bits
@@ -3021,6 +3023,7 @@ mod tests {
 
     #[test]
     fn test_scan_helpers() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(scan_bool("1"), Some(true));
         assert_eq!(scan_bool("0"), Some(false));
         assert_eq!(scan_int("42"), Some(42));
@@ -3030,18 +3033,21 @@ mod tests {
 
     #[test]
     fn test_script_action_parse_show_window() {
+        crate::test_support::ensure_ambient_host();
         let action = ScriptAction::parse_from_ini("ShowWindow", r#""MyWindow""#).unwrap();
         assert_eq!(action, ScriptAction::ShowWindow("MyWindow".to_string()));
     }
 
     #[test]
     fn test_script_action_parse_hide_window() {
+        crate::test_support::ensure_ambient_host();
         let action = ScriptAction::parse_from_ini("HideWindow", r#""MyWindow""#).unwrap();
         assert_eq!(action, ScriptAction::HideWindow("MyWindow".to_string()));
     }
 
     #[test]
     fn test_script_action_parse_animate_window() {
+        crate::test_support::ensure_ambient_host();
         let action =
             ScriptAction::parse_from_ini("AnimateWindow", r#""MyWindow", "FadeIn""#).unwrap();
         assert_eq!(
@@ -3055,6 +3061,7 @@ mod tests {
 
     #[test]
     fn test_script_action_parse_fade_window() {
+        crate::test_support::ensure_ambient_host();
         let action = ScriptAction::parse_from_ini("FadeWindow", r#""MyWindow", 500"#).unwrap();
         assert_eq!(
             action,
@@ -3067,6 +3074,7 @@ mod tests {
 
     #[test]
     fn test_script_action_parse_set_window_text() {
+        crate::test_support::ensure_ambient_host();
         let action =
             ScriptAction::parse_from_ini("SetWindowText", r#""MyWindow", "Hello""#).unwrap();
         assert_eq!(
@@ -3080,12 +3088,14 @@ mod tests {
 
     #[test]
     fn test_script_action_parse_play_sound() {
+        crate::test_support::ensure_ambient_host();
         let action = ScriptAction::parse_from_ini("PlaySound", r#""ButtonSound""#).unwrap();
         assert_eq!(action, ScriptAction::PlaySound("ButtonSound".to_string()));
     }
 
     #[test]
     fn test_script_action_parse_run_process_animate_window() {
+        crate::test_support::ensure_ambient_host();
         let action =
             ScriptAction::parse_from_ini("RunProcessAnimateWindow", r#""MyWindow", "SlideIn""#)
                 .unwrap();
@@ -3100,11 +3110,13 @@ mod tests {
 
     #[test]
     fn test_script_action_parse_unknown() {
+        crate::test_support::ensure_ambient_host();
         assert!(ScriptAction::parse_from_ini("UnknownAction", "value").is_none());
     }
 
     #[test]
     fn test_callback_registry() {
+        crate::test_support::ensure_ambient_host();
         let mut registry = ScriptCallbackRegistry::new();
         let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let called_clone = called.clone();
@@ -3125,6 +3137,7 @@ mod tests {
 
     #[test]
     fn test_callback_registry_win_system() {
+        crate::test_support::ensure_ambient_host();
         use crate::gui::game_window::WindowMsgHandled;
         let mut registry = ScriptCallbackRegistry::new();
         registry.register_win_system("TestSystem", |_win, _msg, _d1, _d2| {
@@ -3138,6 +3151,7 @@ mod tests {
     #[cfg(not(feature = "online_ui"))]
     #[test]
     fn deferred_online_callbacks_remain_registered_and_fail_closed() {
+        crate::test_support::ensure_ambient_host();
         let mut registry = ScriptCallbackRegistry::new();
         registry.populate_defaults();
 
@@ -3193,6 +3207,7 @@ mod tests {
     #[cfg(feature = "online_ui")]
     #[test]
     fn online_ui_binds_concrete_wol_gamespy_callbacks_in_lexicon_order() {
+        crate::test_support::ensure_ambient_host();
         let mut registry = ScriptCallbackRegistry::new();
         registry.populate_defaults();
 
@@ -3228,6 +3243,7 @@ mod tests {
 
     #[test]
     fn create_system_callback_survives_registry_replace() {
+        crate::test_support::ensure_ambient_host();
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         let mut registry = ScriptCallbackRegistry::new();
@@ -3263,6 +3279,7 @@ mod tests {
 
     #[test]
     fn create_input_callback_survives_registry_drop() {
+        crate::test_support::ensure_ambient_host();
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         let hits = std::sync::Arc::new(AtomicUsize::new(0));
@@ -3287,6 +3304,7 @@ mod tests {
 
     #[test]
     fn create_tooltip_and_draw_callbacks_survive_registry_replace() {
+        crate::test_support::ensure_ambient_host();
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         let mut registry = ScriptCallbackRegistry::new();
@@ -3318,6 +3336,7 @@ mod tests {
 
     #[test]
     fn main_menu_callbacks_are_wired_to_registry() {
+        crate::test_support::ensure_ambient_host();
         let mut registry = ScriptCallbackRegistry::new();
         registry.populate_defaults();
 
@@ -3330,6 +3349,7 @@ mod tests {
 
     #[test]
     fn ime_draw_callbacks_are_wired_with_instance_data() {
+        crate::test_support::ensure_ambient_host();
         let mut registry = ScriptCallbackRegistry::new();
         registry.populate_defaults();
 
@@ -3349,6 +3369,7 @@ mod tests {
 
     #[test]
     fn menu_callback_trait_adapters_are_wired_to_registry() {
+        crate::test_support::ensure_ambient_host();
         let mut registry = ScriptCallbackRegistry::new();
         registry.populate_defaults();
 
@@ -3377,6 +3398,7 @@ mod tests {
 
     #[test]
     fn singleton_callback_adapters_are_wired_to_registry() {
+        crate::test_support::ensure_ambient_host();
         let mut registry = ScriptCallbackRegistry::new();
         registry.populate_defaults();
 
@@ -3409,6 +3431,7 @@ mod tests {
 
     #[test]
     fn main_menu_adapter_uses_legacy_gadget_message_ids() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(legacy_main_menu_message(WindowMessage::Create), 1);
         assert_eq!(legacy_main_menu_message(WindowMessage::InputFocus), 23);
         assert_eq!(
@@ -3427,6 +3450,7 @@ mod tests {
 
     #[test]
     fn test_window_defaults_reset() {
+        crate::test_support::ensure_ambient_host();
         let mut defaults = WindowDefaults::default();
         defaults.text_color = 0xFF0000;
         let reset = WindowDefaults::reset();
@@ -3435,6 +3459,7 @@ mod tests {
 
     #[test]
     fn test_window_defaults_set_color() {
+        crate::test_support::ensure_ambient_host();
         let mut defaults = WindowDefaults::default();
         defaults.set_color("ENABLEDCOLOR", 0x11223344);
         assert_eq!(defaults.enabled_color, 0x11223344);
@@ -3444,6 +3469,7 @@ mod tests {
 
     #[test]
     fn test_script_block_parse() {
+        crate::test_support::ensure_ambient_host();
         let entries = vec![
             ("ScriptName".to_string(), "\"TestBlock\"".to_string()),
             ("ShowWindow".to_string(), "\"Win1\"".to_string()),
@@ -3464,6 +3490,7 @@ mod tests {
 
     #[test]
     fn test_script_block_empty_name_returns_none() {
+        crate::test_support::ensure_ambient_host();
         let entries: Vec<(String, String)> =
             vec![("ShowWindow".to_string(), "\"Win1\"".to_string())];
         assert!(ScriptBlock::parse_from_ini(&entries).is_none());
@@ -3471,6 +3498,7 @@ mod tests {
 
     #[test]
     fn test_script_engine_execute_script_block() {
+        crate::test_support::ensure_ambient_host();
         let mut engine = WindowScriptEngine::new();
         let block = ScriptBlock {
             name: "TestScript".to_string(),
@@ -3490,6 +3518,7 @@ mod tests {
 
     #[test]
     fn test_script_engine_apply_defaults() {
+        crate::test_support::ensure_ambient_host();
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("DefaultText.wnd");
         std::fs::write(
@@ -3531,6 +3560,7 @@ mod tests {
 
     #[test]
     fn test_script_engine_apply_defaults_respects_explicit() {
+        crate::test_support::ensure_ambient_host();
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("ExplicitText.wnd");
         std::fs::write(
@@ -3590,6 +3620,7 @@ mod tests {
 
     #[test]
     fn test_engine_apply_default_color() {
+        crate::test_support::ensure_ambient_host();
         let mut engine = WindowScriptEngine::new();
         engine.apply_default_color("TEXTCOLOR", "255 128 64 255");
         assert_ne!(engine.defaults.text_color, 0);
@@ -3600,6 +3631,7 @@ mod tests {
 
     #[test]
     fn test_engine_apply_default_color_transparent() {
+        crate::test_support::ensure_ambient_host();
         let mut engine = WindowScriptEngine::new();
         engine.apply_default_color("TEXTCOLOR", "TRANSPARENT");
         assert_eq!(
@@ -3610,6 +3642,7 @@ mod tests {
 
     #[test]
     fn test_split_csv() {
+        crate::test_support::ensure_ambient_host();
         let parts = split_csv(r#""Win1", "AnimType""#);
         assert_eq!(parts.len(), 2);
         assert_eq!(parts[0], r#""Win1""#);
@@ -3618,6 +3651,7 @@ mod tests {
 
     #[test]
     fn test_unquote() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(unquote(r#""hello""#), "hello");
         assert_eq!(unquote("hello"), "hello");
         assert_eq!(unquote(r#"""#), "");

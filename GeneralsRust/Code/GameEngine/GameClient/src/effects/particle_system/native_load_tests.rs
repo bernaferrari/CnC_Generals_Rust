@@ -54,6 +54,7 @@ fn authored_payload(count: usize, identity: bool, bonus: f32, store: u32) -> Vec
 
 #[test]
 fn native_particle_load_generation_side_effects_and_actual_next_admission() {
+    crate::test_support::ensure_ambient_host();
     let payload = authored_payload(3, false, 5.0, u32::MAX - 1);
     let mut receiving = owner();
     let definition = receiving.find_template("NativeLoadGeneration").unwrap();
@@ -89,6 +90,7 @@ fn native_particle_load_generation_side_effects_and_actual_next_admission() {
 
 #[test]
 fn native_particle_load_generation_side_effects_include_zero_count_and_identity() {
+    crate::test_support::ensure_ambient_host();
     for identity in [false, true] {
         let mut receiving = owner();
         receiving
@@ -118,6 +120,7 @@ fn native_particle_load_generation_side_effects_include_zero_count_and_identity(
 
 #[test]
 fn native_particle_load_generation_side_effects_cap_and_repeated_load_are_explicit() {
+    crate::test_support::ensure_ambient_host();
     let mut receiving = owner();
     receiving
         .restore_xfer_bytes(&authored_payload(0, false, 49.5, 13))
@@ -150,6 +153,7 @@ fn native_particle_load_generation_side_effects_cap_and_repeated_load_are_explic
 
 #[test]
 fn native_particle_load_generation_side_effects_failed_candidate_does_not_publish() {
+    crate::test_support::ensure_ambient_host();
     let mut receiving = owner();
     receiving
         .restore_xfer_bytes(&authored_payload(3, false, 5.0, u32::MAX - 1))

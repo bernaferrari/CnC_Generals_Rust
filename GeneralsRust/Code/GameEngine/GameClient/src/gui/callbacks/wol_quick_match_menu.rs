@@ -1902,11 +1902,13 @@ mod tests {
 
     #[test]
     fn max_disconnects_table_matches_cpp_wol_quick_match() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(MAX_DISCONNECTS, [0, 5, 10, 25, 50]);
     }
 
     #[test]
     fn combo_item_data_round_trips_signed_template_ids() {
+        crate::test_support::ensure_ambient_host();
         let item = ComboBoxItem::new(1, "Random").with_data(PLAYERTEMPLATE_RANDOM);
         assert_eq!(item.data, Some(PLAYERTEMPLATE_RANDOM as usize));
         assert_eq!(item.data.unwrap() as i32, PLAYERTEMPLATE_RANDOM);

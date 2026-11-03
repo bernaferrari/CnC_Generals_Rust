@@ -2215,17 +2215,20 @@ mod tests {
 
     #[test]
     fn lobby_slash_commands_ignore_plain_chat() {
+        crate::test_support::ensure_ambient_host();
         assert!(!handle_lobby_slash_commands("hello", 1));
         assert!(!handle_lobby_slash_commands("", 1));
     }
 
     #[test]
     fn lobby_slash_refresh_is_recognized() {
+        crate::test_support::ensure_ambient_host();
         assert!(handle_lobby_slash_commands("/refresh", 1));
     }
 
     #[test]
     fn send_chat_window_id_is_u32_from_i32_gadget_id() {
+        crate::test_support::ensure_ambient_host();
         let listbox_id: i32 = 42;
         let chat_id: Option<u32> = Some(listbox_id as u32);
         assert_eq!(chat_id, Some(42));

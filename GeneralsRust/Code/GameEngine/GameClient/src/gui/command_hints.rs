@@ -60,6 +60,7 @@ mod tests {
     use super::*;
     #[test]
     fn client_frame_lifetime_dedup_and_peer_reset_are_independent() {
+        crate::test_support::ensure_ambient_host();
         let mut a = CommandHintState::default();
         let mut b = CommandHintState::default();
         a.record(CommandHintKind::Move, glam::Vec3::ONE, 7, 100, true);

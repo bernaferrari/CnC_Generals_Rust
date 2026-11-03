@@ -604,6 +604,7 @@ mod tests {
 
     #[test]
     fn radar_layer_uv_puts_texture_origin_at_hud_bottom() {
+        crate::test_support::ensure_ambient_host();
         let uv = radar_layer_vflip_uv();
         assert!((uv.x - 0.0).abs() < f32::EPSILON);
         assert!((uv.y - 1.0).abs() < f32::EPSILON);

@@ -192,6 +192,7 @@ mod tests {
     
     #[test]
     fn test_chunk_manager_creation() {
+        crate::test_support::ensure_ambient_host();
         let manager = EnhancedChunkManager::new();
         assert!(manager.enabled);
         assert_eq!(manager.stats.total_tiles, 0);
@@ -199,6 +200,7 @@ mod tests {
     
     #[test]
     fn test_chunk_manager_config() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = EnhancedChunkManager::new();
         let config = TerrainConfig {
             world_size: (2048.0, 2048.0),
@@ -213,6 +215,7 @@ mod tests {
     
     #[test]
     fn test_chunk_manager_enable_disable() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = EnhancedChunkManager::new();
         
         assert!(manager.enabled);
@@ -224,6 +227,7 @@ mod tests {
     
     #[test]
     fn test_statistics_reset() {
+        crate::test_support::ensure_ambient_host();
         let mut stats = ChunkManagerStats::default();
         stats.total_tiles = 100;
         stats.culling_time_ms = 5.0;

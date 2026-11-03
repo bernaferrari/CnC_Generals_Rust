@@ -77,11 +77,13 @@ mod tests {
 
     #[test]
     fn command_translator_alias_is_available() {
+        crate::test_support::ensure_ambient_host();
         let _translator = CommandTranslator::new();
     }
 
     #[test]
     fn legacy_metadata_defaults_are_stable() {
+        crate::test_support::ensure_ambient_host();
         let info = PickAndPlayInfo::default();
         assert!(!info.air);
         assert!(info.draw_target.is_none());

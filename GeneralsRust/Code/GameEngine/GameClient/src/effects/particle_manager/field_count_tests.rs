@@ -52,6 +52,7 @@ fn admitted_with_policy(
 
 #[test]
 fn field_particle_count_stops_at_cpp_512_visible_point_group() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, id) = admitted_fields(ParticleType::Particle, "Field.tga", 601);
     manager
         .find_particle_system_mut(id)
@@ -81,6 +82,7 @@ fn field_particle_count_stops_at_cpp_512_visible_point_group() {
 
 #[test]
 fn field_particle_count_excludes_drawable_and_smud_prefix_paths() {
+    crate::test_support::ensure_ambient_host();
     for (kind, name, expected_culled) in [
         (ParticleType::Drawable, "FieldDrawable", 0),
         (ParticleType::Particle, "SMUDfire.tga", 0),
@@ -99,6 +101,7 @@ fn field_particle_count_excludes_drawable_and_smud_prefix_paths() {
 
 #[test]
 fn field_particle_count_occurs_before_ordinary_gpu_type_and_shader_dispatch() {
+    crate::test_support::ensure_ambient_host();
     // C++ excludes ONLY Drawable and the SMUD DWORD prefix before counting.
     // Nonprefix SMUDGE and other unsupported types still use this capped loop.
     for (kind, shader) in [
@@ -123,6 +126,7 @@ fn field_particle_count_occurs_before_ordinary_gpu_type_and_shader_dispatch() {
 
 #[test]
 fn field_particle_count_requires_area_effect_and_ground_alignment() {
+    crate::test_support::ensure_ambient_host();
     for (priority, ground) in [
         (ParticlePriorityType::Constant, true),
         (ParticlePriorityType::AreaEffect, false),

@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn receiving_snow_lifecycle_and_snapshots_do_not_mutate_peer() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "receiving_snow_lifecycle_and_snapshots_do_not_mutate_peer",
@@ -71,6 +72,7 @@ fn receiving_snow_lifecycle_and_snapshots_do_not_mutate_peer() {
 
 #[test]
 fn frame_writer_revalidates_registration_after_peer_takes_live_slot() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "frame_writer_revalidates_registration_after_peer_takes_live_slot",
@@ -98,6 +100,7 @@ fn frame_writer_revalidates_registration_after_peer_takes_live_slot() {
 
 #[test]
 fn base_definition_admission_preserves_cached_map_snow_until_next_weather_block() {
+    crate::test_support::ensure_ambient_host();
     let mut owner = GameClient::new().unwrap();
     owner.snow_base_definition = crate::snow::WeatherSetting {
         snow_box_dimensions: 73.,
@@ -145,6 +148,7 @@ fn base_definition_admission_preserves_cached_map_snow_until_next_weather_block(
 
 #[test]
 fn receiving_client_draw_routes_owned_snow_without_double_update() {
+    crate::test_support::ensure_ambient_host();
     let draw = include_str!("impl_draw.rs");
     let body = draw
         .split("pub fn draw_display")

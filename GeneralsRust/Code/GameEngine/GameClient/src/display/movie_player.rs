@@ -379,6 +379,7 @@ mod tests {
 
     #[test]
     fn preserves_movie_aspect_ratio() {
+        crate::test_support::ensure_ambient_host();
         let (x, y, w, h) = movie_viewport(1920, 1080, 720, 486);
         assert!(x >= 0.0);
         assert!(y >= 0.0);

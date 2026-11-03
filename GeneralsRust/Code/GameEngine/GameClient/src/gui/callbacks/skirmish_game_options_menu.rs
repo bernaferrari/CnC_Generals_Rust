@@ -2457,6 +2457,7 @@ mod tests {
 
     #[test]
     fn skirmish_parent_focus_does_not_hilite_user_window() {
+        crate::test_support::ensure_ambient_host();
         use crate::gui::{WindowMsgPayload, WindowState, pop_payload, push_payload};
         let mut window = GameWindow::new();
         window.set_system_callback_with_message_sink(|window, msg, d1, d2, effects| {
@@ -2478,6 +2479,7 @@ mod tests {
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
 
         assert_eq!(
@@ -2502,6 +2504,7 @@ mod tests {
 
     #[test]
     fn os_wnd_skirmish_start_hits_button_start_then_start_skirmish_game() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
             use std::io::Write;
@@ -2572,6 +2575,7 @@ mod wnd_start_residual_tests {
 
     #[test]
     fn official_path_is_maps_dir_not_userdata() {
+        crate::test_support::ensure_ambient_host();
         use super::path_is_official_map;
         assert!(path_is_official_map(std::path::Path::new(
             "Maps/Alpine Assault/Alpine Assault.map"

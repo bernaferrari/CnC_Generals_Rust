@@ -210,12 +210,14 @@ fn deadline_offers() -> [NativeParticleFrames; 3] {
 
 #[test]
 fn public_shell_expiration_uses_logic_clock_and_flash_uses_client_clock() {
+    crate::test_support::ensure_ambient_host();
     let observed = run_public_expiration(false, 4, &deadline_offers()).unwrap();
     assert_logic_expiration(&observed);
 }
 
 #[test]
 fn native_saved_expiration_continues_on_receiving_logic_clock() {
+    crate::test_support::ensure_ambient_host();
     let observed = run_public_expiration(true, 4, &deadline_offers()).unwrap();
     assert_logic_expiration(&observed);
     let (saved, resaved) = observed.payload.unwrap();
@@ -227,6 +229,7 @@ fn native_saved_expiration_continues_on_receiving_logic_clock() {
 
 #[test]
 fn public_shell_initial_client_zero_uses_actual_logic_one_for_expiration() {
+    crate::test_support::ensure_ambient_host();
     let observed = run_public_expiration(
         false,
         1,

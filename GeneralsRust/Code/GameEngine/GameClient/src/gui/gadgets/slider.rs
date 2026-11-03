@@ -1139,6 +1139,7 @@ mod tests {
 
     #[test]
     fn test_horizontal_slider_creation() {
+        crate::test_support::ensure_ambient_host();
         let slider = HorizontalSlider::new(1, 10, 20, 200, 20)
             .with_range(0, 100)
             .with_value(50);
@@ -1150,6 +1151,7 @@ mod tests {
 
     #[test]
     fn test_set_value_ignores_out_of_range_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut slider = HorizontalSlider::new(1, 0, 0, 100, 20).with_range(10, 90);
 
         slider.set_value(50);
@@ -1166,6 +1168,7 @@ mod tests {
 
     #[test]
     fn test_step_size() {
+        crate::test_support::ensure_ambient_host();
         let mut slider = HorizontalSlider::new(1, 0, 0, 100, 20)
             .with_range(0, 100)
             .with_step_size(10);
@@ -1179,6 +1182,7 @@ mod tests {
 
     #[test]
     fn test_pixel_to_value_conversion() {
+        crate::test_support::ensure_ambient_host();
         let slider = HorizontalSlider::new(1, 0, 0, 200, 20).with_range(0, 100);
 
         // Test conversion (approximate due to thumb size)
@@ -1192,6 +1196,7 @@ mod tests {
 
     #[test]
     fn test_vertical_slider() {
+        crate::test_support::ensure_ambient_host();
         let slider = VerticalSlider::new(1, 10, 20, 20, 200)
             .with_range(0, 255)
             .with_value(128);
@@ -1203,6 +1208,7 @@ mod tests {
 
     #[test]
     fn vertical_slider_value_pixel_mapping_matches_cpp_axis() {
+        crate::test_support::ensure_ambient_host();
         let slider = VerticalSlider::new(1, 0, 0, 20, 120).with_range(0, 100);
 
         assert_eq!(slider.base.value_to_pixel(100), 0);
@@ -1213,6 +1219,7 @@ mod tests {
 
     #[test]
     fn horizontal_render_commands_cover_track_fill_thumb_focus_and_steps() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let mut slider = HorizontalSlider::new(1, 10, 20, 200, 20)
             .with_range(0, 100)
@@ -1250,6 +1257,7 @@ mod tests {
 
     #[test]
     fn vertical_render_commands_use_same_thumb_geometry_and_skip_hidden() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let mut slider = VerticalSlider::new(1, 30, 40, 20, 200)
             .with_range(0, 100)
@@ -1283,6 +1291,7 @@ mod tests {
 
     #[test]
     fn test_horizontal_slider_keyboard_matches_cpp_axis() {
+        crate::test_support::ensure_ambient_host();
         let mut slider = HorizontalSlider::new(1, 0, 0, 100, 20)
             .with_range(0, 10)
             .with_value(5)
@@ -1318,6 +1327,7 @@ mod tests {
 
     #[test]
     fn slider_perpendicular_keys_emit_tab_navigation_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut horizontal = HorizontalSlider::new(1, 0, 0, 100, 20)
             .with_range(0, 10)
             .with_value(5);
@@ -1367,6 +1377,7 @@ mod tests {
 
     #[test]
     fn horizontal_slider_track_click_pages_on_mouse_up_by_cpp_pixel_distance() {
+        crate::test_support::ensure_ambient_host();
         let mut slider = HorizontalSlider::new(1, 0, 0, 100, 20)
             .with_range(0, 100)
             .with_value(50);
@@ -1396,6 +1407,7 @@ mod tests {
 
     #[test]
     fn test_vertical_slider_keyboard_matches_cpp_axis() {
+        crate::test_support::ensure_ambient_host();
         let mut slider = VerticalSlider::new(1, 0, 0, 20, 100)
             .with_range(0, 10)
             .with_value(5)
@@ -1431,6 +1443,7 @@ mod tests {
 
     #[test]
     fn test_thumb_bounds() {
+        crate::test_support::ensure_ambient_host();
         let slider = HorizontalSlider::new(1, 100, 100, 200, 20);
         let thumb_bounds = slider.base.get_thumb_bounds();
 
@@ -1449,6 +1462,7 @@ mod tests {
 
     #[test]
     fn test_range_updates() {
+        crate::test_support::ensure_ambient_host();
         let mut slider = HorizontalSlider::new(1, 0, 0, 100, 20)
             .with_range(0, 100)
             .with_value(150); // Beyond initial max
@@ -1463,6 +1477,7 @@ mod tests {
 
     #[test]
     fn home_end_page_keys_are_ignored_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut slider = HorizontalSlider::new(1, 0, 0, 100, 20)
             .with_range(0, 10)
             .with_value(5);

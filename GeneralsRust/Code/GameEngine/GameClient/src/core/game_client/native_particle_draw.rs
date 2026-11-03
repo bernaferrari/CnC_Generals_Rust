@@ -538,6 +538,7 @@ mod missing_binding_retirement_tests {
     use super::*;
     #[test]
     fn actual_client_load_postprocess_keeps_cpu_actor_when_binding_disappears() {
+        crate::test_support::ensure_ambient_host();
         #[cfg(not(target_arch = "wasm32"))]
         if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
             module_path!(),

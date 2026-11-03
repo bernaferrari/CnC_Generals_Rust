@@ -537,6 +537,7 @@ mod tests {
 
     #[test]
     fn track_callbacks_sample_ground_without_relocking_the_terrain_owner() {
+        crate::test_support::ensure_ambient_host();
         use crate::terrain::terrain_tracks::{MAX_TRACK_EDGE_COUNT, TerrainTracksConfig};
         use crate::terrain::terrain_visual::TerrainVisualImpl;
 
@@ -583,6 +584,7 @@ mod tests {
 
     #[test]
     fn decal_state_updates_visibility_pose_and_releases_replaced_handles() {
+        crate::test_support::ensure_ambient_host();
         let object_id = 71;
         let mut manager = ProjectedShadowManager::new();
         let client = ProjectedDecalClient::default();
@@ -623,6 +625,7 @@ mod tests {
 
     #[test]
     fn independent_clients_keep_same_object_id_handles_and_pose_separate() {
+        crate::test_support::ensure_ambient_host();
         let object_id = 9;
         let mut manager_a = ProjectedShadowManager::new();
         let mut manager_b = ProjectedShadowManager::new();
@@ -648,6 +651,7 @@ mod tests {
 
     #[test]
     fn teardown_keeps_pending_blob_disable_until_explicitly_cleared() {
+        crate::test_support::ensure_ambient_host();
         let object_id = 18;
         let client = ProjectedDecalClient::default();
 

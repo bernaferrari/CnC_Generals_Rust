@@ -101,6 +101,7 @@ fn lives(client: &mut GameClient, id: DrawableId) -> Vec<u32> {
 
 #[test]
 fn receiving_expiration_retires_actual_cu_before_next_installed_cu_callback() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
     let template = template();
@@ -170,6 +171,7 @@ impl ClientDrawModule for ConditionProbe {
 
 #[test]
 fn receiving_retirement_rejects_classic_cu_without_flushing_dirty_model() {
+    crate::test_support::ensure_ambient_host();
     use crate::drawable::drawable::LogicDrawModuleSnapshotAdapter;
     use gamelogic::object::update::laser_update::{LaserUpdateModule, LaserUpdateModuleData};
     let mut client = GameClient::new().unwrap();

@@ -49,6 +49,7 @@ fn opacity(client: &GameClient) -> f32 {
 
 #[test]
 fn receiving_material_draw_is_explicit_previsibility_and_instance_isolated() {
+    crate::test_support::ensure_ambient_host();
     let (mut receiver, mut fact) = client(11);
     let (mut peer, peer_fact) = client(12);
     assert_eq!(
@@ -92,6 +93,7 @@ fn receiving_material_draw_is_explicit_previsibility_and_instance_isolated() {
 
 #[test]
 fn receiving_material_threshold_look_rules_and_native_xfer_continue() {
+    crate::test_support::ensure_ambient_host();
     let (mut receiver, mut fact) = client(11);
     fact.look = StealthLook::VisibleFriendlyDetected;
     fact.is_disguised = true;
@@ -151,6 +153,7 @@ fn receiving_material_threshold_look_rules_and_native_xfer_continue() {
 
 #[test]
 fn actual_native_material_shell_obeys_repeat_and_freeze_admission() {
+    crate::test_support::ensure_ambient_host();
     let previous_bridge = crate::render_bridge::THE_RENDER_BRIDGE
         .lock()
         .unwrap()
@@ -267,6 +270,7 @@ fn actual_native_material_shell_obeys_repeat_and_freeze_admission() {
 
 #[test]
 fn objectless_material_draw_keeps_core_frenzy_and_threshold_rules() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(7));
     drawable.set_second_material_pass_opacity(1.0);
     drawable.set_tint_status(TintStatus::FRENZY);

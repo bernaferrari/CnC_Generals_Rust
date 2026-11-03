@@ -317,6 +317,7 @@ mod receiving_power_context_tests {
 
     #[test]
     fn same_player_identity_can_draw_from_two_receiving_contexts() {
+        crate::test_support::ensure_ambient_host();
         let mut first = WindowDrawContext::default();
         first.receiving_power = Some(Some(ReceivingPowerObservation {
             production: 81,

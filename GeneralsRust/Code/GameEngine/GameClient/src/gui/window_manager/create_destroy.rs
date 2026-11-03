@@ -357,6 +357,7 @@ mod receiving_window_id_tests {
     use super::*;
     #[test]
     fn manager_allocations_are_independent_and_reset_retains_its_sequence() {
+        crate::test_support::ensure_ambient_host();
         let mut a = WindowManager::new();
         let mut b = WindowManager::new();
         let a1 = a.test_create_window(None, 0, 0, 10, 10).unwrap();

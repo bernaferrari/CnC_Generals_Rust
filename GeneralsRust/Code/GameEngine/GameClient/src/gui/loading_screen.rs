@@ -521,6 +521,7 @@ mod tests {
 
     #[test]
     fn test_loading_screen_creation() {
+        crate::test_support::ensure_ambient_host();
         let loading_screen = LoadingScreen::new(LoadingScreenConfig::default());
         assert_eq!(loading_screen.state(), LoadingState::Hidden);
         assert!(!loading_screen.is_visible());
@@ -528,6 +529,7 @@ mod tests {
 
     #[test]
     fn test_show_hide() {
+        crate::test_support::ensure_ambient_host();
         let mut loading_screen = LoadingScreen::new(LoadingScreenConfig::default());
 
         loading_screen.show();
@@ -541,6 +543,7 @@ mod tests {
 
     #[test]
     fn test_stages() {
+        crate::test_support::ensure_ambient_host();
         let mut loading_screen = LoadingScreen::new(LoadingScreenConfig::default());
         loading_screen.add_stage(LoadingStage::new("stage1", "Stage 1", 1.0));
         loading_screen.add_stage(LoadingStage::new("stage2", "Stage 2", 1.0));
@@ -559,6 +562,7 @@ mod tests {
 
     #[test]
     fn test_tips() {
+        crate::test_support::ensure_ambient_host();
         let mut loading_screen = LoadingScreen::new(LoadingScreenConfig::default());
         loading_screen.add_tip(LoadingTip::new("Tip 1"));
         loading_screen.add_tip(LoadingTip::new("Tip 2"));
@@ -568,6 +572,7 @@ mod tests {
 
     #[test]
     fn test_map_name_and_progress_draw_state() {
+        crate::test_support::ensure_ambient_host();
         let mut loading_screen = LoadingScreen::new(LoadingScreenConfig::default());
         loading_screen.show();
         loading_screen.set_map_name("Tournament Desert");
@@ -584,6 +589,7 @@ mod tests {
 
     #[test]
     fn test_standard_stages() {
+        crate::test_support::ensure_ambient_host();
         let stages = stages::standard_map_loading();
         assert_eq!(stages.len(), 6);
 
@@ -838,6 +844,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_loading_screen_prepare_hits_progress_load_then_latches_map() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut residual = LoadingScreenResidual::default();
         install_named_button(&owner, "SinglePlayerLoadScreen.wnd:ProgressLoad", 10, 10);
@@ -865,6 +872,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_loading_screen_finish_hits_shell_progress_gadget() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut residual = LoadingScreenResidual::default();
         install_named_button(&owner, "ShellGameLoadScreen.wnd:ProgressLoad", 10, 40);

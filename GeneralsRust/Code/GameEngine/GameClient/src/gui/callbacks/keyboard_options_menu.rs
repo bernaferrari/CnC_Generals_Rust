@@ -580,6 +580,7 @@ mod tests {
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
 
         assert_eq!(
@@ -594,6 +595,7 @@ mod tests {
 
     #[test]
     fn keyboard_options_system_consumes_lifecycle_messages_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
 
         assert_eq!(
@@ -964,6 +966,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_keyboard_options_assign_hits_combo_list_and_assign() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         install_named_button(&owner, "KeyboardOptionsMenu.wnd:ComboBoxCategoryList", 10, 10);
         install_named_button(&owner, "KeyboardOptionsMenu.wnd:ListBoxCommandList", 10, 40);
@@ -983,6 +986,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_keyboard_options_reset_hits_button_reset_all() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         install_named_button(&owner, "KeyboardOptionsMenu.wnd:ButtonResetAll", 10, 100);
         assert!(crate::gui::game_window::WindowEventEffects::with_standalone(|effects| drive_os_wnd_keyboard_options_reset_like_cpp(effects)));

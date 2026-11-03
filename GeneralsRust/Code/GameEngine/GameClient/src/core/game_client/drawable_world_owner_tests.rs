@@ -11,6 +11,7 @@ fn basic_address(client: &GameClient, id: DrawableId) -> usize {
 
 #[test]
 fn moving_owned_direct_drawables_preserves_actual_allocation_and_binding() {
+    crate::test_support::ensure_ambient_host();
     let mut source = GameClient::new().unwrap();
     let mut receiver = GameClient::new().unwrap();
     let mut entry = presentation_drawable_sync_for_test(
@@ -125,6 +126,7 @@ fn moving_owned_direct_drawables_preserves_actual_allocation_and_binding() {
 
 #[test]
 fn drawable_and_binding_allocators_move_with_their_owner() {
+    crate::test_support::ensure_ambient_host();
     let mut first = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
     first.set_drawable_id_counter(71);
@@ -148,6 +150,7 @@ fn drawable_and_binding_allocators_move_with_their_owner() {
 
 #[test]
 fn receiving_client_destroys_moved_drawable_and_its_owned_bookkeeping() {
+    crate::test_support::ensure_ambient_host();
     let mut source = GameClient::new().unwrap();
     let mut receiver = GameClient::new().unwrap();
     let entry =
@@ -200,6 +203,7 @@ fn receiving_client_destroys_moved_drawable_and_its_owned_bookkeeping() {
 
 #[test]
 fn actual_drawable_owner_can_move_across_threads_without_shared_mutation() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let id = client
         .register_drawable(Box::new(BasicDrawable::new(DrawableId::INVALID)))
@@ -231,6 +235,7 @@ fn actual_drawable_owner_can_move_across_threads_without_shared_mutation() {
 
 #[test]
 fn receiving_owner_binding_displacement_does_not_touch_same_id_peer() {
+    crate::test_support::ensure_ambient_host();
     let mut first = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
     for client in [&mut first, &mut peer] {
@@ -330,6 +335,7 @@ fn receiving_owner_binding_displacement_does_not_touch_same_id_peer() {
 
 #[test]
 fn rejected_missing_drawable_bind_preserves_receiving_lifetime_and_peer() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
     for world in [&mut client, &mut peer] {

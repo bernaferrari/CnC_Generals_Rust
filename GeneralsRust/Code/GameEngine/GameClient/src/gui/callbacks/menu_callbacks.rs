@@ -3607,6 +3607,7 @@ mod options_os_wnd_tests {
 
     #[test]
     fn os_wnd_options_menu_accept_hits_button_then_latches() {
+        crate::test_support::ensure_ambient_host();
         match crate::test_process::run_bounded(
             module_path!(),
             "os_wnd_options_menu_accept_hits_button_then_latches",
@@ -3629,6 +3630,7 @@ mod options_os_wnd_tests {
 
     #[test]
     fn apply_options_from_host_sets_gamma_and_music_volume_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         match crate::test_process::run_bounded(
             module_path!(),
             "apply_options_from_host_sets_gamma_and_music_volume_like_cpp",
@@ -3650,6 +3652,7 @@ mod options_os_wnd_tests {
 
     #[test]
     fn apply_options_from_host_custom_preserves_advanced_detail() {
+        crate::test_support::ensure_ambient_host();
         match crate::test_process::run_bounded(
             module_path!(),
             "apply_options_from_host_custom_preserves_advanced_detail",
@@ -3715,6 +3718,7 @@ mod options_os_wnd_tests {
 
     #[test]
     fn apply_options_from_host_publishes_scroll_anchors() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
         match crate::test_process::run_bounded(
             module_path!(),
@@ -3766,6 +3770,7 @@ mod options_os_wnd_tests {
 
     #[test]
     fn os_wnd_options_menu_keyboard_and_defaults_hit_named_gadgets() {
+        crate::test_support::ensure_ambient_host();
         match crate::test_process::run_bounded(
             module_path!(),
             "os_wnd_options_menu_keyboard_and_defaults_hit_named_gadgets",
@@ -3911,6 +3916,7 @@ mod credits_os_wnd_tests {
 
     #[test]
     fn os_wnd_credits_menu_skip_hits_parent_then_latches() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
             owner.with_manager(|manager| {
@@ -3936,6 +3942,7 @@ mod credits_os_wnd_tests {
 
     #[test]
     fn os_wnd_credits_menu_finished_hits_parent_then_latches() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
             owner.with_manager(|manager| {
@@ -4348,6 +4355,7 @@ mod tests {
 
     #[test]
     fn test_main_menu_lifecycle() {
+        crate::test_support::ensure_ambient_host();
         let mut main_menu = MainMenu::new();
         let layout = WindowLayout::new("TestLayout".to_string());
 
@@ -4365,6 +4373,7 @@ mod tests {
 
     #[test]
     fn test_menu_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = MenuManager::new();
 
         // Test that all menus are accessible as owned fields
@@ -4378,6 +4387,7 @@ mod tests {
 
     #[test]
     fn menu_recipients_borrow_the_same_owned_fields_and_leave_peers_independent() {
+        crate::test_support::ensure_ambient_host();
         let mut owner = MenuManager::new();
         let mut peer = MenuManager::new();
         let expected = std::ptr::from_mut(owner.options_menu_mut());
@@ -4397,6 +4407,7 @@ mod tests {
 
     #[test]
     fn options_menu_esc_char_is_consumed_before_key_up_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = OptionsMenu::new();
         let mut window = GameWindow::new();
 
@@ -4416,6 +4427,7 @@ mod tests {
 
     #[test]
     fn options_sfx_slider_splits_2d_and_3d_volume_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         fn assert_split(relative: f32, expected_2d: i32, expected_3d: i32) {
             let (volume_2d, volume_3d, factor_2d, factor_3d) =
                 OptionsMenu::split_sfx_volume_for_relative(80, relative);
@@ -4432,6 +4444,7 @@ mod tests {
 
     #[test]
     fn options_defaults_resolution_index_prefers_800x600_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = OptionsMenu::new();
         menu.resolution_modes = vec![(1024, 768), (800, 600), (1920, 1080)];
         assert_eq!(menu.default_resolution_index(), 1);
@@ -4442,6 +4455,7 @@ mod tests {
 
     #[test]
     fn options_checkbox_immediate_effects_match_cpp() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
         let mut messages = Vec::new();
         let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
@@ -4500,6 +4514,7 @@ mod tests {
 
     #[test]
     fn options_move_rmb_scroll_anchor_publishes_only_to_an_enabled_host() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
         use crate::gui::options_host_bridge::HostOptionsRequest;
 
@@ -4551,6 +4566,7 @@ mod tests {
 
     #[test]
     fn options_draw_rmb_scroll_anchor_publishes_only_to_an_enabled_host() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
         use crate::gui::options_host_bridge::HostOptionsRequest;
 
@@ -4602,6 +4618,7 @@ mod tests {
 
     #[test]
     fn options_accept_converges_alternate_mouse_residences_and_publishes_to_main() {
+        crate::test_support::ensure_ambient_host();
         use crate::gui::options_host_bridge::HostOptionsRequest;
 
         let mut messages = Vec::new();
@@ -4654,6 +4671,7 @@ mod tests {
 
     #[test]
     fn map_select_double_click_uses_event_row_selection_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = MapSelectMenu::new();
         menu.listbox_map_id = 42;
         menu.button_ok_id = 77;
@@ -4699,6 +4717,7 @@ mod tests {
 
     #[test]
     fn map_select_start_game_mirrors_selected_map_to_both_global_data_residences() {
+        crate::test_support::ensure_ambient_host();
         with_global_data_residences_restored(|| {
             let selected_map = "Maps\\Official\\MapSelectExact.map".to_string();
             let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
@@ -4717,6 +4736,7 @@ mod tests {
 
     #[test]
     fn map_select_start_game_without_selection_preserves_both_pending_maps() {
+        crate::test_support::ensure_ambient_host();
         with_global_data_residences_restored(|| {
             let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
             ini_global.write().pending_file = "Maps\\Legacy\\Ini.map".to_string();

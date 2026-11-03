@@ -1098,6 +1098,7 @@ mod tests {
 
     #[test]
     fn static_text_data_uses_cpp_defaults() {
+        crate::test_support::ensure_ambient_host();
         let data = parse_static_text_data("CENTERED: 0;");
 
         assert!(!data.centered);
@@ -1108,6 +1109,7 @@ mod tests {
 
     #[test]
     fn slider_thumb_draw_data_parses_onto_window_not_only_layout() {
+        crate::test_support::ensure_ambient_host();
         let mut window = super::WindowDefinition::default();
         super::parse_window_statement(
             "SLIDERTHUMBENABLEDDRAWDATA = IMAGE: Thumb, COLOR: 255 255 255 255, BORDERCOLOR: 0 0 0 255;",
@@ -1128,6 +1130,7 @@ mod tests {
 
     #[test]
     fn listbox_child_draw_data_parses_onto_window() {
+        crate::test_support::ensure_ambient_host();
         let mut window = super::WindowDefinition::default();
         super::parse_window_statement(
             "LISTBOXENABLEDUPBUTTONDRAWDATA = IMAGE: UpArrow, COLOR: 255 255 255 255, BORDERCOLOR: 0 0 0 255;",
@@ -1148,11 +1151,13 @@ mod tests {
 
     #[test]
     fn window_definition_default_tooltip_delay_is_cpp_minus_one() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(super::WindowDefinition::default().tooltip_delay, -1);
     }
 
     #[test]
     fn window_script_reloads_changed_or_deleted_source_without_shared_cache() {
+        crate::test_support::ensure_ambient_host();
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("FreshWindowScript.wnd");
         std::fs::write(

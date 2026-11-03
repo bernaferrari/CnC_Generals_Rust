@@ -119,6 +119,7 @@ mod tests {
 
     #[test]
     fn sound_fx_queues_only_in_the_receiving_players_audio_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut first = manager();
         let mut peer = manager();
         let mut logic = RandomState::default();
@@ -156,6 +157,7 @@ mod tests {
 
     #[test]
     fn unavailable_sound_is_an_error_before_request_admission() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = manager();
         let mut logic = RandomState::default();
         let mut audio = RandomState::default();

@@ -38,6 +38,7 @@ fn speaker() -> Eva {
 }
 #[test]
 fn eva_latch_order_enabled_clear_disabled_admission_and_early_frames() {
+    crate::test_support::ensure_ambient_host();
     let mut eva = speaker();
     eva.set_should_play(EvaMessage::GeneralLevelUp);
     eva.set_enabled(true);
@@ -65,6 +66,7 @@ fn eva_latch_order_enabled_clear_disabled_admission_and_early_frames() {
 }
 #[test]
 fn eva_explicit_context_coalesces_repeats_and_uses_enum_priority_order() {
+    crate::test_support::ensure_ambient_host();
     let mut eva = speaker();
     let first = if EvaMessage::UpgradeComplete.as_index() < EvaMessage::GeneralLevelUp.as_index() {
         EvaMessage::UpgradeComplete

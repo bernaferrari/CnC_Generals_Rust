@@ -2,6 +2,7 @@
 
 #[test]
 fn selection_matches_cpp_game_logic_modes() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -54,6 +55,7 @@ fn selection_matches_cpp_game_logic_modes() {
 
 #[test]
 fn single_player_selection_matches_campaign_and_save_rules() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -97,6 +99,7 @@ fn single_player_selection_matches_campaign_and_save_rules() {
 
 #[test]
 fn descriptors_match_cpp_layout_names() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -130,6 +133,7 @@ fn descriptors_match_cpp_layout_names() {
 
 #[test]
 fn load_screen_init_context_default_preserves_single_local_slot() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -160,6 +164,7 @@ fn load_screen_init_context_default_preserves_single_local_slot() {
 
 #[test]
 fn multiplayer_team_text_matches_cpp_team_plus_one() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -174,6 +179,7 @@ fn multiplayer_team_text_matches_cpp_team_plus_one() {
 
 #[test]
 fn game_info_context_preserves_original_slot_ids_and_apparent_colors() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -227,6 +233,7 @@ fn game_info_context_preserves_original_slot_ids_and_apparent_colors() {
 
 #[test]
 fn game_info_context_hides_map_when_local_pregame_slot_lacks_map_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -274,6 +281,7 @@ fn game_info_context_hides_map_when_local_pregame_slot_lacks_map_like_cpp() {
 
 #[test]
 fn game_info_context_hides_map_when_local_slot_is_missing_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -302,6 +310,7 @@ fn game_info_context_hides_map_when_local_slot_is_missing_like_cpp() {
 
 #[test]
 fn game_info_context_uses_game_lod_mem_pass_for_shell_intro_gate() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -336,6 +345,7 @@ fn game_info_context_uses_game_lod_mem_pass_for_shell_intro_gate() {
 
 #[test]
 fn game_info_context_uses_local_template_for_general_presentation_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -402,6 +412,7 @@ fn game_info_context_uses_local_template_for_general_presentation_like_cpp() {
 
 #[test]
 fn multiplayer_progress_bar_images_match_cpp_apparent_color_names() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -435,6 +446,7 @@ fn multiplayer_progress_bar_images_match_cpp_apparent_color_names() {
 
 #[test]
 fn progress_fudge_matches_single_player_cpp_formula() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();

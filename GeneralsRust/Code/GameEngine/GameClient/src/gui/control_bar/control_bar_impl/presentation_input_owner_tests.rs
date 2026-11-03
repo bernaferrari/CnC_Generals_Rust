@@ -3,6 +3,7 @@
 // player. RequiredScience, rather than ScienceVec, supplies the hide source.
 #[test]
 fn presentation_input_owner_sciences_do_not_cross_bars() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::rts::science::{ScienceInfo, get_science_store_mut, init_science_store};
     const SCIENCE: i32 = 2_147_400_001;
     if get_science_store().is_none() {
@@ -31,6 +32,7 @@ fn presentation_input_owner_sciences_do_not_cross_bars() {
 
 #[test]
 fn presentation_input_owner_tooltip_uses_bound_window_inputs() {
+    crate::test_support::ensure_ambient_host();
     let owner = crate::gui::window_manager::WindowManagerOwner::new();
     let mut first = ControlBar::new();
     let mut second = ControlBar::new();
@@ -65,6 +67,7 @@ fn presentation_input_owner_tooltip_uses_bound_window_inputs() {
 
 #[test]
 fn presentation_input_owner_constructor_and_reset_are_isolated() {
+    crate::test_support::ensure_ambient_host();
     let owner = crate::gui::window_manager::WindowManagerOwner::new();
     let mut first = ControlBar::new();
     first.apply_presentation_can_make(&[("FirstTank".to_owned(), 2)]);
@@ -83,6 +86,7 @@ fn presentation_input_owner_constructor_and_reset_are_isolated() {
 
 #[test]
 fn presentation_input_owner_availability_tick_refreshes_bound_tooltip_without_rebinding() {
+    crate::test_support::ensure_ambient_host();
     let owner = crate::gui::window_manager::WindowManagerOwner::new();
     { // was owner.with_scope
 
@@ -154,6 +158,7 @@ fn presentation_input_owner_availability_tick_refreshes_bound_tooltip_without_re
 
 #[test]
 fn presentation_input_owner_science_preserves_cpp_exceptions_and_player_precedence() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::rts::science::{ScienceInfo, get_science_store_mut, init_science_store};
     use gamelogic::object::special_power_template::{SpecialPowerTemplate, get_special_power_store_mut};
     use gamelogic::player::{Player, PlayerList};

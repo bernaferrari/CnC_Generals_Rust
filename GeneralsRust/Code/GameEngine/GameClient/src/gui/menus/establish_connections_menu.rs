@@ -449,6 +449,7 @@ mod tests {
 
     #[test]
     fn test_establish_connections_menu_creation() {
+        crate::test_support::ensure_ambient_host();
         let menu = EstablishConnectionsMenu::new();
         assert_eq!(
             menu.get_menu_state(),
@@ -459,6 +460,7 @@ mod tests {
 
     #[test]
     fn test_menu_state_transitions() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = EstablishConnectionsMenu::new();
         let mut wm = WindowManager::new();
         crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
@@ -483,6 +485,7 @@ mod tests {
 
     #[test]
     fn test_set_player_name_valid_slot() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = EstablishConnectionsMenu::new();
         let result = menu.set_player_name(0, "TestPlayer");
         assert!(result.is_ok());
@@ -490,6 +493,7 @@ mod tests {
 
     #[test]
     fn test_set_player_name_invalid_slot() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = EstablishConnectionsMenu::new();
         let result = menu.set_player_name(-1, "TestPlayer");
         assert!(result.is_err());
@@ -500,6 +504,7 @@ mod tests {
 
     #[test]
     fn test_set_player_status_valid_slot() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = EstablishConnectionsMenu::new();
         let result = menu.set_player_status(0, NATConnectionState::Done);
         assert!(result.is_ok());
@@ -507,6 +512,7 @@ mod tests {
 
     #[test]
     fn test_set_player_status_invalid_slot() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = EstablishConnectionsMenu::new();
         let result = menu.set_player_status(-1, NATConnectionState::Done);
         assert!(result.is_err());
@@ -517,6 +523,7 @@ mod tests {
 
     #[test]
     fn test_control_name_getters() {
+        crate::test_support::ensure_ambient_host();
         let menu = EstablishConnectionsMenu::new();
 
         // Test valid slots
@@ -537,6 +544,7 @@ mod tests {
 
     #[test]
     fn test_cached_player_fields() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = EstablishConnectionsMenu::new();
 
         assert_eq!(menu.get_player_name(0), None);
@@ -554,6 +562,7 @@ mod tests {
 
     #[test]
     fn test_abort_sets_state() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = EstablishConnectionsMenu::new();
         let mut wm = WindowManager::new();
         crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
@@ -568,6 +577,7 @@ mod tests {
 
     #[test]
     fn test_connection_states() {
+        crate::test_support::ensure_ambient_host();
         use NATConnectionState::*;
 
         // Test all connection states can be created
@@ -588,6 +598,7 @@ mod tests {
 
     #[test]
     fn receiving_menu_instances_are_independent() {
+        crate::test_support::ensure_ambient_host();
         let menu1 = EstablishConnectionsMenu::new();
         let mut menu2 = EstablishConnectionsMenu::new();
         menu2.aborted = true;

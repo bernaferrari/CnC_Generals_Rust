@@ -1226,6 +1226,7 @@ mod tests {
 
     #[test]
     fn eva_expiration_minus_one_matches_original_duration() {
+        crate::test_support::ensure_ambient_host();
         // Exercise the local production field parser without global registration
         // or audio. C++ scans -1 as UINT_MAX, then uses f32 multiply and ceil.
         for fields in [
@@ -1269,6 +1270,7 @@ mod tests {
 
     #[test]
     fn eva_message_names_match_cpp_indices() {
+        crate::test_support::ensure_ambient_host();
         for (index, name) in EVA_MESSAGE_NAMES.iter().enumerate() {
             let message = EvaMessage::from_index(index).expect("valid EVA index");
 
@@ -1288,6 +1290,7 @@ mod tests {
 
     #[test]
     fn new_eva_check_info_rejects_duplicates_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut eva = Eva::new();
 
         let first = eva
@@ -1305,6 +1308,7 @@ mod tests {
 
     #[test]
     fn eva_check_info_can_be_looked_up_by_name() {
+        crate::test_support::ensure_ambient_host();
         let mut eva = Eva::new();
         eva.new_eva_check_info("BUILDINGLOST")
             .expect("BUILDINGLOST check info");
@@ -1321,6 +1325,7 @@ mod tests {
 
     #[test]
     fn retail_eva_ini_loads_all_events() {
+        crate::test_support::ensure_ambient_host();
         let Some(root) = repo_root() else {
             return;
         };
@@ -1345,6 +1350,7 @@ mod tests {
 
     #[test]
     fn eva_enabled_state_mirrors_logic_script_toggle() {
+        crate::test_support::ensure_ambient_host();
         let _ = LogicEva::set_enabled(true);
         let mut eva = Eva::new();
         eva.set_should_play(EvaMessage::BuildingLost);
@@ -1361,6 +1367,7 @@ mod tests {
 
     #[test]
     fn generic_eva_messages_do_not_probe_without_local_player() {
+        crate::test_support::ensure_ambient_host();
         let mut eva = Eva::new();
         eva.set_should_play(EvaMessage::BuildingLost);
 
@@ -1371,6 +1378,7 @@ mod tests {
 
     #[test]
     fn eva_update_uses_host_frame_when_crate_clock_is_starved() {
+        crate::test_support::ensure_ambient_host();
         // C++ Eva.cpp:275 returns before probing when frame < 2. A starved crate
         // clock stays at 0; the live host frame must open that gate.
         let mut eva = Eva::new();
@@ -1394,6 +1402,7 @@ mod tests {
 
     #[test]
     fn low_power_polls_host_energy_not_leftover_flag() {
+        crate::test_support::ensure_ambient_host();
         // C++ Eva.cpp:408-422 polls Energy, never m_shouldPlay[LowPower].
         let mut eva = Eva::new();
         eva.clear_host_sufficient_power();

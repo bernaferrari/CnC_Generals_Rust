@@ -3,6 +3,7 @@ use super::*;
 
 #[test]
 fn ordinary_client_updates_do_not_advance_material_residual() {
+    crate::test_support::ensure_ambient_host();
     let mut receiver = BasicDrawable::new(DrawableId(42));
     receiver.set_second_material_pass_opacity(1.0);
     for frame in [1, 2, 2, 10] {
@@ -17,6 +18,7 @@ fn ordinary_client_updates_do_not_advance_material_residual() {
 
 #[test]
 fn core_hidden_draw_advances_before_visibility_return() {
+    crate::test_support::ensure_ambient_host();
     let mut receiver = BasicDrawable::new(DrawableId(42));
     receiver.set_visible(false);
     receiver.set_second_material_pass_opacity(1.0);

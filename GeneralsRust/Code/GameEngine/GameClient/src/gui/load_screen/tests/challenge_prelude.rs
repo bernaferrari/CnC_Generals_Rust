@@ -2,6 +2,7 @@
 
 #[test]
 fn challenge_persona_text_matches_cpp_load_screen_fields() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -89,6 +90,7 @@ fn challenge_persona_text_matches_cpp_load_screen_fields() {
 
 #[test]
 fn challenge_init_with_movie_waits_for_frame_activation_like_cpp_high_spec() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -148,6 +150,7 @@ fn challenge_init_with_movie_waits_for_frame_activation_like_cpp_high_spec() {
 
 #[test]
 fn challenge_init_resets_window_video_manager_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -225,6 +228,7 @@ fn challenge_init_resets_window_video_manager_like_cpp() {
 
 #[test]
 fn challenge_init_without_movie_returns_without_synthetic_reveal_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -278,6 +282,7 @@ fn challenge_init_without_movie_returns_without_synthetic_reveal_like_cpp() {
 
 #[test]
 fn challenge_prelude_driver_pumps_authored_frames_before_completion() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -389,6 +394,7 @@ fn challenge_prelude_driver_pumps_authored_frames_before_completion() {
 
 #[test]
 fn challenge_postlude_audio_fires_once_and_selects_opponent_taunt() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -447,6 +453,7 @@ fn challenge_postlude_audio_fires_once_and_selects_opponent_taunt() {
 
 #[test]
 fn challenge_frame_activation_matches_cpp_teletype_gates() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -502,6 +509,7 @@ fn challenge_frame_activation_matches_cpp_teletype_gates() {
 
 #[test]
 fn challenge_min_spec_activation_matches_cpp_final_reveal() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();

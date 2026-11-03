@@ -284,6 +284,7 @@ mod tests {
     }
     #[test]
     fn captured_filename_survives_other_menu_and_parent_reset() {
+        crate::test_support::ensure_ambient_host();
         let parent_a = Rc::new(RefCell::new(GameWindow::new()));
         let parent_b = Rc::new(RefCell::new(GameWindow::new()));
         let first = ReplayPlayback::captured("A.rep".into(), Some(Rc::downgrade(&parent_a)), crate::gui::window_manager::WindowManagerOwner::new().downgrade());
@@ -297,6 +298,7 @@ mod tests {
     }
     #[test]
     fn failed_playback_call_still_hides_only_captured_parent() {
+        crate::test_support::ensure_ambient_host();
         // Receiver deliberately admits no successful game: source hides after
         // the call regardless of header Boolean/error, hq-ae0hh.
         let parent = Rc::new(RefCell::new(GameWindow::new()));
@@ -312,6 +314,7 @@ mod tests {
     }
     #[test]
     fn direct_double_click_does_not_add_version_query() {
+        crate::test_support::ensure_ambient_host();
         let mut receiver = Receiver::default();
         ReplayMenuStep::Playback(ReplayPlayback::captured("direct.rep".into(), None, crate::gui::window_manager::WindowManagerOwner::new().downgrade()))
             .complete(&mut receiver);
@@ -324,6 +327,7 @@ mod tests {
     }
     #[test]
     fn actual_two_notification_load_keeps_receiving_menu_and_recorded_filename() {
+        crate::test_support::ensure_ambient_host();
         use crate::gui::callbacks::control_bar_callbacks::ControlBarViewport;
         use crate::gui::control_bar::ControlBar;
         use crate::gui::gadgets::{ListBox, PushButton};

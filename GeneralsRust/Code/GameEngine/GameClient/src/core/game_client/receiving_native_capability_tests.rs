@@ -106,6 +106,7 @@ fn capability_gaps(client: &GameClient) -> Vec<(DrawableId, usize, bool, bool, b
 
 #[test]
 fn valid_missing_native_capabilities_preserve_supported_emitters_and_particle_time() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut client = GameClient::new().unwrap();
     let [supported, animated, tracks] = admit_mixed_drawables(&mut client);
@@ -158,6 +159,7 @@ fn valid_missing_native_capabilities_preserve_supported_emitters_and_particle_ti
 
 #[test]
 fn public_shell_missing_native_capabilities_reaches_actual_hud_and_existing_fx() {
+    crate::test_support::ensure_ambient_host();
     if crate::core::game_client::global_boundary_fixture::run_in_private_child(
         module_path!(),
         "public_shell_missing_native_capabilities_reaches_actual_hud_and_existing_fx",

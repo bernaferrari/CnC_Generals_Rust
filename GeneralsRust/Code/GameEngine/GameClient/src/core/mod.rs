@@ -120,6 +120,7 @@ mod tests {
 
     #[test]
     fn test_constants() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(MAX_CLIENT_TRANSLATORS, 32);
         assert_eq!(DRAWABLE_HASH_SIZE, 8192);
         assert_eq!(INVALID_DRAWABLE_ID, DrawableId(0));
@@ -127,6 +128,7 @@ mod tests {
 
     #[test]
     fn test_time_of_day_values() {
+        crate::test_support::ensure_ambient_host();
         let morning = TimeOfDayType::Morning;
         let afternoon = TimeOfDayType::Afternoon;
         assert_ne!(morning, afternoon);
@@ -134,6 +136,7 @@ mod tests {
 
     #[test]
     fn test_region_3d_creation() {
+        crate::test_support::ensure_ambient_host();
         let region = Region3D {
             lo: crate::system::Coord3D {
                 x: 0.0,

@@ -355,6 +355,7 @@ mod tests {
 
     #[test]
     fn test_decal_creation() {
+        crate::test_support::ensure_ambient_host();
         let settings = DecalSettings::scorch_mark(Vec3::new(10.0, 20.0, 0.0), 2.0);
         let decal = Decal::new(1, settings.clone());
 
@@ -367,6 +368,7 @@ mod tests {
 
     #[test]
     fn test_decal_aging() {
+        crate::test_support::ensure_ambient_host();
         let settings = DecalSettings {
             lifetime: Some(2.0),
             fade_time: 1.0,
@@ -393,6 +395,7 @@ mod tests {
 
     #[test]
     fn test_decal_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DecalManager::new();
 
         // Create decal
@@ -413,6 +416,7 @@ mod tests {
 
     #[test]
     fn test_decal_manager_limits() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DecalManager::new();
         manager.set_max_decals(2);
 
@@ -428,6 +432,7 @@ mod tests {
 
     #[test]
     fn test_radius_decal() {
+        crate::test_support::ensure_ambient_host();
         let radius_decal = RadiusDecal::new(Vec3::new(1.0, 2.0, 3.0), 5.0, DecalType::Crater);
 
         assert_eq!(radius_decal.center, Vec3::new(1.0, 2.0, 3.0));

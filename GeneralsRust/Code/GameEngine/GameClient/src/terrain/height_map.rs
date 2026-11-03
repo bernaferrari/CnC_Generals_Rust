@@ -1768,6 +1768,7 @@ mod tests {
 
     #[test]
     fn test_heightmap_creation() {
+        crate::test_support::ensure_ambient_host();
         let heightmap = HeightMap::new(64, 64, 100.0, 1.0);
 
         assert_eq!(heightmap.width, 64);
@@ -1779,6 +1780,7 @@ mod tests {
 
     #[test]
     fn extra_blend_tile_ndxes_survive_assign_and_read_back() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(2, 2, 100.0, 1.0);
         heightmap.assign_extra_blend_tile_ndxes(vec![0, 7, 0, 3]);
         assert_eq!(heightmap.extra_blend_tile_ndxes, vec![0, 7, 0, 3]);
@@ -1789,6 +1791,7 @@ mod tests {
 
     #[test]
     fn extra_blend_tile_positions_pack_i_or_j_shift_16_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(3, 3, 100.0, 1.0);
         // 3x3 samples → 2x2 cells. Extra blend at (1,0) and (0,1).
         let mut ndxes = vec![0i16; 9];
@@ -1801,6 +1804,7 @@ mod tests {
 
     #[test]
     fn extra_blend_alpha_uv_sets_horiz_alphas_and_flip() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(2, 2, 100.0, 1.0);
         heightmap.assign_extra_blend_tile_ndxes(vec![1, 0, 0, 0]);
         let mut tiles = vec![BlendTileInfo::new(); 2];
@@ -1818,6 +1822,7 @@ mod tests {
 
     #[test]
     fn extra_blend_draw_mesh_has_two_triangles_per_tile() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(3, 3, 100.0, 1.0);
         let mut ndxes = vec![0i16; 9];
         ndxes[0] = 1;
@@ -1833,6 +1838,7 @@ mod tests {
 
     #[test]
     fn extra_blend_draw_mesh_honors_need_flip() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(3, 3, 100.0, 1.0);
         let mut ndxes = vec![0i16; 9];
         ndxes[0] = 1;
@@ -1860,6 +1866,7 @@ mod tests {
 
     #[test]
     fn extra_blend_overlay_changes_composed_pixels_vs_first_blend_only() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(1, 1, 255.0, 1.0);
         heightmap.tile_ndxes[0] = 0;
         heightmap.blend_tile_ndxes[0] = 1;
@@ -1947,6 +1954,7 @@ mod tests {
 
     #[test]
     fn test_heightmap_sampling() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(4, 4, 100.0, 1.0);
 
         // Set some test heights
@@ -1964,6 +1972,7 @@ mod tests {
 
     #[test]
     fn heightmap_sampling_uses_cpp_triangle_split_not_bilinear() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(4, 4, 100.0, 1.0);
 
         heightmap.set_height_at_index(1, 1, 0.0);
@@ -1978,6 +1987,7 @@ mod tests {
 
     #[test]
     fn packed_terrain_tile_query_matches_cpp_floor_clamp_and_shift() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(4, 4, 100.0, 1.0);
         heightmap.border_size = 1;
         heightmap.tile_ndxes[(2 * 4 + 2) as usize] = 44;
@@ -1989,6 +1999,7 @@ mod tests {
 
     #[test]
     fn alpha_tile_selection_treats_any_nonzero_inverted_as_cpp_true() {
+        crate::test_support::ensure_ambient_host();
         let alpha_tiles: [Option<Vec<u8>>; NUM_ALPHA_TILES] = std::array::from_fn(|index| {
             let mut data = vec![0u8; 4];
             data[3] = index as u8;
@@ -2005,6 +2016,7 @@ mod tests {
 
     #[test]
     fn get_height_at_adds_border_size_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(4, 4, 100.0, 1.0);
         heightmap.border_size = 1;
         heightmap.set_height_at_index(1, 1, 0.5);
@@ -2017,6 +2029,7 @@ mod tests {
 
     #[test]
     fn road_max_cell_height_uses_four_corners_and_border() {
+        crate::test_support::ensure_ambient_host();
         // BaseHeightMapRenderObjClass::getMaxCellHeight picks the highest of
         // all four enclosing raw samples, not the triangle-interpolated point.
         let mut heightmap = HeightMap::new(4, 4, 100.0, 10.0);
@@ -2046,6 +2059,7 @@ mod tests {
 
     #[test]
     fn test_normal_calculation() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(5, 5, 100.0, 1.0);
 
         // Create a slope
@@ -2067,6 +2081,7 @@ mod tests {
 
     #[test]
     fn normal_matches_linear_x_and_y_slopes_at_multiple_sample_scales() {
+        crate::test_support::ensure_ambient_host();
         for scale in [1.0, 10.0] {
             let mut x_ramp = HeightMap::new(9, 9, 100.0, scale);
             let mut y_ramp = HeightMap::new(9, 9, 100.0, scale);
@@ -2097,6 +2112,7 @@ mod tests {
 
     #[test]
     fn normal_matches_cpp_smoothed_asymmetric_twelve_sample_fixture() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(7, 7, 100.0, 10.0);
         // CPP BaseHeightMap.cpp:914-964 samples around (ix=2, iy=2), then
         // interpolates with fx=0.25, fy=0.6. Values are literal CPP height
@@ -2130,6 +2146,7 @@ mod tests {
 
     #[test]
     fn normal_uses_authored_border_and_cpp_out_of_range_default() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(9, 9, 100.0, 10.0);
         heightmap.border_size = 2;
         for y in 0..9 {
@@ -2155,6 +2172,7 @@ mod tests {
 
     #[test]
     fn test_ray_intersection() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(10, 10, 100.0, 1.0);
 
         // Create a raised area
@@ -2175,6 +2193,7 @@ mod tests {
 
     #[test]
     fn test_terrain_modification() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(10, 10, 100.0, 1.0);
 
         // Raise terrain at center
@@ -2192,6 +2211,7 @@ mod tests {
 
     #[test]
     fn test_mesh_generation() {
+        crate::test_support::ensure_ambient_host();
         let heightmap = HeightMap::new(5, 5, 100.0, 1.0);
         let (vertices, indices) = heightmap.generate_mesh(0, 0, 4, 4, 0);
 
@@ -2208,6 +2228,7 @@ mod tests {
 
     #[test]
     fn generate_mesh_subtracts_border_size_like_cpp_adjust_from_index() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(4, 4, 100.0, 10.0);
         heightmap.border_size = 1;
         heightmap.set_height_at_index(1, 1, 0.5);
@@ -2226,6 +2247,7 @@ mod tests {
 
     #[test]
     fn generate_mesh_uses_cpp_p0_p2_split_matching_get_height_at() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(4, 4, 100.0, 1.0);
         heightmap.set_height_at_index(1, 1, 0.0);
         heightmap.set_height_at_index(2, 1, 0.0);
@@ -2260,6 +2282,7 @@ mod tests {
 
     #[test]
     fn calculate_bounds_uses_world_height_remap() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(2, 2, 80.0, 1.0);
         heightmap.min_height = 20.0;
         heightmap.height_range = 80.0;
@@ -2286,6 +2309,7 @@ mod tests {
 
     #[test]
     fn uv_for_tile_atlas_matches_cpp_offset_formula_for_quadrants() {
+        crate::test_support::ensure_ambient_host();
         // C++ getUVForNdx (WorldHeightMap.cpp:1589-1634) with tile origin
         // (128, 192) in a 512x512 atlas: minU=128/512, maxU=192/512, and the
         // !fullTile quadrant split.
@@ -2310,6 +2334,7 @@ mod tests {
 
     #[test]
     fn uv_for_tile_atlas_applies_cliff_class_remap() {
+        crate::test_support::ensure_ambient_host();
         // C++ :1737-1757 — U = info.u + class.positionInTexture.x/width;
         // V = info.v * vFactor + (positionInTexture.y + width*64)/height.
         let info = TCliffInfo {
@@ -2344,6 +2369,7 @@ mod tests {
 
     #[test]
     fn cell_uv_at_world_uses_quarter_tiles_not_per_cell_repeats() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(4, 4, 255.0, 1.0);
         // C++ WorldHeightMap::getUVForNdx uses bit 0 for the U half and bit 1
         // for the V half of a shared 64px tile. Test all four quadrants.

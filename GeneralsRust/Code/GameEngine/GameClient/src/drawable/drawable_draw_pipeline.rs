@@ -47,6 +47,7 @@ mod tests {
 
     #[test]
     fn default_render_state_keeps_drawable_texture_visible() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             object_color_tint(&render_bridge::RenderStateOverrides::default()),
             [1.0, 1.0, 1.0, 1.0]
@@ -55,6 +56,7 @@ mod tests {
 
     #[test]
     fn render_state_tint_combines_construction_damage_and_emissive() {
+        crate::test_support::ensure_ambient_host();
         let mut state = render_bridge::RenderStateOverrides::default();
         state.construction_tint = Some([0.5, 0.6, 0.7]);
         state.damage_overlay = 0.5;
@@ -69,6 +71,7 @@ mod tests {
 
     #[test]
     fn drawable_texture_resolvers_keep_their_captured_owner_and_stay_lazy() {
+        crate::test_support::ensure_ambient_host();
         use std::sync::atomic::{AtomicUsize, Ordering};
 
         let calls_a = Arc::new(AtomicUsize::new(0));

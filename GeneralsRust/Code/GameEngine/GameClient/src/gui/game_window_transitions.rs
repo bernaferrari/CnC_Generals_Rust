@@ -2994,6 +2994,7 @@ mod tests {
 
     #[test]
     fn fade_transition_finishes_on_last_forward_frame() {
+        crate::test_support::ensure_ambient_host();
         let win = Rc::new(RefCell::new(GameWindow::new()));
         let mut transition = FadeTransition::new();
         with_access(|access| {
@@ -3005,6 +3006,7 @@ mod tests {
 
     #[test]
     fn fade_transition_is_not_finished_before_last_forward_frame() {
+        crate::test_support::ensure_ambient_host();
         let win = Rc::new(RefCell::new(GameWindow::new()));
         let mut transition = FadeTransition::new();
         with_access(|access| {
@@ -3016,6 +3018,7 @@ mod tests {
 
     #[test]
     fn fade_transition_reverse_finishes_on_zero_frame_only() {
+        crate::test_support::ensure_ambient_host();
         let win = Rc::new(RefCell::new(GameWindow::new()));
         let mut transition = FadeTransition::new();
         with_access(|access| {
@@ -3030,6 +3033,7 @@ mod tests {
 
     #[test]
     fn text_type_transition_keeps_window_text_on_init() {
+        crate::test_support::ensure_ambient_host();
         let win = Rc::new(RefCell::new(GameWindow::new()));
         win.borrow_mut().set_text("  GUI:Back ").unwrap();
         let mut transition = TextTypeTransition::new();
@@ -3041,6 +3045,7 @@ mod tests {
 
     #[test]
     fn count_up_transition_keeps_numeric_text_after_localization() {
+        crate::test_support::ensure_ambient_host();
         let win = Rc::new(RefCell::new(GameWindow::new()));
         win.borrow_mut().set_text("1234").unwrap();
         let mut transition = CountUpTransition::new();

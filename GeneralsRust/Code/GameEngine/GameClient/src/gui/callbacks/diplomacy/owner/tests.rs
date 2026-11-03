@@ -3,6 +3,7 @@ use crate::gui::callbacks::menu_callbacks::MenuManager;
 
 #[test]
 fn same_ids_retire_only_the_receiving_layout_and_keep_briefing() {
+    crate::test_support::ensure_ambient_host();
     let mut first = MenuManager::new();
     let mut peer = MenuManager::new();
     let mut first_manager = WindowManager::new();
@@ -76,6 +77,7 @@ fn same_ids_retire_only_the_receiving_layout_and_keep_briefing() {
 }
 #[test]
 fn native_missing_facts_does_not_discover_an_unrelated_core_world() {
+    crate::test_support::ensure_ambient_host();
     let mut menus = MenuManager::new();
     let mut messages = Vec::new();
     let mut effects = WindowEventEffects::new(&mut messages);

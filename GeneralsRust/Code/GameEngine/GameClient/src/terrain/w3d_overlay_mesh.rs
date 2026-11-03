@@ -1200,6 +1200,7 @@ mod tests {
 
     #[test]
     fn cpp_water_constants_match_w3d_water_cpp() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(PATCH_SIZE, 15);
         assert_eq!(PATCH_WIDTH, 14);
         assert!((PATCH_UV_SCALE - 3.0).abs() < f32::EPSILON);
@@ -1212,6 +1213,7 @@ mod tests {
 
     #[test]
     fn generate_water_vertex_buffer_matches_cpp_sea_patch_layout() {
+        crate::test_support::ensure_ambient_host();
         let verts = generate_water_vertex_buffer(PATCH_SIZE, PATCH_SIZE, 7.5, 0x80ff_ff00);
         assert_eq!(verts.len(), PATCH_SIZE * PATCH_SIZE);
         assert_eq!(verts[0].x, 0.0);
@@ -1236,6 +1238,7 @@ mod tests {
 
     #[test]
     fn generate_water_index_buffer_matches_cpp_strip_and_degenerates() {
+        crate::test_support::ensure_ambient_host();
         let indices = generate_water_index_buffer(PATCH_SIZE, PATCH_SIZE);
         assert_eq!(
             indices.len(),
@@ -1260,6 +1263,7 @@ mod tests {
 
     #[test]
     fn bake_water_tiles_world_does_not_stretch_one_patch() {
+        crate::test_support::ensure_ambient_host();
         let (verts, list) = bake_water_tiles_world(-100.0, -50.0, 100.0, 50.0, 3.0, 0xffff_ffff);
         // 200×100 extent / PATCH_WIDTH(14) → more than one 15×15 sheet.
         assert!(
@@ -1279,6 +1283,7 @@ mod tests {
 
     #[test]
     fn bake_water_patch_world_preserves_cpp_uvs_and_maps_extent() {
+        crate::test_support::ensure_ambient_host();
         let (verts, strip, list) =
             bake_water_patch_world(-100.0, -50.0, 100.0, 50.0, 3.0, 0xffff_ffff);
         assert_eq!(verts.len(), PATCH_SIZE * PATCH_SIZE);
@@ -1294,6 +1299,7 @@ mod tests {
 
     #[test]
     fn compute_standing_water_diffuse_matches_cpp_w3d_water() {
+        crate::test_support::ensure_ambient_host();
         let water_diffuse = 0x80FF_CC99; // A=0x80, R=0xFF, G=0xCC, B=0x99 in ARGB naming... packed as u32 hex
         // C++ unpacks waterShadeR = low byte, G = <<8, B = <<16 then packs shadeB|G<<8|R<<16
         let lights = [WaterTerrainLight {
@@ -1326,6 +1332,7 @@ mod tests {
 
     #[test]
     fn bake_water_patch_world_applies_point_lights_like_heightmap() {
+        crate::test_support::ensure_ambient_host();
         use crate::fx_list::{DisplayLightPulse, DisplayLightScene, do_the_dynamic_light};
         let mut scene = DisplayLightScene::default();
         assert!(scene.create_pulse(DisplayLightPulse {
@@ -1376,6 +1383,7 @@ mod tests {
 
     #[test]
     fn cpp_road_constants_match_w3d_road_buffer_h() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(MAX_SEG_VERTEX, 500);
         assert_eq!(MAX_SEG_INDEX, 2000);
         assert_eq!(DEFAULT_ROAD_SCALE, 8.0);
@@ -1388,6 +1396,7 @@ mod tests {
 
     #[test]
     fn min_road_segment_rejects_degenerate_span() {
+        crate::test_support::ensure_ambient_host();
         assert!(
             bake_straight_road_segment(
                 [0.0, 0.0],
@@ -1405,6 +1414,7 @@ mod tests {
 
     #[test]
     fn load_float_4pt_section_applies_float_amount_and_collapses_flat_columns() {
+        crate::test_support::ensure_ambient_host();
         let baked = bake_straight_road_segment(
             [0.0, 0.0],
             [40.0, 0.0],
@@ -1430,6 +1440,7 @@ mod tests {
 
     #[test]
     fn straight_road_uses_authored_width_in_texture_for_mesh_and_uv() {
+        crate::test_support::ensure_ambient_host();
         // Roads.ini TwoLane: RoadWidth=35, RoadWidthInTexture=0.9.
         // C++ addMapObject uses both for the physical half-width, while
         // preloadRoadSegment keeps RoadWidth as the UV scale.
@@ -1457,6 +1468,7 @@ mod tests {
 
     #[test]
     fn load_float_4pt_section_keeps_columns_when_height_error_exceeds_max() {
+        crate::test_support::ensure_ambient_host();
         let baked = bake_straight_road_segment(
             [0.0, 0.0],
             [40.0, 0.0],
@@ -1500,6 +1512,7 @@ mod tests {
 
     #[test]
     fn load_float_4pt_section_uv_matches_cpp_dot_product_formula() {
+        crate::test_support::ensure_ambient_host();
         let (verts, _) = load_float_4pt_section(
             [0.0, 0.0],
             [0.0, 5.0],
@@ -1521,6 +1534,7 @@ mod tests {
 
     #[test]
     fn load_float_4pt_section_bakes_cpp_road_point_lights() {
+        crate::test_support::ensure_ambient_host();
         use crate::fx_list::{DisplayLightPulse, DisplayLightScene};
         let mut scene = DisplayLightScene::default();
         assert!(scene.create_pulse(DisplayLightPulse {
@@ -1570,6 +1584,7 @@ mod tests {
 
     #[test]
     fn do_road_dynamic_light_uses_half_shade_and_xy_aabb_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         use crate::fx_list::{DisplayDynamicLight, far_atten_factor};
 
         let light = DisplayDynamicLight {
@@ -1606,6 +1621,7 @@ mod tests {
 
     #[test]
     fn road_gpu_upload_keeps_do_road_dynamic_light_diffuse() {
+        crate::test_support::ensure_ambient_host();
         use crate::fx_list::{DisplayLightPulse, DisplayLightScene};
         let mut scene = DisplayLightScene::default();
         assert!(scene.create_pulse(DisplayLightPulse {
@@ -1649,6 +1665,7 @@ mod tests {
 
     #[test]
     fn cpp_bridge_constants_match_w3d_bridge_buffer_h() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(MAX_BRIDGE_VERTEX, 12_000);
         assert_eq!(MAX_BRIDGE_INDEX, 24_000);
         assert_eq!(MAX_BRIDGES, 200);
@@ -1657,6 +1674,7 @@ mod tests {
 
     #[test]
     fn bake_sectional_bridge_matches_cpp_span_vertex_counts() {
+        crate::test_support::ensure_ambient_host();
         let (left, section, right) = default_sectional_bridge_model(1.0);
         let buffers = bake_bridge_span(
             [0.0, 0.0, BRIDGE_FLOAT_AMT],
@@ -1682,6 +1700,7 @@ mod tests {
 
     #[test]
     fn bake_fixed_bridge_uses_left_mesh_only() {
+        crate::test_support::ensure_ambient_host();
         let (left, _, _) = default_sectional_bridge_model(1.0);
         let buffers = bake_bridge_span(
             [0.0, 0.0, 0.0],
@@ -1698,6 +1717,7 @@ mod tests {
 
     #[test]
     fn cpp_map_to_y_up_swizzles_height_onto_wgpu_y() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(cpp_map_to_y_up(10.0, 20.0, 3.5), [10.0, 3.5, 20.0]);
     }
 }

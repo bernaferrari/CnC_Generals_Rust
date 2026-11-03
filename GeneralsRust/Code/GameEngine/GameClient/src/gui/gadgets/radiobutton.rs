@@ -653,6 +653,7 @@ mod tests {
 
     #[test]
     fn cloned_group_keeps_one_shared_send_sync_state_and_ordered_membership() {
+        crate::test_support::ensure_ambient_host();
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<RadioButtonGroup>();
         let group = RadioButtonGroup::new(17);
@@ -676,6 +677,7 @@ mod tests {
 
     #[test]
     fn group_beforeimage_restores_members_and_selection_together_after_candidate_drop() {
+        crate::test_support::ensure_ambient_host();
         let group = RadioButtonGroup::new(23);
         let mut original = RadioButton::new(7, 0, 0, 10, group.clone());
         original.select();
@@ -699,6 +701,7 @@ mod tests {
 
     #[test]
     fn test_radio_group() {
+        crate::test_support::ensure_ambient_host();
         let group = RadioButtonGroup::new(1);
         assert_eq!(group.get_selected(), None);
         assert_eq!(group.get_buttons().len(), 0);
@@ -706,6 +709,7 @@ mod tests {
 
     #[test]
     fn test_radio_button_creation() {
+        crate::test_support::ensure_ambient_host();
         let group = RadioButtonGroup::new(1);
         let radio = RadioButton::new(1, 10, 20, 20, group.clone());
 
@@ -716,6 +720,7 @@ mod tests {
 
     #[test]
     fn test_radio_button_selection() {
+        crate::test_support::ensure_ambient_host();
         let group = RadioButtonGroup::new(1);
         let mut radio1 = RadioButton::new(1, 10, 20, 20, group.clone());
         let mut radio2 = RadioButton::new(2, 10, 50, 20, group.clone());
@@ -733,6 +738,7 @@ mod tests {
 
     #[test]
     fn test_radio_button_group_exclusivity() {
+        crate::test_support::ensure_ambient_host();
         let group = RadioButtonGroup::new(1);
         let mut radio1 = RadioButton::new(1, 10, 20, 20, group.clone());
         let mut radio2 = RadioButton::new(2, 10, 50, 20, group.clone());
@@ -759,6 +765,7 @@ mod tests {
 
     #[test]
     fn test_radio_button_builder() {
+        crate::test_support::ensure_ambient_host();
         let group = RadioButtonGroup::new(1);
         let radio = RadioButtonBuilder::new(1, 10, 20, 20, group.clone())
             .label("Test Option")
@@ -771,6 +778,7 @@ mod tests {
 
     #[test]
     fn radio_button_render_commands_match_w3d_solid_geometry() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let group = RadioButtonGroup::new(1);
         let mut radio = RadioButton::new(1, 10, 20, 40, group)
@@ -818,6 +826,7 @@ mod tests {
 
     #[test]
     fn radio_button_render_commands_skip_hidden() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let group = RadioButtonGroup::new(1);
         let mut radio = RadioButton::new(1, 10, 20, 120, group);
@@ -829,6 +838,7 @@ mod tests {
 
     #[test]
     fn keyboard_arrows_and_tab_request_focus_navigation_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let group = RadioButtonGroup::new(1);
         let mut radio = RadioButton::new(1, 10, 20, 20, group);
         radio.set_focus(true);
@@ -854,6 +864,7 @@ mod tests {
 
     #[test]
     fn mouse_down_and_selected_mouse_up_are_handled_without_selection_message_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let group = RadioButtonGroup::new(1);
         let mut radio = RadioButton::new(1, 10, 20, 20, group);
 

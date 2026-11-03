@@ -622,6 +622,7 @@ mod tests {
 
     #[test]
     fn test_explosion_presets() {
+        crate::test_support::ensure_ambient_host();
         let small = explosions::create_small_explosion();
         assert_eq!(small.name(), "SmallExplosion");
         assert!(small.info().is_one_shot);
@@ -633,6 +634,7 @@ mod tests {
 
     #[test]
     fn test_weapon_presets() {
+        crate::test_support::ensure_ambient_host();
         let muzzle = weapons::create_muzzle_flash();
         assert_eq!(muzzle.name(), "MuzzleFlash");
         assert_eq!(muzzle.info().shader_type, ParticleShaderType::Additive);
@@ -643,6 +645,7 @@ mod tests {
 
     #[test]
     fn test_environment_presets() {
+        crate::test_support::ensure_ambient_host();
         let smoke = environment::create_smoke_plume();
         assert_eq!(smoke.name(), "SmokePlume");
         assert!(!smoke.info().is_one_shot); // Continuous
@@ -653,6 +656,7 @@ mod tests {
 
     #[test]
     fn test_destruction_presets() {
+        crate::test_support::ensure_ambient_host();
         let dust = destruction::create_building_collapse_dust();
         assert_eq!(dust.name(), "BuildingCollapseDust");
 
@@ -662,6 +666,7 @@ mod tests {
 
     #[test]
     fn test_get_preset_by_name() {
+        crate::test_support::ensure_ambient_host();
         assert!(get_preset_by_name("SmallExplosion").is_some());
         assert!(get_preset_by_name("MuzzleFlash").is_some());
         assert!(get_preset_by_name("NonExistent").is_none());

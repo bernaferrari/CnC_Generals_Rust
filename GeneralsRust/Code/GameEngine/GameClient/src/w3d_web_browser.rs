@@ -303,6 +303,7 @@ mod tests {
 
     #[test]
     fn create_browser_window_records_cpp_window_name_url_and_rect() {
+        crate::test_support::ensure_ambient_host();
         register_url("W3DWebBrowserTermsOfService", "https://example.invalid/tos");
         let window = make_window("TOSListBox", 11, 12, 320, 240);
         let mut browser = W3DWebBrowser::new();
@@ -324,6 +325,7 @@ mod tests {
 
     #[test]
     fn create_browser_window_fails_for_missing_url_or_dispatch() {
+        crate::test_support::ensure_ambient_host();
         let window = make_window("MessageBoard", 0, 0, 100, 80);
         let mut browser = W3DWebBrowser::new();
 
@@ -340,6 +342,7 @@ mod tests {
 
     #[test]
     fn close_browser_window_destroys_record_by_decorated_name() {
+        crate::test_support::ensure_ambient_host();
         register_url(
             "W3DWebBrowserMessageBoardClose",
             "https://example.invalid/forum",

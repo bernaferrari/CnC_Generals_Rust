@@ -500,6 +500,7 @@ mod tests {
 
     #[test]
     fn get_current_frame_width_height_uses_image_natural_size() {
+        crate::test_support::ensure_ambient_host();
         const FRAME_NAME: &str = "Anim2DTestFrame64x48";
         const MISSING_NAME: &str = "Anim2DTestFrameMissingImage_NoSuchMappedImage";
 

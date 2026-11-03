@@ -1222,6 +1222,7 @@ mod tests {
 
     #[test]
     fn test_should_ignore_path() {
+        crate::test_support::ensure_ambient_host();
         let ignore_patterns = vec![
             "*.tmp".to_string(),
             "*.backup".to_string(),
@@ -1244,6 +1245,7 @@ mod tests {
 
     #[test]
     fn test_change_type_detection() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(ChangeType::Created as u8, 0);
         assert_eq!(ChangeType::Modified as u8, 1);
         assert_eq!(ChangeType::Deleted as u8, 2);
@@ -1252,6 +1254,7 @@ mod tests {
 
     #[test]
     fn test_debounced_events_flow_through_channel() {
+        crate::test_support::ensure_ambient_host();
         // The watcher-thread -> worker-task handoff is a channel; verify the
         // debounce + send logic in isolation with a local receiver.
         let (tx, mut rx) = mpsc::unbounded_channel();

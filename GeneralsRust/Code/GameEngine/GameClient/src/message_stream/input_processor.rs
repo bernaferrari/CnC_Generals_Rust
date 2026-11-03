@@ -753,6 +753,7 @@ mod tests {
 
     #[test]
     fn test_input_processor_creation() {
+        crate::test_support::ensure_ambient_host();
         let processor = InputProcessor::with_default_config();
         assert!(processor.config.enabled);
         assert_eq!(processor.events_processed, 0);
@@ -761,6 +762,7 @@ mod tests {
 
     #[test]
     fn test_mouse_move_processing() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         let event = InputEvent::MouseMove {
@@ -777,6 +779,7 @@ mod tests {
 
     #[test]
     fn test_input_messages_use_current_local_player_id() {
+        crate::test_support::ensure_ambient_host();
         let _guard = LOCAL_PLAYER_TEST_LOCK
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -808,6 +811,7 @@ mod tests {
 
     #[test]
     fn test_mouse_button_processing() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Mouse down
@@ -836,6 +840,7 @@ mod tests {
 
     #[test]
     fn test_keyboard_processing() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Key down
@@ -862,6 +867,7 @@ mod tests {
 
     #[test]
     fn test_control_group_shortcut() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Ctrl+1 to create control group
@@ -885,6 +891,7 @@ mod tests {
 
     #[test]
     fn test_number_key_conversion() {
+        crate::test_support::ensure_ambient_host();
         let processor = InputProcessor::with_default_config();
 
         assert_eq!(processor.key_to_number_group(KeyCode::Num0), Some(0));
@@ -895,6 +902,7 @@ mod tests {
 
     #[test]
     fn test_virtual_key_conversion() {
+        crate::test_support::ensure_ambient_host();
         let processor = InputProcessor::with_default_config();
 
         assert_eq!(processor.key_to_virtual_code(KeyCode::A), 0x41);
@@ -905,6 +913,7 @@ mod tests {
 
     #[test]
     fn test_focus_loss_clears_state() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Simulate mouse down
@@ -927,6 +936,7 @@ mod tests {
 
     #[test]
     fn test_enable_disable() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         processor.set_enabled(false);
@@ -945,6 +955,7 @@ mod tests {
 
     #[test]
     fn test_statistics() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Process some events

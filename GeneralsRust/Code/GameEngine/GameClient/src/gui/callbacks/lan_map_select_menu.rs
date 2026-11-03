@@ -470,6 +470,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
 
         assert_eq!(
@@ -484,6 +485,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn lan_map_select_system_consumes_lifecycle_messages_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut wm = crate::gui::window_manager::WindowManager::new();
         let mut window = GameWindow::new();
         crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {

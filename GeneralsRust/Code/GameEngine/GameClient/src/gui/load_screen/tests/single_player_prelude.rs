@@ -2,6 +2,7 @@
 
 #[test]
 fn single_player_audio_prelude_plays_only_ambient_like_zh_md() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -65,6 +66,7 @@ fn single_player_audio_prelude_plays_only_ambient_like_zh_md() {
 
 #[test]
 fn single_player_movie_open_failure_returns_before_audio_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -184,6 +186,7 @@ fn single_player_movie_open_failure_returns_before_audio_like_cpp() {
 
 #[test]
 fn single_player_movie_prelude_defers_ambient_until_movie_finishes_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -357,6 +360,7 @@ fn single_player_movie_prelude_defers_ambient_until_movie_finishes_like_cpp() {
 
 #[test]
 fn single_player_prelude_driver_pumps_until_movie_completion_before_map_work() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -463,6 +467,7 @@ fn single_player_prelude_driver_pumps_until_movie_completion_before_map_work() {
 
 #[test]
 fn single_player_prelude_driver_forces_terminal_skip_when_movie_never_finishes() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -551,6 +556,7 @@ fn single_player_prelude_driver_forces_terminal_skip_when_movie_never_finishes()
 
 #[test]
 fn single_player_campaign_images_match_cpp_side_mapping() {
+    crate::test_support::ensure_ambient_host();
     let mut fixture = LoadScreenFixture::new();
     fixture.with_runtime(|runtime, presentation_pump, audio_trace| {
         let operation_windows = runtime.windows.clone();
@@ -573,6 +579,7 @@ fn single_player_campaign_images_match_cpp_side_mapping() {
 
 #[test]
 fn single_player_mission_text_fetches_cpp_labels() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -633,6 +640,7 @@ fn single_player_mission_text_fetches_cpp_labels() {
 
 #[test]
 fn nonblocking_campaign_presents_last_frame_then_background_before_audio() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),

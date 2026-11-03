@@ -479,6 +479,7 @@ mod tests {
 
     #[test]
     fn test_terrain_config_defaults() {
+        crate::test_support::ensure_ambient_host();
         let config = TerrainConfig::default();
 
         assert_eq!(config.world_size, (1024.0, 1024.0));
@@ -491,6 +492,7 @@ mod tests {
 
     #[test]
     fn test_terrain_lod_calculation() {
+        crate::test_support::ensure_ambient_host();
         let config = TerrainConfig::default();
 
         assert_eq!(calculate_terrain_lod(50.0, &config), TerrainLOD::High);
@@ -501,6 +503,7 @@ mod tests {
 
     #[test]
     fn test_terrain_lod_multipliers() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(TerrainLOD::High.triangle_multiplier(), 1.0);
         assert_eq!(TerrainLOD::Medium.triangle_multiplier(), 0.5);
         assert_eq!(TerrainLOD::Low.triangle_multiplier(), 0.25);
@@ -513,6 +516,7 @@ mod tests {
 
     #[test]
     fn test_coordinate_conversion() {
+        crate::test_support::ensure_ambient_host();
         let world_size = (1024.0, 1024.0);
         let heightmap_resolution = (512, 512);
 
@@ -529,6 +533,7 @@ mod tests {
 
     #[test]
     fn test_bilinear_interpolation() {
+        crate::test_support::ensure_ambient_host();
         let heights = [0.0, 10.0, 5.0, 15.0]; // 2x2 grid
 
         // Test corners
@@ -544,6 +549,7 @@ mod tests {
 
     #[test]
     fn test_falloff_function() {
+        crate::test_support::ensure_ambient_host();
         // Test center (distance = 0)
         assert_eq!(apply_falloff(0.0, 10.0, 1.0), 1.0);
 
@@ -563,6 +569,7 @@ mod tests {
 
     #[test]
     fn test_terrain_modifications() {
+        crate::test_support::ensure_ambient_host();
         let pos = Vec3::new(100.0, 200.0, 10.0);
 
         let crater = TerrainModification::explosion_crater(pos, 20.0);
@@ -590,6 +597,7 @@ mod tests {
 
     #[test]
     fn test_terrain_stats() {
+        crate::test_support::ensure_ambient_host();
         let mut stats = TerrainStats::default();
 
         stats.rendered_chunks = 10;

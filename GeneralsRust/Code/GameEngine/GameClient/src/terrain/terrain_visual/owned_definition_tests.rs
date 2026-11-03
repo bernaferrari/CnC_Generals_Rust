@@ -29,6 +29,7 @@ fn selected(visual: &TerrainVisualImpl) -> String {
 
 #[test]
 fn actual_visuals_keep_same_named_definition_and_source_tile_resolution_owned() {
+    crate::test_support::ensure_ambient_host();
     let directory = tempfile::tempdir().unwrap();
     let a = directory.path().join("a.tga");
     let b = directory.path().join("b.tga");
@@ -67,6 +68,7 @@ fn actual_visuals_keep_same_named_definition_and_source_tile_resolution_owned() 
 
 #[test]
 fn failed_standalone_definition_candidate_preserves_prior_catalog() {
+    crate::test_support::ensure_ambient_host();
     let directory = tempfile::tempdir().unwrap();
     std::fs::write(
         directory.path().join("Terrain.ini"),
@@ -106,6 +108,7 @@ fn failed_standalone_definition_candidate_preserves_prior_catalog() {
 
 #[test]
 fn explicitly_empty_catalog_skips_invalid_map_directory_definition_io() {
+    crate::test_support::ensure_ambient_host();
     let directory = tempfile::tempdir().unwrap();
     std::fs::write(
         directory.path().join("Terrain.ini"),
@@ -123,6 +126,7 @@ fn explicitly_empty_catalog_skips_invalid_map_directory_definition_io() {
 
 #[test]
 fn owned_archive_bytes_and_same_basename_files_share_exact_override_kernel() {
+    crate::test_support::ensure_ambient_host();
     let directory = tempfile::tempdir().unwrap();
     let a = directory.path().join("default");
     let b = directory.path().join("override");

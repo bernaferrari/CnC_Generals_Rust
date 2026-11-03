@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn receiving_key_sender_finishes_before_next_ancestor_and_peer_keeps_same_ids() {
+    crate::test_support::ensure_ambient_host();
     fn world() -> (
         WindowManager,
         Rc<RefCell<GameWindow>>,

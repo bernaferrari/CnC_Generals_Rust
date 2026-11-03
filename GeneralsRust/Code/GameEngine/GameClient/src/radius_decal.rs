@@ -842,6 +842,7 @@ mod tests {
 
     #[test]
     fn set_opacity_truncates_like_cpp_real_to_int() {
+        crate::test_support::ensure_ambient_host();
         let handle = test_shadow_handle();
         let mut radius_decal = RadiusDecal {
             template: None,
@@ -858,12 +859,14 @@ mod tests {
 
     #[test]
     fn real_to_int_truncates_toward_zero() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(real_to_int(127.9), 127);
         assert_eq!(real_to_int(-127.9), -127);
     }
 
     #[test]
     fn xfer_radius_decal_save_writes_no_bytes_like_cpp_todo() {
+        crate::test_support::ensure_ambient_host();
         let handle = test_shadow_handle();
         let mut radius_decal = RadiusDecal {
             template: None,
@@ -884,6 +887,7 @@ mod tests {
 
     #[test]
     fn xfer_radius_decal_load_clears_without_reading_like_cpp_todo() {
+        crate::test_support::ensure_ambient_host();
         let handle = test_shadow_handle();
         let mut radius_decal = RadiusDecal {
             template: Some(RadiusDecalTemplate::default()),
@@ -906,6 +910,7 @@ mod tests {
     /// `DecalRenderItem` so `ParticleRenderer::render_decals` can draw it.
     #[test]
     fn projected_shadow_manager_collects_active_radius_decals() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ProjectedShadowManager::new();
         let info = ShadowTypeInfo {
             allow_updates: false,
@@ -944,6 +949,7 @@ mod tests {
     /// addDecal radius/terrain items stay visible.
     #[test]
     fn add_shadow_and_blob_collect_none_when_use_shadow_decals_off() {
+        crate::test_support::ensure_ambient_host();
         let prev = game_engine::common::global_data::read_safe()
             .map(|g| g.writable.use_shadow_decals)
             .unwrap_or(true);
@@ -1009,6 +1015,7 @@ mod tests {
     /// to Display/forward_render collect_render_items.
     #[test]
     fn enqueue_delivery_decal_is_visible_to_collect_render_items() {
+        crate::test_support::ensure_ambient_host();
         let handle = enqueue_delivery_decal(
             "SCCScudStorm_GLA",
             200.0,
@@ -1040,6 +1047,7 @@ mod tests {
 
     #[test]
     fn parse_color_int_uses_game_make_color_argb() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             parse_color_int_tokens(&["R:255", "G:0", "B:128", "A:64"]).unwrap(),
             0x40FF_0080
@@ -1052,6 +1060,7 @@ mod tests {
 
     #[test]
     fn retail_radius_cursor_parse_sets_throb() {
+        crate::test_support::ensure_ambient_host();
         let template = RadiusDecalTemplate::from_radius_cursor_texture("SCCAttackDamageArea");
         assert!((template.min_opacity() - 0.25).abs() < f32::EPSILON);
         assert!((template.max_opacity() - 0.50).abs() < f32::EPSILON);
@@ -1061,6 +1070,7 @@ mod tests {
 
     #[test]
     fn game_make_color_packs_argb_not_abgr() {
+        crate::test_support::ensure_ambient_host();
         let color = gamelogic::common::Color {
             r: 255,
             g: 0,
@@ -1081,6 +1091,7 @@ mod receiving_radius_lifetime_tests {
 
     #[test]
     fn receiving_client_drop_invalidates_only_its_outstanding_radius_handle() {
+        crate::test_support::ensure_ambient_host();
         let mut source = crate::core::game_client::NativeDrawableWorld::default();
         let mut peer = crate::core::game_client::NativeDrawableWorld::default();
         let source_handle = source

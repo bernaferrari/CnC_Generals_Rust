@@ -84,6 +84,7 @@ fn repo_root() -> PathBuf {
 #[test]
 #[ignore = "requires licensed local AmericaVehicle.ini and ParticleSystem.ini; run explicitly with --ignored"]
 fn factory_admitted_microwave_draw_creates_real_attached_particle_rows() {
+    crate::test_support::ensure_ambient_host();
     if !run_as_bounded_test_child() {
         return;
     }

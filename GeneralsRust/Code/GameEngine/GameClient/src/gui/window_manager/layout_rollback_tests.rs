@@ -106,6 +106,7 @@ fn load(
 
 #[test]
 fn public_layout_loaders_remove_first_root_when_second_hits_real_capacity() {
+    crate::test_support::ensure_ambient_host();
     for with_layout in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("PartialRoot.wnd");
@@ -122,6 +123,7 @@ fn public_layout_loaders_remove_first_root_when_second_hits_real_capacity() {
 }
 #[test]
 fn public_layout_loaders_remove_root_and_first_child_when_later_child_hits_capacity() {
+    crate::test_support::ensure_ambient_host();
     for with_layout in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("PartialChild.wnd");
@@ -153,6 +155,7 @@ fn public_layout_loaders_remove_root_and_first_child_when_later_child_hits_capac
 }
 #[test]
 fn successful_public_layout_loaders_keep_script_root_and_child_order() {
+    crate::test_support::ensure_ambient_host();
     for with_layout in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("Success.wnd");
@@ -190,6 +193,7 @@ fn successful_public_layout_loaders_keep_script_root_and_child_order() {
 }
 #[test]
 fn parser_failure_never_registers_a_candidate_layout() {
+    crate::test_support::ensure_ambient_host();
     for with_layout in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("Bad.wnd");
@@ -203,6 +207,7 @@ fn parser_failure_never_registers_a_candidate_layout() {
 
 #[test]
 fn empty_script_has_no_first_window_and_never_leaves_an_empty_layout() {
+    crate::test_support::ensure_ambient_host();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("Empty.wnd");
     std::fs::write(&path, "").unwrap();
@@ -247,6 +252,7 @@ fn install_selected_original_radio(manager: &mut WindowManager) -> (u32, u32) {
 
 #[test]
 fn public_capacity_failure_restores_preselected_radio_group_after_colliding_candidate_drop() {
+    crate::test_support::ensure_ambient_host();
     for with_layout in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("RadioCollision.wnd");
@@ -284,6 +290,7 @@ fn public_capacity_failure_restores_preselected_radio_group_after_colliding_cand
 
 #[test]
 fn rollback_reclaims_selected_candidate_widget_before_restoring_existing_group() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = local_manager(1, false);
     let (group_id, original_selected) = install_selected_original_radio(&mut manager);
     let baseline = Baseline::capture(&manager);
@@ -370,6 +377,7 @@ fn rollback_reclaims_selected_candidate_widget_before_restoring_existing_group()
 
 #[test]
 fn public_layout_loaders_reparse_same_path_and_keep_prior_live_windows() {
+    crate::test_support::ensure_ambient_host();
     for with_layout in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("FreshLayout.wnd");
@@ -428,6 +436,7 @@ fn public_layout_loaders_reparse_same_path_and_keep_prior_live_windows() {
 
 #[test]
 fn public_layout_loaders_apply_text_defaults_before_authored_colors() {
+    crate::test_support::ensure_ambient_host();
     fn assert_text(window: &Rc<RefCell<GameWindow>>, expected: [u32; 6]) {
         let window = window.borrow();
         let data = window.instance_data();

@@ -117,6 +117,7 @@ fn sizes(manager: &ParticleSystemManager, id: ParticleSystemId) -> Vec<f32> {
 
 #[test]
 fn immediate_slave_emission_interleaves_fresh_mutable_generations_and_continues_save() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, master, slave) = owner();
     manager.update(0, 1);
     assert_eq!(sizes(&manager, master), vec![2.0, 4.0]);
@@ -149,6 +150,7 @@ fn immediate_slave_emission_interleaves_fresh_mutable_generations_and_continues_
 
 #[test]
 fn immediate_slave_emission_uses_master_priority_at_actual_field_cap() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, master, slave) = owner_with_slave(ParticlePriorityType::AreaEffect, true);
     let mut particle_info = crate::effects::particle_system::ParticleInfo::default();
     particle_info.lifetime = 100;
@@ -180,6 +182,7 @@ fn immediate_slave_emission_uses_master_priority_at_actual_field_cap() {
 
 #[test]
 fn rejected_master_particle_does_not_generate_or_admit_slave() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, master, slave) = owner_with_priorities(
         ParticlePriorityType::AreaEffect,
         ParticlePriorityType::AlwaysRender,
@@ -234,6 +237,7 @@ fn rejected_master_particle_does_not_generate_or_admit_slave() {
 
 #[test]
 fn receiving_factory_burst_count_truncates_before_nonunit_multiplier() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = ParticleSystemManager::new();
     let mut template = ParticleSystemTemplate::new("FractionalFactoryBurst".into());
     template.info_mut().priority = ParticlePriorityType::AlwaysRender;
@@ -263,6 +267,7 @@ fn receiving_factory_burst_count_truncates_before_nonunit_multiplier() {
 
 #[test]
 fn immediate_emission_binds_each_attached_system_to_its_admitted_parent() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, master, slave) = owner_with_attachment(
         ParticlePriorityType::AlwaysRender,
         ParticlePriorityType::AlwaysRender,
@@ -314,6 +319,7 @@ fn immediate_emission_binds_each_attached_system_to_its_admitted_parent() {
 
 #[test]
 fn appended_attached_slave_chain_runs_in_constructor_admission_order() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, master, slave) = owner_with_attached_slave(
         ParticlePriorityType::AlwaysRender,
         ParticlePriorityType::AlwaysRender,
@@ -389,6 +395,7 @@ fn lifetime_pair(
 
 #[test]
 fn natural_master_retirement_detaches_surviving_slave_without_destroying_it() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, master, slave) = lifetime_pair(1, 0, 0.0, 1.0);
     manager.update(0, 1);
     assert!(manager.find_particle_system(master).is_none());
@@ -408,6 +415,7 @@ fn natural_master_retirement_detaches_surviving_slave_without_destroying_it() {
 
 #[test]
 fn natural_child_retirement_clears_parent_link_without_skipping_shifted_parent() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, master, slave) = lifetime_pair(0, 1, 1.0, 0.0);
     manager.update(0, 1);
     assert!(manager.find_particle_system(slave).is_none());
@@ -423,6 +431,7 @@ fn natural_child_retirement_clears_parent_link_without_skipping_shifted_parent()
 
 #[test]
 fn destroyed_empty_system_finishes_initial_delay_before_natural_retirement() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = ParticleSystemManager::new();
     let mut template = ParticleSystemTemplate::new("DelayedDestroyed".into());
     template.info_mut().system_lifetime = 1;
@@ -445,6 +454,7 @@ fn destroyed_empty_system_finishes_initial_delay_before_natural_retirement() {
 
 #[test]
 fn natural_controlled_emitter_retirement_detaches_actual_parent_particle() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = ParticleSystemManager::new();
     let mut parent = ParticleSystemTemplate::new("ControlParent".into());
     parent.info_mut().priority = ParticlePriorityType::AlwaysRender;
@@ -470,6 +480,7 @@ fn natural_controlled_emitter_retirement_detaches_actual_parent_particle() {
 
 #[test]
 fn expired_parent_particles_release_actual_budget_before_later_emitter() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = ParticleSystemManager::new();
     let mut parent = ParticleSystemTemplate::new("ExpiringBudgetParent".into());
     parent.info_mut().priority = ParticlePriorityType::AlwaysRender;
@@ -526,6 +537,7 @@ fn expired_parent_particles_release_actual_budget_before_later_emitter() {
 
 #[test]
 fn prepared_internal_destroy_flag_cascades_before_natural_master_detach() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = ParticleSystemManager::new();
     for (name, slave) in [
         ("MarkedRoot", "MarkedMiddle"),

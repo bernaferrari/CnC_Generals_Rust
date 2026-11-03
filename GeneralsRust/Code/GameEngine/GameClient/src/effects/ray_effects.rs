@@ -501,6 +501,7 @@ mod tests {
 
     #[test]
     fn test_ray_effect_creation() {
+        crate::test_support::ensure_ambient_host();
         let config = RayEffectConfig::laser();
         let effect = RayEffect::new(1, config);
 
@@ -511,6 +512,7 @@ mod tests {
 
     #[test]
     fn test_ray_effect_update() {
+        crate::test_support::ensure_ambient_host();
         let config = RayEffectConfig::default();
         let mut effect = RayEffect::new(1, config);
 
@@ -521,6 +523,7 @@ mod tests {
 
     #[test]
     fn test_ray_effect_lifetime() {
+        crate::test_support::ensure_ambient_host();
         let mut config = RayEffectConfig::default();
         config.lifetime = Some(Duration::from_millis(100));
         config.fade_in = Duration::from_millis(10);
@@ -538,6 +541,7 @@ mod tests {
 
     #[test]
     fn test_ray_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = RayEffectManager::new();
 
         let id1 = manager.spawn(RayEffectConfig::laser());
@@ -554,6 +558,7 @@ mod tests {
 
     #[test]
     fn test_beam_point_generation() {
+        crate::test_support::ensure_ambient_host();
         let config = RayEffectConfig::default().between(Vec3::ZERO, Vec3::new(0.0, 0.0, 10.0));
         let effect = RayEffect::new(1, config);
 
@@ -570,6 +575,7 @@ mod tests {
 
     #[test]
     fn test_pulse_intensity() {
+        crate::test_support::ensure_ambient_host();
         let mut config = RayEffectConfig::laser();
         config.pulse_frequency = 1.0; // 1 Hz
         let effect = RayEffect::new(1, config);
@@ -585,6 +591,7 @@ mod tests {
 
     #[test]
     fn test_ray_presets() {
+        crate::test_support::ensure_ambient_host();
         let laser = RayEffectConfig::laser();
         assert_eq!(laser.ray_type, RayType::Laser);
 

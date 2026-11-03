@@ -25,6 +25,7 @@ impl FXNugget for ObjectNugget {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn actual_bridge_consumes_host_visibility_without_selecting_ambient_world() {
+    crate::test_support::ensure_ambient_host();
     const MARKER: &str = "GENERALS_HOST_FX_VISIBILITY_OWNER_CHILD";
     const TEST: &str = "fx_list::host_visibility_owner_tests::actual_bridge_consumes_host_visibility_without_selecting_ambient_world";
     if std::env::var_os(MARKER).is_none() {

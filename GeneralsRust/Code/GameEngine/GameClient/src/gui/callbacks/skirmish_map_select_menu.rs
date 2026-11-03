@@ -954,6 +954,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn preview_image_name_falls_back_to_unknown_map() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(resolve_preview_image_name(None), UNKNOWN_MAP_IMAGE);
         assert_eq!(
             resolve_preview_image_name(Some(String::new())),
@@ -967,6 +968,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn map_select_parent_name_preserves_legacy_typo() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             MAP_SELECT_PARENT_NAME,
             "SkirmishMapSelectMenu.wnd:SkrimishMapSelectMenuParent"
@@ -975,6 +977,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
 
         assert_eq!(
@@ -994,6 +997,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn os_wnd_skirmish_map_select_hits_select_map_and_ok_then_commits_setup() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
             owner.with_manager(|manager| {
@@ -1027,6 +1031,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn skirmish_map_select_system_consumes_lifecycle_messages_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut window = GameWindow::new();
         owner.with_manager(|wm| {
@@ -1095,6 +1100,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn skirmish_map_select_system_handles_glm_selected_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let listbox_id = 101;
         install_map_listbox_for_test(listbox_id, Some(1), &owner);
@@ -1126,6 +1132,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn skirmish_map_select_system_handles_glm_double_clicked_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let listbox_id = 101;
         install_map_listbox_for_test(listbox_id, None, &owner);
@@ -1157,6 +1164,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn simulate_map_select_and_confirm_commits_setup() {
+        crate::test_support::ensure_ambient_host();
         let map = "maps/alpine_assault/alpine_assault.map";
         assert!(
             simulate_skirmish_map_select_and_confirm(map),
@@ -1175,6 +1183,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn simulate_map_select_ok_without_selection_fail_closed() {
+        crate::test_support::ensure_ambient_host();
         // Clear selection residual.
         {
             let owner = crate::gui::window_manager::WindowManagerOwner::new();

@@ -445,6 +445,7 @@ mod tests {
 
     #[test]
     fn test_progressbar_creation() {
+        crate::test_support::ensure_ambient_host();
         let bar = ProgressBar::new(1, 10, 20, 200, 20);
         assert_eq!(bar.value(), 0.0);
         assert_eq!(bar.percentage(), 0.0);
@@ -452,6 +453,7 @@ mod tests {
 
     #[test]
     fn test_set_value() {
+        crate::test_support::ensure_ambient_host();
         let mut bar = ProgressBar::new(1, 10, 20, 200, 20);
         bar.set_value(0.5);
         assert_eq!(bar.value(), 0.5);
@@ -460,6 +462,7 @@ mod tests {
 
     #[test]
     fn test_set_percentage() {
+        crate::test_support::ensure_ambient_host();
         let mut bar = ProgressBar::new(1, 10, 20, 200, 20);
         bar.set_percentage(75.0);
         assert_eq!(bar.value(), 0.75);
@@ -468,6 +471,7 @@ mod tests {
 
     #[test]
     fn test_set_progress_ignores_out_of_range_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut bar = ProgressBar::new(1, 10, 20, 200, 20);
         bar.set_progress(40.0);
         assert_eq!(bar.percentage(), 40.0);
@@ -484,6 +488,7 @@ mod tests {
 
     #[test]
     fn test_value_clamping() {
+        crate::test_support::ensure_ambient_host();
         let mut bar = ProgressBar::new(1, 10, 20, 200, 20);
         bar.set_value(1.5); // Over max
         assert_eq!(bar.value(), 1.0);
@@ -494,6 +499,7 @@ mod tests {
 
     #[test]
     fn test_custom_range() {
+        crate::test_support::ensure_ambient_host();
         let mut bar = ProgressBar::new(1, 10, 20, 200, 20);
         bar.set_value_range(50.0, 0.0, 100.0);
         assert_eq!(bar.value(), 0.5);
@@ -502,6 +508,7 @@ mod tests {
 
     #[test]
     fn progress_bar_render_commands_emit_fill_border_and_text() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let mut bar = ProgressBar::new(1, 10, 20, 200, 20);
         bar.set_percentage(40.0);
@@ -533,6 +540,7 @@ mod tests {
 
     #[test]
     fn progress_bar_render_commands_cover_vertical_stripes_and_hidden() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let mut bar = ProgressBar::new(1, 10, 20, 20, 100)
             .with_orientation(ProgressBarOrientation::Vertical)
