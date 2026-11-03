@@ -462,5 +462,16 @@ impl RenderPipeline {
     /// Observe an actual Sync operation. Pose evaluation stays lazy on each owner.
     pub(crate) fn observe_animation_sync(&mut self, sync_time_ms: u32) {
         self.animation_sync_ms = sync_time_ms;
+        self.forward_pass.renderer.ww3d.sync(sync_time_ms);
+    }
+
+    /// Drain WW3D attachment records from the owned session renderer.
+    pub(crate) fn drain_pending_attachments(
+        &mut self,
+    ) -> Vec<ww3d_renderer_3d::AttachmentRecord> {
+        ww3d_renderer_3d::Renderer::with_global_mut(&self.forward_pass.renderer.ww3d, |renderer| {
+            Ok(renderer.take_pending_attachments())
+        })
+        .unwrap_or_default()
     }
 }

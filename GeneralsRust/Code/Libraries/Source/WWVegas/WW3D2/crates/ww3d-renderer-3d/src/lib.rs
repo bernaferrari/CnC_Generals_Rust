@@ -94,6 +94,7 @@ pub use rendering::camera_system::frustum::{
 pub use rendering::camera_system::viewport::ViewportClass;
 pub use rendering::mesh_system::*;
 use ww3d_core::*;
+pub use ww3d_core::w3d_format;
 pub use ww3d_geometry::*;
 // THE_DX8_MESH_RENDERER removed with DX8 path
 pub use lod_system::*;

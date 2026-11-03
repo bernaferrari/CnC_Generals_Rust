@@ -32,7 +32,6 @@ use winit::{
     event_loop::EventLoop,
     window::{Fullscreen, Window},
 };
-use ww3d_core::ww3d::WW3D;
 use ww3d_gpu::device::GpuDevice;
 
 use super::{
@@ -703,19 +702,6 @@ impl W3DDevice {
         self.current_frame.stats.shader_switches = render_stats.shader_switches;
         self.current_frame.stats.vertex_color_passes = render_stats.vertex_color_passes;
 
-        if let Some(core_stats) = WW3D::current_frame_stats() {
-            if core_stats.fps > 0.0 {
-                self.current_frame.stats.fps = core_stats.fps;
-                self.current_frame.stats.frame_time_ms = core_stats.frame_time_ms;
-            }
-            self.current_frame.stats.draw_calls = core_stats.draw_calls;
-            self.current_frame.stats.triangles = core_stats.triangles_rendered;
-            self.current_frame.stats.meshes = core_stats.meshes_rendered;
-            self.current_frame.stats.material_passes = core_stats.material_passes;
-            self.current_frame.stats.texture_switches = core_stats.texture_switches;
-            self.current_frame.stats.shader_switches = core_stats.shader_switches;
-            self.current_frame.stats.vertex_color_passes = core_stats.vertex_color_passes;
-        }
 
         // Get memory usage
         self.current_frame.stats.gpu_memory_used = self.memory_manager.gpu_memory_used();

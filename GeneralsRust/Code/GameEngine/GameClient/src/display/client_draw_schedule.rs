@@ -11,7 +11,6 @@ use std::sync::Mutex;
 
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::registry::OBJECT_REGISTRY;
-use ww3d_core::WW3D;
 
 use crate::core::game_client::live_game_client_frame;
 use crate::display::view::with_tactical_view_ref;
@@ -86,9 +85,16 @@ pub fn compute_w3d_display_freeze(extra_freeze: bool, client_frame: u32) -> bool
 }
 
 pub fn advance_visual_sync(freeze_time: bool) -> u32 {
-    let sync_time = with_draw_schedule(|state| state.advance_sync(freeze_time, W3D_FRAME_LENGTH_MS));
-    WW3D::sync(sync_time);
-    WW3D::sync_time().saturating_sub(WW3D::previous_sync_time())
+    with_draw_schedule(|state| {
+        let previous = state.sync_time_ms;
+        let sync_time = state.advance_sync(freeze_time, W3D_FRAME_LENGTH_MS);
+        sync_time.wrapping_sub(previous)
+    })
+}
+
+/// Current visual sync clock (ms) owned by the live GameClient draw schedule.
+pub fn current_visual_sync_ms() -> u32 {
+    with_draw_schedule(|state| state.sync_time_ms)
 }
 
 pub fn should_draw_drawables(frame_time_ms: u32) -> bool {
@@ -267,8 +273,6 @@ pub fn reset_visual_sync_for_test() {
     with_draw_schedule(|state| {
         *state = ClientDrawScheduleState::default();
     });
-    WW3D::sync(0);
-    WW3D::sync(0);
 }
 
 #[cfg(test)]
