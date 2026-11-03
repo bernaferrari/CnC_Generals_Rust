@@ -55,7 +55,7 @@ fn command_guard_log() -> bool {
     #[cfg(test)]
     {
         let copy = shadow.world_mut().world_mut().entity_mut(entity).unwrap();
-        copy.set_guard_position_data(Some([900.0, 0.0, 900.0]));
+        copy.guard_position = Some([900.0, 0.0, 900.0]);
         copy.guard_radius = 1.0;
     }
     if logic.host_object(unit).unwrap().active_guard_position() != Some(dest) {
@@ -66,7 +66,7 @@ fn command_guard_log() -> bool {
         .world()
         .entity(entity)
         .unwrap()
-        .active_guard_position()
+        .guard_position
         != Some([dest.x, dest.y, dest.z])
     {
         return false;

@@ -194,7 +194,6 @@ fn hacker_field_residual_deposits_cash_on_interval() {
     );
     let started = game_logic.host_object(hacker_id).unwrap();
     assert_eq!(started.ai_state(), crate::game_logic::AIState::Idle);
-    assert!(started.unit_ai_runtime.idle_initialized());
     assert!(!started.idle_mood_reset_pending);
     game_logic
         .update_hacker_income()

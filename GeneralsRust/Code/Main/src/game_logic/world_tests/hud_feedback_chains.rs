@@ -43,7 +43,7 @@ fn set_window_hidden(
 ) {
     owner.with_manager(|manager| {
         if let Some(win) = manager.find_window_by_name(name) {
-            let _ = win.borrow_mut().hide(hidden);
+            let _ = win.borrow_mut().hide(hidden, manager);
         }
     });
 }

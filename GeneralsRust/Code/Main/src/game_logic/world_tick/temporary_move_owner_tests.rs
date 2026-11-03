@@ -241,13 +241,9 @@ fn expired_but_unobserved_actual_overlay_saves_and_resumes_on_receiving_owner() 
     let before = bytes(&source, id);
     let peer_before = bytes(&peer, peer_id);
     let factory = crate::save_load::snapshot::SnapshotBuilder::new();
-    let mut snapshot = factory.create_world_snapshot(&source).unwrap();
-    let mut wire = std::io::Cursor::new(Vec::new());
-    snapshot.xfer(&mut XferSave::new(&mut wire)).unwrap();
-    let mut decoded = crate::save_load::snapshot::WorldSnapshot::default();
-    decoded
-        .xfer(&mut XferLoad::new(std::io::Cursor::new(wire.into_inner())))
-        .unwrap();
+    let snapshot = factory.create_world_snapshot(&source).unwrap();
+    let decoded: crate::save_load::snapshot::WorldSnapshot =
+        bincode_legacy::deserialize(&bincode_legacy::serialize(&snapshot).unwrap()).unwrap();
     factory
         .restore_from_snapshot(&decoded, &mut receiving)
         .unwrap();

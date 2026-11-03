@@ -183,7 +183,7 @@ fn execute_combat_drop_plays_voice_combat_drop() {
             exec.execute_combat_drop(
                 &[transport],
                 &DropTarget::Location(Vec3::new(80.0, 0.0, 80.0))
-            ).is_ok_and(|r| r == CommandResult::Success));
+            ) == CommandResult::Success);
     }
     assert!(
         logic
@@ -1031,7 +1031,7 @@ fn combat_drop_into_rejects_faction_structure() {
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert!(
-        exec.execute_combat_drop(&[transport], &DropTarget::Object(bldg)).is_ok_and(|r| r == CommandResult::InvalidCommand));
+        exec.execute_combat_drop(&[transport], &DropTarget::Object(bldg)) == CommandResult::InvalidCommand);
 }
 
 #[test]
@@ -1068,7 +1068,7 @@ fn combat_drop_hover_uses_geometry_height_plus_min_drop() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_combat_drop(&[transport], &DropTarget::Object(bunker)).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_combat_drop(&[transport], &DropTarget::Object(bunker)) == CommandResult::Success);
     }
     let ai = logic
         .host_object(transport)

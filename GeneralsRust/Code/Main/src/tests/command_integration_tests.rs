@@ -23,7 +23,7 @@ fn queue_and_process_invalid_command_returns_invalid_result() {
 
     let results = command_system.process_commands(&mut game_logic);
     assert_eq!(results.len(), 1);
-    assert!(results[0].is_ok_and(|r| r == CommandResult::InvalidCommand));
+    assert!(results[0] == CommandResult::InvalidCommand);
 }
 
 #[test]
@@ -42,7 +42,7 @@ fn queue_immediate_move_command_processes_successfully_with_empty_selection() {
 
     let results = command_system.process_commands(&mut game_logic);
     assert_eq!(results.len(), 1);
-    assert!(results[0].is_ok_and(|r| r == CommandResult::Success));
+    assert!(results[0] == CommandResult::Success);
 }
 
 #[test]

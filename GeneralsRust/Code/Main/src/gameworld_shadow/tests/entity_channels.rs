@@ -119,7 +119,7 @@ fn guard_radius_is_owned_and_shadow_only_observes() {
             .world()
             .entity(entity)
             .unwrap()
-            .active_guard_position(),
+            .guard_position,
         Some([55.0, 0.0, 55.0])
     );
     shadow

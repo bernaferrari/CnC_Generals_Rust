@@ -3252,7 +3252,7 @@ End
                         .init_shroud_grid(512.0, 512.0);
                     let looker_id = logic
                         .create_object_for_player("OwnedCoiLooker", 1, Vec3::new(120.0, 0.0, 120.0))
-                        .unwrap().expect("ObjectId");
+                        .unwrap();
                     let enemy_id = logic
                         .create_object_for_player("OwnedCoiEnemy", 2, Vec3::new(130.0, 0.0, 120.0))
                         .unwrap();

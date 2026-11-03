@@ -2569,7 +2569,6 @@ fn deploy_style_must_center_turret_before_pack() {
     {
         let entered = logic.host_object(id).unwrap();
         assert_eq!(entered.ai_state(), AIState::Idle);
-        assert!(entered.unit_ai_runtime.idle_initialized());
         assert!(!entered.idle_mood_reset_pending);
     }
     logic.set_current_frame(30);

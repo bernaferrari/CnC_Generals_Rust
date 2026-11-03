@@ -444,17 +444,20 @@ mod tests {
     fn matching_keeps_base_at_rookie_and_first_exact_tie_then_prefers_more_yes() {
         let base = conditional_row("base", vec![0]);
         let veteran = conditional_row("veteran", vec![1]);
-        let selected = select_conditional_weapon_row(&[base, veteran], 0);
+        let rows = [base, veteran];
+        let selected = select_conditional_weapon_row(&rows, 0);
         assert_eq!(selected.unwrap().1.names[0].as_deref(), Some("base"));
 
         let first = conditional_row("first", vec![1 | 2]);
         let tied_later = conditional_row("tied-later", vec![1 | 2]);
-        let selected = select_conditional_weapon_row(&[first, tied_later], 1);
+        let rows = [first, tied_later];
+        let selected = select_conditional_weapon_row(&rows, 1);
         assert_eq!(selected.unwrap().1.names[0].as_deref(), Some("first"));
 
         let one_yes = conditional_row("one-yes", vec![1]);
         let two_yes = conditional_row("two-yes", vec![1 | 2]);
-        let selected = select_conditional_weapon_row(&[one_yes, two_yes], 1 | 2);
+        let rows = [one_yes, two_yes];
+        let selected = select_conditional_weapon_row(&rows, 1 | 2);
         assert_eq!(selected.unwrap().1.names[0].as_deref(), Some("two-yes"));
     }
 

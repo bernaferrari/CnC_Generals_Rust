@@ -198,7 +198,7 @@ fn group_move_clamps_waypoint_to_map_extent() {
     let outside = Vec3::new(max.x + 500.0, 0.0, max.z + 500.0);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_move(&[id], outside).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_move(&[id], outside) == CommandResult::Success);
     }
     let unit = logic.host_object(id).unwrap();
     let dest = unit
@@ -392,7 +392,7 @@ fn stamped_formation_move_does_not_tighten() {
             exec.should_tighten_group_move(&[a, b], dest),
             "click is inside the bbox; tighten would fire without the formation gate"
         );
-        assert!(exec.execute_move(&[a, b], dest).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_move(&[a, b], dest) == CommandResult::Success);
     }
     let fa = logic.host_object(a).unwrap();
     let fb = logic.host_object(b).unwrap();
@@ -554,7 +554,7 @@ fn group_special_power_fires_every_capable_caster() {
             &SpecialPowerType::SpySatellite,
             &PowerTarget::Location(Vec3::new(80.0, 0.0, 80.0)),
         );
-        assert!(res.is_ok_and(|r| r == CommandResult::Success));
+        assert!(res == CommandResult::Success);
     }
     let sa = logic.host_object(a).unwrap().ai_state().clone();
     let sb = logic.host_object(b).unwrap().ai_state().clone();
@@ -609,7 +609,7 @@ fn combat_drop_sets_pending_evacuate() {
         assert!(exec.execute_combat_drop(
                 &[transport],
                 &DropTarget::Location(Vec3::new(80.0, 0.0, 80.0))
-            ).is_ok_and(|r| r == CommandResult::Success));
+            ) == CommandResult::Success);
     }
     let t = logic.host_object(transport).unwrap();
     assert!(

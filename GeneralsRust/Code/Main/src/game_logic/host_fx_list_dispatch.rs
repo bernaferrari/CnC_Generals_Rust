@@ -552,7 +552,7 @@ impl crate::game_logic::GameLogic {
                 );
             };
         let mut find_list =
-            |name: &str| game_client::fx_list::get_fx_list_store().find_fx_list(name);
+            |name: &str| game_client::fx_list::with_fx_list_store(|s| s.find_fx_list(name));
         let mut position_visible = |position: Option<&gamelogic::common::Coord3D>| {
             let (Some(player), Some(position)) = (player, position) else {
                 return false;
@@ -570,6 +570,8 @@ impl crate::game_logic::GameLogic {
             shake: &mut shake,
             find_list: &mut find_list,
             bone_transforms,
+            create_light_pulse: &mut (|_| false),
+            play_fx_audio: &mut (|_, _| false),
             position_visible: &mut position_visible,
         })
     }

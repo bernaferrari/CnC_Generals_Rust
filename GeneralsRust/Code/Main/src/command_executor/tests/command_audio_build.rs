@@ -197,7 +197,7 @@ fn place_beacon_spawns_world_object_and_honors_cap() {
     for _ in 1..max {
         assert!(place(&mut logic) == CommandResult::Success);
     }
-    assert!(place(&mut logic).is_ok_and(|r| r == CommandResult::InvalidCommand), "cap must refuse extra beacons");
+    assert!(place(&mut logic) == CommandResult::InvalidCommand, "cap must refuse extra beacons");
 }
 
 /// C++ BuildAssistant.cpp:333-334 / :1365-1383 — placement clears trees/props.
@@ -505,7 +505,7 @@ fn execute_build_no_money_queues_insufficient_funds_eva_and_refuses() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         exec.execute_build(&[ObjectId(9311)], "TestPoorBarracks", site, 0.0)
     };
-    assert!(result.is_ok_and(|r| r == CommandResult::InvalidCommand), "insufficient funds must refuse the placement");
+    assert!(result == CommandResult::InvalidCommand, "insufficient funds must refuse the placement");
     assert_eq!(logic
             .get_player(0)
             .map(|p| p.resources.supplies)
@@ -578,7 +578,7 @@ fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
             0.0,
         )
     };
-    assert!(result.is_ok_and(|r| r == CommandResult::Success), "handicap place must succeed");
+    assert!(result == CommandResult::Success, "handicap place must succeed");
     assert_eq!(logic.get_player(0).unwrap().effective_supplies(),
         250,
         "hq-iherw: place charges calcCostToBuild (1000 * 0.75)"
@@ -600,7 +600,7 @@ fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         exec.execute_cancel_construction(building_id, 0)
     };
-    assert!(cancel.is_ok_and(|r| r == CommandResult::Success));
+    assert!(cancel == CommandResult::Success);
     assert_eq!(logic.get_player(0).unwrap().effective_supplies(),
         1_000,
         "hq-iherw: cancel refunds calcCostToBuild, not raw INI BuildCost"
@@ -654,7 +654,7 @@ fn context_move_plays_voice_move_not_unit_command() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert!(
-            exec.execute_move(&[a], Vec3::new(40.0, 0.0, 0.0)).is_ok_and(|r| r == CommandResult::Success));
+            exec.execute_move(&[a], Vec3::new(40.0, 0.0, 0.0)) == CommandResult::Success);
     }
     assert!(
         logic
@@ -692,7 +692,7 @@ fn context_move_plays_voice_move_not_unit_command() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_attack_move(&[a], Vec3::new(120.0, 0.0, 0.0), -1).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_attack_move(&[a], Vec3::new(120.0, 0.0, 0.0), -1) == CommandResult::Success);
     }
     assert!(
         logic
@@ -980,7 +980,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert!(
-            exec.execute_repair(&[dozer], damaged).is_ok_and(|r| r == CommandResult::Success));
+            exec.execute_repair(&[dozer], damaged) == CommandResult::Success);
     }
     assert!(
         logic
@@ -1001,7 +1001,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_resume_construction(&[dozer], scaffold).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_resume_construction(&[dozer], scaffold) == CommandResult::Success);
     }
     assert!(
         logic
@@ -1022,7 +1022,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_get_repaired(&[tank_id], pad_id).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_get_repaired(&[tank_id], pad_id) == CommandResult::Success);
     }
     assert!(
         logic
@@ -1043,7 +1043,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_get_healed(&[inf_id], heal_id).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_get_healed(&[inf_id], heal_id) == CommandResult::Success);
     }
     assert!(
         logic
@@ -1063,7 +1063,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_snipe_vehicle(&[kell_id], enemy).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_snipe_vehicle(&[kell_id], enemy) == CommandResult::Success);
     }
     assert!(
         logic
@@ -1090,7 +1090,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
                 &[sat_id],
                 &SpecialPowerType::SpySatellite,
                 &PowerTarget::Location(Vec3::new(80.0, 0.0, 80.0)),
-            ).is_ok_and(|r| r == CommandResult::Success));
+            ) == CommandResult::Success);
     }
     assert!(
         logic
@@ -1517,7 +1517,7 @@ fn attack_move_includes_immobile_attacker() {
     );
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_attack_move(&[tur, tk], Vec3::new(200.0, 0.0, 0.0), 4).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_attack_move(&[tur, tk], Vec3::new(200.0, 0.0, 0.0), 4) == CommandResult::Success);
     }
     let u = logic.host_object(tur).unwrap();
     assert_ne!(u.ai_state(), AIState::AttackMoving);
@@ -1656,7 +1656,7 @@ fn free_move_dissolves_mixed_formation_stamps() {
     // Outside gather bbox, closer than MinDistanceForGroup so no column pack.
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_move(&all, Vec3::new(80.0, 0.0, 0.0)).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_move(&all, Vec3::new(80.0, 0.0, 0.0)) == CommandResult::Success);
     }
     for id in stamped {
         assert_eq!(logic.host_object(id).unwrap().formation_id,

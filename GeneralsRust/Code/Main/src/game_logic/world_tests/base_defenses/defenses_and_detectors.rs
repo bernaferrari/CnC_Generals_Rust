@@ -1462,7 +1462,7 @@ fn scout_and_hellfire_drone_residual_attach_detect_and_fire() {
             .unwrap()
             .auto_acquire_when_idle()
     );
-    game_logic.tick_mood_auto_acquire(&[hf_id]);
+    let _ = game_logic.try_mood_auto_acquire(hf_id);
     assert_eq!(
         game_logic.host_object(hf_id).unwrap().target,
         Some(damage_target_id),
@@ -1675,7 +1675,7 @@ fn hellfire_scatter_misses_infantry_residual() {
             );
             assert!(logic.host_object(hf).unwrap().auto_acquire_when_idle());
         }
-        logic.tick_mood_auto_acquire(&[hf]);
+        let _ = logic.try_mood_auto_acquire(hf);
         if f == 0 {
             assert_eq!(
                 logic.host_object(hf).unwrap().target,
@@ -1715,7 +1715,7 @@ fn hellfire_scatter_misses_infantry_residual() {
     let hp_before = logic.host_object(tank).unwrap().health.current;
     for f in 100..160u64 {
         logic.set_current_frame(f);
-        logic.tick_mood_auto_acquire(&[hf]);
+        let _ = logic.try_mood_auto_acquire(hf);
         logic.update_combat(&[hf, tank], LOGIC_FRAME_TIMESTEP);
         logic.tick_nested_attack_machines(&[hf], logic.frame as f32 / 30.0, logic.frame);
         crate::game_logic::combat::drain_pending_projectiles(
