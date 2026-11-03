@@ -169,6 +169,7 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
                 speed,
                 radius,
                 object: None,
+                secondary_object: None,
             },
             FxSource::Objects { primary, secondary } => {
                 let player = self.world.local_player_id();
@@ -182,9 +183,16 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
                             self.world.world_services.shroud(),
                         )
                     });
-                let secondary = secondary
+                let secondary_object = secondary
                     .and_then(|id| self.world.host_object(crate::game_logic::ObjectId(id)))
-                    .map(|object| host_to_leftover_coord(object.get_position()));
+                    .map(|object| {
+                        crate::game_logic::GameLogic::observe_host_fx_object(
+                            object,
+                            player,
+                            self.world.world_services.shroud(),
+                        )
+                    });
+                let secondary = secondary_object.map(|pose| pose.position);
                 FxObservation {
                     primary: object.map(|object| object.position),
                     matrix: object.map(|object| object.transform),
@@ -192,6 +200,7 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
                     speed: 0.,
                     radius: 0.,
                     object,
+                    secondary_object,
                 }
             }
         }
@@ -240,6 +249,11 @@ impl GameClientFxRuntime for HostFxRuntime<'_, '_> {
             audio: &mut self.world.session_view.audio_random,
         };
         let Some(audio) = self.effects.audio.as_deref_mut() else {
+            game_client::fx_list::submit_global_sound_fx(
+                name,
+                input.primary.as_ref(),
+                player,
+            );
             return Ok(());
         };
         audio.submit_fx_sound(

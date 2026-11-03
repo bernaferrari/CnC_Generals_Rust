@@ -349,6 +349,7 @@ End
     // World owns CommonServices; register DamageFX / FXList / audio / weapons into
     // that bag, then leave it published for the isolated child (apply uses free-fns).
     let mut world = GameLogic::new();
+    let mut fx_catalog = game_client::fx_list::FXListStore::new();
     world.with_own_services(|| {
         init_global_damage_fx_store();
         let mut effects = String::new();
@@ -379,9 +380,7 @@ End
                     name: name.clone(),
                     sender: sender.clone(),
                 }));
-                game_client::fx_list::with_fx_list_store_mut(|s| {
-                    s.add_fx_list(name, list);
-                });
+                fx_catalog.add_fx_list(name, list);
                 let sound = format!("Sound_{rows}_{level}");
                 let manager = game_engine::common::audio::game_audio::get_global_audio_manager()
                     .unwrap_or_else(
@@ -398,6 +397,12 @@ End
                 );
             }
         }
+        assert!(
+            fx_catalog
+                .find_fx_list("FX_SplashCompletionRows_VETERAN")
+                .is_some(),
+            "fixture catalog must retain ObserveList FX"
+        );
         gamelogic::initialize_weapon_store().unwrap();
         assert_eq!(
             crate::assets::ini_template_loader::register_weapons_from_ini_text(&weapons),
@@ -405,6 +410,26 @@ End
         );
     });
     world.install_as_active_stores();
+    {
+        let store = game_engine::common::ini::ini_damage_fx::get_damage_fx_store()
+            .expect("DamageFX store after install");
+        assert!(
+            store.find_damage_fx("SplashCompletionRows").is_some(),
+            "Common DamageFX rows must exist before world copy"
+        );
+        world.damage_fx_definitions = (*store).clone();
+        world.damage_fx_base = (*store).clone();
+        assert!(
+            world
+                .damage_fx_definitions
+                .find_damage_fx("SplashCompletionRows")
+                .is_some(),
+            "world.damage_fx_definitions must retain SplashCompletionRows"
+        );
+    }
+    // Object damage FX plays from this world's admitted catalog (ObserveList lives here).
+    world.admit_fx_catalog(fx_catalog);
+
     let content = crate::assets::ReceivingObjectContent::from_sources([(
         "Data/INI/Object/SplashCompletion.ini".into(),
         objects,

@@ -601,6 +601,15 @@ fn controlling_player_index(primary: &Object) -> i32 {
 }
 
 /// C++ `SoundFXNugget::doFXObj` / `doFXPos` → `TheAudio->addAudioEvent`.
+/// Headless / fixture Sound path when no receiving NativeAudioEffects owner is loaned.
+pub fn submit_global_sound_fx(
+    sound_name: &str,
+    position: Option<&Coord3D>,
+    player_index: Option<i32>,
+) {
+    play_sound_fx_event(sound_name, position, player_index);
+}
+
 fn play_sound_fx_event(sound_name: &str, position: Option<&Coord3D>, player_index: Option<i32>) {
     use game_engine::common::audio::game_audio::{
         get_global_audio_manager, initialize_global_audio_manager,

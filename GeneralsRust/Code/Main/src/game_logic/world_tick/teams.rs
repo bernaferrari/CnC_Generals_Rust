@@ -1120,16 +1120,20 @@ impl GameLogic {
     /// Apply the remaining script-side team operations.
     /// TEAM_PANIC and TEAM_WANDER execute synchronously on the borrowed driver.
     pub fn apply_host_loco_set_script_requests(&mut self) {
-        self.apply_host_loco_set_script_requests_with_effects(&mut Default::default())
-            .expect("locomotor script requests failed");
+        self.with_own_services_mut(|this| {
+            this.apply_host_loco_set_script_requests_with_effects(&mut Default::default())
+                .expect("locomotor script requests failed");
+        })
     }
 
     pub(crate) fn apply_host_loco_set_script_requests_with_effects(
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        self.apply_host_team_factory_script_requests();
-        Ok(())
+        self.with_own_services_mut(|this| {
+            this.apply_host_team_factory_script_requests();
+            Ok(())
+        })
     }
 
     /// C++ `doTeamWander` / `doTeamPanic` member loop: closest waypoint on path,

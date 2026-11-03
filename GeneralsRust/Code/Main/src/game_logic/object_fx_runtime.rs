@@ -393,6 +393,7 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
                 speed,
                 radius,
                 object: None,
+                secondary_object: None,
             },
             FxSource::Objects { primary, .. } => {
                 let object = self
@@ -413,6 +414,7 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
                     speed: 0.,
                     radius: 0.,
                     object,
+                    secondary_object: self.secondary,
                 }
             }
         }
@@ -470,6 +472,13 @@ impl GameClientFxRuntime for ObjectFxRuntime<'_, '_, '_, '_> {
                 &self.services.audio_policy,
             )
         } else {
+            // Headless / fixture path: retain C++ SoundFXNugget → TheAudio so
+            // pending_play_events stay observable without a receiving owner.
+            game_client::fx_list::submit_global_sound_fx(
+                name,
+                input.primary.as_ref(),
+                player,
+            );
             Ok(())
         }
     }

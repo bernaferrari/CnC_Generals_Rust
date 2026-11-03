@@ -784,7 +784,16 @@ pub fn request_host_recruit_team(owner_name: &str, team_name: &str, recruit_radi
 }
 
 pub fn take_host_recruit_team_requests() -> Vec<(String, String, f32)> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().recruit_team_requests.lock().unwrap_or_else(|p| p.into_inner())) }
+    let Some(services) = try_host_script_queues() else {
+        return Vec::new();
+    };
+    std::mem::take(
+        &mut *services
+            .host_script_requests()
+            .recruit_team_requests
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()),
+    )
 }
 
 /// Live host drain: CREATE_OBJECT / named-at-waypoint / reinforcements.

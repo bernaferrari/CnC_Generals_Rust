@@ -1683,6 +1683,14 @@ impl GameLogic {
             return false;
         }
         self.local_player_id = player_id;
+        // Client FXList::doFXObj visibility reads PlayerList::get_local_player_index
+        // (C++ ThePlayerList->getLocalPlayer). Keep the world's published list in sync.
+        let index = player_id.map(|id| id as i32).unwrap_or(-1);
+        self.with_own_services(|| {
+            if let Ok(mut list) = gamelogic::player::player_list().write() {
+                list.set_local_player_index(index);
+            }
+        });
         true
     }
 

@@ -168,6 +168,7 @@ impl super::GameClientFxRuntime for BorrowedFxRuntime<'_, '_, '_> {
                 speed,
                 radius,
                 object: None,
+                secondary_object: None,
             },
             super::FxSource::Objects { primary, .. } => {
                 let object = self.input.object.filter(|object| object.id == primary);
@@ -178,6 +179,7 @@ impl super::GameClientFxRuntime for BorrowedFxRuntime<'_, '_, '_> {
                     speed: 0.,
                     radius: 0.,
                     object,
+                    secondary_object: None,
                 }
             }
         }
