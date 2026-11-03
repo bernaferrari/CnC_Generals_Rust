@@ -32,6 +32,8 @@ mod production;
 mod shock;
 #[cfg(test)]
 mod splash_partition_order_tests;
+#[cfg(test)]
+mod self_position_damage_tests;
 mod sleepy;
 mod step;
 pub(crate) use step::{
