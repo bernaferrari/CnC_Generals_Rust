@@ -696,13 +696,17 @@ mod failed_attempt_native_tests {
             ..Default::default()
         })
         .unwrap();
-        struct Scope;
-        impl Drop for Scope {
+        struct Scope<T> {
+            engine: Option<T>,
+        }
+        impl<T> Drop for Scope<T> {
             fn drop(&mut self) {
-                drop(engine);
+                drop(self.engine.take());
             }
         }
-        let _scope = Scope;
+        let _scope = Scope {
+            engine: Some(engine.clone()),
+        };
         let mut graphics = GraphicsSystem::new(
             engine.lock().device(),
             engine.lock().queue(),

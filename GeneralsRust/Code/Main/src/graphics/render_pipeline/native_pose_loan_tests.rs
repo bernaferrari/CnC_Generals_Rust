@@ -1,6 +1,6 @@
 use super::super::installed_draw_pose::{InstalledDrawObject, InstalledDrawPose};
 use super::*;
-use crate::assets::LiveDrawPlaybackIdentity;
+use crate::assets::{LiveDrawPlaybackIdentity, NativeDrawOwnerId};
 
 fn identity(world: &Arc<()>, object: &Arc<()>, generation: u64) -> LiveDrawPlaybackIdentity {
     LiveDrawPlaybackIdentity::new(Arc::clone(world), Arc::clone(object), 7, 42, generation)
@@ -261,8 +261,8 @@ fn native_destroy_loan_retires_only_its_actual_render_and_playback_owner() {
     world
         .borrow_installed_poses(&mut failed, 999)
         .retire_native_drawable(crate::game_logic::ObjectId(42));
-    assert!(!world.drawable_visual_states.contains_key(&(42, 2)));
-    assert!(world.drawable_visual_states.contains_key(&(43, 2)));
+    assert!(!world.drawable_visual_states.contains_key(&(NativeDrawOwnerId::Actor(42), 2)));
+    assert!(world.drawable_visual_states.contains_key(&(NativeDrawOwnerId::Actor(43), 2)));
     assert!(
         !world
             .live_draw_playback

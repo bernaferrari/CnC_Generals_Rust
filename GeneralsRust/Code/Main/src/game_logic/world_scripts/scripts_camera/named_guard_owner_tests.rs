@@ -337,7 +337,7 @@ fn guard_this_object_uses_only_the_supplied_owned_id() {
         world
             .host_object(id)
             .unwrap()
-            .guard_position
+            .guard_position()
             .is_some()
     );
     assert_eq!(

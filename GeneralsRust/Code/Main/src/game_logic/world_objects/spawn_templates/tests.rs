@@ -868,7 +868,7 @@ End
         );
         let palace = logic
             .create_object("GLAPalace", Team::GLA, glam::Vec3::new(40.0, 0.0, 0.0))
-            .expect("palace").expect("ObjectId");
+            .expect("palace");
         assert!(
             logic
                 .host_object(palace)

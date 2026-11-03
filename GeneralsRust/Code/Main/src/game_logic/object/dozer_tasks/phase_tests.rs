@@ -949,10 +949,12 @@ fn actual_rebuild_construct_supplies_birth_flags_before_factory_and_uses_builder
     world.process_destroy_list();
     world.set_scoring_enabled(true);
     let available = world.get_player(0).unwrap().effective_supplies();
+    let mut economy_events = std::mem::take(&mut world.economy_events);
     world
         .get_player_mut(0)
         .unwrap()
-        .withdraw_construction_money(available, &mut world.economy_events);
+        .withdraw_construction_money(available, &mut economy_events);
+    world.economy_events = economy_events;
     let cash = world.get_player(0).unwrap().effective_supplies();
     assert_eq!(
         cash, 0,

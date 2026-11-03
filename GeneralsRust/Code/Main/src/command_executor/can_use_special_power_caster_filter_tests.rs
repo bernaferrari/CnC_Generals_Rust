@@ -235,11 +235,11 @@ fn microwave_disable_building_starts_hdb_channel() {
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_special_power(
+        assert_eq!(exec.execute_special_power(
                 &[tank_id],
                 &SpecialPowerType::MicrowaveDisableBuilding,
                 &PowerTarget::Object(building_id),
-            ).unwrap() == CommandResult::Success, "Microwave Disable Building must not be hard-rejected");
+            ).unwrap(), CommandResult::Success, "Microwave Disable Building must not be hard-rejected");
     }
     let issued = logic.host_object(tank_id).expect("tank after issue");
     assert_eq!(issued.ai_state(), AIState::SpecialAbility);
@@ -300,8 +300,7 @@ fn baikonur_location_does_not_open_door_object_does_not_spend() {
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(
-            exec.execute_special_power(
+        assert_eq!(exec.execute_special_power(
                 &[tower_id],
                 &SpecialPowerType::BaikonurRocket,
                 &PowerTarget::Object(dummy_id),
@@ -767,17 +766,17 @@ fn object_target_click_rejects_fogged_ghost() {
                 &[caster],
                 &SpecialPowerType::CashHack,
                 &PowerTarget::Object(depot_id),
-            ).unwrap() == CommandResult::InvalidCommand, "FOGGED supply ghost must refuse CashHack");
-        assert!(exec.execute_special_power(
+            ).unwrap(), CommandResult::InvalidCommand, "FOGGED supply ghost must refuse CashHack");
+        assert_eq!(exec.execute_special_power(
                 &[ship_id],
                 &SpecialPowerType::BattleshipBombardment,
                 &PowerTarget::Object(tank_id),
-            ).unwrap() == CommandResult::InvalidCommand, "FOGGED tank ghost must refuse Battleship");
-        assert!(exec.execute_special_power(
+            ).unwrap(), CommandResult::InvalidCommand, "FOGGED tank ghost must refuse Battleship");
+        assert_eq!(exec.execute_special_power(
                 &[hunter_id],
                 &SpecialPowerType::TankHunterTnt,
                 &PowerTarget::Object(tank_id),
-            ).unwrap() == CommandResult::InvalidCommand, "FOGGED tank ghost must refuse Tank Hunter TNT");
+            ).unwrap(), CommandResult::InvalidCommand, "FOGGED tank ghost must refuse Tank Hunter TNT");
     }
     assert!(
         logic.is_special_power_ready_for(caster, &SpecialPowerType::CashHack),
@@ -801,11 +800,11 @@ fn object_target_click_rejects_fogged_ghost() {
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_special_power(
+        assert_eq!(exec.execute_special_power(
                 &[caster],
                 &SpecialPowerType::CashHack,
                 &PowerTarget::Object(depot_id),
-            ).unwrap() == CommandResult::Success, "CLEAR depot must accept CashHack");
+            ).unwrap(), CommandResult::Success, "CLEAR depot must accept CashHack");
     }
     assert!(
         !logic.is_special_power_ready_for(caster, &SpecialPowerType::CashHack),
@@ -859,11 +858,11 @@ fn location_power_unit_click_leftover_gates_shroud() {
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_special_power(
+        assert_eq!(exec.execute_special_power(
                 &[cc_id],
                 &SpecialPowerType::Airstrike,
                 &PowerTarget::Object(enemy_id),
-            ).unwrap() == CommandResult::InvalidLocation, "C++/leftover refuse NEED_TARGET_POS unit clicks on CELLSHROUD_SHROUDED");
+            ).unwrap(), CommandResult::InvalidLocation, "C++/leftover refuse NEED_TARGET_POS unit clicks on CELLSHROUD_SHROUDED");
     }
     assert!(
         logic.is_special_power_ready_for(cc_id, &SpecialPowerType::Airstrike),
@@ -925,11 +924,11 @@ fn location_power_unit_click_leftover_gates_underwater_paradrop() {
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_special_power(
+        assert_eq!(exec.execute_special_power(
                 &[cc_id],
                 &SpecialPowerType::Paradrop,
                 &PowerTarget::Object(enemy_id),
-            ).unwrap() == CommandResult::InvalidLocation, "C++/leftover refuse NEED_TARGET_POS unit clicks underwater for paradrop");
+            ).unwrap(), CommandResult::InvalidLocation, "C++/leftover refuse NEED_TARGET_POS unit clicks underwater for paradrop");
     }
     assert!(
         logic.is_special_power_ready_for(cc_id, &SpecialPowerType::Paradrop),
@@ -977,11 +976,11 @@ fn battleship_object_click_rejects_allies_without_consuming() {
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_special_power(
+        assert_eq!(exec.execute_special_power(
                 &[ship_id],
                 &SpecialPowerType::BattleshipBombardment,
                 &PowerTarget::Object(ally_id),
-            ).unwrap() == CommandResult::InvalidCommand, "C++ ActionManager refuses allied battleship object clicks");
+            ).unwrap(), CommandResult::InvalidCommand, "C++ ActionManager refuses allied battleship object clicks");
     }
     let ship = logic.host_object(ship_id).expect("ship");
     assert!(ship.fire_weapon_power.is_none());
@@ -1056,20 +1055,20 @@ fn laser_object_click_requires_enemy_vehicle() {
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_special_power(
+        assert_eq!(exec.execute_special_power(
                 &[md_id],
                 &SpecialPowerType::MissileDefenderLaserGuided,
                 &PowerTarget::Object(enemy_inf),
-            ).unwrap() == CommandResult::InvalidCommand, "leftover ActionManager refuses infantry laser lock");
-        assert!(exec.execute_special_power(
+            ).unwrap(), CommandResult::InvalidCommand, "leftover ActionManager refuses infantry laser lock");
+        assert_eq!(exec.execute_special_power(
                 &[md_id],
                 &SpecialPowerType::MissileDefenderLaserGuided,
                 &PowerTarget::Object(ally_tank),
-            ).unwrap() == CommandResult::InvalidCommand, "leftover ActionManager refuses allied laser lock");
-        assert!(exec.execute_special_power(
+            ).unwrap(), CommandResult::InvalidCommand, "leftover ActionManager refuses allied laser lock");
+        assert_eq!(exec.execute_special_power(
                 &[md_id],
                 &SpecialPowerType::MissileDefenderLaserGuided,
                 &PowerTarget::Object(enemy_tank),
-            ).unwrap() == CommandResult::Success, "leftover ActionManager allows enemy vehicle laser lock");
+            ).unwrap(), CommandResult::Success, "leftover ActionManager allows enemy vehicle laser lock");
     }
 }

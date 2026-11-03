@@ -160,6 +160,8 @@ pub struct SystemStores {
     pub audio_shroud_resolver: Mutex<Option<Arc<dyn AudioShroudResolver>>>,
     pub speech_registry: RwLock<std::collections::HashMap<String, crate::common::audio::game_speech::Speech>>,
     pub effects_next_handle: std::sync::atomic::AtomicU32,
+    /// Headless FX id allocator when no live GameClient is published.
+    pub runtime_fx_next_id: std::sync::atomic::AtomicU64,
     /// Live GameClient snapshot bridge (same-thread exclusive borrow).
     pub live_game_client: Mutex<LiveGameClientBridge>,
     /// SaveGame post-load partition / world-dict hooks.
@@ -244,6 +246,7 @@ impl SystemStores {
             audio_shroud_resolver: Mutex::new(None),
             speech_registry: RwLock::new(std::collections::HashMap::new()),
             effects_next_handle: std::sync::atomic::AtomicU32::new(10000),
+            runtime_fx_next_id: std::sync::atomic::AtomicU64::new(1),
             live_game_client: Mutex::new(LiveGameClientBridge::default()),
             post_load_hooks: Arc::new(Mutex::new(PostLoadHooks::default())),
             academy_local_player_mines: AtomicU32::new(0),

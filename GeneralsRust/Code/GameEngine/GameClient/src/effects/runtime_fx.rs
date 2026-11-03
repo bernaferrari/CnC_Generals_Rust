@@ -51,10 +51,15 @@ fn next_fx_id() -> FXId {
     if let Some(id) = crate::core::game_client::with_live_game_client_mut(|client| client.next_fx_id()) {
         return id;
     }
-    // Headless fixtures have no live client; SystemTime nanos collide within one
-    // test body and HashMap-overwrite sibling FX kinds. Keep an atomic fallback.
-    static FALLBACK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    FALLBACK.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    // Headless fixtures: prefer the published CommonServices instance counter
+    // (no process-wide GameClient static). SystemTime nanos collide in one body.
+    if let Some(services) = game_engine::common::common_services::try_common_services() {
+        return services
+            .system
+            .runtime_fx_next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    0
 }
 
 // ---------------------------------------------------------------------------

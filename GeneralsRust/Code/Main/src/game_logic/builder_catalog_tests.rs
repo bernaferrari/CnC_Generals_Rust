@@ -65,7 +65,7 @@ fn assert_constructor_admission(world: &mut GameLogic, name: &str) {
     world.host_object_mut(builder).unwrap().command_set_override = Some("CatalogScaffoldBuildSet".into());
     let cash = world.get_player(0).unwrap().effective_supplies();
     assert_eq!(
-        construct(world, builder) == CommandResult::Success, "actual {name} DozerConstruct");
+        construct(world, builder).expect("construct"), CommandResult::Success, "actual {name} DozerConstruct");
     assert_eq!(world.get_player(0).unwrap().effective_supplies(),
         cash - 300
     );

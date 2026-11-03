@@ -266,7 +266,7 @@ fn sell_command_uses_authored_refund_value_through_world_completion() {
             modifier_keys: ModifierKeys::default(),
         };
         assert_eq!(
-            command_system.execute_command(&sell, &mut logic) == CommandResult::Success, "the physical sell command must enter the normal world sell lifecycle");
+            command_system.execute_command(&sell, &mut logic).expect("command"), CommandResult::Success, "the physical sell command must enter the normal world sell lifecycle");
 
         for frame in 1..=240 {
             logic.set_current_frame(frame);

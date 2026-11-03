@@ -197,7 +197,7 @@ fn place_beacon_spawns_world_object_and_honors_cap() {
     for _ in 1..max {
         assert!(place(&mut logic) == CommandResult::Success);
     }
-    assert!(place(&mut logic) == CommandResult::InvalidCommand, "cap must refuse extra beacons");
+    assert_eq!(place(&mut logic), CommandResult::InvalidCommand, "cap must refuse extra beacons");
 }
 
 /// C++ BuildAssistant.cpp:333-334 / :1365-1383 — placement clears trees/props.
@@ -505,7 +505,7 @@ fn execute_build_no_money_queues_insufficient_funds_eva_and_refuses() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         exec.execute_build(&[ObjectId(9311)], "TestPoorBarracks", site, 0.0).unwrap()
     };
-    assert!(result == CommandResult::InvalidCommand, "insufficient funds must refuse the placement");
+    assert_eq!(result, CommandResult::InvalidCommand, "insufficient funds must refuse the placement");
     assert_eq!(logic
             .get_player(0)
             .map(|p| p.resources.supplies)
@@ -578,7 +578,7 @@ fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
             0.0,
         ).unwrap()
     };
-    assert!(result == CommandResult::Success, "handicap place must succeed");
+    assert_eq!(result, CommandResult::Success, "handicap place must succeed");
     assert_eq!(logic.get_player(0).unwrap().effective_supplies(),
         250,
         "hq-iherw: place charges calcCostToBuild (1000 * 0.75)"

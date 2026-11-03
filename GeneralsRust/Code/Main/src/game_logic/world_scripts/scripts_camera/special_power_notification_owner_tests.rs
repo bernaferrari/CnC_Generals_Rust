@@ -300,7 +300,7 @@ fn special_power_event_encoded_continuation_preserves_receiving_history_and_flus
 #[test]
 fn direct_delete_and_invalid_creator_do_not_manufacture_completion_events() {
     let (mut deleted, _, victim) = world(true);
-    deleted.destroy_object(victim.unwrap().unwrap());
+    deleted.destroy_object(victim.unwrap());
     assert!(!completed(
         deleted.owned_script_engine.as_ref().unwrap(),
         CREATOR

@@ -1545,6 +1545,7 @@ mod tests {
                 destroy_threshold: -1,
                 cur_units: 2,
                 current_waypoint_id: 9,
+                common_attack_target: None,
                 generic_script_attempts: vec![false; MAX_GENERIC_SCRIPTS],
                 recruitability_set: true,
                 recruitable: false,

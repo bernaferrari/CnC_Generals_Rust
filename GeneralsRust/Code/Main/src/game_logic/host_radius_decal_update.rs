@@ -1004,6 +1004,9 @@ mod player_owner_tests {
                             PresentationDrawableMutation::Creating { .. } => "create",
                             PresentationDrawableMutation::TransformInstalled { .. } => "transform",
                             PresentationDrawableMutation::ConditionsMarked { .. } => "conditions",
+                            PresentationDrawableMutation::TerrainPropAdded { .. } => {
+                                panic!("radius decal birth must not add terrain props")
+                            }
                             PresentationDrawableMutation::Destroyed { .. } => {
                                 panic!("successful birth cannot retire")
                             }

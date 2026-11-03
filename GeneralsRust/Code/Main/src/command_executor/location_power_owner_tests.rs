@@ -113,11 +113,13 @@ fn click(
     target: ObjectId,
     power: SpecialPowerType,
 ) -> CommandResult {
-    CommandExecutor::new(world, 0).execute_special_power(
-        &[caster],
-        &power,
-        &PowerTarget::Object(target),
-    )
+    CommandExecutor::new(world, 0)
+        .execute_special_power(
+            &[caster],
+            &power,
+            &PowerTarget::Object(target),
+        )
+        .expect("special power")
 }
 
 #[test]
@@ -176,12 +178,12 @@ fn location_command_distinguishes_owner_hidden_fogged_and_visible() {
                 assert!(
                     click(&mut hidden, caster, target, SpecialPowerType::Airstrike) == CommandResult::InvalidLocation);
                 assert!(hidden.is_special_power_ready_for(caster, &SpecialPowerType::Airstrike));
-                assert!(click(
+                assert_eq!(click(
                         &mut fogged,
                         other_caster,
                         other_target,
                         SpecialPowerType::Airstrike
-                    ) == CommandResult::Success, "CPP allows fogged damaging-power locations");
+                    ), CommandResult::Success, "CPP allows fogged damaging-power locations");
                 assert!(
                     !fogged.is_special_power_ready_for(other_caster, &SpecialPowerType::Airstrike)
                 );
@@ -191,7 +193,7 @@ fn location_command_distinguishes_owner_hidden_fogged_and_visible() {
                         visible_target,
                         SpecialPowerType::Airstrike
                     ) == CommandResult::Success);
-                assert!(click(&mut hidden, caster, target, SpecialPowerType::Airstrike) == CommandResult::InvalidLocation, "other owners cannot reveal this map");
+                assert_eq!(click(&mut hidden, caster, target, SpecialPowerType::Airstrike), CommandResult::InvalidLocation, "other owners cannot reveal this map");
                 assert!(hidden.is_special_power_ready_for(caster, &SpecialPowerType::Airstrike));
             });
         },

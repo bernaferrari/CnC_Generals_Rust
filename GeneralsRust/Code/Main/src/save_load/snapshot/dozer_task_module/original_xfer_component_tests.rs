@@ -48,8 +48,7 @@ fn passive_admitted_source(case: &str) -> (GameLogic, ObjectId) {
         .expect("admission");
     let id = world
         .create_object_for_player("OriginalDozer", 0, Vec3::ZERO)
-        .expect("actual typed factory")
-        .expect("admitted Dozer");
+        .expect("actual typed factory");
     let actor = world.host_object_mut(id).unwrap();
     assert!(
         actor

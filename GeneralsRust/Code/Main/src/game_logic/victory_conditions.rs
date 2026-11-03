@@ -1038,7 +1038,8 @@ mod tests {
         static PLAYER_LIST_LOCK: PlayerListLockSlot = PlayerListLockSlot(std::sync::Mutex::new(()));
         let _lock = PLAYER_LIST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         {
-            let mut list = gamelogic::player::ThePlayerList()
+            let list_arc = gamelogic::player::ThePlayerList();
+            let mut list = list_arc
                 .write()
                 .unwrap_or_else(|e| e.into_inner());
             list.clear();

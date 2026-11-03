@@ -320,8 +320,8 @@ fn object_fx_keeps_owned_pose_when_foreign_core_object_has_same_id() {
                     dispatch(&mut logic, primary, secondary, &observed);
                     assert_visible(&events, primary, secondary, 40.0);
                 }
-                core.destroy_object(primary.0).unwrap();
-                core.process_destroy_list().unwrap();
+                core.destroy_object(primary.0);
+                core.process_destroy_list();
                 assert!(
                     gamelogic::object::registry::OBJECT_REGISTRY
                         .get_object(primary.0)

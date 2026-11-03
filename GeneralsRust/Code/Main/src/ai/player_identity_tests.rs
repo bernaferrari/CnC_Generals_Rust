@@ -146,8 +146,7 @@ fn supply_source_queries_use_canonical_map_player_identity() {
             .expect("owned dozer for supply-source scan");
         if attacked {
             world
-                .players
-                .get_mut(&0)
+                .get_player_mut(0)
                 .unwrap()
                 .set_attacked_by_at(1, world.frame);
             world.host_object_mut(id).unwrap().last_damage_timestamp = Some(world.frame);

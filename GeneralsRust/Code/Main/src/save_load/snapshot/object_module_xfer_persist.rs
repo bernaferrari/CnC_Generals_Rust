@@ -1590,7 +1590,7 @@ mod cost_modifier_v6_compat_tests {
         assert_eq!(decoded.object_creation_upgrade[0].executed, [true, false]);
         assert_eq!(
             decoded.object_creation_upgrade[0].cost_modifier_executed,
-            []
+            Vec::<bool>::new()
         );
     }
 }

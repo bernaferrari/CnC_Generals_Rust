@@ -1415,7 +1415,7 @@ fn menu_client_survivors_use_actual_receiving_command_owner_without_core_queue()
                     foreign.fetch_add(1, Ordering::SeqCst);
                 }),
             ));
-            let client = game_client::core::GameClient::new().unwrap();
+            let mut client = game_client::core::GameClient::new().unwrap();
             let mut owner = crate::game_logic::GameLogic::new();
             let mut peer = crate::game_logic::GameLogic::new();
             game_client::message_stream::command_list::get_command_list()
@@ -1435,7 +1435,7 @@ fn menu_client_survivors_use_actual_receiving_command_owner_without_core_queue()
             // This is the same production helper used by both Menu branches
             // and runtime-host start after NewGame interception. These ordinary
             // survivors must not depend on Core's absent player0 queue.
-            CnCGameEngine::pump_receiving_client_commands(&client, &mut owner.replay_pending)
+            CnCGameEngine::pump_receiving_client_commands(&mut client, &mut owner.replay_pending)
                 .unwrap();
             assert_eq!(calls.load(Ordering::SeqCst), 0);
             stamp_host_logic_frame(&mut owner.replay_pending, 7);
@@ -1462,7 +1462,7 @@ fn menu_client_survivors_use_actual_receiving_command_owner_without_core_queue()
                 crate::command_system::CommandType::MoveTo { .. }
             ));
             assert!(peer.command_queue.is_empty());
-            CnCGameEngine::pump_receiving_client_commands(&client, &mut owner.replay_pending)
+            CnCGameEngine::pump_receiving_client_commands(&mut client, &mut owner.replay_pending)
                 .unwrap();
             flush_recorder_and_replay_authority(
                 &mut owner.replay_pending,
