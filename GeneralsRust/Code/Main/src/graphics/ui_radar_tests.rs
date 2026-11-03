@@ -15,9 +15,11 @@ fn owner() -> RadarSystem {
 }
 fn windows() -> WindowManager {
     let mut windows = WindowManager::new();
-    let window = windows.create_window(None, 0, 0, 100, 100).unwrap();
-    window.borrow_mut().set_status(WindowStatus::ENABLED);
-    window.borrow_mut().set_radar_draw_callback();
+    game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+        let window = windows.create_window(None, 0, 0, 100, 100, effects).unwrap();
+        window.borrow_mut().set_status(WindowStatus::ENABLED);
+        window.borrow_mut().set_radar_draw_callback();
+    });
     windows
 }
 fn camera() -> RadarCamera {

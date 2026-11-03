@@ -155,14 +155,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
         ..Default::default()
     })?;
     eprintln!("reset probe: WGPU initialized");
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            drop(engine);
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = crate::graphics::GraphicsSystem::new(
+        let mut graphics = crate::graphics::GraphicsSystem::new(
         engine.lock().device()?,
         engine.lock().queue()?,
         engine.lock().color_format()?,

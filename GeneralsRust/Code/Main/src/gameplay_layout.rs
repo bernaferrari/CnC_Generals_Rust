@@ -1266,14 +1266,16 @@ mod tests {
     fn leftover_main_menu_skirmish_tree_is_not_live_control_bar() {
         let owner = game_client::gui::window_manager::WindowManagerOwner::new();
         {
-            owner.with_manager(|wm| {
-                wm.destroy_all_windows();
-                wm.update();
-                for i in 0..98 {
-                    let win = wm.create_window(None, 0, 0, 8, 8).unwrap();
-                    win.borrow_mut()
-                        .set_name(&format!("MainMenu.wnd:Leftover{i}"));
-                }
+            game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+                owner.with_manager(|wm| {
+                    wm.destroy_all_windows(effects);
+                    wm.update();
+                    for i in 0..98 {
+                        let win = wm.create_window(None, 0, 0, 8, 8, effects).unwrap();
+                        win.borrow_mut()
+                            .set_name(&format!("MainMenu.wnd:Leftover{i}"));
+                    }
+                });
             });
             let count = owner.with_manager_ref(|wm| wm.window_count());
             assert!(
@@ -1284,9 +1286,11 @@ mod tests {
                 !control_bar_parent_is_live_with_owner(&owner),
                 "leftover MainMenu windows must not count as ControlBar.wnd:ControlBarParent"
             );
-            owner.with_manager(|wm| {
-                wm.destroy_all_windows();
-                wm.update();
+            game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+                owner.with_manager(|wm| {
+                    wm.destroy_all_windows(effects);
+                    wm.update();
+                });
             });
         }
     }

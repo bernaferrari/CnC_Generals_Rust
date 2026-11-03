@@ -20,14 +20,7 @@ fn deletion_phase_scene(recrew: bool) {
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            drop(engine);
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
+        let mut graphics = GraphicsSystem::new(
         engine.lock().device(),
         engine.lock().queue(),
         engine.lock().color_format(),
@@ -232,14 +225,7 @@ fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_c
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            drop(engine);
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
+        let mut graphics = GraphicsSystem::new(
         engine.lock().device(),
         engine.lock().queue(),
         engine.lock().color_format(),
