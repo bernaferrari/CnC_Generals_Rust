@@ -99,6 +99,9 @@ struct WindowManagerOwnerState {
     button_audio: RefCell<Option<crate::gui::gadgets::ButtonAudioHook>>,
     /// DisplayStringManager (was process TLS DISPLAY_STRING_MANAGER).
     display_string_manager: RefCell<crate::gui::display_string::DisplayStringManager>,
+    /// PopupJoinGame state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    popup_join_state: Rc<RefCell<crate::gui::callbacks::popup_join_game::PopupJoinState>>,
 }
 
 /// Persistent owner for one native client's WND tree and its re-entry queues.
@@ -200,6 +203,10 @@ impl WindowManagerOwner {
                 network_compat: crate::game_network_compat::NetworkCompatState::new(),
                 button_audio: RefCell::new(None),
                 display_string_manager: RefCell::new(crate::gui::display_string::DisplayStringManager::new()),
+                #[cfg(feature = "online_ui")]
+                popup_join_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::popup_join_game::PopupJoinState::default(),
+                )),
             }),
         }
     }
@@ -240,6 +247,13 @@ impl WindowManagerOwner {
         f: impl FnOnce(&mut crate::gui::display_string::DisplayStringManager) -> R,
     ) -> R {
         f(&mut self.state.display_string_manager.borrow_mut())
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn popup_join_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::popup_join_game::PopupJoinState>> {
+        Rc::clone(&self.state.popup_join_state)
     }
 
     pub(crate) fn keyboard_options_handle(
