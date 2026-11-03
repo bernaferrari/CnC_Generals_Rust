@@ -370,7 +370,11 @@ pub fn apply_lod_texture_reduction_to(
     terrain: &mut dyn FnMut(i32),
 ) -> Option<i32> {
     let owned = live_renderer_3d().unwrap_or_else(|| {
-        std::sync::Arc::new(ww3d_renderer_3d::Renderer3dRuntime::new())
+        let owned = std::sync::Arc::new(ww3d_renderer_3d::Renderer3dRuntime::new());
+        // C++ WW3D texture reduction is process-global; publish the session so
+        // later reads observe the same runtime adjustLOD just wrote.
+        set_live_renderer_3d(std::sync::Arc::clone(&owned));
+        owned
     });
     apply_lod_texture_reduction_to_session(&owned, target_factor, terrain)
 }
@@ -877,7 +881,9 @@ mod receiving_lod_tests {
         }
         let definitions = game_engine::common::ini::ini_game_data::ensure_global_data();
         definitions.write().texture_reduction_factor = 0;
-        let __r3d = ww3d_renderer_3d::Renderer3dRuntime::new();
+        let __r3d = std::sync::Arc::new(ww3d_renderer_3d::Renderer3dRuntime::new());
+        // Same session as apply_lod / observe (parity with sibling LOD tests).
+        super::set_live_renderer_3d(std::sync::Arc::clone(&__r3d));
         ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(&__r3d, 0, 32);
         // A real foreign native holder remains unavailable throughout. The
         // receiving operation must not rediscover or try to borrow that slot.
@@ -892,7 +898,7 @@ mod receiving_lod_tests {
             );
             assert_eq!(
                 ww3d_renderer_3d::rendering::texture_quality::texture_reduction(
-                    super::live_renderer_3d().as_deref().unwrap_or(&__r3d),
+                    super::live_renderer_3d().as_deref().unwrap_or(__r3d.as_ref()),
                 ),
                 value as u32
             );

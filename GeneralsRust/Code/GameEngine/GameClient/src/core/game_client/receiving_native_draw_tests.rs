@@ -156,11 +156,12 @@ fn receiving_native_draw_admits_authored_emitter_before_next_client_bone_update(
         .lock()
         .unwrap()
         .replace(bridge);
-    let previous_particles = get_particle_system_manager_mut()
-        .unwrap()
-        .replace(emitter_manager());
     let observed = (|| -> Result<_, String> {
         let mut client = GameClient::new().map_err(|e| e.to_string())?;
+        // Receiving public shell draws through DrawableWorld.particles and the
+        // client's own render bridge (no longer THE_RENDER_BRIDGE ambient).
+        *client.render_bridge_mut().asset_manager_mut() = static_asset();
+        client.drawables.particles = Some(emitter_manager());
         client
             .window_manager_owner()
             .shell_handle()
@@ -182,8 +183,7 @@ fn receiving_native_draw_admits_authored_emitter_before_next_client_bone_update(
             .update_presentation_shell(0., 0, 0)
             .map_err(|e| e.to_string())?;
         let birth = {
-            let manager = get_particle_system_manager_mut().map_err(|e| e.to_string())?;
-            let manager = manager.as_ref().unwrap();
+            let manager = client.drawables.particles.as_ref().unwrap();
             manager
                 .all_particle_systems()
                 .find(|system| system.template().name() == "NativeBoneSmoke")
@@ -197,10 +197,8 @@ fn receiving_native_draw_admits_authored_emitter_before_next_client_bone_update(
                 })
         };
         let chain_frames = {
-            let manager = get_particle_system_manager_mut().map_err(|e| e.to_string())?;
+            let manager = client.drawables.particles.as_ref().unwrap();
             manager
-                .as_ref()
-                .unwrap()
                 .all_particle_systems()
                 .map(|system| (system.template().name().to_string(), system.start_frame()))
                 .collect::<Vec<_>>()
@@ -220,20 +218,16 @@ fn receiving_native_draw_admits_authored_emitter_before_next_client_bone_update(
             )
             .map_err(|e| e.to_string())?;
         let moved = {
-            let manager = get_particle_system_manager_mut().map_err(|e| e.to_string())?;
+            let manager = client.drawables.particles.as_ref().unwrap();
             manager
-                .as_ref()
-                .unwrap()
                 .all_particle_systems()
                 .find(|system| system.template().name() == "NativeBoneSmoke")
                 .map(|system| system.position())
         };
         client.destroy_drawable(id).map_err(|e| e.to_string())?;
         let retired = {
-            let manager = get_particle_system_manager_mut().map_err(|e| e.to_string())?;
+            let manager = client.drawables.particles.as_ref().unwrap();
             manager
-                .as_ref()
-                .unwrap()
                 .all_particle_systems()
                 .map(|system| system.is_destroyed())
                 .collect::<Vec<_>>()
@@ -241,7 +235,6 @@ fn receiving_native_draw_admits_authored_emitter_before_next_client_bone_update(
         drop(client);
         Ok((id, birth, moved, chain_frames, retired))
     })();
-    *get_particle_system_manager_mut().unwrap() = previous_particles;
     *crate::render_bridge::THE_RENDER_BRIDGE.lock().unwrap() = previous_bridge;
     let (id, birth, moved, chain_frames, retired) = observed.unwrap();
     let (_, frame, saveable, attached) =

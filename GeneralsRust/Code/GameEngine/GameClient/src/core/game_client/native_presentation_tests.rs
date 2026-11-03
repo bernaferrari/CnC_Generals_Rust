@@ -557,15 +557,6 @@ fn client_chunk_replacement_retires_actual_manager_before_roster_clear() {
     ) {
         return;
     }
-    use crate::effects::particle_manager::get_particle_system_manager_mut;
-    struct Restore(Option<ParticleSystemManager>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            *get_particle_system_manager_mut().unwrap() = self.0.take();
-        }
-    }
-    let prior = get_particle_system_manager_mut().unwrap().take();
-    let _restore = Restore(prior);
     let bytes = GameClient::new().unwrap().capture_xfer_bytes().unwrap();
     assert!(
         !bytes.is_empty(),
@@ -598,6 +589,9 @@ fn client_chunk_replacement_retires_actual_manager_before_roster_clear() {
         )
         .unwrap();
     assert_eq!(receiver(&mut client, id).native_state_particle_count(), 1);
+    // Receiving manager lives on DrawableWorld after ownership move. Absence
+    // must reject restore before roster unlink (same gate as map-attempt clear).
+    let held = client.drawables.particles.take();
     assert!(
         client.restore_from_xfer_bytes(&bytes).is_err(),
         "missing actual receiving manager rejects before unlink"
@@ -609,11 +603,16 @@ fn client_chunk_replacement_retires_actual_manager_before_roster_clear() {
             .all_particle_systems()
             .all(|system| !system.is_destroyed())
     );
-    *get_particle_system_manager_mut().unwrap() = Some(manager);
+    // Install the manager that actually owns the admitted emitters.
+    drop(held);
+    client.drawables.particles = Some(manager);
     client.restore_from_xfer_bytes(&bytes).unwrap();
     assert!(client.find_drawable_by_id(id).is_none());
-    let installed = get_particle_system_manager_mut().unwrap();
-    let installed = installed.as_ref().unwrap();
+    let installed = client
+        .drawables
+        .particles
+        .as_ref()
+        .expect("client particle manager");
     assert_eq!(installed.runtime_owner(), actual_owner);
     assert!(
         installed.system_count() > 0,

@@ -26,12 +26,14 @@ impl GameClient {
                 .retain(|gap| id.is_some_and(|id| gap.drawable_id != id));
             return Ok(());
         }
+        let manager = self.drawables.particles.as_mut().ok_or_else(|| {
+            GameClientError::SubsystemError(
+                "receiving particle manager absent during Drawable retirement".into(),
+            )
+        })?;
         self.drawables
             .state
-            .retire_native_particles_with_services(
-                id,
-                self.drawables.particles.as_mut().expect("particle manager"),
-            )?;
+            .retire_native_particles_with_services(id, manager)?;
         self.native_particle_capability_gaps
             .retain(|gap| id.is_some_and(|id| gap.drawable_id != id));
         Ok(())
