@@ -470,6 +470,7 @@ impl_bootstrap_subsystem!(LocomotorSubsystem, "LocomotorStore", {
 });
 
 impl_bootstrap_subsystem!(ObjectCreationListSubsystem, "ObjectCreationListStore", {
+    crate::game_logic::ensure_world_ambient();
     gamelogic::object_creation_list::init_object_creation_list_store();
     Ok(())
 });

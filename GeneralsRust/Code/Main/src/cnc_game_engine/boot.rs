@@ -309,6 +309,9 @@ impl CnCGameEngine {
         // Bind the application owner before publishing compatibility paths or
         // registering any subsystem; later engines must use this same root.
         application_services.admit_user_data_root(application_paths.root())?;
+        // GameLogic ambient TLS hooks must exist before ObjectCreationListStore
+        // (and later subsystems) touch EngineStores::active during bootstrap.
+        crate::game_logic::ensure_world_ambient();
         // Publish that accepted root around callbacks that still read common preferences.
         let mut subsystem_manager = crate::subsystem_manager::SubsystemManager::new();
         application_paths
