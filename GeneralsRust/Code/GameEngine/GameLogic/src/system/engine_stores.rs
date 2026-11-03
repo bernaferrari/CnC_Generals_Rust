@@ -114,6 +114,12 @@ pub struct WorldServices {
     scene_submission: Mutex<Option<std::sync::Arc<dyn game_engine::common::system::scene_submission::SceneSubmission>>>,
     fx_list_manager: Mutex<Option<std::sync::Arc<dyn crate::common::types::FXListManagerInterface>>>,
     particle_system_manager: Mutex<Option<std::sync::Arc<dyn crate::common::types::ParticleSystemManagerInterface>>>,
+    scorch_hook: Mutex<Option<crate::helpers::ScorchHook>>,
+    terrain_unit_moved_hook: Mutex<Option<crate::helpers::TerrainUnitMovedHook>>,
+    terrain_tree_hook: Mutex<Option<crate::helpers::TerrainTreeHook>>,
+    animation_metadata_hook: Mutex<Option<crate::helpers::AnimationMetadataHook>>,
+    terrain_decal_client: Mutex<Option<std::sync::Arc<dyn crate::object::draw::TerrainDecalClient>>>,
+    terrain_track_client: Mutex<Option<std::sync::Arc<dyn crate::object::draw::TerrainTrackClient>>>,
     control_bar_bridge: RwLock<Option<std::sync::Arc<crate::control_bar::ControlBarBridge>>>,
     damage_over_time_fields: Mutex<Vec<DamageOverTimeField>>,
     damage_over_time_next_id: AtomicU32,
@@ -179,6 +185,12 @@ impl WorldServices {
             scene_submission: Mutex::new(None),
             fx_list_manager: Mutex::new(None),
             particle_system_manager: Mutex::new(None),
+            scorch_hook: Mutex::new(None),
+            terrain_unit_moved_hook: Mutex::new(None),
+            terrain_tree_hook: Mutex::new(None),
+            animation_metadata_hook: Mutex::new(None),
+            terrain_decal_client: Mutex::new(None),
+            terrain_track_client: Mutex::new(None),
             control_bar_bridge: RwLock::new(None),
             damage_over_time_fields: Mutex::new(Vec::new()),
             damage_over_time_next_id: AtomicU32::new(50000),
@@ -245,6 +257,12 @@ impl WorldServices {
             scene_submission: Mutex::new(None),
             fx_list_manager: Mutex::new(None),
             particle_system_manager: Mutex::new(None),
+            scorch_hook: Mutex::new(None),
+            terrain_unit_moved_hook: Mutex::new(None),
+            terrain_tree_hook: Mutex::new(None),
+            animation_metadata_hook: Mutex::new(None),
+            terrain_decal_client: Mutex::new(None),
+            terrain_track_client: Mutex::new(None),
             control_bar_bridge: RwLock::new(None),
             damage_over_time_fields: Mutex::new(Vec::new()),
             damage_over_time_next_id: AtomicU32::new(50000),
@@ -357,6 +375,32 @@ impl WorldServices {
         &self,
     ) -> &Mutex<Option<std::sync::Arc<dyn crate::common::types::ParticleSystemManagerInterface>>> {
         &self.particle_system_manager
+    }
+    pub(crate) fn scorch_hook(&self) -> &Mutex<Option<crate::helpers::ScorchHook>> {
+        &self.scorch_hook
+    }
+    pub(crate) fn terrain_unit_moved_hook(
+        &self,
+    ) -> &Mutex<Option<crate::helpers::TerrainUnitMovedHook>> {
+        &self.terrain_unit_moved_hook
+    }
+    pub(crate) fn terrain_tree_hook(&self) -> &Mutex<Option<crate::helpers::TerrainTreeHook>> {
+        &self.terrain_tree_hook
+    }
+    pub(crate) fn animation_metadata_hook(
+        &self,
+    ) -> &Mutex<Option<crate::helpers::AnimationMetadataHook>> {
+        &self.animation_metadata_hook
+    }
+    pub(crate) fn terrain_decal_client(
+        &self,
+    ) -> &Mutex<Option<std::sync::Arc<dyn crate::object::draw::TerrainDecalClient>>> {
+        &self.terrain_decal_client
+    }
+    pub(crate) fn terrain_track_client(
+        &self,
+    ) -> &Mutex<Option<std::sync::Arc<dyn crate::object::draw::TerrainTrackClient>>> {
+        &self.terrain_track_client
     }
     pub(crate) fn control_bar_bridge(
         &self,

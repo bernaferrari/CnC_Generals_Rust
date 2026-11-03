@@ -8,7 +8,7 @@ use crate::common::*;
 use crate::object::ObjectScriptStatusBit;
 use crate::object::draw::TerrainDecalType;
 use parking_lot::RwLock;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 /// Description of a terrain decal to create or replace (C++ `Shadow::ShadowTypeInfo`).
 #[derive(Clone, Debug)]
@@ -90,15 +90,24 @@ pub fn leftover_default_shadow_texture(
     }
 }
 
-static TERRAIN_DECAL_CLIENT: OnceLock<Arc<dyn TerrainDecalClient>> = OnceLock::new();
-static TERRAIN_TRACK_CLIENT: OnceLock<Arc<dyn TerrainTrackClient>> = OnceLock::new();
-
 pub fn register_terrain_decal_client(client: Arc<dyn TerrainDecalClient>) {
-    let _ = TERRAIN_DECAL_CLIENT.set(client);
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return;
+    };
+    *services
+        .terrain_decal_client()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(client);
 }
 
 pub fn register_terrain_track_client(client: Arc<dyn TerrainTrackClient>) {
-    let _ = TERRAIN_TRACK_CLIENT.set(client);
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return;
+    };
+    *services
+        .terrain_track_client()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(client);
 }
 
 pub fn register_texture_aspect_hook(hook: fn(&str) -> Option<Real>) {
@@ -140,12 +149,22 @@ pub fn set_receives_dynamic_lights(object_id: ObjectID, receives: bool) {
     }
 }
 
-pub fn terrain_decal_client() -> Option<&'static Arc<dyn TerrainDecalClient>> {
-    TERRAIN_DECAL_CLIENT.get()
+pub fn terrain_decal_client() -> Option<Arc<dyn TerrainDecalClient>> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services
+        .terrain_decal_client()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
-pub fn terrain_track_client() -> Option<&'static Arc<dyn TerrainTrackClient>> {
-    TERRAIN_TRACK_CLIENT.get()
+pub fn terrain_track_client() -> Option<Arc<dyn TerrainTrackClient>> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services
+        .terrain_track_client()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 pub fn texture_aspect_ratio(texture_name: &str) -> Option<Real> {

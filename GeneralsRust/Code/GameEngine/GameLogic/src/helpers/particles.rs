@@ -284,7 +284,6 @@ fn get_particle_system_manager() -> Option<Arc<dyn ParticleSystemManagerInterfac
 }
 
 pub type ScorchHook = Arc<dyn Fn(&Coord3D, Real, i32) + Send + Sync>;
-static SCORCH_HOOK: OnceLock<ScorchHook> = OnceLock::new();
 
 #[derive(Clone, Debug)]
 pub struct TerrainTreeRegistration {
@@ -320,42 +319,73 @@ pub struct TerrainUnitMovedInfo {
 }
 
 pub type TerrainUnitMovedHook = Arc<dyn Fn(TerrainUnitMovedInfo) + Send + Sync>;
-static TERRAIN_UNIT_MOVED_HOOK: OnceLock<TerrainUnitMovedHook> = OnceLock::new();
 pub type TerrainTreeHook = Arc<dyn Fn(TerrainTreeEvent) + Send + Sync>;
-static TERRAIN_TREE_HOOK: OnceLock<TerrainTreeHook> = OnceLock::new();
 pub type AnimationMetadataHook = Arc<dyn Fn(&str) -> Option<Real> + Send + Sync>;
-static ANIMATION_METADATA_HOOK: OnceLock<AnimationMetadataHook> = OnceLock::new();
 
 pub fn register_scorch_hook(hook: ScorchHook) -> bool {
-    SCORCH_HOOK.set(hook).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services.scorch_hook().lock().unwrap_or_else(|p| p.into_inner()) = Some(hook);
+    true
 }
 
-fn get_scorch_hook() -> Option<&'static ScorchHook> {
-    SCORCH_HOOK.get()
+fn get_scorch_hook() -> Option<ScorchHook> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services.scorch_hook().lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 pub fn register_terrain_tree_hook(hook: TerrainTreeHook) -> bool {
-    TERRAIN_TREE_HOOK.set(hook).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services.terrain_tree_hook().lock().unwrap_or_else(|p| p.into_inner()) = Some(hook);
+    true
 }
 
-fn get_terrain_tree_hook() -> Option<&'static TerrainTreeHook> {
-    TERRAIN_TREE_HOOK.get()
+fn get_terrain_tree_hook() -> Option<TerrainTreeHook> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services.terrain_tree_hook().lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 pub fn register_terrain_unit_moved_hook(hook: TerrainUnitMovedHook) -> bool {
-    TERRAIN_UNIT_MOVED_HOOK.set(hook).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services
+        .terrain_unit_moved_hook()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(hook);
+    true
 }
 
-fn get_terrain_unit_moved_hook() -> Option<&'static TerrainUnitMovedHook> {
-    TERRAIN_UNIT_MOVED_HOOK.get()
+fn get_terrain_unit_moved_hook() -> Option<TerrainUnitMovedHook> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services
+        .terrain_unit_moved_hook()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 pub fn register_animation_metadata_hook(hook: AnimationMetadataHook) -> bool {
-    ANIMATION_METADATA_HOOK.set(hook).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services
+        .animation_metadata_hook()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(hook);
+    true
 }
 
-fn get_animation_metadata_hook() -> Option<&'static AnimationMetadataHook> {
-    ANIMATION_METADATA_HOOK.get()
+fn get_animation_metadata_hook() -> Option<AnimationMetadataHook> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services
+        .animation_metadata_hook()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 impl TheParticleSystemManager {
