@@ -75,12 +75,18 @@ fn leftover_object_definition_for_live(
     reskin_from: &str,
     properties: &std::collections::HashMap<String, String>,
 ) -> crate::assets::ObjectDefinition {
+    // An exact catalog hit is the already-overlaid override; never replay it.
+    if let Some(definition) = get_asset_manager().and_then(|manager_arc| {
+        manager_arc
+            .lock()
+            .ok()
+            .and_then(|manager| manager.resolve_object_definition(name, None).cloned())
+    }) {
+        return definition;
+    }
     let mut definition = if let Some(manager_arc) = get_asset_manager() {
         manager_arc.lock().ok().and_then(|manager| {
-            manager
-                .resolve_object_definition(name, None)
-                .cloned()
-                .or_else(|| {
+            None.or_else(|| {
                     (!reskin_from.is_empty())
                         .then(|| {
                             manager
@@ -331,3 +337,6 @@ mod receiving_threat_owner_tests;
 
 #[cfg(test)]
 mod receiving_action_catalog_owner_tests;
+
+#[cfg(test)]
+mod leftover_override_replay_tests;
