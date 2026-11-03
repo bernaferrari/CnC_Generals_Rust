@@ -27,7 +27,7 @@ pub(super) fn with_tactical_fx_view_services<R>(
             view.shake(&ViewPoint3::new(position.x, position.y, position.z), kind);
         });
     };
-    let mut find_list = |name: &str| get_fx_list_store().find_fx_list(name);
+    let mut find_list = |name: &str| crate::fx_list::with_fx_list_store(|s| s.find_fx_list(name));
     // This retained Core entrypoint has no receiving GameClient borrow.
     // Leave bone lookup absent; FXListAtBonePos keeps its GameLogic Drawable fallback.
     let mut bones = |_, _: &str, _, _| Vec::new();

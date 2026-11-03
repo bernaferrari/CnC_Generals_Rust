@@ -73,6 +73,7 @@ pub struct GameClient {
     owned_world_animations: OwnedWorldAnimations,
     receiving_ui_images: Option<crate::display::image::ImageCollection>,
     mapped_image_collection: Option<std::sync::Arc<parking_lot::RwLock<crate::display::image::ImageCollection>>>,
+    fx_list_store: Option<std::sync::Arc<std::sync::RwLock<crate::fx_list::FXListStore>>>,
     startup_shell_image_reported: std::collections::HashSet<String>,
     /// DrawIconUI admitted from the driving Main session before native draw.
     receiving_draw_icon_ui: bool,
