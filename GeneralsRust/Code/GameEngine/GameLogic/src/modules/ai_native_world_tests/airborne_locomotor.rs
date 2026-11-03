@@ -4,6 +4,8 @@ use crate::object::contain::transport_contain::selected_locomotor_is_airborne;
 
 #[test]
 fn actual_selected_air_locomotor_ignores_targeting_height_and_is_world_owned() {
+    let world = crate::system::engine_stores::new_world_services();
+    crate::system::engine_stores::with_world_services(&world, || {
     let first = containment_lifecycle::lifecycle_world(0.0, false);
     let peer = containment_lifecycle::lifecycle_world(0.0, false);
     let owner = Arc::clone(&first.source);
@@ -42,4 +44,13 @@ fn actual_selected_air_locomotor_ignores_targeting_height_and_is_world_owned() {
     );
     owner.write().unwrap().set_status(status, true);
     assert!(selected_locomotor_is_airborne(&*ai.lock().unwrap()));
+    assert!(
+        owner.read().unwrap().is_using_airborne_locomotor(),
+        "Object.cpp3336 helper must read selected AIR surfaces"
+    );
+    assert!(
+        !peer.source.read().unwrap().is_using_airborne_locomotor(),
+        "peer ground locomotor stays false despite AirborneTarget status"
+    );
+    });
 }
