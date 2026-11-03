@@ -7,7 +7,6 @@
 //! Rust port: 2025
 
 use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -458,19 +457,9 @@ pub fn parse_drop_shadow_offset_y(
     Ok(())
 }
 
-/// Global DrawGroupInfo instance (thread-safe)
-struct DrawGroupInfoSlot(OnceCell<Arc<RwLock<DrawGroupInfo>>>);
-impl std::ops::Deref for DrawGroupInfoSlot {
-    type Target = OnceCell<Arc<RwLock<DrawGroupInfo>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static DRAW_GROUP_INFO: DrawGroupInfoSlot = DrawGroupInfoSlot(OnceCell::new());
-
 /// Ensure the DrawGroupInfo exists and return a handle to it
 pub fn ensure_draw_group_info() -> Arc<RwLock<DrawGroupInfo>> {
-    DRAW_GROUP_INFO
-        .get_or_init(|| Arc::new(RwLock::new(DrawGroupInfo::new())))
-        .clone()
+    Arc::clone(&crate::common::common_services::common_services().ini.draw_group_info)
 }
 
 /// Initialize (or reinitialize) the global DrawGroupInfo
@@ -481,7 +470,7 @@ pub fn init_global_draw_group_info() {
 
 /// Get a handle to the global DrawGroupInfo if initialized
 pub fn get_draw_group_info() -> Option<Arc<RwLock<DrawGroupInfo>>> {
-    DRAW_GROUP_INFO.0.get().cloned()
+    Some(Arc::clone(&crate::common::common_services::common_services().ini.draw_group_info))
 }
 
 /// INI parsing function for DrawGroupNumber definition (matches C++ interface)

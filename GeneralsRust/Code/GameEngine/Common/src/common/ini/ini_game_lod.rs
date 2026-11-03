@@ -8,7 +8,6 @@
 //!
 //! Rust port: 2025
 
-use once_cell::sync::OnceCell;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ini::{INI, INIError, INIResult};
@@ -589,41 +588,10 @@ impl GameLODManager {
 // Global Instance Management
 // ============================================================================
 
-/// Global Game LOD Manager instance
-struct GameLodManagerSlot(OnceCell<RwLock<GameLODManager>>);
-impl std::ops::Deref for GameLodManagerSlot {
-    type Target = OnceCell<RwLock<GameLODManager>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static GAME_LOD_MANAGER: GameLodManagerSlot = GameLodManagerSlot(OnceCell::new());
-
 /// Get the global Game LOD Manager (read access)
-pub fn get_game_lod_manager() -> RwLockReadGuard<'static, GameLODManager> {
-    GAME_LOD_MANAGER
-        .get_or_init(|| RwLock::new(GameLODManager::new()))
-        .read()
-        .unwrap()
-}
 
 /// Get the global Game LOD Manager (write access)
-pub fn get_game_lod_manager_mut() -> RwLockWriteGuard<'static, GameLODManager> {
-    GAME_LOD_MANAGER
-        .get_or_init(|| RwLock::new(GameLODManager::new()))
-        .write()
-        .unwrap()
-}
-
 /// Initialize the global Game LOD Manager
-pub fn init_game_lod_manager() {
-    if GAME_LOD_MANAGER.0.get().is_none() {
-        let _ = GAME_LOD_MANAGER.0.set(RwLock::new(GameLODManager::new()));
-    } else if let Some(manager) = GAME_LOD_MANAGER.0.get() {
-        if let Ok(mut guard) = manager.write() {
-            guard.init();
-        }
-    }
-}
-
 /// C++ `TheGameLODManager->isParticleSkipped()`.
 pub fn is_particle_skipped() -> bool {
     get_game_lod_manager_mut().is_particle_skipped()
@@ -653,6 +621,30 @@ pub fn get_dynamic_lod_level() -> DynamicGameLODLevel {
 // ============================================================================
 // INI Parser Functions
 // ============================================================================
+
+
+fn ini_game_lod_cell() -> std::sync::Arc<std::sync::RwLock<GameLODManager>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.game_lod)
+}
+
+
+pub fn get_game_lod_manager() -> std::sync::RwLockReadGuard<'static, GameLODManager> {
+    let cell = ini_game_lod_cell();
+    let guard = cell.read().expect("GameLODManager poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
+
+pub fn get_game_lod_manager_mut() -> std::sync::RwLockWriteGuard<'static, GameLODManager> {
+    let cell = ini_game_lod_cell();
+    let guard = cell.write().expect("GameLODManager poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
+
+pub fn init_game_lod_manager() {
+    ini_game_lod_cell().write().expect("GameLODManager poisoned").init();
+}
 
 /// Parse StaticGameLOD block from INI
 /// This is the main entry point for the INI parser

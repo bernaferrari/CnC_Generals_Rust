@@ -4,7 +4,6 @@
 //!
 //! Matches C++ FXList.h and FXList.cpp
 
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -34,6 +33,23 @@ impl generals_fx::FxValueParser for EngineFxValues {
     }
 }
 /// Shared pure parser with the engine's original unit conversions.
+
+fn ini_fx_list_cell() -> std::sync::Arc<std::sync::RwLock<FXListStore>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.fx_list)
+}
+
+pub fn get_fx_list_store() -> RwLockReadGuard<'static, FXListStore> {
+    let cell = ini_fx_list_cell();
+    let guard = cell.read().expect("FXListStore poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
+pub fn get_fx_list_store_mut() -> RwLockWriteGuard<'static, FXListStore> {
+    let cell = ini_fx_list_cell();
+    let guard = cell.write().expect("FXListStore poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
 pub fn parse_fx_nugget_definition(
     kind: &str,
     properties: &HashMap<String, String>,
@@ -184,26 +200,6 @@ impl Default for FXListStore {
     }
 }
 
-struct FxListStoreSlot(OnceCell<RwLock<FXListStore>>);
-impl std::ops::Deref for FxListStoreSlot {
-    type Target = OnceCell<RwLock<FXListStore>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static FX_LIST_STORE: FxListStoreSlot = FxListStoreSlot(OnceCell::new());
-
-pub fn get_fx_list_store() -> RwLockReadGuard<'static, FXListStore> {
-    FX_LIST_STORE
-        .get_or_init(|| RwLock::new(FXListStore::new()))
-        .read()
-        .unwrap()
-}
-
-pub fn get_fx_list_store_mut() -> RwLockWriteGuard<'static, FXListStore> {
-    FX_LIST_STORE
-        .get_or_init(|| RwLock::new(FXListStore::new()))
-        .write()
-        .unwrap()
-}
 
 #[cfg(test)]
 mod tests {

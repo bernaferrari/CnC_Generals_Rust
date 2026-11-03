@@ -345,6 +345,30 @@ const MISSION_FIELD_PARSE_TABLE: &[FieldParse<Mission>] = &[
 // Campaign field parsing functions
 // ============================================================================
 
+
+fn ini_campaign_cell() -> std::sync::Arc<std::sync::RwLock<CampaignStore>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.campaign)
+}
+
+
+pub fn get_campaign_store() -> std::sync::RwLockReadGuard<'static, CampaignStore> {
+    let cell = ini_campaign_cell();
+    let guard = cell.read().expect("CampaignStore poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
+
+pub fn get_campaign_store_mut() -> std::sync::RwLockWriteGuard<'static, CampaignStore> {
+    let cell = ini_campaign_cell();
+    let guard = cell.write().expect("CampaignStore poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
+
+pub fn init_campaign_store() {
+    let _ = ini_campaign_cell();
+}
+
 /// Parse a nested Mission block within a Campaign
 /// Matches C++ CampaignManager::parseMissionPart
 fn parse_mission_block(ini: &mut INI, campaign: &mut Campaign, _tokens: &[&str]) -> INIResult<()> {
@@ -442,7 +466,6 @@ const CAMPAIGN_FIELD_PARSE_TABLE: &[FieldParse<Campaign>] = &[
 // Campaign Store
 // ============================================================================
 
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -510,31 +533,6 @@ impl Default for CampaignStore {
     }
 }
 
-struct CampaignStoreSlot(OnceCell<RwLock<CampaignStore>>);
-impl std::ops::Deref for CampaignStoreSlot {
-    type Target = OnceCell<RwLock<CampaignStore>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static CAMPAIGN_STORE: CampaignStoreSlot = CampaignStoreSlot(OnceCell::new());
-
-pub fn get_campaign_store() -> RwLockReadGuard<'static, CampaignStore> {
-    CAMPAIGN_STORE
-        .get_or_init(|| RwLock::new(CampaignStore::new()))
-        .read()
-        .unwrap()
-}
-
-pub fn get_campaign_store_mut() -> RwLockWriteGuard<'static, CampaignStore> {
-    CAMPAIGN_STORE
-        .get_or_init(|| RwLock::new(CampaignStore::new()))
-        .write()
-        .unwrap()
-}
-
-pub fn init_campaign_store() {
-    // Initialize the store by getting a reference to it
-    let _unused = get_campaign_store();
-}
 
 // ============================================================================
 // INI Block Parser

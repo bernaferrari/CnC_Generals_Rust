@@ -5,7 +5,6 @@
 use super::ini::{FieldParse, INI, INIError, INIResult};
 use crate::common::ascii_string::AsciiString;
 use crate::common::ini::ini_mapped_image::get_mapped_image_collection;
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -298,17 +297,8 @@ impl Anim2DCollection {
     }
 }
 
-struct Anim2DCollectionSlot(OnceCell<Arc<RwLock<Anim2DCollection>>>);
-impl std::ops::Deref for Anim2DCollectionSlot {
-    type Target = OnceCell<Arc<RwLock<Anim2DCollection>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static ANIM2D_COLLECTION: Anim2DCollectionSlot = Anim2DCollectionSlot(OnceCell::new());
-
 pub fn ensure_anim2d_collection() -> Arc<RwLock<Anim2DCollection>> {
-    ANIM2D_COLLECTION
-        .get_or_init(|| Arc::new(RwLock::new(Anim2DCollection::new())))
-        .clone()
+    Arc::clone(&crate::common::common_services::common_services().ini.anim2d)
 }
 
 pub fn initialize_anim2d_collection() {
@@ -317,7 +307,7 @@ pub fn initialize_anim2d_collection() {
 }
 
 pub fn get_anim2d_collection() -> Option<Arc<RwLock<Anim2DCollection>>> {
-    ANIM2D_COLLECTION.0.get().cloned()
+    Some(Arc::clone(&crate::common::common_services::common_services().ini.anim2d))
 }
 
 pub fn parse_anim2d_definition(ini: &mut INI) -> INIResult<()> {

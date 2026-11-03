@@ -10,7 +10,6 @@ use crate::common::ascii_string::AsciiString;
 use crate::common::ini::ini::{FieldParse, INI, INIError, INILoadType, INIResult};
 use crate::common::ini::ini_game_data::get_global_data;
 use crate::common::name_key_generator::{NameKeyGenerator, NameKeyType};
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, HashSet};
 use std::env;
@@ -599,23 +598,9 @@ fn load_global_mapped_image_collection(texture_size: i32) {
     load_virtual_mapped_image_directory(&mut ini, "Data/INI/MappedImages/HandCreated");
 }
 
-/// Global mapped image collection instance (thread-safe)
-struct MappedImageCollectionSlot(OnceCell<Arc<RwLock<ImageCollection>>>);
-impl std::ops::Deref for MappedImageCollectionSlot {
-    type Target = OnceCell<Arc<RwLock<ImageCollection>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static MAPPED_IMAGE_COLLECTION: MappedImageCollectionSlot = MappedImageCollectionSlot(OnceCell::new());
-
 /// Ensure the mapped image collection exists and return a handle to it
 pub fn ensure_mapped_image_collection() -> Arc<RwLock<ImageCollection>> {
-    MAPPED_IMAGE_COLLECTION
-        .get_or_init(|| {
-            let mut collection = ImageCollection::new();
-            collection.init();
-            Arc::new(RwLock::new(collection))
-        })
-        .clone()
+    Arc::clone(&crate::common::common_services::common_services().ini.mapped_image)
 }
 
 /// Initialize (or reinitialize) the global mapped image collection
@@ -626,7 +611,7 @@ pub fn init_global_mapped_image_collection() {
 
 /// Get a handle to the mapped image collection if it has been initialized
 pub fn get_mapped_image_collection() -> Option<Arc<RwLock<ImageCollection>>> {
-    MAPPED_IMAGE_COLLECTION.0.get().cloned()
+    Some(Arc::clone(&crate::common::common_services::common_services().ini.mapped_image))
 }
 
 /// INI parsing function for MappedImage definition (matches C++ interface)

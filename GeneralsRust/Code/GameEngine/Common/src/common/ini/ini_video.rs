@@ -8,7 +8,6 @@
 //! Author: John McDonald, February 2002 (Converted to Rust)
 //! Desc:   Parsing Video INI entries
 
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -434,32 +433,28 @@ impl Default for VideoPlayer {
 }
 
 /// Global video player instance
-struct VideoPlayerSlot(OnceCell<Arc<Mutex<VideoPlayer>>>);
-impl std::ops::Deref for VideoPlayerSlot {
-    type Target = OnceCell<Arc<Mutex<VideoPlayer>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static VIDEO_PLAYER: VideoPlayerSlot = VideoPlayerSlot(OnceCell::new());
-
 /// Initialize the global video player
+/// Get a reference to the global video player
+/// Parse a boolean value from string
+
+fn ini_video_player_cell() -> std::sync::Arc<std::sync::Mutex<VideoPlayer>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.video_player)
+}
+
 pub fn initialize_video_player() {
-    if VIDEO_PLAYER.0.get().is_none() {
-        let _ = VIDEO_PLAYER.0.set(Arc::new(Mutex::new(VideoPlayer::new())));
-    } else if let Some(player) = VIDEO_PLAYER.0.get() {
-        if let Ok(mut guard) = player.lock() {
-            *guard = VideoPlayer::new();
-        }
+    let cell = ini_video_player_cell();
+    if let Ok(mut player) = cell.lock() {
+        // Re-init keeps player usable across loads (C++ recreate semantics approximated).
+        *player = VideoPlayer::new();
     }
 }
 
-/// Get a reference to the global video player
-pub fn get_video_player() -> Option<MutexGuard<'static, VideoPlayer>> {
-    VIDEO_PLAYER
-        .get()
-        .map(|player| player.lock().expect("VideoPlayer mutex poisoned"))
+pub fn get_video_player() -> Option<std::sync::MutexGuard<'static, VideoPlayer>> {
+    let cell = ini_video_player_cell();
+    let guard = cell.lock().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
-/// Parse a boolean value from string
 pub fn parse_bool(value: &str) -> Result<bool, String> {
     match value.trim().to_lowercase().as_str() {
         "true" | "yes" | "1" => Ok(true),

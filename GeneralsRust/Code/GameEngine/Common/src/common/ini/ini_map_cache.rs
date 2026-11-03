@@ -230,6 +230,30 @@ impl MapMetaData {
 
 /// Field parsing functions for MapMetaDataReader
 
+
+fn ini_map_cache_cell() -> std::sync::Arc<std::sync::RwLock<MapCache>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.map_cache)
+}
+
+
+pub fn init_global_map_cache() {
+    let _ = ini_map_cache_cell();
+}
+
+
+pub fn get_map_cache() -> Option<std::sync::RwLockReadGuard<'static, MapCache>> {
+    let cell = ini_map_cache_cell();
+    let guard = cell.read().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
+
+pub fn get_map_cache_mut() -> Option<std::sync::RwLockWriteGuard<'static, MapCache>> {
+    let cell = ini_map_cache_cell();
+    let guard = cell.write().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
 /// Parse supply position coordinate
 pub fn parse_supply_position_coord3d(
     _ini: &mut INI,
@@ -649,13 +673,6 @@ pub fn quoted_printable_to_unicode_string(input: &str) -> UnicodeString {
     UnicodeString::from_string(qp_to_unicode(input))
 }
 
-/// Global map cache instance
-struct MapCacheSlot(OnceCell<RwLock<MapCache>>);
-impl std::ops::Deref for MapCacheSlot {
-    type Target = OnceCell<RwLock<MapCache>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static MAP_CACHE: MapCacheSlot = MapCacheSlot(OnceCell::new());
 type GameTextProvider = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 static GAME_TEXT_PROVIDER: OnceCell<GameTextProvider> = OnceCell::new();
 
@@ -670,26 +687,9 @@ fn lookup_game_text(tag: &str) -> Option<String> {
 }
 
 /// Initialize the global map cache
-pub fn init_global_map_cache() {
-    if MAP_CACHE.0.get().is_none() {
-        let _ = MAP_CACHE.0.set(RwLock::new(MapCache::new()));
-    }
-}
 
 /// Get reference to global map cache
-pub fn get_map_cache() -> Option<RwLockReadGuard<'static, MapCache>> {
-    MAP_CACHE
-        .get()
-        .map(|cache| cache.read().expect("MapCache poisoned"))
-}
-
 /// Get mutable reference to global map cache
-pub fn get_map_cache_mut() -> Option<RwLockWriteGuard<'static, MapCache>> {
-    MAP_CACHE
-        .get()
-        .map(|cache| cache.write().expect("MapCache poisoned"))
-}
-
 fn parse_map_cache_metadata(ini: &mut INI) -> Result<(String, MapMetaData), String> {
     let tokens = ini.get_line_tokens();
     let name = tokens

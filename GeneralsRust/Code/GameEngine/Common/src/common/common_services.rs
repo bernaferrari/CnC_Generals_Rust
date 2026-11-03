@@ -27,6 +27,7 @@ use crate::common::resource_manager::ResourceManager;
 use crate::common::ini::ini_online_chat_colors::OnlineChatColors;
 use crate::common::ini::ini_webpage_url::WebBrowser;
 use crate::common::ini::ini_credits::CreditsManager;
+use crate::common::ini_stores::IniStores;
 
 use crate::common::system::geometry::Coord3D;
 use crate::common::time::SimulationClock;
@@ -157,6 +158,8 @@ pub struct CommonServices {
     pub web_browser: Arc<RwLock<WebBrowser>>,
     /// Credits manager (was process CREDITS_MANAGER).
     pub credits_manager: Arc<RwLock<CreditsManager>>,
+    /// INI definition registries (was process OnceCell stores).
+    pub ini: IniStores,
 }
 
 impl Default for CommonServices {
@@ -187,6 +190,7 @@ impl Default for CommonServices {
             online_chat_colors: Arc::new(ParkingRwLock::new(OnlineChatColors::new())),
             web_browser: Arc::new(RwLock::new(WebBrowser::new())),
             credits_manager: Arc::new(RwLock::new(CreditsManager::new())),
+            ini: IniStores::new(),
         }
     }
 }
@@ -262,6 +266,41 @@ pub fn uninstall_common_services_if_current(services: &Arc<CommonServices>) -> b
             false
         }
     })
+}
+
+
+/// RAII publish of a fresh [`CommonServices`] for unit tests / local scopes.
+pub struct CommonServicesScope {
+    services: Arc<CommonServices>,
+}
+
+impl CommonServicesScope {
+    pub fn new() -> Self {
+        let services = Arc::new(CommonServices::new());
+        install_common_services(Arc::clone(&services));
+        Self { services }
+    }
+
+    pub fn from_services(services: Arc<CommonServices>) -> Self {
+        install_common_services(Arc::clone(&services));
+        Self { services }
+    }
+
+    pub fn services(&self) -> &Arc<CommonServices> {
+        &self.services
+    }
+}
+
+impl Default for CommonServicesScope {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for CommonServicesScope {
+    fn drop(&mut self) {
+        uninstall_common_services_if_current(&self.services);
+    }
 }
 
 /// Publish `services` for the duration of `f` on **this thread** (nested restore).
@@ -341,6 +380,74 @@ mod independence_tests {
 
         assert_eq!(a.random.logic_base_seed.load(Ordering::SeqCst), 1110);
         assert_eq!(b.random.logic_base_seed.load(Ordering::SeqCst), 2220);
+    }
+
+    #[test]
+    fn two_ini_stores_on_two_threads_are_independent() {
+        use std::sync::Barrier;
+        let a = Arc::new(CommonServices::new());
+        let b = Arc::new(CommonServices::new());
+        // Mutate weapon catalogs independently.
+        a.ini.weapon.write().unwrap().clear();
+        b.ini.weapon.write().unwrap().clear();
+        // Use name_key-free marker: clear leaves empty; insert via raw field count.
+        // Science store length proxy: is_empty.
+        assert!(a.ini.science.read().unwrap().is_empty());
+        assert!(b.ini.science.read().unwrap().is_empty());
+
+        let barrier = StdArc::new(Barrier::new(2));
+        let a2 = Arc::clone(&a);
+        let b2 = Arc::clone(&b);
+        let bar1 = StdArc::clone(&barrier);
+        let bar2 = StdArc::clone(&barrier);
+
+        let t1 = thread::spawn(move || {
+            with_common_services(&a2, || {
+                // Mark a via async handle pool (already instance-owned) AND damage_fx init.
+                common_services()
+                    .async_playback_handle_pool
+                    .store(42, Ordering::SeqCst);
+                *common_services().ini.damage_fx.write().unwrap() =
+                    crate::common::ini::ini_damage_fx::DamageFXStore::new();
+                common_services()
+                    .ini
+                    .damage_fx
+                    .write()
+                    .unwrap()
+                    .init();
+                bar1.wait();
+                assert_eq!(
+                    common_services()
+                        .async_playback_handle_pool
+                        .load(Ordering::SeqCst),
+                    42
+                );
+            });
+        });
+        let t2 = thread::spawn(move || {
+            with_common_services(&b2, || {
+                common_services()
+                    .async_playback_handle_pool
+                    .store(99, Ordering::SeqCst);
+                bar2.wait();
+                assert_eq!(
+                    common_services()
+                        .async_playback_handle_pool
+                        .load(Ordering::SeqCst),
+                    99
+                );
+            });
+        });
+        t1.join().unwrap();
+        t2.join().unwrap();
+        assert_eq!(a.async_playback_handle_pool.load(Ordering::SeqCst), 42);
+        assert_eq!(b.async_playback_handle_pool.load(Ordering::SeqCst), 99);
+        assert!(!Arc::ptr_eq(&a.ini.weapon, &b.ini.weapon));
+        assert!(!Arc::ptr_eq(&a.ini.damage_fx, &b.ini.damage_fx));
+        assert!(!Arc::ptr_eq(&a.credits_manager, &b.credits_manager));
+        assert!(!Arc::ptr_eq(&a.resource_manager, &b.resource_manager));
+        assert!(!Arc::ptr_eq(&a.online_chat_colors, &b.online_chat_colors));
+        assert!(!Arc::ptr_eq(&a.web_browser, &b.web_browser));
     }
 
     #[test]

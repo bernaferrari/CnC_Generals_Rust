@@ -9,7 +9,6 @@
 //! Desc:   Parsing Webpage URL INI entries
 
 use log::debug;
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -683,6 +682,7 @@ impl IniWebpageUrl {
 
 #[cfg(test)]
 mod tests {
+    use crate::common::common_services::CommonServicesScope;
     use super::*;
 
     #[test]
@@ -850,6 +850,7 @@ mod tests {
 
     #[test]
     fn test_parse_webpage_url_definition_converts_file_url() {
+        let _scope = CommonServicesScope::new();
         let tag = AsciiString::from("TestFileUrlConversion");
         let language = get_registry_language();
 

@@ -10,7 +10,6 @@
 
 use crate::common::ascii_string::AsciiString;
 use crate::common::ini::INILoadType;
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -1045,38 +1044,34 @@ impl Default for WeaponStore {
     }
 }
 
-/// Global weapon store instance
-struct WeaponStoreSlot(OnceCell<RwLock<WeaponStore>>);
-impl std::ops::Deref for WeaponStoreSlot {
-    type Target = OnceCell<RwLock<WeaponStore>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static WEAPON_STORE: WeaponStoreSlot = WeaponStoreSlot(OnceCell::new());
-
 /// Initialize the global weapon store
-pub fn initialize_weapon_store() {
-    WEAPON_STORE.0.get_or_init(|| RwLock::new(WeaponStore::new()));
-}
 
 /// Explicitly clear registered weapon definitions.
 ///
 /// Initialization must be idempotent because every parsed `Weapon` calls it;
 /// resetting there previously discarded the preceding retail definition and
 /// left the store containing only the final weapon.
-pub fn reset_weapon_store() {
-    initialize_weapon_store();
-    if let Some(store) = WEAPON_STORE.0.get() {
-        if let Ok(mut guard) = store.write() {
-            guard.clear();
-        }
-    }
+/// Get a reference to the global weapon store
+
+fn ini_weapon_cell() -> std::sync::Arc<std::sync::RwLock<WeaponStore>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.weapon)
 }
 
-/// Get a reference to the global weapon store
+/// Initialize the weapon store on the published CommonServices (idempotent).
+pub fn initialize_weapon_store() {
+    let _ = ini_weapon_cell();
+}
+
+/// Explicitly clear registered weapon definitions.
+pub fn reset_weapon_store() {
+    ini_weapon_cell().write().expect("WeaponStore poisoned").clear();
+}
+
+/// Get a mutable reference to the instance weapon store
 pub fn get_weapon_store() -> Option<RwLockWriteGuard<'static, WeaponStore>> {
-    WEAPON_STORE
-        .get()
-        .map(|store| store.write().expect("WeaponStore poisoned"))
+    let cell = ini_weapon_cell();
+    let guard = cell.write().expect("WeaponStore poisoned");
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
 /// Parse a boolean value from string
