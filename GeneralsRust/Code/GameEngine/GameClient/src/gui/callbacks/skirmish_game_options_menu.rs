@@ -59,7 +59,7 @@ const UNKNOWN_MAP_PREVIEW_IMAGE: &str = "UnknownMap";
 
 /// Window state stored in thread-local RefCell (single-threaded GUI)
 #[derive(Default)]
-struct SkirmishGameOptionsState {
+pub(crate) struct SkirmishGameOptionsState {
     parent_id: i32,
     button_start_id: i32,
     button_reset_id: i32,
@@ -96,39 +96,96 @@ struct SkirmishGameOptionsState {
     button_pushed: bool,
 }
 
-/// Thread-local state using RefCell - zero-overhead for single-threaded GUI
+#[cfg(test)]
 thread_local! {
-    static SKIRMISH_GAME_OPTIONS_STATE: RefCell<SkirmishGameOptionsState> =
+    static TEST_SKIRMISH_GAME_OPTIONS: RefCell<SkirmishGameOptionsState> =
         RefCell::new(SkirmishGameOptionsState::default());
-    static SKIRMISH_MAP_SELECT_LAYOUT: RefCell<Option<Rc<RefCell<WindowLayout>>>> =
+    static TEST_SKIRMISH_MAP_SELECT_LAYOUT: RefCell<Option<Rc<RefCell<WindowLayout>>>> =
         const { RefCell::new(None) };
 }
 
-/// Access state with closure
-fn with_state<R>(f: impl FnOnce(&mut SkirmishGameOptionsState) -> R) -> R {
-    SKIRMISH_GAME_OPTIONS_STATE.with(|s| match s.try_borrow_mut() {
-        Ok(mut guard) => f(&mut guard),
-        Err(_) => {
-            // Init populate_* can fire combo callbacks that re-enter.
-            log::warn!("skirmish options re-entrant with_state; using scratch");
-            thread_local! {
-                static SCRATCH: RefCell<SkirmishGameOptionsState> =
-                    RefCell::new(SkirmishGameOptionsState::default());
+/// Access state with closure (owner / live client / test fallback).
+fn with_state_on_owner<R>(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+    f: impl FnOnce(&mut SkirmishGameOptionsState) -> R,
+) -> R {
+    let mut f = Some(f);
+    if let Some(owner) = owner {
+        return owner.with_skirmish_game_options_mut(|state| match state.try_borrow_mut() {
+            Ok(mut guard) => f.take().expect("skirmish")(&mut guard),
+            Err(_) => {
+                log::warn!("skirmish options re-entrant with_state; using scratch");
+                f.take().expect("skirmish")(&mut SkirmishGameOptionsState::default())
             }
-            SCRATCH.with(|sc| f(&mut sc.borrow_mut()))
-        }
-    })
+        });
+    }
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().with_skirmish_game_options_mut(|state| {
+            match state.try_borrow_mut() {
+                Ok(mut guard) => f.take().expect("skirmish")(&mut guard),
+                Err(_) => {
+                    log::warn!("skirmish options re-entrant with_state; using scratch");
+                    f.take().expect("skirmish")(&mut SkirmishGameOptionsState::default())
+                }
+            }
+        })
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_SKIRMISH_GAME_OPTIONS.with(|s| match s.try_borrow_mut() {
+            Ok(mut guard) => f.take().expect("skirmish")(&mut guard),
+            Err(_) => f.take().expect("skirmish")(&mut SkirmishGameOptionsState::default()),
+        });
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("skirmish")(&mut SkirmishGameOptionsState::default())
+    }
 }
 
-/// Access state immutably
+fn with_state<R>(f: impl FnOnce(&mut SkirmishGameOptionsState) -> R) -> R {
+    with_state_on_owner(None, f)
+}
+
 fn with_state_ref<R>(f: impl FnOnce(&SkirmishGameOptionsState) -> R) -> R {
-    SKIRMISH_GAME_OPTIONS_STATE.with(|s| f(&s.borrow()))
+    with_state(|state| f(state))
+}
+
+fn with_skirmish_map_select_layout_on_owner<R>(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+    f: impl FnOnce(&mut Option<Rc<RefCell<WindowLayout>>>) -> R,
+) -> R {
+    let mut f = Some(f);
+    if let Some(owner) = owner {
+        return owner.with_skirmish_map_select_layout_mut(|layout| {
+            f.take().expect("skirmish layout")(layout)
+        });
+    }
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_skirmish_map_select_layout_mut(|layout| f.take().expect("skirmish layout")(layout))
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_SKIRMISH_MAP_SELECT_LAYOUT.with(|layout| {
+            f.take().expect("skirmish layout")(&mut layout.borrow_mut())
+        });
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("skirmish layout")(&mut None)
+    }
 }
 
 fn with_skirmish_map_select_layout<R>(
     f: impl FnOnce(&mut Option<Rc<RefCell<WindowLayout>>>) -> R,
 ) -> R {
-    SKIRMISH_MAP_SELECT_LAYOUT.with(|layout| f(&mut layout.borrow_mut()))
+    with_skirmish_map_select_layout_on_owner(None, f)
 }
 
 fn name_to_id(name: &str) -> i32 {

@@ -70,6 +70,12 @@ struct WindowManagerOwnerState {
     control_bar_print_residual: std::cell::Cell<
         crate::gui::control_bar::control_bar_print_positions::ControlBarPrintPositionsResidualState,
     >,
+    /// Skirmish game options menu state (was process TLS).
+    skirmish_game_options: RefCell<
+        crate::gui::callbacks::skirmish_game_options_menu::SkirmishGameOptionsState,
+    >,
+    /// Skirmish map-select layout slot (was process TLS).
+    skirmish_map_select_layout: RefCell<Option<Rc<RefCell<crate::gui::WindowLayout>>>>,
     /// Offline network stub queues / facade (not(feature = "network")).
     #[cfg(not(feature = "network"))]
     network_compat: crate::game_network_compat::NetworkCompatState,
@@ -151,6 +157,10 @@ impl WindowManagerOwner {
                 control_bar_print_residual: std::cell::Cell::new(
                     crate::gui::control_bar::control_bar_print_positions::ControlBarPrintPositionsResidualState::default(),
                 ),
+                skirmish_game_options: RefCell::new(
+                    crate::gui::callbacks::skirmish_game_options_menu::SkirmishGameOptionsState::default(),
+                ),
+                skirmish_map_select_layout: RefCell::new(None),
                 #[cfg(not(feature = "network"))]
                 network_compat: crate::game_network_compat::NetworkCompatState::new(),
             }),
@@ -216,6 +226,20 @@ impl WindowManagerOwner {
         let out = f(&mut state);
         self.state.control_bar_print_residual.set(state);
         out
+    }
+
+    pub(crate) fn with_skirmish_game_options_mut<R>(
+        &self,
+        f: impl FnOnce(&RefCell<crate::gui::callbacks::skirmish_game_options_menu::SkirmishGameOptionsState>) -> R,
+    ) -> R {
+        f(&self.state.skirmish_game_options)
+    }
+
+    pub(crate) fn with_skirmish_map_select_layout_mut<R>(
+        &self,
+        f: impl FnOnce(&mut Option<Rc<RefCell<crate::gui::WindowLayout>>>) -> R,
+    ) -> R {
+        f(&mut self.state.skirmish_map_select_layout.borrow_mut())
     }
 
     /// Offline network stub state for this client (`not(feature = "network")`).

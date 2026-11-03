@@ -322,3 +322,8 @@ path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_print_positio
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar.cpp"
 note = "ControlBar print-positions residual peels on WindowManagerOwner; removed process residual atomics."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/skirmish_game_options_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/SkirmishGameOptionsMenu.cpp"
+note = "SkirmishGameOptionsState + map-select layout on WindowManagerOwner; removed process TLS; peels use owner or live-client loan."
+
