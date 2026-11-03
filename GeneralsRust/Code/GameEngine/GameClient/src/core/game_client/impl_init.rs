@@ -543,7 +543,7 @@ impl GameClient {
                 crate::eva::reset_eva_system(&mut ui.eva);
             }
         }
-        self.drawables.particles.reset_runtime();
+        if let Some(particles) = self.drawables.particles.as_mut() { particles.reset_runtime(); };
         self.window_manager_owner
             .with_manager(|manager| self.ime.reset(manager));
 

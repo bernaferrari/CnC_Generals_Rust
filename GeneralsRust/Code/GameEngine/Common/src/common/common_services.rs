@@ -251,12 +251,17 @@ pub fn common_services() -> Arc<CommonServices> {
 
 /// Push `services` as the active bind; returns the previous head if any.
 pub fn install_common_services(services: Arc<CommonServices>) -> Option<Arc<CommonServices>> {
-    ACTIVE_STACK.with(|stack| {
+    let prior = ACTIVE_STACK.with(|stack| {
         let mut active = stack.borrow_mut();
         let prior = active.last().cloned();
-        active.push(services);
+        active.push(Arc::clone(&services));
         prior
-    })
+    });
+    // Veterancy NameKey interning needs this bind; safe / idempotent on re-install.
+    services
+        .system
+        .init_lifetime_upgrades_after_common_published();
+    prior
 }
 
 /// Pop only if `services` is the current head.

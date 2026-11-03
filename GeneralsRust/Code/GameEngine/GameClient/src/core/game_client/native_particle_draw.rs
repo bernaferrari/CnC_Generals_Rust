@@ -28,7 +28,10 @@ impl GameClient {
         }
         self.drawables
             .state
-            .retire_native_particles_with_services(id, &mut self.drawables.particles)?;
+            .retire_native_particles_with_services(
+                id,
+                self.drawables.particles.as_mut().expect("particle manager"),
+            )?;
         self.native_particle_capability_gaps
             .retain(|gap| id.is_some_and(|id| gap.drawable_id != id));
         Ok(())
@@ -87,9 +90,14 @@ impl GameClient {
         let assets = self.render_bridge.asset_manager();
         self.drawables
             .particles
+            .as_mut()
+            .expect("particle manager")
             .admit_effective_definitions()
             .map_err(|error| GameClientError::SubsystemError(error.to_string()))?;
-        let (state, particles) = (&mut self.drawables.state, &mut self.drawables.particles);
+        let (state, particles) = (
+                &mut self.drawables.state,
+                self.drawables.particles.as_mut().expect("particle manager"),
+            );
         NativeRenderReceiver::new(
             state,
             &mut self.native_particle_capability_gaps,

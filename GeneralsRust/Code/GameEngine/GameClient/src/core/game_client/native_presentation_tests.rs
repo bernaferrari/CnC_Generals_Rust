@@ -638,7 +638,7 @@ fn native_retirement_releases_particle_guard_before_actual_module_drop() {
     ) {
         return;
     }
-    use crate::effects::particle_manager::{PARTICLE_SYSTEM_MANAGER, get_particle_system_manager_mut};
+    use crate::effects::particle_manager::{get_particle_system_manager_mut, with_particle_system_slot_mut};
     use std::sync::atomic::{AtomicBool, Ordering};
     #[derive(Debug)]
     struct DropProbe(Arc<AtomicBool>);
@@ -651,7 +651,7 @@ fn native_retirement_releases_particle_guard_before_actual_module_drop() {
         fn drop(&mut self) {
             // Nonblocking: OLD records false instead of hanging the test.
             self.0.store(
-                PARTICLE_SYSTEM_MANAGER.try_write().is_ok(),
+                with_particle_system_slot_mut(|slot| slot.is_some()).unwrap_or(false),
                 Ordering::SeqCst,
             );
         }
@@ -662,8 +662,11 @@ fn native_retirement_releases_particle_guard_before_actual_module_drop() {
             *get_particle_system_manager_mut().unwrap() = self.0.take();
         }
     }
+    // Free-API TLS sentinel: DropProbe checks the take-guard was released
+    // before module Drop (same signal the old RwLock try_write probed).
     let prior = get_particle_system_manager_mut().unwrap().take();
     let _restore = Restore(prior);
+    *get_particle_system_manager_mut().unwrap() = Some(ParticleSystemManager::new());
     for selected_only in [true, false] {
         let assets = static_asset();
         let mut client = GameClient::new().unwrap();
@@ -695,7 +698,8 @@ fn native_retirement_releases_particle_guard_before_actual_module_drop() {
         receiver(&mut client, id)
             .get_draw_modules_mut()
             .push(Box::new(DropProbe(Arc::clone(&unlocked))));
-        *get_particle_system_manager_mut().unwrap() = Some(manager);
+        // Owning slot on DrawableWorld — retirement mutates this manager.
+        client.drawables.particles = Some(manager);
         NativeParticleRetirementService
             .retire(
                 &mut client.drawables.borrow_native(),
@@ -705,16 +709,26 @@ fn native_retirement_releases_particle_guard_before_actual_module_drop() {
         assert!(client.find_drawable_by_id(id).is_none());
         assert!(
             unlocked.load(Ordering::SeqCst),
-            "native module Drop must reacquire the actual manager lock"
+            "native module Drop must run after particle take-guard release"
         );
-        let manager = get_particle_system_manager_mut().unwrap();
-        let manager = manager.as_ref().unwrap();
-        assert_eq!(manager.runtime_owner(), actual_owner);
-        assert!(manager.system_count() > 0);
-        assert!(
-            manager
-                .all_particle_systems()
-                .all(|system| system.is_destroyed())
-        );
+        let manager = client
+            .drawables
+            .particles
+            .as_ref()
+            .expect("client particle manager");
+        if selected_only {
+            // Selected retirement keeps the manager namespace and marks systems
+            // destroyed in place.
+            assert_eq!(manager.runtime_owner(), actual_owner);
+            assert!(manager.system_count() > 0);
+            assert!(
+                manager
+                    .all_particle_systems()
+                    .all(|system| system.is_destroyed())
+            );
+        } else {
+            // Full clear renews the runtime owner after particle retirement.
+            assert_eq!(manager.system_count(), 0);
+        }
     }
 }

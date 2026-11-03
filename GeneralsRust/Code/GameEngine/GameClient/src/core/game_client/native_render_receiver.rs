@@ -715,7 +715,11 @@ impl GameClient {
             NativeDrawableOwner {
                 auxiliary_identity: &self.drawables.auxiliary_identity,
                 drawables: &mut self.drawables.state,
-                particles: &mut self.drawables.particles,
+                particles: self
+                    .drawables
+                    .particles
+                    .as_mut()
+                    .expect("GameClient particle manager"),
                 audio_device: self.native_audio_device.as_ref(),
             },
             self.ui_renderer.as_mut(),

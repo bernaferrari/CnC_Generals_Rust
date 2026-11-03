@@ -73,7 +73,10 @@ impl NativeDrawableWorld {
         NativeDrawableOwner {
             auxiliary_identity: &self.auxiliary_identity,
             drawables: &mut self.state,
-            particles: &mut self.particles,
+            particles: self
+                .particles
+                .as_mut()
+                .expect("NativeDrawableWorld particle manager"),
             audio_device: None,
         }
     }

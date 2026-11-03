@@ -359,9 +359,14 @@ impl GameClient {
             let assets = self.render_bridge.asset_manager();
             self.drawables
                 .particles
+                .as_mut()
+                .expect("particle manager")
                 .admit_effective_definitions()
                 .map_err(|error| GameClientError::SubsystemError(error.to_string()))?;
-            let (state, particles) = (&mut self.drawables.state, &mut self.drawables.particles);
+            let (state, particles) = (
+                &mut self.drawables.state,
+                self.drawables.particles.as_mut().expect("particle manager"),
+            );
             let ui = self.subsystem_manager.in_game_ui.as_mut();
             if let Some(ambient) = ambient {
                 NativeRenderReceiver::new_with_ambient(

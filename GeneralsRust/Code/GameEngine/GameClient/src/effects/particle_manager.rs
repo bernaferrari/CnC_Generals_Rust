@@ -5,7 +5,7 @@
 
 use glam::{Mat3, Mat4 as GlamMat4, Vec3};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 use thiserror::Error;
 
@@ -1378,8 +1378,44 @@ impl SubsystemInterface for ParticleSystemManager {
 // Import ParticleSystem from particle_system module
 pub use crate::effects::particle_system::ParticleSystem;
 
-/// Global particle system manager instance
-pub static PARTICLE_SYSTEM_MANAGER: RwLock<Option<ParticleSystemManager>> = RwLock::new(None);
+/// Process-free particle slot. Production routes through the live client's
+/// `DrawableWorld.particles`; tests keep a TLS Option for swap fixtures.
+#[cfg(test)]
+std::thread_local! {
+    static TEST_PARTICLE_SLOT: std::cell::RefCell<Option<ParticleSystemManager>> =
+        std::cell::RefCell::new(None);
+}
+
+pub fn with_particle_system_slot_mut<R>(
+    f: impl FnOnce(&mut Option<ParticleSystemManager>) -> R,
+) -> Result<R, ParticleSystemError> {
+    #[cfg(test)]
+    {
+        return Ok(TEST_PARTICLE_SLOT.with(|slot| f(&mut slot.borrow_mut())));
+    }
+    #[cfg(not(test))]
+    {
+        if crate::core::game_client::live_game_client_frame().is_none() {
+            return Err(ParticleSystemError::InitializationFailed(
+                "no live GameClient particle slot".to_string(),
+            ));
+        }
+        crate::core::game_client::with_live_game_client_mut(|client| {
+            f(&mut client.drawables.particles)
+        })
+        .ok_or_else(|| {
+            ParticleSystemError::InitializationFailed(
+                "live GameClient particle slot unavailable".to_string(),
+            )
+        })
+    }
+}
+
+pub fn with_particle_system_slot<R>(
+    f: impl FnOnce(&Option<ParticleSystemManager>) -> R,
+) -> Result<R, ParticleSystemError> {
+    with_particle_system_slot_mut(|slot| f(&*slot))
+}
 
 #[derive(Debug)]
 struct ParticleSystemManagerBridge;
@@ -1789,12 +1825,8 @@ fn overlay_common_particle_system(
     }
 }
 
-/// Initialize the global particle system manager
+/// Initialize the particle system manager on the live client (or test TLS slot).
 pub fn initialize_particle_system_manager() -> Result<(), ParticleSystemError> {
-    let mut manager_guard = PARTICLE_SYSTEM_MANAGER.write().map_err(|_| {
-        ParticleSystemError::InitializationFailed("Failed to acquire write lock".to_string())
-    })?;
-
     let mut manager = ParticleSystemManager::new();
     if let Err(error) = manager.load_retail_particle_templates() {
         // This is deliberately non-fatal just like C++'s optional asset path:
@@ -1802,7 +1834,9 @@ pub fn initialize_particle_system_manager() -> Result<(), ParticleSystemError> {
         // retry once the virtual file system has mounted the retail archives.
         log::warn!("Failed to load retail ParticleSystem.ini: {error}");
     }
-    *manager_guard = Some(manager);
+    with_particle_system_slot_mut(|slot| {
+        *slot = Some(manager);
+    })?;
     game_engine::common::ini::register_particle_system_live_overlay(overlay_common_particle_system);
     Ok(())
 }
@@ -1820,20 +1854,51 @@ pub fn register_particle_system_manager_bridge() {
         gamelogic::helpers::register_particle_system_manager(Arc::new(ParticleSystemManagerBridge));
 }
 
-/// Get reference to the global particle system manager
-pub fn get_particle_system_manager()
--> Result<std::sync::RwLockReadGuard<'static, Option<ParticleSystemManager>>, ParticleSystemError> {
-    PARTICLE_SYSTEM_MANAGER.read().map_err(|_| {
-        ParticleSystemError::InitializationFailed("Failed to acquire read lock".to_string())
-    })
+/// Take-guard over the particle slot (live `DrawableWorld.particles` or test TLS).
+/// Prefer `with_particle_system_slot_mut` when the borrow can stay scoped.
+pub struct ParticleSlotGuard {
+    slot: Option<ParticleSystemManager>,
 }
 
-/// Get mutable reference to the global particle system manager
-pub fn get_particle_system_manager_mut()
--> Result<std::sync::RwLockWriteGuard<'static, Option<ParticleSystemManager>>, ParticleSystemError>
-{
-    PARTICLE_SYSTEM_MANAGER.write().map_err(|_| {
-        ParticleSystemError::InitializationFailed("Failed to acquire write lock".to_string())
+impl std::ops::Deref for ParticleSlotGuard {
+    type Target = Option<ParticleSystemManager>;
+    fn deref(&self) -> &Self::Target {
+        &self.slot
+    }
+}
+
+impl std::ops::DerefMut for ParticleSlotGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.slot
+    }
+}
+
+impl Drop for ParticleSlotGuard {
+    fn drop(&mut self) {
+        let taken = self.slot.take();
+        let _ = with_particle_system_slot_mut(|slot| {
+            // Only restore when the fixture still owns the slot (nested takes
+            // leave None here and the outer guard's Drop writes last).
+            if slot.is_none() {
+                *slot = taken;
+            } else if taken.is_some() {
+                // Nested get_* while an outer guard is live — prefer the
+                // outer owner's value and drop this inner snapshot.
+                drop(taken);
+            }
+        });
+    }
+}
+
+/// Get reference to the particle slot. Prefer `with_particle_system_slot`.
+pub fn get_particle_system_manager() -> Result<ParticleSlotGuard, ParticleSystemError> {
+    get_particle_system_manager_mut()
+}
+
+/// Get mutable reference to the particle slot (take-guard).
+pub fn get_particle_system_manager_mut() -> Result<ParticleSlotGuard, ParticleSystemError> {
+    with_particle_system_slot_mut(|slot| ParticleSlotGuard {
+        slot: slot.take(),
     })
 }
 
