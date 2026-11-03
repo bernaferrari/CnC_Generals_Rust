@@ -76,6 +76,10 @@ struct WindowManagerOwnerState {
     >,
     /// Skirmish map-select layout slot (was process TLS).
     skirmish_map_select_layout: RefCell<Option<Rc<RefCell<crate::gui::WindowLayout>>>>,
+    /// LAN game options menu state (was process TLS).
+    lan_game_options: RefCell<crate::gui::callbacks::lan_game_options_menu::LanGameOptionsState>,
+    /// LAN map-select layout slot (was process TLS).
+    lan_map_select_layout: RefCell<Option<Rc<RefCell<crate::gui::WindowLayout>>>>,
     /// Offline network stub queues / facade (not(feature = "network")).
     #[cfg(not(feature = "network"))]
     network_compat: crate::game_network_compat::NetworkCompatState,
@@ -161,6 +165,10 @@ impl WindowManagerOwner {
                     crate::gui::callbacks::skirmish_game_options_menu::SkirmishGameOptionsState::default(),
                 ),
                 skirmish_map_select_layout: RefCell::new(None),
+                lan_game_options: RefCell::new(
+                    crate::gui::callbacks::lan_game_options_menu::LanGameOptionsState::default(),
+                ),
+                lan_map_select_layout: RefCell::new(None),
                 #[cfg(not(feature = "network"))]
                 network_compat: crate::game_network_compat::NetworkCompatState::new(),
             }),
@@ -240,6 +248,20 @@ impl WindowManagerOwner {
         f: impl FnOnce(&mut Option<Rc<RefCell<crate::gui::WindowLayout>>>) -> R,
     ) -> R {
         f(&mut self.state.skirmish_map_select_layout.borrow_mut())
+    }
+
+    pub(crate) fn with_lan_game_options_mut<R>(
+        &self,
+        f: impl FnOnce(&RefCell<crate::gui::callbacks::lan_game_options_menu::LanGameOptionsState>) -> R,
+    ) -> R {
+        f(&self.state.lan_game_options)
+    }
+
+    pub(crate) fn with_lan_map_select_layout_mut<R>(
+        &self,
+        f: impl FnOnce(&mut Option<Rc<RefCell<crate::gui::WindowLayout>>>) -> R,
+    ) -> R {
+        f(&mut self.state.lan_map_select_layout.borrow_mut())
     }
 
     /// Offline network stub state for this client (`not(feature = "network")`).

@@ -34,7 +34,7 @@ const MAX_SLOTS: usize = 8;
 /// Window state stored in thread-local RefCell (single-threaded GUI)
 /// This replaces Arc<Mutex> with zero-overhead RefCell
 #[derive(Default)]
-struct LanGameOptionsState {
+pub(crate) struct LanGameOptionsState {
     parent_id: i32,
     button_start_id: i32,
     button_back_id: i32,
@@ -59,26 +59,76 @@ struct LanGameOptionsState {
     selected_map: Option<String>,
 }
 
-/// Thread-local state using RefCell - zero-overhead for single-threaded GUI
+#[cfg(test)]
 thread_local! {
-    static LAN_GAME_OPTIONS_STATE: RefCell<LanGameOptionsState> =
+    static TEST_LAN_GAME_OPTIONS: RefCell<LanGameOptionsState> =
         RefCell::new(LanGameOptionsState::default());
-    static LAN_MAP_SELECT_LAYOUT: RefCell<Option<Rc<RefCell<WindowLayout>>>> =
+    static TEST_LAN_MAP_SELECT_LAYOUT: RefCell<Option<Rc<RefCell<WindowLayout>>>> =
         const { RefCell::new(None) };
 }
 
-/// Access state with closure - panic on borrow conflict (indicates bug)
-fn with_state<R>(f: impl FnOnce(&mut LanGameOptionsState) -> R) -> R {
-    LAN_GAME_OPTIONS_STATE.with(|s| f(&mut s.borrow_mut()))
+fn with_state_on_owner<R>(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+    f: impl FnOnce(&mut LanGameOptionsState) -> R,
+) -> R {
+    let mut f = Some(f);
+    if let Some(owner) = owner {
+        return owner.with_lan_game_options_mut(|state| f.take().expect("lan")(&mut state.borrow_mut()));
+    }
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_lan_game_options_mut(|state| f.take().expect("lan")(&mut state.borrow_mut()))
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_LAN_GAME_OPTIONS.with(|s| f.take().expect("lan")(&mut s.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("lan")(&mut LanGameOptionsState::default())
+    }
 }
 
-/// Access state immutably
+fn with_state<R>(f: impl FnOnce(&mut LanGameOptionsState) -> R) -> R {
+    with_state_on_owner(None, f)
+}
+
 fn with_state_ref<R>(f: impl FnOnce(&LanGameOptionsState) -> R) -> R {
-    LAN_GAME_OPTIONS_STATE.with(|s| f(&s.borrow()))
+    with_state(|state| f(state))
+}
+
+fn with_lan_map_select_layout_on_owner<R>(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+    f: impl FnOnce(&mut Option<Rc<RefCell<WindowLayout>>>) -> R,
+) -> R {
+    let mut f = Some(f);
+    if let Some(owner) = owner {
+        return owner.with_lan_map_select_layout_mut(|layout| f.take().expect("lan layout")(layout));
+    }
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_lan_map_select_layout_mut(|layout| f.take().expect("lan layout")(layout))
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_LAN_MAP_SELECT_LAYOUT.with(|layout| {
+            f.take().expect("lan layout")(&mut layout.borrow_mut())
+        });
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("lan layout")(&mut None)
+    }
 }
 
 fn with_lan_map_select_layout<R>(f: impl FnOnce(&mut Option<Rc<RefCell<WindowLayout>>>) -> R) -> R {
-    LAN_MAP_SELECT_LAYOUT.with(|layout| f(&mut layout.borrow_mut()))
+    with_lan_map_select_layout_on_owner(None, f)
 }
 
 fn name_to_id(name: &str) -> i32 {
