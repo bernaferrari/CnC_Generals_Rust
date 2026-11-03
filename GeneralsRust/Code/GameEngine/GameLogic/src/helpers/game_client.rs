@@ -652,7 +652,7 @@ impl TheGameClient {
         Self::create_drawable_in(&crate::system::engine_stores::active_services(), template)
     }
 
-    fn create_drawable_in(
+    pub fn create_drawable_in(
         stores: &Arc<crate::system::engine_stores::WorldServices>,
         template: &dyn crate::common::ThingTemplate,
     ) -> u32 {
@@ -835,7 +835,7 @@ impl TheGameClient {
         Self::destroy_drawable_in(&crate::system::engine_stores::active_services(), id);
     }
 
-    fn destroy_drawable_in(stores: &Arc<crate::system::engine_stores::WorldServices>, id: u32) {
+    pub fn destroy_drawable_in(stores: &Arc<crate::system::engine_stores::WorldServices>, id: u32) {
         let visuals = stores.client_visuals();
         let mut map = visuals.drawables.lock().unwrap();
         let removed_drawable = map
