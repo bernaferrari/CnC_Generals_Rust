@@ -85,6 +85,34 @@ fn test_script_engine_creation() {
 }
 
 #[test]
+fn receiving_xfer_tail_none_fade_starts_multiply_intro() {
+    // hq-r9gaw: archive restore applies C++ FADE_NONE → Multiply intro.
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    let services = new_world_services();
+    with_world_services(&services, || {
+        let engine = ScriptEngine::new().unwrap();
+        let mut tail = ScriptEngineXferTail::default();
+        tail.fade = TFade::None as i32;
+        engine.restore_receiving_xfer_tail(&tail);
+        assert_eq!(engine.get_fade(), TFade::Multiply);
+        assert_eq!(engine.get_fade_value(), 0.0);
+        assert_eq!(engine.with_inner(|i| i.min_fade), 1.0);
+        assert_eq!(engine.with_inner(|i| i.max_fade), 0.0);
+        assert_eq!(engine.with_inner(|i| i.fade_frames_decrease), 33);
+        assert_eq!(engine.with_inner(|i| i.cur_fade_frame), 0);
+        // Active non-None fade must stay unchanged.
+        let mut active = ScriptEngineXferTail::default();
+        active.fade = TFade::Add as i32;
+        active.cur_fade_value = 0.5;
+        active.fade_frames_decrease = 10;
+        engine.restore_receiving_xfer_tail(&active);
+        assert_eq!(engine.get_fade(), TFade::Add);
+        assert_eq!(engine.get_fade_value(), 0.5);
+        assert_eq!(engine.with_inner(|i| i.fade_frames_decrease), 10);
+    });
+}
+
+#[test]
 fn test_new_map_starts_fade_in_from_black() {
     let mut engine = ScriptEngine::new().unwrap();
     engine.reset();

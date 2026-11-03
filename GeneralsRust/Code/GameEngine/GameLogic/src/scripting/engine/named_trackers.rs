@@ -2123,6 +2123,19 @@ impl ScriptEngine {
                 tail.objects_should_receive_difficulty_bonus;
             inner.current_track_name = tail.current_track_name.clone();
             inner.choose_victim_always_uses_normal = tail.choose_victim_always_uses_normal;
+            // hq-r9gaw / C++ ScriptEngine.cpp:9277-9286 — archive LOAD with
+            // saved FADE_NONE starts the standard Multiply fade-in intro.
+            // Core leftover Xfer already applies this; receiving restore must too.
+            if !standalone && matches!(inner.fade, TFade::None) {
+                inner.fade = TFade::Multiply;
+                inner.cur_fade_frame = 0;
+                inner.min_fade = 1.0;
+                inner.max_fade = 0.0;
+                inner.fade_frames_increase = 0;
+                inner.fade_frames_hold = 0;
+                inner.fade_frames_decrease = FRAMES_TO_FADE_IN_AT_START;
+                inner.cur_fade_value = 0.0;
+            }
         }
 
         if !standalone {
