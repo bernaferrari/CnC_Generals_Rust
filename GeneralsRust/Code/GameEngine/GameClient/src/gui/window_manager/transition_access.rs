@@ -65,7 +65,7 @@ pub(crate) struct TransitionWindowAccess<'state, 'selected> {
     lent: Option<&'selected mut [&'selected mut GameWindow]>,
 }
 impl<'state, 'selected> TransitionWindowAccess<'state, 'selected> {
-    pub(super) fn new(
+    pub(crate) fn new(
         keyboard_focus: &'state mut Option<Weak<RefCell<GameWindow>>>,
         modal_stack: &'state mut Option<Box<ModalWindow>>,
         mouse_capture: &'state mut Option<Weak<RefCell<GameWindow>>>,

@@ -2975,41 +2975,57 @@ impl GameWindowTransitionsHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::window_manager::{CaptureFlags, TransitionWindowAccess};
+
+    fn with_access<R>(f: impl FnOnce(&mut TransitionWindowAccess<'_, '_>) -> R) -> R {
+        let mut keyboard_focus = None;
+        let mut modal_stack = None;
+        let mut mouse_capture = None;
+        let mut capture_flags = CaptureFlags::empty();
+        let mut access = TransitionWindowAccess::new(
+            &mut keyboard_focus,
+            &mut modal_stack,
+            &mut mouse_capture,
+            &mut capture_flags,
+            None,
+        );
+        f(&mut access)
+    }
 
     #[test]
     fn fade_transition_finishes_on_last_forward_frame() {
         let win = Rc::new(RefCell::new(GameWindow::new()));
         let mut transition = FadeTransition::new();
-        transition.init(Some(win.clone()), &HashMap::new(), (800, 600));
-
-        transition.update(9);
-
-        assert!(transition.is_finished());
+        with_access(|access| {
+            transition.init(Some(win.clone()), &HashMap::new(), (800, 600), access);
+            transition.update(9, access);
+            assert!(transition.is_finished());
+        });
     }
 
     #[test]
     fn fade_transition_is_not_finished_before_last_forward_frame() {
         let win = Rc::new(RefCell::new(GameWindow::new()));
         let mut transition = FadeTransition::new();
-        transition.init(Some(win.clone()), &HashMap::new(), (800, 600));
-
-        transition.update(8);
-
-        assert!(!transition.is_finished());
+        with_access(|access| {
+            transition.init(Some(win.clone()), &HashMap::new(), (800, 600), access);
+            transition.update(8, access);
+            assert!(!transition.is_finished());
+        });
     }
 
     #[test]
     fn fade_transition_reverse_finishes_on_zero_frame_only() {
         let win = Rc::new(RefCell::new(GameWindow::new()));
         let mut transition = FadeTransition::new();
-        transition.init(Some(win.clone()), &HashMap::new(), (800, 600));
-
-        transition.reverse();
-        transition.update(9);
-        assert!(!transition.is_finished());
-
-        transition.update(0);
-        assert!(transition.is_finished());
+        with_access(|access| {
+            transition.init(Some(win.clone()), &HashMap::new(), (800, 600), access);
+            transition.reverse(access);
+            transition.update(9, access);
+            assert!(!transition.is_finished());
+            transition.update(0, access);
+            assert!(transition.is_finished());
+        });
     }
 
     #[test]
@@ -3017,9 +3033,9 @@ mod tests {
         let win = Rc::new(RefCell::new(GameWindow::new()));
         win.borrow_mut().set_text("  GUI:Back ").unwrap();
         let mut transition = TextTypeTransition::new();
-
-        transition.init(Some(win), &HashMap::new(), (800, 600));
-
+        with_access(|access| {
+            transition.init(Some(win), &HashMap::new(), (800, 600), access);
+        });
         assert_eq!(transition.full_text, "  GUI:Back ");
     }
 
@@ -3028,9 +3044,9 @@ mod tests {
         let win = Rc::new(RefCell::new(GameWindow::new()));
         win.borrow_mut().set_text("1234").unwrap();
         let mut transition = CountUpTransition::new();
-
-        transition.init(Some(win), &HashMap::new(), (800, 600));
-
+        with_access(|access| {
+            transition.init(Some(win), &HashMap::new(), (800, 600), access);
+        });
         assert_eq!(transition.full_text, "1234");
         assert_eq!(transition.int_value, 1234);
     }

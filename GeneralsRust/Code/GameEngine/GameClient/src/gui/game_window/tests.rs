@@ -694,12 +694,7 @@ fn combo_box_item_data_round_trips_pointer_sized_values_like_cpp() {
         effects,
         WindowMsgPayload::Text("Alpha".to_string()),
         |effects, token| {
-            combo.test_send_system_message(
-                WindowMessage::User(GCM_ADD_ENTRY),
-                token,
-                0xFF11_2233,
-                effects,
-            )
+            combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF11_2233, effects)
         },
     );
 
@@ -742,24 +737,14 @@ fn combo_box_selection_hides_list_updates_edit_and_notifies_owner_like_cpp() {
         effects,
         WindowMsgPayload::Text("Alpha".to_string()),
         |effects, token| {
-            combo.test_send_system_message(
-                WindowMessage::User(GCM_ADD_ENTRY),
-                token,
-                0xFF11_2233,
-                effects,
-            )
+            combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF11_2233, effects)
         },
     );
     let _ = with_payload(
         effects,
         WindowMsgPayload::Text("Bravo".to_string()),
         |effects, token| {
-            combo.test_send_system_message(
-                WindowMessage::User(GCM_ADD_ENTRY),
-                token,
-                0xFF44_5566,
-                effects,
-            )
+            combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF44_5566, effects)
         },
     );
     list_box.borrow_mut().hide_without_manager_side_effects(false).unwrap();
@@ -814,12 +799,7 @@ fn combo_box_edit_update_clears_selection_hides_list_and_notifies_owner_like_cpp
         effects,
         WindowMsgPayload::Text("Alpha".to_string()),
         |effects, token| {
-            combo.test_send_system_message(
-                WindowMessage::User(GCM_ADD_ENTRY),
-                token,
-                0xFF11_2233,
-                effects,
-            )
+            combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF11_2233, effects)
         },
     );
     let _ = combo.send_system_message(WindowMessage::User(GCM_SET_SELECTION), 0, 0, effects);
@@ -2437,12 +2417,7 @@ fn listbox_selection_system_messages_match_cpp_out_pointer_shape() {
             effects,
             WindowMsgPayload::IntList(vec![0, 2]),
             |effects, token| {
-                window.test_send_system_message(
-                    WindowMessage::User(GLM_SET_SELECTION),
-                    token,
-                    2,
-                    effects,
-                )
+                window.send_system_message(WindowMessage::User(GLM_SET_SELECTION), token, 2, effects)
             }
         ),
         WindowMsgHandled::Handled
@@ -2647,7 +2622,7 @@ fn callback_resets_restore_default_handlers_like_cpp_null_setters() {
 
     {
         let drawn = drawn.clone();
-        window.set_draw_callback(move |_, _| {
+        window.set_draw_callback(move |_, _, _| {
             *drawn.borrow_mut() += 1;
         });
     }
@@ -2655,7 +2630,7 @@ fn callback_resets_restore_default_handlers_like_cpp_null_setters() {
     window.set_system_callback(|_, _, _, _| WindowMsgHandled::Handled);
     window.set_tooltip_callback(|_, _, _, _| {});
 
-    window.draw();
+    { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); window.draw(&mut __dc); }
     assert_eq!(*drawn.borrow(), 1);
     assert_eq!(
         window.test_send_input_message(WindowMessage::LeftDown, 0, 0),
@@ -2671,7 +2646,7 @@ fn callback_resets_restore_default_handlers_like_cpp_null_setters() {
     window.reset_system_callback();
     window.clear_tooltip_callback();
 
-    window.draw();
+    { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); window.draw(&mut __dc); }
     assert_eq!(*drawn.borrow(), 1);
     assert_eq!(
         window.test_send_input_message(WindowMessage::LeftDown, 0, 0),
@@ -2714,7 +2689,7 @@ fn set_callbacks_updates_input_draw_and_tooltip_like_cpp() {
         window.test_send_input_message(WindowMessage::LeftDown, 0, 0),
         WindowMsgHandled::Handled
     );
-    window.draw();
+    { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); window.draw(&mut __dc); }
     assert_eq!(*drawn.borrow(), 1);
     window.get_tooltip_callback().unwrap()(
         &window,
@@ -2729,7 +2704,7 @@ fn set_callbacks_updates_input_draw_and_tooltip_like_cpp() {
         window.test_send_input_message(WindowMessage::LeftDown, 0, 0),
         WindowMsgHandled::Ignored
     );
-    window.draw();
+    { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); window.draw(&mut __dc); }
     assert_eq!(*drawn.borrow(), 1);
     assert!(window.get_tooltip_callback().is_none());
 }

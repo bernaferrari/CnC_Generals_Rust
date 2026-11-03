@@ -44,6 +44,7 @@ use crate::message_stream::game_message::GameMessageType;
             _drawable: &dyn Drawable,
             _position: &Coord3D,
             _cmd_type: CommandEvaluateType,
+            _ui: &mut crate::message_stream::ReceivingUi<'_>,
         ) -> GameMessageResult<GameMessageType> {
             Ok(GameMessageType::ValidGUICommandHint)
         }
@@ -534,11 +535,14 @@ use crate::message_stream::game_message::GameMessageType;
             .get(&DrawableId(42))
             .expect("drawable should exist");
 
+        // Ensure receiving UI for context command ownership.
+        client.subsystem_manager.in_game_ui = Some(InGameUISubsystem::default());
         let result = client
             .evaluate_context_command(
                 drawable.as_ref(),
                 &Coord3D::new(3.0, 4.0, 0.0),
                 CommandEvaluateType::Context,
+                0,
             )
             .expect("context evaluation should succeed");
 
@@ -764,7 +768,7 @@ use crate::message_stream::game_message::GameMessageType;
             logic.set_game_mode(gamelogic::system::game_logic::GAME_NONE);
         }
 
-        let client = GameClient::new().expect("GameClient::new should succeed");
+        let mut client = GameClient::new().expect("GameClient::new should succeed");
         let mut shell = client.window_manager_owner().shell_handle();
         shell.init().unwrap();
         shell.reset().unwrap();
@@ -809,7 +813,7 @@ use crate::message_stream::game_message::GameMessageType;
             // drawables, Display, TerrainVisual, RayEffects, VideoPlayer, Eva,
             // Snow — never TheWindowManager. Menu→Menu after GAME_SHELL apply
             // must keep ButtonSinglePlayer (hq-3vo4).
-            crate::gui::window_manager::owner.with_manager(|manager| {
+            owner.with_manager(|manager| {
                 manager.test_reset();
                 let window = manager
                     .test_create_window(None, 0, 0, 80, 24)
@@ -822,7 +826,7 @@ use crate::message_stream::game_message::GameMessageType;
             let mut client = GameClient::new().expect("GameClient::new");
             client.reset().expect("GameClient::reset");
 
-            crate::gui::window_manager::owner.with_manager(|manager| {
+            owner.with_manager(|manager| {
                 assert!(
                     manager.root_window_count() > 0,
                     "GameClient::reset must leave WindowManager roots"
@@ -1647,13 +1651,10 @@ use crate::message_stream::game_message::GameMessageType;
         // C++ InGameUI::preDraw/postDraw + Drawable::drawIconUI: packed HUD
         // must be submitted on the live present path, not only computed.
         let mut client = GameClient::new().unwrap();
-        client.subsystem_manager.in_game_ui =
-            Some(Arc::new(Mutex::new(InGameUISubsystem::default())));
+        client.subsystem_manager.in_game_ui = Some(InGameUISubsystem::default());
 
-        if let Some(ui) = &client.subsystem_manager.in_game_ui {
-            if let Ok(mut ui) = ui.lock() {
-                ui.push_hud_message("Hold the ridge".to_string(), 0);
-            }
+        if let Some(ui) = client.subsystem_manager.in_game_ui.as_mut() {
+            ui.push_hud_message("Hold the ridge".to_string(), 0);
         }
         client.apply_presentation_cinematic_text(Some("Hold the ridge"), Some(2500), Some("Arial"));
         client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2500), 0);
@@ -1715,13 +1716,11 @@ use crate::message_stream::game_message::GameMessageType;
         // apply used to ignore same-text re-fires; remaining_ms increase
         // is the leftover re-arm edge (scripts_camera re-fire).
         let mut client = GameClient::new().unwrap();
-        client.subsystem_manager.in_game_ui =
-            Some(Arc::new(Mutex::new(InGameUISubsystem::default())));
+        client.subsystem_manager.in_game_ui = Some(InGameUISubsystem::default());
         client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2500), 0);
         client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(2000), 0);
         client.apply_presentation_military_caption(Some("General: Hold the line!"), Some(5000), 0);
         let ui = client.subsystem_manager.in_game_ui.as_ref().unwrap();
-        let ui = ui.lock().expect("in-game UI lock");
         let subs = ui.military_subtitles();
         assert_eq!(
             subs.len(),
@@ -1735,27 +1734,29 @@ use crate::message_stream::game_message::GameMessageType;
     #[test]
     fn named_timers_do_not_replace_superweapon_strip() {
         let mut client = GameClient::new().unwrap();
-        client.subsystem_manager.in_game_ui =
-            Some(Arc::new(Mutex::new(InGameUISubsystem::default())));
+        client.subsystem_manager.in_game_ui = Some(InGameUISubsystem::default());
         client.apply_presentation_superweapon_timers(&[(
             "Particle Uplink Cannon".to_string(),
             "1:00".to_string(),
             false,
         )]);
-        crate::gui::ingame_ui::add_named_timer("MissionTimer", "Evacuate", true);
+        if let Some(ui) = client.subsystem_manager.in_game_ui.as_mut() {
+            crate::gui::ingame_ui::add_named_timer(&mut ui.live_hud, "MissionTimer", "Evacuate", true);
+        }
         let counts = client.draw_live_ingame_hud(0);
         assert_eq!(
             counts.superweapon_timers, 1,
             "named timers must not replace the superweapon countdown strip"
         );
-        crate::gui::ingame_ui::remove_named_timer("MissionTimer");
+        if let Some(ui) = client.subsystem_manager.in_game_ui.as_mut() {
+            crate::gui::ingame_ui::remove_named_timer(&mut ui.live_hud, "MissionTimer");
+        }
     }
 
     #[test]
     fn live_world_anim_apply_keeps_money_pickup() {
         let mut client = GameClient::new().unwrap();
-        client.subsystem_manager.in_game_ui =
-            Some(Arc::new(Mutex::new(InGameUISubsystem::default())));
+        client.subsystem_manager.in_game_ui = Some(InGameUISubsystem::default());
         client.apply_presentation_world_anims(
             7,
             3,
@@ -1774,10 +1775,9 @@ use crate::message_stream::game_message::GameMessageType;
             ],
         );
         let ui = client.subsystem_manager.in_game_ui.as_ref().unwrap();
-        let guard = ui.lock().unwrap();
-        assert_eq!(guard.presentation_world_anims().len(), 1);
-        assert_eq!(guard.presentation_world_anims()[0].template, "MoneyPickUp");
-        assert_eq!(guard.presentation_world_anims()[0].initial_frame, 2);
+        assert_eq!(ui.presentation_world_anims().len(), 1);
+        assert_eq!(ui.presentation_world_anims()[0].template, "MoneyPickUp");
+        assert_eq!(ui.presentation_world_anims()[0].initial_frame, 2);
     }
 
     #[test]
