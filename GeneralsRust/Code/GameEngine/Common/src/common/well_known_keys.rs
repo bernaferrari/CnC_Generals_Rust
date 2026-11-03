@@ -380,6 +380,35 @@ pub fn key_team_transports_exit() -> NameKeyType {
     NameKeyGenerator::name_to_key("teamTransportsExit")
 }
 
+pub fn key_original_owner() -> NameKeyType {
+    NameKeyGenerator::name_to_key("originalOwner")
+}
+
+pub fn key_waypoint_id() -> NameKeyType {
+    NameKeyGenerator::name_to_key("waypointID")
+}
+
+pub fn key_waypoint_name() -> NameKeyType {
+    NameKeyGenerator::name_to_key("waypointName")
+}
+
+pub fn key_waypoint_path_label1() -> NameKeyType {
+    NameKeyGenerator::name_to_key("waypointPathLabel1")
+}
+
+pub fn key_waypoint_path_label2() -> NameKeyType {
+    NameKeyGenerator::name_to_key("waypointPathLabel2")
+}
+
+pub fn key_waypoint_path_label3() -> NameKeyType {
+    NameKeyGenerator::name_to_key("waypointPathLabel3")
+}
+
+pub fn key_waypoint_path_bi_directional() -> NameKeyType {
+    NameKeyGenerator::name_to_key("waypointPathBiDirectional")
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

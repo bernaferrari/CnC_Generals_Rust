@@ -9,6 +9,24 @@ pub fn parse_heightmap_data(map_name: &str) -> LoaderResult<Option<HeightMapData
     parse_heightmap_data_from_chunky(&chunky)
 }
 
+
+/// Read HeightMapData width/height/border without copying the sample buffer.
+/// Used by world-bounds fallback so settings parse does not re-materialize
+/// the full heightmap (Lone Eagle ~13s duplicate parse under load).
+pub fn parse_heightmap_dimensions_from_chunky(
+    chunky: &ChunkyMap,
+) -> LoaderResult<Option<(i32, i32, i32)>> {
+    let body = &chunky.bytes[chunky.body_offset..];
+    let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, "HeightMapData")? else {
+        return Ok(None);
+    };
+    let mut reader = BinaryReader::new(payload);
+    let width = reader.read_i32()?;
+    let height = reader.read_i32()?;
+    let border_size = if version >= 3 { reader.read_i32()? } else { 0 };
+    Ok(Some((width, height, border_size)))
+}
+
 pub fn parse_heightmap_data_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Option<HeightMapData>> {
     let body = &chunky.bytes[chunky.body_offset..];
     let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, "HeightMapData")? else {
@@ -515,9 +533,9 @@ pub fn parse_world_bounds_from_chunky(
         }
     }
 
-    if let Some(heightmap) = parse_heightmap_data_from_chunky(chunky)? {
-        let playable_w = (heightmap.width - 2 * heightmap.border_size).max(1) as f32;
-        let playable_h = (heightmap.height - 2 * heightmap.border_size).max(1) as f32;
+    if let Some((width, height, border_size)) = parse_heightmap_dimensions_from_chunky(chunky)? {
+        let playable_w = (width - 2 * border_size).max(1) as f32;
+        let playable_h = (height - 2 * border_size).max(1) as f32;
         let max = Coord3D::new(playable_w * MAP_XY_FACTOR, 0.0, playable_h * MAP_XY_FACTOR);
         return Ok(Some((Coord3D::new(0.0, 0.0, 0.0), max)));
     }

@@ -17,12 +17,81 @@ const DEFAULT_RUNTIME_ROAD_UNIQUE_ID: u32 = 1;
 const CORNER_RADIUS: f32 = 1.5;
 const TIGHT_CORNER_RADIUS: f32 = 0.5;
 
+
+/// NameKeys for ObjectsList property lookups, resolved once per walk.
+/// C++ caches these on the game thread; locking once per object was the Lone Eagle
+/// settings/sync bottleneck (dict_to_string_map → key_to_name per pair).
+struct MapObjectNameKeys {
+    waypoint_id: u32,
+    waypoint_name: u32,
+    waypoint_path_label1: u32,
+    waypoint_path_label2: u32,
+    waypoint_path_label3: u32,
+    waypoint_path_bi_directional: u32,
+    object_name: u32,
+    team_name: u32,
+    original_owner: u32,
+    player_name: u32,
+    multiplayer_start_index: u32,
+    object_enabled: u32,
+    object_powered: u32,
+    object_indestructible: u32,
+    object_unsellable: u32,
+    object_weather: u32,
+    object_grant_upgrade: u32,
+}
+
+impl MapObjectNameKeys {
+    fn resolve() -> Self {
+        NameKeyGenerator::with_namespace(|names| Self {
+            waypoint_id: names.name_to_key("waypointID"),
+            waypoint_name: names.name_to_key("waypointName"),
+            waypoint_path_label1: names.name_to_key("waypointPathLabel1"),
+            waypoint_path_label2: names.name_to_key("waypointPathLabel2"),
+            waypoint_path_label3: names.name_to_key("waypointPathLabel3"),
+            waypoint_path_bi_directional: names.name_to_key("waypointPathBiDirectional"),
+            object_name: names.name_to_key("objectName"),
+            team_name: names.name_to_key("teamName"),
+            original_owner: names.name_to_key("originalOwner"),
+            player_name: names.name_to_key("playerName"),
+            multiplayer_start_index: names.name_to_key("multiplayerStartIndex"),
+            object_enabled: names.name_to_key("objectEnabled"),
+            object_powered: names.name_to_key("objectPowered"),
+            object_indestructible: names.name_to_key("objectIndestructible"),
+            object_unsellable: names.name_to_key("objectUnsellable"),
+            object_weather: names.name_to_key("objectWeather"),
+            object_grant_upgrade: names.name_to_key("objectGrantUpgrade"),
+        })
+    }
+}
+
+fn dict_ascii_nonempty(dict: &Dict, key: u32) -> Option<String> {
+    if dict.get_type(key) != Some(DictType::AsciiString) {
+        return None;
+    }
+    let value = dict.get_ascii_string(key);
+    if value.trim().is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+fn dict_bool_opt(dict: &Dict, key: u32) -> Option<bool> {
+    if dict.get_type(key) == Some(DictType::Bool) {
+        Some(dict.get_bool(key))
+    } else {
+        None
+    }
+}
+
 pub fn parse_runtime_waypoints_from_chunky(
     chunky: &ChunkyMap,
 ) -> LoaderResult<(Vec<RuntimeWaypoint>, Vec<(u32, u32)>)> {
     let body = &chunky.bytes[chunky.body_offset..];
     let mut waypoints = Vec::new();
     let mut links = Vec::new();
+    let keys = MapObjectNameKeys::resolve();
 
     if let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, OBJECTS_LIST_LABEL)? {
         parse_chunk_sequence(payload, &chunky.toc, |label, child_version, data| {
@@ -30,7 +99,7 @@ pub fn parse_runtime_waypoints_from_chunky(
                 return Ok(());
             }
             if let Some(waypoint) =
-                parse_waypoint_object_chunk(data, child_version.max(version), &chunky.toc)?
+                parse_waypoint_object_chunk(data, child_version.max(version), &chunky.toc, &keys)?
             {
                 waypoints.push(waypoint);
             }
@@ -167,18 +236,74 @@ pub fn parse_runtime_map_objects_bundle_from_chunky(
     let body = &chunky.bytes[chunky.body_offset..];
     let mut stubs = Vec::new();
     let mut waypoints = Vec::new();
+    let keys = MapObjectNameKeys::resolve();
     if let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, OBJECTS_LIST_LABEL)? {
         parse_chunk_sequence(payload, &chunky.toc, |label, child_version, data| {
             if label != OBJECT_LABEL {
                 return Ok(());
             }
             let ver = child_version.max(version);
-            // Waypoints need the property dict; stubs are flag/geometry only.
-            if let Some(waypoint) = parse_waypoint_object_chunk(data, ver, &chunky.toc)? {
-                waypoints.push(waypoint);
+            // One header+dict read per object (was waypoint dict parse + stub re-read).
+            let mut reader = BinaryReader::new(data);
+            if reader.remaining() < 20 {
+                return Ok(());
             }
-            if let Some(map_object) = parse_runtime_map_object_stub_chunk(data, ver)? {
-                stubs.push(map_object);
+            let x = reader.read_f32()?;
+            let y = reader.read_f32()?;
+            let mut z = reader.read_f32()?;
+            if ver <= 2 {
+                z = 0.0;
+            }
+            let _angle = reader.read_f32()?;
+            let flags = reader.read_i32()?;
+            let template_name = reader.read_ascii_string()?;
+            stubs.push(RuntimeMapObjectStub {
+                template_name: template_name.clone(),
+                location: Coord3D::new(x, y, z),
+                flags,
+            });
+            if ver >= 2 && reader.remaining() > 0 {
+                let dict = parse_chunk_dict_typed(&mut reader, &chunky.toc)?;
+                if dict.get_type(keys.waypoint_id).is_some() {
+                    let waypoint_id = if dict.get_type(keys.waypoint_id) == Some(DictType::Int) {
+                        dict.get_int(keys.waypoint_id).max(0) as u32
+                    } else {
+                        0
+                    };
+                    let waypoint_name =
+                        dict_ascii_nonempty(&dict, keys.waypoint_name).unwrap_or_default();
+                    let resolved_name = if waypoint_name.trim().is_empty() {
+                        template_name
+                    } else {
+                        waypoint_name
+                    };
+                    let bi_directional = match dict.get_type(keys.waypoint_path_bi_directional) {
+                        Some(DictType::Bool) => dict.get_bool(keys.waypoint_path_bi_directional),
+                        Some(DictType::AsciiString) => {
+                            let value = dict.get_ascii_string(keys.waypoint_path_bi_directional);
+                            let trimmed = value.trim();
+                            trimmed.eq_ignore_ascii_case("true")
+                                || trimmed.eq_ignore_ascii_case("yes")
+                                || trimmed == "1"
+                        }
+                        Some(DictType::Int) => {
+                            dict.get_int(keys.waypoint_path_bi_directional) != 0
+                        }
+                        _ => false,
+                    };
+                    waypoints.push(RuntimeWaypoint {
+                        id: waypoint_id,
+                        name: resolved_name,
+                        location: Coord3D::new(x, y, z),
+                        path_label1: dict_ascii_nonempty(&dict, keys.waypoint_path_label1)
+                            .unwrap_or_default(),
+                        path_label2: dict_ascii_nonempty(&dict, keys.waypoint_path_label2)
+                            .unwrap_or_default(),
+                        path_label3: dict_ascii_nonempty(&dict, keys.waypoint_path_label3)
+                            .unwrap_or_default(),
+                        bi_directional,
+                    });
+                }
             }
             Ok(())
         })?;
@@ -323,12 +448,171 @@ pub fn parse_object_placements(
     parse_object_placements_from_chunky(&chunky, definitions)
 }
 
+/// One ObjectsList walk for settings: placements + waypoints + initial camera.
+/// C++ MapReader visits each MapObject once; settings used to walk three times.
+/// One ObjectsList walk for settings: placements + waypoints + initial camera.
+/// C++ MapReader visits each MapObject once; settings used to walk three times.
+pub fn parse_objects_list_for_settings_from_chunky(
+    chunky: &ChunkyMap,
+    definitions: &TerrainRoadCollection,
+) -> LoaderResult<(Vec<PlacedObject>, Vec<RuntimeWaypoint>, Option<Coord3D>)> {
+    let body = &chunky.bytes[chunky.body_offset..];
+    let keys = MapObjectNameKeys::resolve();
+    let mut objects = Vec::new();
+    let mut waypoints = Vec::new();
+    let mut camera = None;
+
+    let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, OBJECTS_LIST_LABEL)? else {
+        if let Some((version, payload)) =
+            find_chunk_by_label(body, &chunky.toc, OBJECT_CREATION_LIST_LABEL)?
+        {
+            parse_chunk_sequence(payload, &chunky.toc, |label, _chunk_version, data| {
+                if label != OBJECT_LABEL {
+                    return Ok(());
+                }
+                if let Some(obj) = parse_object_creation_chunk(data, version, definitions)? {
+                    objects.push(obj);
+                }
+                Ok(())
+            })?;
+        }
+        return Ok((objects, waypoints, camera));
+    };
+
+    parse_chunk_sequence(payload, &chunky.toc, |label, child_version, data| {
+        if label != OBJECT_LABEL {
+            return Ok(());
+        }
+        let ver = child_version.max(version);
+        let mut reader = BinaryReader::new(data);
+        if reader.remaining() < 20 {
+            return Ok(());
+        }
+        let x = reader.read_f32()?;
+        let y = reader.read_f32()?;
+        let mut z = reader.read_f32()?;
+        if ver <= 2 {
+            z = 0.0;
+        }
+        let angle = reader.read_f32()?;
+        let _flags = reader.read_i32()?;
+        let template = reader.read_ascii_string()?;
+        if template.is_empty() {
+            return Ok(());
+        }
+
+        if ver < 2 || reader.remaining() == 0 {
+            if camera.is_none() && template.eq_ignore_ascii_case("InitialCameraPosition") {
+                camera = Some(Coord3D::new(x, y, z));
+            }
+            return Ok(());
+        }
+
+        let properties = parse_chunk_dict_typed(&mut reader, &chunky.toc)?;
+        if properties.get_type(keys.waypoint_id).is_some() {
+            let waypoint_id = if properties.get_type(keys.waypoint_id) == Some(DictType::Int) {
+                properties.get_int(keys.waypoint_id).max(0) as u32
+            } else {
+                0
+            };
+            let waypoint_name =
+                dict_ascii_nonempty(&properties, keys.waypoint_name).unwrap_or_default();
+            let resolved_name = if waypoint_name.trim().is_empty() {
+                template.clone()
+            } else {
+                waypoint_name
+            };
+            if camera.is_none() && resolved_name.eq_ignore_ascii_case("InitialCameraPosition") {
+                camera = Some(Coord3D::new(x, y, z));
+            }
+            let bi_directional = match properties.get_type(keys.waypoint_path_bi_directional) {
+                Some(DictType::Bool) => properties.get_bool(keys.waypoint_path_bi_directional),
+                Some(DictType::AsciiString) => {
+                    let value = properties.get_ascii_string(keys.waypoint_path_bi_directional);
+                    let trimmed = value.trim();
+                    trimmed.eq_ignore_ascii_case("true")
+                        || trimmed.eq_ignore_ascii_case("yes")
+                        || trimmed == "1"
+                }
+                Some(DictType::Int) => properties.get_int(keys.waypoint_path_bi_directional) != 0,
+                _ => false,
+            };
+            waypoints.push(RuntimeWaypoint {
+                id: waypoint_id,
+                name: resolved_name,
+                location: Coord3D::new(x, y, z),
+                path_label1: dict_ascii_nonempty(&properties, keys.waypoint_path_label1)
+                    .unwrap_or_default(),
+                path_label2: dict_ascii_nonempty(&properties, keys.waypoint_path_label2)
+                    .unwrap_or_default(),
+                path_label3: dict_ascii_nonempty(&properties, keys.waypoint_path_label3)
+                    .unwrap_or_default(),
+                bi_directional,
+            });
+            return Ok(());
+        }
+
+        if definitions.find_road(&template).is_some() {
+            return Ok(());
+        }
+
+        let team_name = dict_ascii_nonempty(&properties, keys.original_owner)
+            .or_else(|| dict_ascii_nonempty(&properties, keys.team_name))
+            .or_else(|| dict_ascii_nonempty(&properties, keys.player_name));
+        let name = dict_ascii_nonempty(&properties, keys.object_name);
+        let player_id = if properties.get_type(keys.multiplayer_start_index) == Some(DictType::Int)
+        {
+            let raw = properties.get_int(keys.multiplayer_start_index);
+            if raw >= 0 {
+                Some(raw as u32)
+            } else {
+                None
+            }
+        } else if let Some(value) = dict_ascii_nonempty(&properties, keys.original_owner) {
+            parse_player_id(&value)
+        } else {
+            None
+        };
+        let upgrade = dict_ascii_nonempty(&properties, keys.object_grant_upgrade);
+        let unsellable = dict_bool_opt(&properties, keys.object_unsellable);
+        let enabled = dict_bool_opt(&properties, keys.object_enabled);
+        let powered = dict_bool_opt(&properties, keys.object_powered);
+        let indestructible = dict_bool_opt(&properties, keys.object_indestructible);
+        let object_weather = if properties.get_type(keys.object_weather) == Some(DictType::Int) {
+            Some(properties.get_int(keys.object_weather))
+        } else if let Some(value) = dict_ascii_nonempty(&properties, keys.object_weather) {
+            parse_object_weather_value(&value)
+        } else {
+            None
+        };
+
+        objects.push(PlacedObject {
+            template,
+            name,
+            position: Coord3D::new(x, y, z),
+            rotation: Some(angle),
+            team_name,
+            player_id,
+            upgrade,
+            unsellable,
+            enabled,
+            powered,
+            indestructible,
+            object_weather,
+            properties,
+        });
+        Ok(())
+    })?;
+    Ok((objects, waypoints, camera))
+}
+
 pub fn parse_object_placements_from_chunky(
     chunky: &ChunkyMap,
     definitions: &TerrainRoadCollection,
 ) -> LoaderResult<Vec<PlacedObject>> {
     let body = &chunky.bytes[chunky.body_offset..];
     let map_name = chunky.source.display().to_string();
+    let keys = MapObjectNameKeys::resolve();
 
     if let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, OBJECTS_LIST_LABEL)? {
         let mut objects = Vec::new();
@@ -338,7 +622,9 @@ pub fn parse_object_placements_from_chunky(
             if label != OBJECT_LABEL {
                 return Ok(());
             }
-            if let Some(obj) = parse_map_object_chunk(data, version, &chunky.toc, definitions)? {
+            if let Some(obj) =
+                parse_map_object_chunk(data, version, &chunky.toc, definitions, &keys)?
+            {
                 objects.push(obj);
             }
             Ok(())
@@ -384,6 +670,7 @@ fn parse_initial_camera_position(map_name: &str) -> LoaderResult<Option<Coord3D>
 
 fn parse_initial_camera_position_from_chunky(chunky: &ChunkyMap) -> LoaderResult<Option<Coord3D>> {
     let body = &chunky.bytes[chunky.body_offset..];
+    let keys = MapObjectNameKeys::resolve();
 
     if let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, OBJECTS_LIST_LABEL)? {
         let mut result = None;
@@ -391,7 +678,7 @@ fn parse_initial_camera_position_from_chunky(chunky: &ChunkyMap) -> LoaderResult
             if result.is_some() || label != OBJECT_LABEL {
                 return Ok(());
             }
-            result = parse_camera_waypoint_chunk(data, version, &chunky.toc)?;
+            result = parse_camera_waypoint_chunk(data, version, &chunky.toc, &keys)?;
             Ok(())
         })?;
         if result.is_some() {
@@ -407,12 +694,10 @@ fn parse_initial_camera_position_from_chunky(chunky: &ChunkyMap) -> LoaderResult
             if result.is_some() || label != OBJECT_LABEL {
                 return Ok(());
             }
-            result = parse_camera_waypoint_chunk(data, version, &chunky.toc)?;
+            result = parse_camera_waypoint_chunk(data, version, &chunky.toc, &keys)?;
             Ok(())
         })?;
-        if result.is_some() {
-            return Ok(result);
-        }
+        return Ok(result);
     }
 
     Ok(None)
@@ -422,6 +707,7 @@ fn parse_camera_waypoint_chunk(
     data: &[u8],
     version: u16,
     toc: &HashMap<u32, String>,
+    keys: &MapObjectNameKeys,
 ) -> LoaderResult<Option<Coord3D>> {
     let mut reader = BinaryReader::new(data);
     if reader.remaining() < 20 {
@@ -445,18 +731,14 @@ fn parse_camera_waypoint_chunk(
         return Ok(None);
     }
 
-    let dict = parse_chunk_dict(&mut reader, toc)?;
-    if !dict_contains_key(&dict, "waypointID") {
+    let dict = parse_chunk_dict_typed(&mut reader, toc)?;
+    if dict.get_type(keys.waypoint_id).is_none() {
         return Ok(None);
     }
-
-    let waypoint_name = dict_lookup_ci(&dict, &["waypointName"])
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(template_name);
+    let waypoint_name = dict_ascii_nonempty(&dict, keys.waypoint_name).unwrap_or(template_name);
     if waypoint_name.eq_ignore_ascii_case("InitialCameraPosition") {
         return Ok(Some(Coord3D::new(x, y, z)));
     }
-
     Ok(None)
 }
 
@@ -465,6 +747,7 @@ fn parse_map_object_chunk(
     version: u16,
     toc: &HashMap<u32, String>,
     definitions: &TerrainRoadCollection,
+    keys: &MapObjectNameKeys,
 ) -> LoaderResult<Option<PlacedObject>> {
     // Mirrors C++ ParseObjectDataChunk: x/y/z, angle, flags, template name, dict (v2+).
     let mut reader = BinaryReader::new(data);
@@ -496,80 +779,42 @@ fn parse_map_object_chunk(
     let mut enabled = None;
     let mut powered = None;
     let mut indestructible = None;
-
     let mut object_weather = None;
     let mut properties = Dict::new();
 
     if version >= 2 && reader.remaining() > 0 {
         properties = parse_chunk_dict_typed(&mut reader, toc)?;
-        let dict = dict_to_string_map(&properties);
-
         // Waypoints are map metadata nodes, not spawnable world objects.
-        if dict_contains_key(&dict, "waypointID") {
+        if properties.get_type(keys.waypoint_id).is_some() {
             return Ok(None);
         }
 
-        team_name = dict_lookup_ci(
-            &dict,
-            &["teamName", "team", "originalOwner", "owner", "playerName"],
-        )
-        .filter(|value| !value.trim().is_empty());
+        team_name = dict_ascii_nonempty(&properties, keys.original_owner)
+            .or_else(|| dict_ascii_nonempty(&properties, keys.team_name))
+            .or_else(|| dict_ascii_nonempty(&properties, keys.player_name));
 
-        name = dict_lookup_ci(
-            &dict,
-            &["objectName", "scriptName", "unitName", "thingName", "name"],
-        )
-        .filter(|value| !value.trim().is_empty());
+        name = dict_ascii_nonempty(&properties, keys.object_name);
 
-        player_id = dict_lookup_ci(
-            &dict,
-            &[
-                "player",
-                "playerId",
-                "playerID",
-                "ownerPlayer",
-                "multiplayerStartIndex",
-                "originalOwner",
-            ],
-        )
-        .and_then(|value| parse_player_id(&value));
+        if properties.get_type(keys.multiplayer_start_index) == Some(DictType::Int) {
+            let raw = properties.get_int(keys.multiplayer_start_index);
+            if raw >= 0 {
+                player_id = Some(raw as u32);
+            }
+        } else if let Some(value) = dict_ascii_nonempty(&properties, keys.original_owner) {
+            player_id = parse_player_id(&value);
+        }
 
-        upgrade = dict_lookup_ci(
-            &dict,
-            &[
-                "upgrade",
-                "upgrades",
-                "upgradeList",
-                "startupUpgrade",
-                "startupUpgrades",
-            ],
-        )
-        .filter(|value| !value.trim().is_empty());
+        upgrade = dict_ascii_nonempty(&properties, keys.object_grant_upgrade);
+        unsellable = dict_bool_opt(&properties, keys.object_unsellable);
+        enabled = dict_bool_opt(&properties, keys.object_enabled);
+        powered = dict_bool_opt(&properties, keys.object_powered);
+        indestructible = dict_bool_opt(&properties, keys.object_indestructible);
 
-        unsellable = dict_lookup_ci(
-            &dict,
-            &["objectUnsellable", "unsellable", "object_unsellable"],
-        )
-        .map(|value| parse_ini_boolish(&value));
-
-        enabled = dict_lookup_ci(&dict, &["objectEnabled", "enabled", "object_enabled"])
-            .map(|value| parse_ini_boolish(&value));
-
-        powered = dict_lookup_ci(&dict, &["objectPowered", "powered", "object_powered"])
-            .map(|value| parse_ini_boolish(&value));
-
-        indestructible = dict_lookup_ci(
-            &dict,
-            &[
-                "objectIndestructible",
-                "indestructible",
-                "object_indestructible",
-            ],
-        )
-        .map(|value| parse_ini_boolish(&value));
-
-        object_weather = dict_lookup_ci(&dict, &["objectWeather", "object_weather"])
-            .and_then(|value| parse_object_weather_value(&value));
+        if properties.get_type(keys.object_weather) == Some(DictType::Int) {
+            object_weather = Some(properties.get_int(keys.object_weather));
+        } else if let Some(value) = dict_ascii_nonempty(&properties, keys.object_weather) {
+            object_weather = parse_object_weather_value(&value);
+        }
     }
 
     Ok(Some(PlacedObject {
@@ -584,7 +829,6 @@ fn parse_map_object_chunk(
         enabled,
         powered,
         indestructible,
-
         object_weather,
         properties,
     }))
@@ -594,6 +838,7 @@ fn parse_waypoint_object_chunk(
     data: &[u8],
     version: u16,
     toc: &HashMap<u32, String>,
+    keys: &MapObjectNameKeys,
 ) -> LoaderResult<Option<RuntimeWaypoint>> {
     let mut reader = BinaryReader::new(data);
     if reader.remaining() < 20 {
@@ -613,37 +858,44 @@ fn parse_waypoint_object_chunk(
         return Ok(None);
     }
 
-    let dict = parse_chunk_dict(&mut reader, toc)?;
-    if !dict_contains_key(&dict, "waypointID") {
+    let dict = parse_chunk_dict_typed(&mut reader, toc)?;
+    if dict.get_type(keys.waypoint_id).is_none() {
         return Ok(None);
     }
 
-    let waypoint_id = dict_lookup_ci(&dict, &["waypointID"])
-        .and_then(|value| value.parse::<i32>().ok())
-        .unwrap_or(0)
-        .max(0) as u32;
-    let waypoint_name = dict_lookup_ci(&dict, &["waypointName"]).unwrap_or_default();
+    let waypoint_id = if dict.get_type(keys.waypoint_id) == Some(DictType::Int) {
+        dict.get_int(keys.waypoint_id).max(0) as u32
+    } else {
+        0
+    };
+    let waypoint_name = dict_ascii_nonempty(&dict, keys.waypoint_name).unwrap_or_default();
     let resolved_name = if waypoint_name.trim().is_empty() {
         template_name
     } else {
         waypoint_name
     };
 
+    let bi_directional = match dict.get_type(keys.waypoint_path_bi_directional) {
+        Some(DictType::Bool) => dict.get_bool(keys.waypoint_path_bi_directional),
+        Some(DictType::AsciiString) => {
+            let value = dict.get_ascii_string(keys.waypoint_path_bi_directional);
+            let trimmed = value.trim();
+            trimmed.eq_ignore_ascii_case("true")
+                || trimmed.eq_ignore_ascii_case("yes")
+                || trimmed == "1"
+        }
+        Some(DictType::Int) => dict.get_int(keys.waypoint_path_bi_directional) != 0,
+        _ => false,
+    };
+
     Ok(Some(RuntimeWaypoint {
         id: waypoint_id,
         name: resolved_name,
         location: Coord3D::new(x, y, z),
-        path_label1: dict_lookup_ci(&dict, &["waypointPathLabel1"]).unwrap_or_default(),
-        path_label2: dict_lookup_ci(&dict, &["waypointPathLabel2"]).unwrap_or_default(),
-        path_label3: dict_lookup_ci(&dict, &["waypointPathLabel3"]).unwrap_or_default(),
-        bi_directional: dict_lookup_ci(&dict, &["waypointPathBiDirectional"])
-            .map(|value| {
-                let trimmed = value.trim();
-                trimmed.eq_ignore_ascii_case("true")
-                    || trimmed.eq_ignore_ascii_case("yes")
-                    || trimmed == "1"
-            })
-            .unwrap_or(false),
+        path_label1: dict_ascii_nonempty(&dict, keys.waypoint_path_label1).unwrap_or_default(),
+        path_label2: dict_ascii_nonempty(&dict, keys.waypoint_path_label2).unwrap_or_default(),
+        path_label3: dict_ascii_nonempty(&dict, keys.waypoint_path_label3).unwrap_or_default(),
+        bi_directional,
     }))
 }
 

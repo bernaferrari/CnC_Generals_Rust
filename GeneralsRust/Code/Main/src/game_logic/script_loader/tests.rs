@@ -260,13 +260,16 @@ End\n";
         // THE_TERRAIN_LOGIC / SidesList / PlayerList / TeamFactory / FileSystem
         // locks. Contended-lock fail-open is covered separately.
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "../../windows_game/extracted_big_files_v2/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
+            "../../../windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
         );
         let Ok(raw) = std::fs::read(&path) else {
+            eprintln!("lone_eagle_fast_chunky: map missing at {}", path.display());
             return;
         };
+        let _common = game_engine::common::common_services::CommonServicesScope::new();
         let started = std::time::Instant::now();
         let bytes = decompress_map_bytes(&raw).expect("Lone Eagle decompress");
+        let decompress_s = started.elapsed();
         let (toc, body_offset) = parse_chunk_toc(&bytes).expect("Lone Eagle TOC");
         let chunky = ChunkyMap {
             source: path,
@@ -274,21 +277,60 @@ End\n";
             body_offset,
             bytes,
         };
+        let t = std::time::Instant::now();
         let heightmap = parse_heightmap_data_from_chunky(&chunky).expect("heightmap");
-        let _ = parse_runtime_waypoints_from_chunky(&chunky).expect("waypoints");
-        let _ = parse_runtime_bridges_from_chunky(&chunky, &HashMap::new()).expect("bridges");
+        let heightmap_s = t.elapsed();
+        let t = std::time::Instant::now();
+        let blend = heightmap
+            .as_ref()
+            .and_then(|hm| parse_blend_tile_data_from_chunky(&chunky, hm).ok().flatten());
+        let blend_s = t.elapsed();
+        let t = std::time::Instant::now();
+        let roads = TerrainRoadCollection::new();
+        let (wp, links, bridges, road_segs) =
+            parse_runtime_map_objects_bundle_from_chunky(&chunky, &HashMap::new(), &roads)
+                .expect("objects bundle");
+        let objects_s = t.elapsed();
+        let t = std::time::Instant::now();
         let _ = parse_runtime_water_height_from_chunky(&chunky).expect("water");
-        let _ = parse_runtime_polygon_triggers_from_chunky(&chunky).expect("polygons");
-        let _ = parse_runtime_roads_from_chunky(&chunky, &TerrainRoadCollection::new())
-            .expect("roads");
-        let _ = parse_runtime_sides_from_chunky(&chunky).expect("sides");
+        let water_s = t.elapsed();
+        let t = std::time::Instant::now();
+        let polys = parse_runtime_polygon_triggers_from_chunky(&chunky).expect("polygons");
+        let polygons_s = t.elapsed();
+        let t = std::time::Instant::now();
+        let sides = parse_runtime_sides_from_chunky(&chunky).expect("sides");
+        let sides_s = t.elapsed();
+        let t = std::time::Instant::now();
+        let settings = parse_map_settings_from_chunky(&chunky).expect("settings");
+        let settings_s = t.elapsed();
         let elapsed = started.elapsed();
+        eprintln!(
+            "lone_eagle_cpu_parse decompress={:?} heightmap={:?} blend={:?} objects_bundle={:?} (wp={} links={} bridges={} roads={}) water={:?} polygons={:?} (n={}) sides={:?} (sides={} teams={}) settings={:?} (objects={}) total={:?}",
+            decompress_s,
+            heightmap_s,
+            blend_s,
+            objects_s,
+            wp.len(),
+            links.len(),
+            bridges.len(),
+            road_segs.len(),
+            water_s,
+            polygons_s,
+            polys.len(),
+            sides_s,
+            sides.side_dicts.len(),
+            sides.team_dicts.len(),
+            settings_s,
+            settings.objects.len(),
+            elapsed
+        );
         assert!(
             elapsed.as_secs_f32() < 5.0,
             "Lone Eagle CPU parse took {:?}; hang is not parse",
             elapsed
         );
         assert!(heightmap.is_some(), "Lone Eagle must embed HeightMapData");
+        assert!(blend.is_some(), "Lone Eagle must embed BlendTileData");
     }
 
     #[test]
@@ -298,7 +340,7 @@ End\n";
         // to inspect + load_chunky_map + parse_player_start_waypoints +
         // load_map_scripts, each RefPack-decoding Lone Eagle again.
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "../../windows_game/extracted_big_files_v2/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
+            "../../../windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
         );
         if !path.is_file() {
             return;

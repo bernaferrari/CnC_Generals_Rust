@@ -204,6 +204,18 @@ impl CommonServices {
         Self::default()
     }
 
+    /// Run NameKey-dependent store init after this bag is published on TLS.
+    pub fn finish_bootstrap_after_publish(&self) {
+        let mut upgrade = self
+            .system
+            .upgrade_center_lifetime
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        if upgrade.get_upgrade_names().is_empty() {
+            upgrade.init();
+        }
+    }
+
     pub fn with_logic_rng_owner<R>(&self, owner: SessionRandom, f: impl FnOnce() -> R) -> R {
         let prev = {
             let mut slot = self.logic_rng_owner.lock().unwrap_or_else(|p| p.into_inner());
@@ -287,11 +299,13 @@ impl CommonServicesScope {
     pub fn new() -> Self {
         let services = Arc::new(CommonServices::new());
         install_common_services(Arc::clone(&services));
+        services.finish_bootstrap_after_publish();
         Self { services }
     }
 
     pub fn from_services(services: Arc<CommonServices>) -> Self {
         install_common_services(Arc::clone(&services));
+        services.finish_bootstrap_after_publish();
         Self { services }
     }
 
