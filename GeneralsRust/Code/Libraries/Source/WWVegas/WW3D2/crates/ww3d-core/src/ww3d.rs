@@ -296,6 +296,7 @@ impl Ww3dContext {
         crate::asset_manager::install_asset_manager(std::sync::Arc::clone(&self.asset_manager));
     }
 
+
     pub fn enable_sorting(&self, enable: bool) -> W3DResult<()> {
         {
             let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
@@ -405,3 +406,52 @@ impl W3DRenderer {
 #[derive(Debug, Default)]
 pub struct WW3D;
 pub use self::WW3D as WW3DClass;
+
+
+
+
+#[cfg(test)]
+mod independence_tests {
+    use super::*;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
+    #[test]
+    fn two_ww3d_contexts_on_two_threads_do_not_share_asset_manager() {
+        let a = Arc::new(Ww3dContext::new());
+        let b = Arc::new(Ww3dContext::new());
+        assert!(!Arc::ptr_eq(&a.asset_manager(), &b.asset_manager()));
+
+        let barrier = Arc::new(Barrier::new(2));
+        let a2 = Arc::clone(&a);
+        let b2 = Arc::clone(&b);
+        let bar1 = Arc::clone(&barrier);
+        let bar2 = Arc::clone(&barrier);
+
+        let t1 = thread::spawn(move || {
+            a2.install_asset_manager_bridge();
+            let active = crate::asset_manager::active_asset_manager_for_test();
+            assert!(
+                Arc::ptr_eq(&active, &a2.asset_manager()),
+                "thread A bridge must publish A's manager"
+            );
+            a2.sync(111);
+            bar1.wait();
+            assert_eq!(a2.sync_time(), 111);
+            crate::asset_manager::uninstall_asset_manager(&a2.asset_manager());
+        });
+        let t2 = thread::spawn(move || {
+            b2.install_asset_manager_bridge();
+            let active = crate::asset_manager::active_asset_manager_for_test();
+            assert!(Arc::ptr_eq(&active, &b2.asset_manager()));
+            b2.sync(222);
+            bar2.wait();
+            assert_eq!(b2.sync_time(), 222);
+            crate::asset_manager::uninstall_asset_manager(&b2.asset_manager());
+        });
+        t1.join().unwrap();
+        t2.join().unwrap();
+        assert_eq!(a.sync_time(), 111);
+        assert_eq!(b.sync_time(), 222);
+    }
+}

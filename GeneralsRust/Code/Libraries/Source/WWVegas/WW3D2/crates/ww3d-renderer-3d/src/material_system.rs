@@ -256,11 +256,11 @@ impl MaterialPassClass {
     }
 
     pub fn enable_per_polygon_culling(onoff: bool) {
-        crate::process_state::RENDERER_3D.enable_per_polygon_culling.store(onoff, Ordering::Relaxed);
+        crate::process_state::renderer_3d().enable_per_polygon_culling.store(onoff, Ordering::Relaxed);
     }
 
     pub fn is_per_polygon_culling_enabled() -> bool {
-        crate::process_state::RENDERER_3D.enable_per_polygon_culling.load(Ordering::Relaxed)
+        crate::process_state::renderer_3d().enable_per_polygon_culling.load(Ordering::Relaxed)
     }
 
     /// Get the pass index for multi-pass rendering

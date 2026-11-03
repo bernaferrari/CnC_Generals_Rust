@@ -737,7 +737,7 @@ impl DecalGeneratorClass {
 
         let projector_world = Mat4::IDENTITY;
         let world_to_projector = projector_world.inverse();
-        let logical_id = crate::process_state::RENDERER_3D.next_logical_decal_id.fetch_add(1, Ordering::Relaxed);
+        let logical_id = crate::process_state::renderer_3d().next_logical_decal_id.fetch_add(1, Ordering::Relaxed);
 
         Self {
             material_pass,

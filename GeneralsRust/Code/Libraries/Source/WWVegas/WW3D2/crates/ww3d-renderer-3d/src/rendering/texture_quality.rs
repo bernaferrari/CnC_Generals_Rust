@@ -28,19 +28,21 @@ impl Default for TextureQualitySettings {
 
 /// Fetch a snapshot of the current texture quality settings.
 pub fn settings() -> TextureQualitySettings {
-    crate::process_state::RENDERER_3D.texture_quality.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    crate::process_state::renderer_3d().texture_quality.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 /// Replace the active texture quality settings.
 pub fn set(settings: TextureQualitySettings) {
     let mut cfg = settings;
     cfg.min_dimension = cfg.min_dimension.max(1);
-    *crate::process_state::RENDERER_3D.texture_quality.lock().unwrap_or_else(|p| p.into_inner()) = cfg;
+    let r3d = crate::process_state::renderer_3d();
+    *r3d.texture_quality.lock().unwrap_or_else(|p| p.into_inner()) = cfg;
 }
 
 /// Set the global reduction and minimum dimension as per the legacy `WW3D::Set_Texture_Reduction`.
 pub fn set_texture_reduction(reduction: u32, min_dimension: u32) {
-    { let mut cell = crate::process_state::RENDERER_3D.texture_quality.lock().unwrap_or_else(|p| p.into_inner()); 
+    { let __r3d = crate::process_state::renderer_3d();
+    let mut cell = __r3d.texture_quality.lock().unwrap_or_else(|p| p.into_inner()); 
         let extra = cell.clone().large_texture_extra_reduction;
         *cell = TextureQualitySettings {
             reduction,
@@ -62,7 +64,8 @@ pub fn texture_min_dimension() -> u32 {
 
 /// Toggle the "large texture extra reduction" flag from the legacy renderer.
 pub fn enable_large_texture_extra_reduction(enabled: bool) {
-    { let mut cell = crate::process_state::RENDERER_3D.texture_quality.lock().unwrap_or_else(|p| p.into_inner()); 
+    { let __r3d = crate::process_state::renderer_3d();
+    let mut cell = __r3d.texture_quality.lock().unwrap_or_else(|p| p.into_inner()); 
         let mut cfg = cell.clone();
         cfg.large_texture_extra_reduction = enabled;
         *cell = cfg;

@@ -81,7 +81,7 @@ def immutable_lookup_type(inner):
     if re.match(r"^&'static\s+", s):
         return True
     # Fixed-size arrays are treated as lookup tables (incl. Arc<Preset>).
-    if re.match(r"^\[.*\s*;\s*\w+\]$", s):
+    if re.match(r"^\[.*\s*;\s*[\w:]+\]$", s):
         return True
     if re.match(r"^Vec<(?:u\d+|i\d+|f\d+|usize|isize|bool)>$", s):
         return True
@@ -207,7 +207,8 @@ def item_has_cfg_test_attr(text, pos):
     return False
 
 
-def inside_cfg_test_thread_local(text, pos):
+def enclosing_thread_local(text, pos):
+    """Return start index of thread_local! whose braces enclose pos, or -1."""
     idx = text.rfind("thread_local!", 0, pos)
     while idx != -1:
         brace = text.find("{", idx)
@@ -227,9 +228,21 @@ def inside_cfg_test_thread_local(text, pos):
                     break
             i += 1
         if end is not None and brace < pos <= end:
-            return item_has_cfg_test_attr(text, idx)
+            return idx
         idx = text.rfind("thread_local!", 0, idx)
-    return False
+    return -1
+
+
+def inside_cfg_test_thread_local(text, pos):
+    idx = enclosing_thread_local(text, pos)
+    if idx < 0:
+        return False
+    return item_has_cfg_test_attr(text, idx)
+
+
+def inside_any_thread_local(text, pos):
+    """Statics inside thread_local! are counted via the macro, not again."""
+    return enclosing_thread_local(text, pos) >= 0
 
 
 roots = {
@@ -287,6 +300,7 @@ for label, rel in roots.items():
                         m.start() in test_body
                         or (not with_cfg_test and item_has_cfg_test_attr(text, m.start()))
                         or (not with_cfg_test and inside_cfg_test_thread_local(text, m.start()))
+                        or inside_any_thread_local(text, m.start())
                     ):
                         continue
                     counts[label] += 1
