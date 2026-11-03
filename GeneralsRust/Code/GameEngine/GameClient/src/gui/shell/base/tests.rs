@@ -676,8 +676,10 @@ End
                 .push(Box::new(ReentrantQueueLayout::new(events.clone())));
         });
         let mut messages = Vec::new();
+        let mut ime = crate::gui::ime_manager::ImeManager::new();
         let mut effects = crate::gui::game_window::WindowEventEffects::new(&mut messages);
         effects.window_manager_owner = Some(&test_owner);
+        effects.ime = Some(&mut ime);
         let pop = test_owner.with_shell_effects_mut(&mut effects, |shell, effects| {
             shell.pop_immediate(effects)
         });
@@ -880,6 +882,7 @@ End
             let events = StdRc::new(StdRefCell::new(Vec::new()));
             let mut shell = Shell::new();
             shell.init().unwrap();
+            shell.set_shell_active(true);
             shell.background = Some(Box::new(TestLayout::new(
                 "background.wnd",
                 false,
@@ -950,12 +953,14 @@ End
             let mut enabled_messages = Vec::new();
             let mut enabled_effects =
                 crate::gui::game_window::WindowEventEffects::new(&mut enabled_messages);
+            enabled_effects.window_manager_owner = Some(&test_owner);
             enabled_effects.menu_host = Some(&mut enabled_mailbox);
             enabled_shell.update_receiving(&mut enabled_effects).unwrap();
 
             let mut disabled_messages = Vec::new();
             let mut disabled_effects =
                 crate::gui::game_window::WindowEventEffects::new(&mut disabled_messages);
+            disabled_effects.window_manager_owner = Some(&test_owner);
             disabled_effects.menu_host = Some(&mut disabled_mailbox);
             disabled_shell.update_receiving(&mut disabled_effects).unwrap();
 
@@ -1020,7 +1025,7 @@ End
             shell.pending_push_name = "Menus/MainMenu.wnd".to_string();
             shell.last_update = Instant::now() - shell.update_interval;
 
-            shell.reset().unwrap();
+            WindowEventEffects::with_standalone(|effects| shell.reset_receiving(effects)).unwrap();
 
             assert_eq!(shell.get_screen_count(), 0);
             assert!(shell.save_load_menu_layout.is_some());
