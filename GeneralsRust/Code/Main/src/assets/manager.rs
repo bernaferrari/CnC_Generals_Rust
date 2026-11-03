@@ -2481,23 +2481,22 @@ pub(crate) async fn init_asset_manager_with_sources<T>(
         *slot = Some(Arc::clone(&application_assets));
     }
 
-    begin_background_music_startup(Arc::clone(&application_assets));
+    // Start music on this task (has CommonServices/MainServices TLS). A
+    // spawn_blocking worker has empty TLS and panics inside TheAudio.
+    {
+        let mut manager = application_assets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Err(err) = manager.start_background_music().await {
+            warn!("Failed to start background music: {}", err);
+        }
+    }
 
     info!(
         "Global asset manager initialized (Total: {:.2}s)",
         (manager_create_duration + wgpu_init_duration).as_secs_f32()
     );
     Ok((sources, application_assets))
-}
-
-fn begin_background_music_startup(manager_arc: Arc<Mutex<AssetManager>>) {
-    tokio::task::spawn_blocking(move || {
-        let handle = tokio::runtime::Handle::current();
-        let mut manager = manager_arc.lock().unwrap_or_else(|e| e.into_inner());
-        if let Err(err) = handle.block_on(async { manager.start_background_music().await }) {
-            warn!("Failed to start background music: {}", err);
-        }
-    });
 }
 
 /// Get reference to global asset manager
