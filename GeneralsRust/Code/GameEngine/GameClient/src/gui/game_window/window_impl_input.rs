@@ -1491,19 +1491,35 @@ impl GameWindow {
                         .remove(WindowState::SELECTED | WindowState::HILITED);
                 }
                 let window_id = self.id;
-                effects.with_manager(|manager, effects| {
-                    let Some(ime) = effects.ime.as_deref_mut() else {
-                        return;
-                    };
-                    // Combo (and other) parents may already be mutably borrowed
-                    // on this callback chain; walk them through lent slots.
+                // Look the focused window up without with_manager: an outer
+                // with_manager may already hold the only &mut manager loan.
+                if let Some(ime) = effects.ime.as_deref_mut() {
                     let lent: Vec<&GameWindow> =
                         effects.lent_windows.iter().map(|window| &**window).collect();
-                    let window = manager
-                        .win_get_window_from_id_with_lent(None, window_id, Some(self), &lent)
-                        .expect("focused window must belong to receiving manager");
-                    crate::gui::ime_manager::attach_or_detach_for_focus(ime, window, focused);
-                });
+                    let window = if let Some(manager) = effects.manager.as_deref() {
+                        manager.win_get_window_from_id_with_lent(
+                            None,
+                            window_id,
+                            Some(self),
+                            &lent,
+                        )
+                    } else {
+                        effects.window_manager_owner.and_then(|owner| {
+                            owner.try_with_manager_ref(|manager| {
+                                manager.win_get_window_from_id_with_lent(
+                                    None,
+                                    window_id,
+                                    Some(self),
+                                    &lent,
+                                )
+                            })
+                        })
+                        .flatten()
+                    };
+                    if let Some(window) = window {
+                        crate::gui::ime_manager::attach_or_detach_for_focus(ime, window, focused);
+                    }
+                }
             } else if matches!(
                 self.widget,
                 Some(WindowWidget::PushButton(_))

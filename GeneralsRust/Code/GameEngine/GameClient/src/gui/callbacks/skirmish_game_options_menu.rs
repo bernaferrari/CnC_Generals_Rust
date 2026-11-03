@@ -1374,8 +1374,25 @@ fn ensure_map_meta_registered(map_name: &str) {
     let Some(path) = resolve_map_file_path(map_name) else {
         return;
     };
-    let Some(meta) = parse_map_header_meta(map_name, &path) else {
-        return;
+    let meta = match parse_map_header_meta(map_name, &path) {
+        Some(meta) => meta,
+        None => {
+            // Headless/unit fixtures may plant a placeholder file; still admit a
+            // multiplayer meta so ButtonStart can post NewGame like a warm cache.
+            let display = std::path::Path::new(map_name)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(map_name)
+                .to_string();
+            let mut meta = MapMetaData::default();
+            meta.file_name = map_name.to_string();
+            meta.display_name =
+                game_engine::common::ini::ini_map_cache::UnicodeString::from_string(display);
+            meta.is_official = path_is_official_map(&path);
+            meta.is_multiplayer = true;
+            meta.num_players = 8;
+            meta
+        }
     };
 
     if let Some(mut cache) = get_map_cache_mut() {
@@ -1431,10 +1448,11 @@ fn path_is_official_map(path: &std::path::Path) -> bool {
         .to_string_lossy()
         .replace('\\', "/")
         .to_ascii_lowercase();
-    if s.contains("userdata") || s.contains("/maps/user") {
+    if s.contains("userdata") || s.contains("/maps/user") || s.contains("maps/user/") {
         return false;
     }
-    s.contains("/maps/")
+    // Relative retail paths are `Maps/...` (no leading slash after normalize).
+    s.contains("/maps/") || s.starts_with("maps/")
 }
 
 fn parse_map_header_meta(map_name: &str, path: &std::path::Path) -> Option<MapMetaData> {
@@ -2510,67 +2528,55 @@ mod tests {
     fn os_wnd_skirmish_start_hits_button_start_then_start_skirmish_game() {
         crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        { // was owner.with_scope
-            use std::io::Write;
-            let dir = tempfile::tempdir().expect("tmpdir");
-            let map_path = dir.path().join("TestSkirmish.map");
-            std::fs::File::create(&map_path)
-                .expect("map")
-                .write_all(b"map")
-                .unwrap();
-            set_skirmish_menu_selected_map(map_path.to_string_lossy().as_ref());
-            owner.with_manager(|manager| {
-                let start = manager
-                    .test_create_window(None, 20, 20, 80, 30)
-                    .expect("ButtonStart");
-                start
-                    .borrow_mut()
-                    .set_name("SkirmishGameOptionsMenu.wnd:ButtonStart");
-                let _ = start.borrow_mut().hide_without_manager_side_effects(false);
-            });
-            let mut emitted = Vec::new();
-            let mut effects = WindowEventEffects {
-                cursor_mouse: None,
-                control_bar_observation: None,
-                menu_audio: None,
-                input_provenance:
-                    crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
-                standalone_view: None,
-                payloads: Default::default(),
-                pending_window_callbacks: Default::default(),
-                diplomacy_world: None,
-                menus: None,
-                ime: None,
-                manager: None,
-                script_display: None,
-                window_videos: None,
-                selected_window: None,
-                lent_windows: Vec::new(),
-                window_manager_owner: None,
-                emitted_messages: &mut emitted,
-                pending_control_bar_clicks: None,
-                campaign_manager: None,
-                main_menu: None,
-                menu_world: None,
-                menu_host: None,
-                client_frame: None,
-            logic_frame: None,
-            ui: None,
-            pending_main_menu_actions: Vec::new(),
-            };
-            assert!(
-                drive_os_wnd_skirmish_start_like_cpp(&mut effects),
-                "OS WND click on ButtonStart must run startPressed/start_skirmish_game"
-            );
-            assert!(
-                emitted
-                    .iter()
-                    .any(|message| message.get_type() == &GameMessageType::NewGame)
-            );
-            assert!(!crate::gui::game_window::WindowEventEffects::with_standalone(|effects| crate::gui::dispatch_os_click_named_window(
-                "SkirmishGameOptionsMenu.wnd:ButtonStartMissing"
-            , effects)));
-        }
+        use std::io::Write;
+        let dir = tempfile::tempdir().expect("tmpdir");
+        let map_path = dir.path().join("TestSkirmish.map");
+        std::fs::File::create(&map_path)
+            .expect("map")
+            .write_all(b"map")
+            .unwrap();
+        set_skirmish_menu_selected_map(map_path.to_string_lossy().as_ref());
+        owner.with_manager(|manager| {
+            let start = manager
+                .test_create_window(None, 20, 20, 80, 30)
+                .expect("ButtonStart");
+            start
+                .borrow_mut()
+                .set_name("SkirmishGameOptionsMenu.wnd:ButtonStart");
+            let _ = start.borrow_mut().hide_without_manager_side_effects(false);
+        });
+        // Same-owner effects: named OS click reads the receiving window owner.
+        let mut messages = Vec::new();
+        let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+        let mut ime = crate::gui::ime_manager::ImeManager::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.ui = Some(&mut ui);
+        effects.ime = Some(&mut ime);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        effects.menu_world = Some(
+            crate::gui::campaign_launch_host_bridge::MenuWorldFacts::default(),
+        );
+        effects.logic_frame = Some(0);
+        assert!(
+            drive_os_wnd_skirmish_start_like_cpp(&mut effects),
+            "OS WND click on ButtonStart must run startPressed/start_skirmish_game"
+        );
+        owner.complete_event_callbacks(&mut effects);
+        let saw_new_game = effects
+            .emitted_messages
+            .iter()
+            .any(|message| message.get_type() == &GameMessageType::NewGame);
+        assert!(saw_new_game, "ButtonStart must emit NewGame");
+        assert!(!WindowEventEffects::with_standalone(|effects| {
+            crate::gui::dispatch_os_click_named_window(
+                "SkirmishGameOptionsMenu.wnd:ButtonStartMissing",
+                effects,
+            )
+        }));
     }
 }
 

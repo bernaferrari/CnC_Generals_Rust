@@ -1395,6 +1395,12 @@ impl GameClient {
     ) -> R {
         self.script_display
             .bind(self.subsystem_manager.display.as_ref());
+        // Chat/message paths and OS WND peels need a receiving UI even when the
+        // client has not yet run full subsystem init.
+        let _ = self
+            .subsystem_manager
+            .in_game_ui
+            .get_or_insert_with(crate::core::subsystems::InGameUISubsystem::default);
         let owner = &self.window_manager_owner;
         let mut messages = Vec::new();
         let mut effects = crate::gui::game_window::WindowEventEffects {
@@ -1407,7 +1413,8 @@ impl GameClient {
                 crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
             standalone_view: None,
             client_frame: Some(self.frame),
-            logic_frame: menu_world.map(|facts| facts.logic_frame),
+            // Chat/UI message paths need a frame even without MenuWorldFacts.
+            logic_frame: Some(menu_world.as_ref().map(|facts| facts.logic_frame).unwrap_or(0)),
             ui: self.subsystem_manager.in_game_ui.as_mut(),
             payloads: Default::default(),
             pending_window_callbacks: Default::default(),
