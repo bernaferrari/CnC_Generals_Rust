@@ -500,7 +500,15 @@ pub(crate) fn isolated_at(module_path: &str, test: &str, run: impl FnOnce()) {
     let module = module_path.split_once("::").unwrap().1;
     let exact = format!("{module}::{test}");
     if std::env::var(CHILD).ok().as_deref() == Some(exact.as_str()) {
-        run();
+        // Recent CommonServices/MainServices binding requires an owning session
+        // for DamageFX stores, ThingFactory, and snapshot capture used by pose
+        // owner fixtures. Install ephemeral services for the child process.
+        use std::sync::Arc;
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let main = Arc::new(crate::main_services::MainServices::new());
+            crate::main_services::with_main_services(&main, run);
+        });
         return;
     }
     let mut child = std::process::Command::new(std::env::current_exe().unwrap())
@@ -556,5 +564,10 @@ pub(crate) fn isolated_at(module_path: &str, test: &str, run: impl FnOnce()) {
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn isolated_at(_: &str, _: &str, run: impl FnOnce()) {
-    run();
+    use std::sync::Arc;
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let main = Arc::new(crate::main_services::MainServices::new());
+        crate::main_services::with_main_services(&main, run);
+    });
 }

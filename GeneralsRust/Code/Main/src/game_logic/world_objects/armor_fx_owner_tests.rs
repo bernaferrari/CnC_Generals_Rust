@@ -108,18 +108,24 @@ fn world() -> GameLogic {
 
 #[test]
 fn same_name_damage_fx_uses_the_driving_worlds_definitions() {
-    let mut left = world();
-    let mut right = world();
-    for (world, time) in [(&mut left, 1000), (&mut right, 2000)] {
-        let source = format!("DamageFX {DEFINITION}\n ThrottleTime = SMALL_ARMS {time}\nEnd\n");
-        world.damage_fx_definitions = rules::DamageFXStore::new();
-        world.damage_fx_definitions.apply_source(&source).unwrap();
-        world.frame = 5;
-    }
-    hit(&mut left, 5.0, None, DamageType::Bullet);
-    hit(&mut right, 5.0, None, DamageType::Bullet);
-    assert_eq!(left.objects[&VICTIM].next_damage_fx_time, 35);
-    assert_eq!(right.objects[&VICTIM].next_damage_fx_time, 65);
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "same_name_damage_fx_uses_the_driving_worlds_definitions",
+        || {
+            let mut left = world();
+            let mut right = world();
+            for (world, time) in [(&mut left, 1000), (&mut right, 2000)] {
+                let source = format!("DamageFX {DEFINITION}\n ThrottleTime = SMALL_ARMS {time}\nEnd\n");
+                world.damage_fx_definitions = rules::DamageFXStore::new();
+                world.damage_fx_definitions.apply_source(&source).unwrap();
+                world.frame = 5;
+            }
+            hit(&mut left, 5.0, None, DamageType::Bullet);
+            hit(&mut right, 5.0, None, DamageType::Bullet);
+            assert_eq!(left.objects[&VICTIM].next_damage_fx_time, 35);
+            assert_eq!(right.objects[&VICTIM].next_damage_fx_time, 65);
+        },
+    );
 }
 fn reveal(world: &GameLogic) {
     let mut shroud = world.world_services.shroud().lock().unwrap();
