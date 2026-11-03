@@ -1180,9 +1180,13 @@ impl GameEngine {
 
         info!("Initializing audio system");
 
+        let anim_mgr = crate::common::common_services::common_services()
+            .system
+            .animated_sound_mgr
+            .clone();
         match self.resolve_anim_sound_ini() {
             Some(ResolvedAnimSoundIni::Path(ini_path)) => {
-                match initialize_animated_sound_mgr(Some(ini_path.as_path())) {
+                match initialize_animated_sound_mgr(&anim_mgr, Some(ini_path.as_path())) {
                     Ok(_) => info!("Animated sound metadata loaded from {}", ini_path.display()),
                     Err(err) => warn!(
                         "Failed to parse animated sound metadata at {}: {err:?}",
@@ -1191,7 +1195,7 @@ impl GameEngine {
                 }
             }
             Some(ResolvedAnimSoundIni::Bytes { source_name, bytes }) => {
-                match initialize_animated_sound_mgr_from_bytes(&bytes, &source_name) {
+                match initialize_animated_sound_mgr_from_bytes(&anim_mgr, &bytes, &source_name) {
                     Ok(_) => info!(
                         "Animated sound metadata loaded from mounted {}",
                         source_name
@@ -1203,7 +1207,7 @@ impl GameEngine {
                 }
             }
             None => {
-                if let Err(err) = initialize_animated_sound_mgr::<&str>(None) {
+                if let Err(err) = initialize_animated_sound_mgr::<&str>(&anim_mgr, None) {
                     warn!(
                         "Failed to initialize animated sound metadata from default search: {err:?}"
                     );

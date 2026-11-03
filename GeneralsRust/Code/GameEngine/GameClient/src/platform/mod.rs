@@ -66,7 +66,7 @@ impl GraphicsContext {
         }))
         .map_err(|_| PlatformError::AdapterNotFound)?;
 
-        let (device, queue) = pollster::block_on(ww3d_gpu::acquire_device(
+        let (device, queue) = pollster::block_on(ww3d_gpu::DeviceAuthority::new().acquire_device(
             &adapter,
             &wgpu::DeviceDescriptor {
                 label: Some("GameClient Device"),

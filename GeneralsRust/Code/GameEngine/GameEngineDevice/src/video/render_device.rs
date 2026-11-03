@@ -545,7 +545,7 @@ impl RenderDevice {
             let limits = adapter.limits();
 
             // Share the process-wide GpuContext device (first request wins).
-            let (device, queue) = ww3d_gpu::acquire_device(
+            let (device, queue) = ww3d_gpu::DeviceAuthority::new().acquire_device(
                 &adapter,
                 &wgpu::DeviceDescriptor {
                     label: Some("RenderDevice"),

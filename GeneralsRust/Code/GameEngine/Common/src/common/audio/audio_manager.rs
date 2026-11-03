@@ -326,7 +326,7 @@ impl AudioManager {
         let audio_settings = AudioSettings::default();
         let audio_cache = Arc::new(AudioFileCache::new(audio_settings.max_cache_size as usize));
 
-        if let Err(err) = initialize_animated_sound_mgr::<&str>(None) {
+        if let Err(err) = initialize_animated_sound_mgr::<&str>(&ww3d_animation::AnimatedSoundMgr::new(), None) {
             log::debug!("Animated sound metadata not available: {err:?}");
         }
 
