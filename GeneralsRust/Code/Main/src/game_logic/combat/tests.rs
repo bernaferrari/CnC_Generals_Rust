@@ -2864,6 +2864,35 @@ pub(in crate::game_logic) mod tests {
     }
 
     #[test]
+    fn projectileless_delay_uses_unsigned_frame_wrap_not_saturating() {
+        // Weapon.cpp:1060-1061 — UnsignedInt when = getFrame() + ceil(delay).
+        // Saturating addition would pin near u32::MAX and never match C++ wrap.
+        let mut combat = CombatSystem::new();
+        let _combat_serial = combat_test_guard();
+        let frame = u32::MAX - 2;
+        let delay_whole = 5u32;
+        let when = frame.wrapping_add(delay_whole);
+        assert_eq!(when, 2, "C++ UnsignedInt addition wraps");
+        assert_ne!(
+            frame.saturating_add(delay_whole),
+            when,
+            "saturating addition must not be used for projectileless delay"
+        );
+        queue_delayed_impact_for_test(
+            &mut combat,
+            when,
+            lifecycle_test_pending_projectile("WrapDelayShot", None, Vec3::ZERO),
+            Vec3::ZERO,
+        );
+        assert_eq!(live_projectileless_delayed_count_for_test(&combat), 1);
+        // Weapon.cpp:1593-1594 — unsigned curFrame >= when is already true after
+        // wrap, so the entry is ready before the clock returns to `when`.
+        let ready_early = take_ready_projectileless_delayed_damage(&mut combat, u32::MAX - 1);
+        assert_eq!(ready_early.len(), 1);
+        assert_eq!(ready_early[0].when, 2);
+    }
+
+    #[test]
     fn fire_at_projectileless_weapon_skips_dummy_projectile() {
         let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
 
