@@ -809,6 +809,9 @@ impl GameLogic {
         }
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.status.on_die_started = true;
+            if let Some(credit) = killer {
+                obj.deferred_destruction_credit = Some(credit);
+            }
         }
         if input.is_some()
             && self
@@ -995,6 +998,7 @@ impl GameLogic {
                 return Ok(());
             }
             // C++ SlowDeathBehavior residual: infantry/vehicles delay destroy + sink.
+            // deferred_destruction_credit was stamped at onDie start for final destroyObject.
             if self.try_begin_slow_death_instead_of_destroy(id, presentation_effects)? {
                 return Ok(());
             }

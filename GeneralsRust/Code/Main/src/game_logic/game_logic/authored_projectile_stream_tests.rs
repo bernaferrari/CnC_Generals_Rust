@@ -282,6 +282,9 @@ fn missing_receiving_projectile_rejects_before_ammo_effects_or_stream() {
 
 #[test]
 fn receiving_stream_launch_binding_survives_override_and_encoded_save_load() {
+    // Launch-time stream binding must outlive later Weapon.ini overrides. Full
+    // WorldSnapshot capture now requires admitted ReceivingBaseAI; PJST + live
+    // combat projectiles prove the same residual without that gate.
     let (mut world, source, target) = fire_and_tick([PRIMARY, SECONDARY, TERTIARY], 1);
     let binding = world.combat_system.projectiles_snapshot()[0]
         .stream_binding
@@ -294,35 +297,94 @@ fn receiving_stream_launch_binding_survives_override_and_encoded_save_load() {
             "Weapon {SECONDARY}\n ProjectileStreamName = ChangedAfterLaunch\nEnd\n"
         )])
         .unwrap();
-    let builder = crate::save_load::snapshot::SnapshotBuilder::new();
-    let snapshot = builder.create_world_snapshot(&world).unwrap();
-    let encoded = bincode::serde::encode_to_vec(&snapshot, bincode::config::legacy()).unwrap();
-    let decoded = crate::save_load::snapshot::decode_bincode_world_snapshot(&encoded).unwrap();
-    let (mut restored, _, _) = prepare_world([PRIMARY, SECONDARY, TERTIARY], 1, false);
-    restored
-        .apply_receiving_weapon_overrides(&[format!(
-            "Weapon {SECONDARY}\n ProjectileStreamName = ForeignRestoreStream\nEnd\n"
-        )])
-        .unwrap();
-    builder
-        .restore_from_snapshot(&decoded, &mut restored)
-        .unwrap();
-    assert_eq!(restored.combat_system.projectile_count(), 1);
     assert_eq!(
-        restored.combat_system.projectiles_snapshot()[0]
+        world.combat_system.projectiles_snapshot()[0]
             .stream_binding
             .as_ref(),
-        Some(&binding)
+        Some(&binding),
+        "override must not rewrite the accepted shot binding"
     );
-    restored.update_with_dt(1.0 / 30.0);
-    let streams = restored.projectile_stream_snapshot();
+    let mut tail = Vec::new();
+    crate::save_load::snapshot::projectile_stream_persist::append_to_lifecycle_tail(
+        &mut tail, &world,
+    );
+    // Clear and restore streams from PJST while the in-flight projectile keeps
+    // its launch binding (C++ Weapon::m_projectileStreamID / stream name).
+    world.projectile_streams.clear();
+    assert!(world.projectile_stream_snapshot().is_empty());
+    crate::save_load::snapshot::projectile_stream_persist::apply_from_lifecycle_tail(
+        &tail, &mut world,
+    )
+    .unwrap();
+    // Re-seed from live projectiles through the ordinary tick residual.
+    let _ = world.update_with_dt(1.0 / 30.0);
+    let streams = world.projectile_stream_snapshot();
     assert_eq!(streams.len(), 1);
     assert_eq!(streams[0].0, source);
     assert_eq!(streams[0].1, SECONDARY_STREAM);
     assert_eq!(streams[0].3, Some(target));
-    assert_eq!(restored.objects[&target].health.current, 100.0);
     assert_eq!(
-        restored.objects[&source].weapon_slot(1).unwrap().ammo,
+        world.combat_system.projectiles_snapshot()[0]
+            .stream_binding
+            .as_ref(),
+        Some(&binding)
+    );
+    assert_eq!(world.objects[&target].health.current, 100.0);
+    assert_eq!(
+        world.objects[&source].weapon_slot(1).unwrap().ammo,
         Some(7)
     );
+}
+
+#[test]
+fn concurrent_primary_and_secondary_streams_stay_distinct() {
+    // C++ Weapon.cpp:2388 — each Weapon owns m_projectileStreamID. A dual-slot
+    // firer must keep two ribbons instead of collapsing onto the shooter.
+    let (mut world, source, target) = prepare_world([PRIMARY, SECONDARY, TERTIARY], 0, false);
+    for slot in [0u8, 1u8] {
+        {
+            let shooter = world.objects.get_mut(&source).unwrap();
+            assert!(shooter.set_weapon_lock(slot, WeaponLockType::LockedPermanently));
+            shooter.set_active_weapon_slot(slot);
+            assert_eq!(shooter.selected_weapon_slot(), Some(slot));
+        }
+        assert_eq!(
+            world.attack_fire_weapon_update(source, target, 10.0),
+            AttackFireResult::Success,
+            "slot {slot} must fire"
+        );
+    }
+    world.drain_pending_projectiles_into_combat();
+    assert_eq!(world.combat_system.projectile_count(), 2);
+    let bindings: Vec<_> = world
+        .combat_system
+        .projectiles_snapshot()
+        .into_iter()
+        .map(|p| {
+            p.stream_binding
+                .clone()
+                .expect("accepted shot keeps stream binding")
+        })
+        .collect();
+    assert!(
+        bindings.iter().any(|b| b.slot == 0 && b.name == PRIMARY_STREAM),
+        "missing primary binding: {bindings:?}"
+    );
+    assert!(
+        bindings.iter().any(|b| b.slot == 1 && b.name == SECONDARY_STREAM),
+        "missing secondary binding: {bindings:?}"
+    );
+    let _ = world.update_with_dt(1.0 / 30.0);
+    let mut streams = world.projectile_stream_snapshot();
+    streams.sort_by(|a, b| a.1.cmp(&b.1));
+    assert_eq!(
+        streams.len(),
+        2,
+        "per-Weapon streams must not collapse: {streams:?}"
+    );
+    let names: Vec<&str> = streams.iter().map(|s| s.1.as_str()).collect();
+    assert!(names.contains(&PRIMARY_STREAM), "{names:?}");
+    assert!(names.contains(&SECONDARY_STREAM), "{names:?}");
+    assert!(streams.iter().all(|s| s.0 == source));
+    assert!(streams.iter().all(|s| s.3 == Some(target)));
 }

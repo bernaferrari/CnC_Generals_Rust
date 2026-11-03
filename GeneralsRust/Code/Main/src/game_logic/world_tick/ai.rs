@@ -900,7 +900,17 @@ impl GameLogic {
                 if final_death_destroy {
                     // CPP SlowDeath/JetSlowDeath/HelicopterSlowDeath finish with
                     // destroyObject; they must not re-enter the onDie latch.
-                    self.destroy_object_with_effects(object_id, presentation_effects)?;
+                    // Preserve the team admitted at lethal for DestructionEvent.killer
+                    // (scoreTheKill already ran; destroy_list fallback still needs credit).
+                    let credit = self
+                        .objects
+                        .get(&object_id)
+                        .and_then(|object| object.deferred_destruction_credit);
+                    self.request_object_destruction_with_effects(
+                        object_id,
+                        credit,
+                        presentation_effects,
+                    )?;
                 } else {
                     // Topple and HeightDie trigger damage/kill. Preserve the
                     // existing structure completion policy separately.

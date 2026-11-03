@@ -14,13 +14,13 @@ pub struct HostFireIntentEvent {
     pub fire_intent_count: u32,
 }
 
-fn with_log_mut<R>(f: impl FnOnce(&mut Vec<HostFireIntentEvent>) -> R) -> R {
-    let services = crate::main_services::main_services();
+fn with_log_mut<R>(f: impl FnOnce(&mut Vec<HostFireIntentEvent>) -> R) -> Option<R> {
+    let services = crate::main_services::try_main_services()?;
     let mut log = services
         .host_fire_intent_log
         .lock()
         .unwrap_or_else(|p| p.into_inner());
-    f(&mut log)
+    Some(f(&mut log))
 }
 
 pub fn record(
@@ -33,7 +33,7 @@ pub fn record(
     last_fire_frame: u32,
     fire_intent_count: u32,
 ) {
-    with_log_mut(|log| {
+    let _ = with_log_mut(|log| {
         log.push(HostFireIntentEvent {
             object,
             last_fire_victim_host,
@@ -48,17 +48,17 @@ pub fn record(
 }
 
 pub fn has_pending(object: ObjectId) -> bool {
-    with_log_mut(|log| log.iter().any(|e| e.object == object))
+    with_log_mut(|log| log.iter().any(|e| e.object == object)).unwrap_or(false)
 }
 
 pub fn drain() -> Vec<HostFireIntentEvent> {
-    with_log_mut(std::mem::take)
+    with_log_mut(std::mem::take).unwrap_or_default()
 }
 
 pub fn len() -> usize {
-    with_log_mut(|log| log.len())
+    with_log_mut(|log| log.len()).unwrap_or(0)
 }
 
 pub fn clear() {
-    with_log_mut(|log| log.clear());
+    let _ = with_log_mut(|log| log.clear());
 }

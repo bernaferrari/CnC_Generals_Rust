@@ -1912,6 +1912,7 @@ impl GameLogic {
         }
         self.projectile_streams.add_projectile(
             source_id,
+             0,
             HOST_CLEANUP_PROJECTILE_STREAM,
             start,
             None,
@@ -2017,6 +2018,7 @@ impl GameLogic {
         for (sid, pos, aim) in stream_pts {
             self.projectile_streams.add_projectile(
                 sid,
+                 0,
                 HOST_CLEANUP_PROJECTILE_STREAM,
                 pos,
                 None,

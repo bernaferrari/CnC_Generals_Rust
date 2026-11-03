@@ -1947,6 +1947,7 @@ impl GameLogic {
         // Seed stream with launch point residual.
         self.projectile_streams.add_projectile(
             source_id,
+             0,
             DRAGON_FLAME_STREAM,
             start,
             intended,
@@ -2055,6 +2056,7 @@ impl GameLogic {
         for (sid, pos, intended, aim) in stream_pts {
             self.projectile_streams.add_projectile(
                 sid,
+                 0,
                 DRAGON_FLAME_STREAM,
                 pos,
                 intended,
@@ -2177,6 +2179,7 @@ impl GameLogic {
         }
         self.projectile_streams.add_projectile(
             source_id,
+             0,
             TOXIN_STREAM_NAME,
             start,
             intended,
@@ -2289,6 +2292,7 @@ impl GameLogic {
         for (sid, pos, intended, aim) in stream_pts {
             self.projectile_streams.add_projectile(
                 sid,
+                 0,
                 TOXIN_STREAM_NAME,
                 pos,
                 intended,

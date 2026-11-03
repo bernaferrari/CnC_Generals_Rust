@@ -1038,7 +1038,7 @@ impl GameLogic {
         self.projectile_streams
             .snapshot()
             .into_iter()
-            .map(|(id, s)| (id, s.stream_name.clone(), s.points.clone(), s.target_id))
+            .map(|(key, s)| (key.shooter, s.stream_name.clone(), s.points.clone(), s.target_id))
             .collect()
     }
 

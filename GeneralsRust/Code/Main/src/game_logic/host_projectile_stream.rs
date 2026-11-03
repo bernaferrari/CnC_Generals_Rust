@@ -1,7 +1,8 @@
 //! Host residual for C++ ProjectileStreamUpdate (Weapon.ini ProjectileStreamName).
 //!
-//! Tracks recent projectile positions per shooter so presentation can draw
-//! stream/trail segments (flamethrower, toxin spray, machine-gun tracers).
+//! Tracks recent projectile positions per shooter weapon slot so presentation
+//! can draw stream/trail segments (flamethrower, toxin spray, tracers) without
+//! collapsing concurrent PRIMARY/SECONDARY/TERTIARY ribbons on one unit.
 
 use super::ObjectId;
 use glam::Vec3;
@@ -119,10 +120,37 @@ pub fn skim_stream_points_for_vehicle(
         .collect()
 }
 
+/// C++ keeps `m_projectileStreamID` on each Weapon instance, so concurrent
+/// PRIMARY/SECONDARY/TERTIARY streams on one shooter stay distinct.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ProjectileStreamKey {
+    pub shooter: ObjectId,
+    pub slot: u8,
+}
+
+impl ProjectileStreamKey {
+    pub fn new(shooter: ObjectId, slot: u8) -> Self {
+        Self { shooter, slot }
+    }
+}
+
+
+/// PJST v1 wire shape: one stream per shooter ObjectId.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct ProjectileStreamRegistryV1Compat {
+    streams: HashMap<ObjectId, ProjectileStreamState>,
+}
+
+impl ProjectileStreamRegistryV1Compat {
+    pub fn into_shooter_map(self) -> HashMap<ObjectId, ProjectileStreamState> {
+        self.streams
+    }
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ProjectileStreamRegistry {
-    /// Keyed by shooter ObjectId (one active stream per shooter residual).
-    streams: HashMap<ObjectId, ProjectileStreamState>,
+    /// Keyed by shooter + weapon slot (C++ per-Weapon stream object).
+    streams: HashMap<ProjectileStreamKey, ProjectileStreamState>,
 }
 
 impl ProjectileStreamRegistry {
@@ -135,6 +163,7 @@ impl ProjectileStreamRegistry {
     pub fn add_projectile(
         &mut self,
         shooter: ObjectId,
+        slot: u8,
         stream_name: &str,
         pos: Vec3,
         target_id: Option<ObjectId>,
@@ -144,9 +173,10 @@ impl ProjectileStreamRegistry {
         if stream_name.is_empty() {
             return;
         }
+        let key = ProjectileStreamKey::new(shooter, slot);
         let entry = self
             .streams
-            .entry(shooter)
+            .entry(key)
             .or_insert_with(|| ProjectileStreamState::new(stream_name.to_string()));
         if entry.stream_name != stream_name {
             *entry = ProjectileStreamState::new(stream_name.to_string());
@@ -154,15 +184,17 @@ impl ProjectileStreamRegistry {
         entry.add_point(pos, target_id, target_pos, frame);
     }
 
-    /// C++ `getAllPoints` vehicle-roof skim applied to a live stream.
+    /// C++ `getAllPoints` vehicle-roof skim applied to one live stream.
     pub fn apply_vehicle_roof_skim(
         &mut self,
         shooter: ObjectId,
+        slot: u8,
         owner_pos: Vec3,
         major_radius: f32,
         max_height_above: f32,
     ) {
-        if let Some(stream) = self.streams.get_mut(&shooter) {
+        let key = ProjectileStreamKey::new(shooter, slot);
+        if let Some(stream) = self.streams.get_mut(&key) {
             stream.points = skim_stream_points_for_vehicle(
                 &stream.points,
                 owner_pos,
@@ -178,8 +210,11 @@ impl ProjectileStreamRegistry {
             .retain(|_, s| frame.saturating_sub(s.last_frame) <= max_idle_frames);
     }
 
-    pub fn snapshot(&self) -> Vec<(ObjectId, &ProjectileStreamState)> {
-        self.streams.iter().map(|(k, v)| (*k, v)).collect()
+    /// Stable (shooter, slot) order for presentation and tests.
+    pub fn snapshot(&self) -> Vec<(ProjectileStreamKey, &ProjectileStreamState)> {
+        let mut rows: Vec<_> = self.streams.iter().map(|(k, v)| (*k, v)).collect();
+        rows.sort_by_key(|(k, _)| (k.shooter.0, k.slot));
+        rows
     }
 
     pub fn clear(&mut self) {
@@ -188,8 +223,16 @@ impl ProjectileStreamRegistry {
 
     /// Replace live streams from a save payload. Does not call `add_projectile`
     /// so a load cannot insert a retarget hole or re-create the trail.
-    pub fn restore(&mut self, streams: HashMap<ObjectId, ProjectileStreamState>) {
+    pub fn restore(&mut self, streams: HashMap<ProjectileStreamKey, ProjectileStreamState>) {
         self.streams = streams;
+    }
+
+    /// Migrate PJST v1 shooter-only keys to slot 0.
+    pub fn restore_from_v1_shooter_map(&mut self, streams: HashMap<ObjectId, ProjectileStreamState>) {
+        self.streams = streams
+            .into_iter()
+            .map(|(shooter, state)| (ProjectileStreamKey::new(shooter, 0), state))
+            .collect();
     }
 
     pub fn is_empty(&self) -> bool {
@@ -208,6 +251,7 @@ mod tests {
         for i in 0..25 {
             reg.add_projectile(
                 shooter,
+                0,
                 "DragonTankFlameStream",
                 Vec3::new(i as f32, 0.0, 0.0),
                 None,
@@ -248,6 +292,38 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn concurrent_weapon_slots_keep_distinct_streams() {
+        let mut reg = ProjectileStreamRegistry::new();
+        let shooter = ObjectId(7);
+        reg.add_projectile(
+            shooter,
+            0,
+            "AuthoredPrimaryProjectileStream",
+            Vec3::new(1.0, 0.0, 0.0),
+            Some(ObjectId(1)),
+            None,
+            10,
+        );
+        reg.add_projectile(
+            shooter,
+            1,
+            "AuthoredSecondaryProjectileStream",
+            Vec3::new(2.0, 0.0, 0.0),
+            Some(ObjectId(2)),
+            None,
+            10,
+        );
+        let snap = reg.snapshot();
+        assert_eq!(snap.len(), 2);
+        assert_eq!(snap[0].0.slot, 0);
+        assert_eq!(snap[0].1.stream_name, "AuthoredPrimaryProjectileStream");
+        assert_eq!(snap[0].1.target_id, Some(ObjectId(1)));
+        assert_eq!(snap[1].0.slot, 1);
+        assert_eq!(snap[1].1.stream_name, "AuthoredSecondaryProjectileStream");
+        assert_eq!(snap[1].1.target_id, Some(ObjectId(2)));
+    }
+
     fn vehicle_roof_skim_raises_near_hull() {
         let owner = Vec3::new(0.0, 0.0, 0.0);
         let near = Vec3::new(1.0, 0.0, 0.0);

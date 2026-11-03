@@ -832,8 +832,11 @@ impl GameLogic {
             // Re-adding every live shot each frame must not flip-flop targets (that
             // would punch a hole every particle). Lock the stream to the newest
             // projectile's victim so a retarget inserts one INVALID hole.
+            // C++ Weapon::m_projectileStreamID is per Weapon instance. Group by
+            // (shooter, slot) so concurrent PRIMARY/SECONDARY ribbons stay distinct.
             let mut stream_feeds: Vec<(
                 crate::game_logic::ObjectId,
+                u8,
                 crate::game_logic::ObjectId,
                 String,
                 glam::Vec3,
@@ -853,17 +856,21 @@ impl GameLogic {
                     // C++ Weapon::newProjectileFired never searches another
                     // WeaponSet slot. Accepted shots retain their own name even
                     // after the shooter's current selection changes or it dies.
-                    let sname = match &p.stream_binding {
-                        Some(binding) => binding.name.clone(),
-                        None => firing_name
-                            .map(crate::game_logic::weapon_bootstrap::host_projectile_stream_name_for_weapon_name)
-                            .unwrap_or_default(),
+                    let (slot, sname) = match &p.stream_binding {
+                        Some(binding) => (binding.slot, binding.name.clone()),
+                        None => (
+                            shooter.map(|o| o.last_fire_slot).unwrap_or(0),
+                            firing_name
+                                .map(crate::game_logic::weapon_bootstrap::host_projectile_stream_name_for_weapon_name)
+                                .unwrap_or_default(),
+                        ),
                     };
                     if sname.is_empty() {
                         return None;
                     }
                     Some((
                         p.shooter_id,
+                        slot,
                         p.id,
                         sname,
                         p.position,
@@ -872,23 +879,25 @@ impl GameLogic {
                     ))
                 })
                 .collect();
-            stream_feeds.sort_by_key(|(shooter, pid, _, _, _, _)| (*shooter, *pid));
+            stream_feeds.sort_by_key(|(shooter, slot, pid, _, _, _, _)| (*shooter, *slot, *pid));
             let mut idx = 0;
             while idx < stream_feeds.len() {
                 let shooter_id = stream_feeds[idx].0;
+                let slot = stream_feeds[idx].1;
                 let end = stream_feeds[idx..]
                     .iter()
-                    .position(|(sid, _, _, _, _, _)| *sid != shooter_id)
+                    .position(|(sid, sl, _, _, _, _, _)| *sid != shooter_id || *sl != slot)
                     .map(|rel| idx + rel)
                     .unwrap_or(stream_feeds.len());
-                let newest_target = stream_feeds[end - 1].4;
-                let newest_pos = stream_feeds[end - 1].5;
-                let sname = stream_feeds[idx].2.clone();
+                let newest_target = stream_feeds[end - 1].5;
+                let newest_pos = stream_feeds[end - 1].6;
+                let sname = stream_feeds[idx].3.clone();
                 for feed in &stream_feeds[idx..end] {
                     self.projectile_streams.add_projectile(
                         shooter_id,
+                        slot,
                         &sname,
-                        feed.3,
+                        feed.4,
                         newest_target,
                         Some(newest_pos),
                         frame,
@@ -899,6 +908,7 @@ impl GameLogic {
                         let geom = &(*owner.geometry_info());
                         self.projectile_streams.apply_vehicle_roof_skim(
                             shooter_id,
+                            slot,
                             owner.get_position(),
                             geom.major_radius,
                             geom.max_height_above_position(),

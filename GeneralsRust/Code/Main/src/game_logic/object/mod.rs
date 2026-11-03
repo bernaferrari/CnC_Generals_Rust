@@ -2876,6 +2876,10 @@ pub struct Object {
     /// C++ ActiveBody scoreTheKill once per death (splash/residual + direct-fire).
     #[serde(default)]
     pub kill_experience_awarded: bool,
+    /// Team admitted at lethal onDie for Slow/Jet/Heli final destroyObject credit.
+    /// C++ destroyObject itself carries no killer; Main's DestructionEvent does.
+    #[serde(default)]
+    pub deferred_destruction_credit: Option<crate::game_logic::Team>,
     /// Full score admission, distinct from the historical XP-only receipt.
     #[serde(skip)]
     pub(crate) kill_score_phase: crate::game_logic::kill_credit::KillScorePhase,
