@@ -413,7 +413,10 @@ impl GameEngine {
             }
         }
 
+        let handle = ww3d_engine::frame_submit().expect("WW3D frame submit state");
+        let fs = handle.lock();
         ww3d_engine::submit_recorded(
+            &fs,
             &self.queue,
             ww3d_engine::FrameCommandPhase::Overlay,
             encoder.finish(),
