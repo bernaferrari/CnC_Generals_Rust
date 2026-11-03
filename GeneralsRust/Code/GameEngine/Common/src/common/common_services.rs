@@ -19,6 +19,9 @@ use crate::common::rts::academy_stats::AcademyTemplateContextProvider;
 use crate::common::rts::action_manager::ObjectDataProvider;
 use crate::common::rts::team::TeamCommandSink;
 use crate::common::system::build_assistant::BuildAssistantBackend;
+use crate::common::rts::energy::{EnergyObjectLookup, EnergyOwnerCallbacks};
+use crate::common::rts::production_prerequisite::PrereqObjectCounter;
+use crate::common::message_stream::message_stream::CommandListAppendFn;
 use crate::common::system::geometry::Coord3D;
 use crate::common::time::SimulationClock;
 use std::cell::RefCell;
@@ -125,6 +128,14 @@ pub struct CommonServices {
     pub team_command_sink: Mutex<Option<Arc<dyn TeamCommandSink>>>,
     /// BuildAssistant backend bridge (was process BUILD_ASSISTANT_BACKEND).
     pub build_assistant_backend: Mutex<Option<Arc<dyn BuildAssistantBackend>>>,
+    /// Energy template lookup (was process ENERGY_OBJECT_LOOKUP).
+    pub energy_object_lookup: Mutex<Option<Arc<dyn EnergyObjectLookup>>>,
+    /// Energy brownout callbacks (was process ENERGY_OWNER_CALLBACKS).
+    pub energy_owner_callbacks: Mutex<Option<Arc<dyn EnergyOwnerCallbacks>>>,
+    /// ProductionPrerequisite object counter (was process PREREQ_OBJECT_COUNTER).
+    pub prereq_object_counter: Mutex<Option<Box<dyn PrereqObjectCounter>>>,
+    /// MessageStream → CommandList append sink (was process COMMAND_LIST_APPEND_FN).
+    pub command_list_append: Mutex<Option<Box<CommandListAppendFn>>>,
 }
 
 impl Default for CommonServices {
@@ -144,6 +155,10 @@ impl Default for CommonServices {
             team_home_waypoint_resolver: Mutex::new(None),
             team_command_sink: Mutex::new(None),
             build_assistant_backend: Mutex::new(None),
+            energy_object_lookup: Mutex::new(None),
+            energy_owner_callbacks: Mutex::new(None),
+            prereq_object_counter: Mutex::new(None),
+            command_list_append: Mutex::new(None),
         }
     }
 }

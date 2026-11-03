@@ -73,32 +73,32 @@ pub enum GameMessageDisposition {
     DestroyMessage,
 }
 
-type CommandListAppendFn = dyn Fn(Vec<GameMessage>) + Send + Sync + 'static;
-
-struct CommandListAppendFnSlot(std::sync::Mutex<Option<Box<CommandListAppendFn>>>);
-impl std::ops::Deref for CommandListAppendFnSlot {
-    type Target = std::sync::Mutex<Option<Box<CommandListAppendFn>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static COMMAND_LIST_APPEND_FN: CommandListAppendFnSlot = CommandListAppendFnSlot(std::sync::Mutex::new(None));
+/// Append sink for survivors of `propagateMessages` (was process COMMAND_LIST_APPEND_FN).
+pub type CommandListAppendFn = dyn Fn(Vec<GameMessage>) + Send + Sync + 'static;
 
 /// Register the live `TheCommandList::appendMessageList` sink.
 /// C++ `MessageStream::propagateMessages` (MessageStream.cpp:1086) transfers
 /// survivors to `TheCommandList` after every translator pass.
 pub fn register_command_list_append(append_fn: impl Fn(Vec<GameMessage>) + Send + Sync + 'static) {
-    if let Ok(mut slot) = COMMAND_LIST_APPEND_FN.lock() {
-        *slot = Some(Box::new(append_fn));
-    }
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .command_list_append
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    *slot = Some(Box::new(append_fn));
 }
 
 fn deliver_surviving_messages_to_command_list(messages: &[GameMessage]) {
     if messages.is_empty() {
         return;
     }
-    if let Ok(slot) = COMMAND_LIST_APPEND_FN.lock() {
-        if let Some(append_fn) = slot.as_ref() {
-            append_fn(messages.to_vec());
-        }
+    let services = crate::common::common_services::common_services();
+    let slot = services
+        .command_list_append
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if let Some(append_fn) = slot.as_ref() {
+        append_fn(messages.to_vec());
     }
 }
 
