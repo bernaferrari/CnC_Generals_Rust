@@ -106,7 +106,7 @@ fn installed_motion_topple_fx_precedes_trigger_update_and_is_consumed_once() {
         terrain: Some(&mut receiving),
         audio: Some(&mut audio),
         ..Default::default()
-    };
+};
     assert!(
         world
             .drive_owned_contact_with_effects(
@@ -134,7 +134,7 @@ fn installed_motion_topple_fx_precedes_trigger_update_and_is_consumed_once() {
         terrain: Some(&mut receiving),
         audio: Some(&mut audio),
         ..Default::default()
-    };
+};
     assert!(
         world
             .drive_owned_contact_with_effects(
@@ -224,7 +224,7 @@ fn owned_position_callback_releases_actor_before_fx_then_resumes_trigger() {
         terrain: Some(&mut receiving),
         audio: Some(&mut audio),
         ..Default::default()
-    };
+};
     let reaction = {
         let (object, partition) = world.host_object_and_partition_mut(ObjectId(41)).unwrap();
         object.prepare_position_tree_reaction(

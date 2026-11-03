@@ -527,7 +527,7 @@ fn local_player_upgrade_dirties_receiving_ui_without_selected_cameo_but_object_d
             &mut crate::game_logic::ScriptPresentationEffects {
                 ui: Some(&mut ui),
                 ..Default::default()
-            },
+},
         );
         assert_eq!(ui.0, expected);
         assert_eq!(peer_ui.0, 0);
@@ -546,7 +546,7 @@ fn local_player_upgrade_dirties_receiving_ui_without_selected_cameo_but_object_d
                 &mut crate::game_logic::ScriptPresentationEffects {
                     ui: Some(&mut ui),
                     ..Default::default()
-                },
+},
             );
             assert_eq!(
                 ui.0,

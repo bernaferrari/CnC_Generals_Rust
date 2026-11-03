@@ -56,8 +56,8 @@ fn fixture() -> (GameLogic, ObjectId) {
         )
         .unwrap();
     let dozer = world.host_object_mut(builder).unwrap();
-    dozer.dozer_task_build_target = Some(id);
-    dozer.dozer_dock_action = Some(Vec3::ZERO);
+    dozer.set_dozer_task_build_target(Some(id));
+    dozer.set_dozer_dock_action(Some(Vec3::ZERO));
     dozer.target = Some(id);
     dozer.set_ai_state(
         AIState::Constructing,

@@ -64,8 +64,8 @@ End
         &mut crate::game_logic::ScriptPresentationEffects {
             audio: Some(&mut output),
             ..Default::default()
-        }
-    ), Ok(true));
+}
+    ).expect("result"), true);
     let u = logic.host_object(ranger).unwrap();
     assert_eq!(u.next_mood_check_time, 9999);
     assert!(!u.randomly_offset_mood_check);

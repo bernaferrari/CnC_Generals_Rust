@@ -40,7 +40,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
         .create_object_for_player("AlliedTimingDozer", 0, Vec3::new(2.0, 0.0, 0.0))
         .unwrap();
     assert!(world.can_resume_construction_of(builder, site));
-    assert_eq!(world.resume_construction(&[builder], site), Ok(true));
+    assert_eq!(world.resume_construction(&[builder], site).expect("result"), true);
     (world, site, builder)
 }
 

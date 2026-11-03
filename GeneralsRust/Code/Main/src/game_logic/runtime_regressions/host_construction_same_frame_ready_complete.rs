@@ -26,7 +26,7 @@ fn owned_dozer_phase_completes_structure_without_ready_writeback() {
         .create_object_for_player("SfDozer", 0, Vec3::ZERO)
         .unwrap();
     logic.dozer_new_task_build(dozer, id);
-    let action = logic.host_object(dozer).unwrap().dozer_dock_action.unwrap();
+    let action = logic.host_object(dozer).unwrap().dozer_dock_action().unwrap();
     let object = logic.host_object_mut(id).unwrap();
     object.set_status_under_construction(true);
     object.construction_percent = 0.99;
@@ -51,7 +51,7 @@ fn owned_dozer_phase_completes_structure_without_ready_writeback() {
     assert_eq!(logic.host_object(id).unwrap().construction_percent, 1.0);
     assert!(!logic.host_object(id).unwrap().status.under_construction);
     assert_eq!(
-        logic.host_object(dozer).unwrap().dozer_task_build_target,
+        logic.host_object(dozer).unwrap().dozer_task_build_target(),
         None
     );
 }

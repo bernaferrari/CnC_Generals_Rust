@@ -146,7 +146,7 @@ fn resume_construction_assigns_dozer_and_model_bits() {
             glam::Vec3::new(10.0, 0.0, 0.0),
         )
         .expect("dozer");
-    assert_eq!(logic.resume_construction(&[did], sid), Ok(true));
+    assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
     assert!(logic.honesty_resume_construction_ok());
     let d = logic.host_object(did).expect("d");
     assert_eq!(d.ai_state(), AIState::Constructing);
@@ -173,7 +173,7 @@ fn resume_construction_assigns_dozer_and_model_bits() {
         )
         .expect("dozer2");
     assert!(!logic.can_resume_construction_of(did2, sid));
-    assert_eq!(logic.resume_construction(&[did2], sid), Ok(false));
+    assert_eq!(logic.resume_construction(&[did2], sid).expect("result"), false);
     // Completed structure rejects resume.
     if let Some(o) = logic.host_object_mut(sid) {
         o.set_status_under_construction(false);
@@ -215,7 +215,7 @@ fn resume_construction_allows_allied_dozer() {
         .create_object_for_player("AmericaVehicleDozer", 0, glam::Vec3::new(10.0, 0.0, 0.0))
         .expect("dozer");
     assert!(logic.can_resume_construction_of(did, sid));
-    assert_eq!(logic.resume_construction(&[did], sid), Ok(true));
+    assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
 }
 
 #[test]
@@ -255,7 +255,7 @@ fn resume_construction_paths_distant_dozer_without_constructing_anim() {
             glam::Vec3::new(400.0, 0.0, 0.0),
         )
         .expect("dozer");
-    assert_eq!(logic.resume_construction(&[did], sid), Ok(true));
+    assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
     let d = logic.host_object(did).expect("d");
     assert_eq!(d.ai_state(), AIState::Constructing);
     assert_eq!(d.target, Some(sid));
@@ -320,7 +320,7 @@ fn resume_construction_crosses_the_scaffold_obstacle() {
         );
     }
     logic.force_map_loaded_for_path_test(true);
-    assert_eq!(logic.resume_construction(&[did], sid), Ok(true));
+    assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
     logic.process_pathfind_queue();
     let d = logic.host_object(did).expect("d");
     assert_eq!(d.ai_state(), AIState::Constructing);
@@ -381,7 +381,7 @@ fn resume_construction_allows_dead_or_retasked_builder() {
         logic.can_resume_construction_of(did, sid),
         "dead builder_id must not block resume"
     );
-    assert_eq!(logic.resume_construction(&[did], sid), Ok(true));
+    assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
     assert_eq!(logic.host_object(sid).and_then(|o| o.builder_id), Some(did));
 
     let did2 = logic
@@ -400,13 +400,13 @@ fn resume_construction_allows_dead_or_retasked_builder() {
         // C++ DozerAIUpdate.cpp:2012-2022 cancelTask / internalCancelTask
         // clears the BUILD task target when the dozer is re-tasked, so
         // ActionManager.cpp:463-485 no longer sees it as actively building.
-        d.dozer_task_build_target = None;
+        d.set_dozer_task_build_target(None);
     }
     assert!(
         logic.can_resume_construction_of(did2, sid),
         "re-tasked builder must not block resume"
     );
-    assert_eq!(logic.resume_construction(&[did2], sid), Ok(true));
+    assert_eq!(logic.resume_construction(&[did2], sid).expect("result"), true);
     assert_eq!(
         logic.host_object(sid).and_then(|o| o.builder_id),
         Some(did2)
@@ -471,7 +471,7 @@ fn worker_build_or_repair_releases_supply_dock() {
         w.preferred_dock_id = Some(dock_id);
         w.supply_truck_state = SupplyTruckState::Wanting;
     }
-    assert_eq!(logic.unit_command_begin_construct(wid, glam::Vec3::new(20.0, 0.0, 20.0)), Ok(true));
+    assert_eq!(logic.unit_command_begin_construct(wid, glam::Vec3::new(20.0, 0.0, 20.0)).expect("result"), true);
     assert_eq!(
         logic
             .host_object(dock_id)
@@ -849,7 +849,7 @@ fn structure_placement_rejects_not_flat_enough_residual() {
     assert!(
         logic
             .create_object_under_construction("TestFlatBarracks", Team::USA, flat)
-            .is_some()
+            .is_ok()
     );
 }
 
@@ -885,7 +885,7 @@ fn structure_placement_rejects_shrouded_location_residual() {
     // C++ DozerAIUpdate.cpp:1648-1670 — createObject is unconditional after
     // the executor LBC gate; the shroud residual above is the placement gate.
     let scaffold = logic.create_object_under_construction("TestShroudBarracks", Team::USA, pos);
-    assert!(scaffold.is_some());
+    assert!(scaffold.is_ok());
     // Remove the admitted scaffold through the normal deletion boundary:
     // otherwise the next query tests occupied ground, not revealed shroud.
     logic.destroy_object(scaffold.unwrap());
@@ -905,7 +905,7 @@ fn structure_placement_rejects_shrouded_location_residual() {
     assert!(
         logic
             .create_object_under_construction("TestShroudBarracks", Team::USA, pos)
-            .is_some()
+            .is_ok()
     );
 
     // fog_of_war off → fail-open even if shrouded again.
@@ -963,7 +963,7 @@ fn structure_placement_rejects_map_edge_residual() {
     assert!(
         logic
             .create_object_under_construction("TestEdgeBarracks", Team::USA, near_edge)
-            .is_some()
+            .is_ok()
     );
 
     // Center of map OK.
@@ -975,7 +975,7 @@ fn structure_placement_rejects_map_edge_residual() {
     assert!(
         logic
             .create_object_under_construction("TestEdgeBarracks", Team::USA, center)
-            .is_some()
+            .is_ok()
     );
 }
 
@@ -1085,7 +1085,7 @@ fn supply_center_placement_rejects_too_close_to_supplies_residual() {
                 Team::USA,
                 glam::Vec3::new(50.0, 0.0, 0.0),
             )
-            .is_some()
+            .is_ok()
     );
     // The unconditional scaffold created above is now an ordinary obstruction;
     // C++ BuildAssistant.cpp:919-941 checks overlap before supply exclusion.
@@ -1113,7 +1113,7 @@ fn supply_center_placement_rejects_too_close_to_supplies_residual() {
                 Team::USA,
                 glam::Vec3::new(300.0, 0.0, 0.0),
             )
-            .is_some()
+            .is_ok()
     );
 }
 
@@ -1155,7 +1155,7 @@ fn structure_placement_rejects_objects_in_the_way_residual() {
                 Team::USA,
                 glam::Vec3::new(5.0, 0.0, 0.0),
             )
-            .is_some(),
+            .is_ok(),
         "stacked pad still places after the executor gate"
     );
     // Far enough residual.
@@ -1174,7 +1174,7 @@ fn structure_placement_rejects_objects_in_the_way_residual() {
                 Team::USA,
                 glam::Vec3::new(200.0, 0.0, 0.0),
             )
-            .is_some()
+            .is_ok()
     );
     let _ = a;
 }
@@ -1219,7 +1219,7 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
                 Team::USA,
                 glam::Vec3::new(0.0, 0.0, 0.0),
             )
-            .is_none()
+            .is_err()
     );
     let _ = logic
         .create_object(
@@ -1236,7 +1236,7 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
                 Team::USA,
                 glam::Vec3::new(100.0, 0.0, 0.0),
             )
-            .is_some()
+            .is_ok()
     );
     let _ = logic
         .create_object(
@@ -1254,7 +1254,7 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
                 Team::USA,
                 glam::Vec3::new(300.0, 0.0, 0.0),
             )
-            .is_some()
+            .is_ok()
     );
     let _ = logic
         .create_object(
@@ -1272,7 +1272,7 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
                 Team::USA,
                 glam::Vec3::new(500.0, 0.0, 0.0),
             )
-            .is_some()
+            .is_ok()
     );
     let _ = logic
         .create_object(
@@ -1290,7 +1290,7 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
                 Team::USA,
                 glam::Vec3::new(700.0, 0.0, 0.0),
             )
-            .is_some(),
+            .is_ok(),
         "full USA SW tech climb residual"
     );
 }
@@ -1331,7 +1331,7 @@ fn superweapon_structure_requires_tech_building_prereq() {
                 Team::USA,
                 glam::Vec3::ZERO,
             )
-            .is_none(),
+            .is_err(),
         "PUC needs AmericaStrategyCenter"
     );
     // Place Strategy Center (fully built residual).
@@ -1350,7 +1350,7 @@ fn superweapon_structure_requires_tech_building_prereq() {
                 Team::USA,
                 glam::Vec3::new(200.0, 0.0, 0.0),
             )
-            .is_some(),
+            .is_ok(),
         "PUC allowed with Strategy Center"
     );
 
@@ -1362,7 +1362,7 @@ fn superweapon_structure_requires_tech_building_prereq() {
                 Team::USA,
                 glam::Vec3::new(300.0, 0.0, 0.0),
             )
-            .is_none()
+            .is_err()
     );
     let palace = logic
         .create_object("GLAPalace", Team::USA, glam::Vec3::new(400.0, 0.0, 0.0))
@@ -1375,7 +1375,7 @@ fn superweapon_structure_requires_tech_building_prereq() {
                 Team::USA,
                 glam::Vec3::new(500.0, 0.0, 0.0),
             )
-            .is_some()
+            .is_ok()
     );
 }
 
@@ -1869,7 +1869,7 @@ fn superweapon_max_simultaneous_blocks_second_when_limited() {
                 Team::USA,
                 glam::Vec3::new(450.0, 0.0, 0.0),
             )
-            .is_none(),
+            .is_err(),
         "second PUC blocked"
     );
     assert!(
@@ -1879,7 +1879,7 @@ fn superweapon_max_simultaneous_blocks_second_when_limited() {
                 Team::USA,
                 glam::Vec3::new(300.0, 0.0, 0.0),
             )
-            .is_none(),
+            .is_err(),
         "Scud also counts as Superweapon link key residual"
     );
     // Unlimited when rule off.
@@ -1891,7 +1891,7 @@ fn superweapon_max_simultaneous_blocks_second_when_limited() {
                 Team::USA,
                 glam::Vec3::new(150.0, 0.0, 0.0),
             )
-            .is_some()
+            .is_ok()
     );
     // Other team still free under limit.
     logic.set_skirmish_rules(false, true, true, true, 1.0);
@@ -1908,7 +1908,7 @@ fn superweapon_max_simultaneous_blocks_second_when_limited() {
                 Team::China,
                 glam::Vec3::new(700.0, 0.0, 0.0),
             )
-            .is_some()
+            .is_ok()
     );
 }
 

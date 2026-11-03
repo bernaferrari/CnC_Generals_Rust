@@ -383,7 +383,7 @@ fn height_particle_cleanup_observes_snap_after_rejected_body_and_only_attachment
     );
     let peer_attached = world
         .combat_particles
-        .attach_named_to_object(peer, Vec3::ZERO, 30, "HeightCleanupPeerWitness")
+        .attach_named_to_object(peer, Vec3::ZERO, 30, "HeightCleanupPeerWitness", &mut ())
         .unwrap();
     let impact = world.combat_particles.spawn_named(
         CombatParticleKind::WeaponImpact,
@@ -432,7 +432,7 @@ fn height_particle_cleanup_observes_snap_after_rejected_body_and_only_attachment
     );
     let later = world
         .combat_particles
-        .attach_named_to_object(id, Vec3::ZERO, 31, "HeightCleanupLaterWitness")
+        .attach_named_to_object(id, Vec3::ZERO, 31, "HeightCleanupLaterWitness", &mut ())
         .unwrap();
     drive(&mut world, id, 31);
     assert!(

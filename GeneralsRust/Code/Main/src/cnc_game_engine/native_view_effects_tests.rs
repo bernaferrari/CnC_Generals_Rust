@@ -413,7 +413,7 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut probe),
                     ..Default::default()
-                },
+},
             )
             .unwrap()
             .unwrap();
@@ -453,7 +453,7 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut runtime),
                     ..Default::default()
-                },
+},
             )
             .unwrap()
             .unwrap();
@@ -571,7 +571,7 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
         &mut crate::game_logic::ScriptPresentationEffects {
             view: Some(&mut wrong),
             ..Default::default()
-        },
+},
     );
     assert!(failed.is_err());
     assert!(
@@ -807,7 +807,7 @@ fn birth_physical_retirement_actor(
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             )
             .unwrap()
             .unwrap()
@@ -888,7 +888,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             assert!(world.has_pending_object_removals());
             assert!(
@@ -910,7 +910,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             assert!(!world.objects.contains_key(&id));
@@ -994,7 +994,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             assert!(damage.destroyed());
@@ -1007,7 +1007,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             assert!(!world.objects.contains_key(&reborn));
@@ -1044,7 +1044,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             assert!(world.objects.contains_key(&no_draw));
             assert!(runtime.drawables.binding_key(EPOCH, no_draw.0).is_some());
@@ -1053,7 +1053,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             assert!(!world.objects.contains_key(&no_draw));
@@ -1093,14 +1093,14 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             world
                 .process_destroy_list_with_effects_checked(
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             assert!(
@@ -1129,13 +1129,13 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             peer.process_destroy_list_with_effects_checked(
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             )
             .unwrap();
         },
@@ -1292,7 +1292,7 @@ fn actual_client_reset_retires_renderer_receipts_before_logic_reset_and_preserve
                 .reset_with_effects_checked(&mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                })
+})
                 .unwrap();
             assert!(world.objects.registered_is_empty());
         },
@@ -1398,7 +1398,7 @@ fn actual_native_bulk_clear_retires_each_owner_without_touching_peer() {
                 let mut effects = crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                };
+};
                 world
                     .clear_all_objects_with_effects_checked(&mut effects)
                     .unwrap();
@@ -1433,7 +1433,7 @@ fn actual_native_bulk_clear_retires_each_owner_without_touching_peer() {
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             },
@@ -1551,7 +1551,7 @@ fn actual_tree_prop_render_collection_preserves_constructor_retirement_and_peer(
                 let mut effects = crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                };
+};
                 world.destroy_object_with_effects(id, &mut effects);
                 world
                     .process_destroy_list_with_effects_checked(&mut effects)
@@ -1586,7 +1586,7 @@ fn actual_tree_prop_render_collection_preserves_constructor_retirement_and_peer(
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             },
@@ -1700,7 +1700,7 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
             &mut crate::game_logic::ScriptPresentationEffects {
                 view: Some(&mut runtime),
                 ..Default::default()
-            },
+},
         )
         .unwrap()
         .unwrap();
@@ -1766,7 +1766,7 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
                 view: Some(&mut runtime),
                 audio: Some(&mut audio),
                 ..Default::default()
-            },
+},
         )
         .unwrap();
     assert_eq!(world.host_object(id).unwrap().health.current, 60.0);

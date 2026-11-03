@@ -529,7 +529,7 @@ fn finished_repair_releases_the_dozer() {
             AIState::Repairing,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        unit.dozer_task_repair_target = Some(pad_id);
+        unit.set_dozer_task_repair_target(Some(pad_id));
         unit.ignored_obstacle_id = Some(pad_id);
         unit.movement.path = vec![Vec3::new(20.0, 0.0, 0.0)];
         unit.set_status_moving(true);
@@ -549,7 +549,7 @@ fn finished_repair_releases_the_dozer() {
     assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());
-    assert!(unit.dozer_task_repair_target.is_none());
+    assert!(unit.dozer_task_repair_target().is_none());
 }
 
 #[test]
@@ -592,7 +592,7 @@ fn dead_repair_target_releases_the_dozer() {
             AIState::Repairing,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        unit.dozer_task_repair_target = Some(pad_id);
+        unit.set_dozer_task_repair_target(Some(pad_id));
         unit.ignored_obstacle_id = Some(pad_id);
         unit.movement.path = vec![Vec3::new(30.0, 0.0, 0.0)];
         unit.set_status_moving(true);
@@ -602,7 +602,7 @@ fn dead_repair_target_releases_the_dozer() {
     assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());
-    assert!(unit.dozer_task_repair_target.is_none());
+    assert!(unit.dozer_task_repair_target().is_none());
 }
 
 #[test]
@@ -637,7 +637,7 @@ fn repair_without_a_target_does_not_keep_the_task() {
             AIState::Repairing,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        unit.dozer_task_repair_target = Some(pad_id);
+        unit.set_dozer_task_repair_target(Some(pad_id));
         unit.ignored_obstacle_id = Some(pad_id);
         unit.movement.path = vec![Vec3::new(40.0, 0.0, 0.0)];
         unit.set_status_moving(true);
@@ -645,7 +645,7 @@ fn repair_without_a_target_does_not_keep_the_task() {
     logic.update_support_states_for_test(&[dozer], 1.0 / 30.0);
     let unit = logic.host_object(dozer).expect("dozer");
     assert_eq!(unit.ai_state(), AIState::Idle);
-    assert!(unit.dozer_task_repair_target.is_none());
+    assert!(unit.dozer_task_repair_target().is_none());
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());
     assert!(unit.target.is_none());

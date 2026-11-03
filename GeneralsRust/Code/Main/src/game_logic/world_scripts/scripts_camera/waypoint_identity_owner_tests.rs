@@ -200,7 +200,7 @@ fn actual_exact_stop_exits_once_and_cyclic_follow_is_not_a_terminal_completion()
     let mut owner = world(["", "", ""]);
     let id = actor(&mut owner);
     owner.apply_owned_named_waypoint("Walker", "Route", Some(true), None);
-    assert_eq!(owner.unit_command_stop(id), Ok(true));
+    assert_eq!(owner.unit_command_stop(id).expect("result"), true);
     assert_eq!(
         owner.host_object(id).unwrap().completed_waypoint_id,
         Some(1)

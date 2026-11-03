@@ -863,7 +863,7 @@ End
         assert!(
             logic
                 .create_object_under_construction("GLABlackMarket", Team::GLA, glam::Vec3::ZERO)
-                .is_none(),
+                .is_err(),
             "under-construction Black Market requires Palace"
         );
         let palace = logic

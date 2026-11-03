@@ -348,7 +348,7 @@ mod tests {
             view: Some(&mut view),
             audio: Some(&mut audio),
             ..Default::default()
-        };
+};
         world
             .update_cluster_mines_flights_with_effects(&mut effects)
             .unwrap();
@@ -403,7 +403,7 @@ mod tests {
             view: Some(&mut view),
             audio: Some(&mut audio),
             ..Default::default()
-        };
+};
         let ids = world.place_cluster_mines_unvaried_with_effects(
             Team::China,
             Vec3::new(200., 0., 200.),
@@ -465,7 +465,7 @@ mod tests {
             view: Some(&mut view),
             audio: Some(&mut audio),
             ..Default::default()
-        };
+};
         let ids = world.place_cluster_mines_unvaried_with_effects(
             Team::China,
             Vec3::new(200., 0., 200.),

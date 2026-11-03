@@ -206,7 +206,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
                 &mut ScriptPresentationEffects {
                     view: Some(view),
                     ..Default::default()
-                },
+},
             )
             .map_err(anyhow::Error::msg)
     })?
@@ -224,7 +224,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
                 &mut ScriptPresentationEffects {
                     view: Some(view),
                     ..Default::default()
-                },
+},
             )
             .map_err(anyhow::Error::msg)
         },
@@ -275,7 +275,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
         world.reset_with_effects_checked(&mut ScriptPresentationEffects {
             view: Some(view),
             ..Default::default()
-        })
+})
     })
     .map_err(anyhow::Error::msg)?;
     assert!(world.objects.registered_is_empty());
@@ -322,7 +322,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
                 &mut ScriptPresentationEffects {
                     view: Some(view),
                     ..Default::default()
-                },
+},
             )
             .map_err(anyhow::Error::msg)
     })?
@@ -362,7 +362,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
             &mut ScriptPresentationEffects {
                 view: Some(view),
                 ..Default::default()
-            },
+},
         )
     })
     .map_err(anyhow::Error::msg)?;

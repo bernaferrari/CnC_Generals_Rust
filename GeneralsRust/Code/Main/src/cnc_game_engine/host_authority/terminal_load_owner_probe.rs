@@ -148,7 +148,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
         .destroy_all_objects_immediate_with_effects_checked(&mut ScriptPresentationEffects {
             view: Some(&mut receiver),
             ..Default::default()
-        })
+})
         .unwrap_err()
         .to_string();
     assert_eq!(
@@ -214,7 +214,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
         .destroy_all_objects_immediate_with_effects_checked(&mut ScriptPresentationEffects {
             view: Some(&mut receiver),
             ..Default::default()
-        })
+})
         .unwrap_err()
         .to_string();
     assert_eq!(retry, first_error);

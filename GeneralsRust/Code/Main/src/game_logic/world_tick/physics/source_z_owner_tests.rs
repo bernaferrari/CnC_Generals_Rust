@@ -202,7 +202,7 @@ fn source_z_only_snap_has_no_tree_event_and_horizontal_physics_motion_does() {
                     terrain: Some(&mut terrain),
                     audio: Some(&mut audio),
                     ..Default::default()
-                },
+},
             )
             .unwrap();
         if mode == LocomotorBehaviorZ::FixedAbsoluteHeight {
@@ -219,7 +219,7 @@ fn source_z_only_snap_has_no_tree_event_and_horizontal_physics_motion_does() {
                     terrain: Some(&mut terrain),
                     audio: Some(&mut audio),
                     ..Default::default()
-                })
+})
                 .unwrap();
             assert_eq!(
                 audio.0,

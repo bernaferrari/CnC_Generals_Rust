@@ -265,7 +265,7 @@ fn actual_map_rejects_nested_garrison_body_error_before_later_objects() {
                     crate::game_logic::ScriptPresentationEffects {
                         view: Some(self),
                         ..Default::default()
-                    }
+}
                 }
             }
             #[cfg(feature = "game_client")]

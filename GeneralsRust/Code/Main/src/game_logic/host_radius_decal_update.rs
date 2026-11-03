@@ -933,7 +933,7 @@ mod player_owner_tests {
                 body(&mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut view),
                     ..Default::default()
-                })
+})
             }
             #[cfg(not(feature = "game_client"))]
             body(&mut Default::default())

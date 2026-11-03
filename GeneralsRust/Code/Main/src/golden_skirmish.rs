@@ -2830,7 +2830,7 @@ mod tests {
         // Simulate host construct: create under construction via legal path.
         let id = logic.create_object_under_construction(&bname, Team::USA, site);
         assert!(
-            id.is_some(),
+            id.is_ok(),
             "host construct residual must place {bname} at {site:?} lbc={}",
             logic.legal_build_code_at_for_builder(Team::USA, site, &bname, Some(dozer))
         );

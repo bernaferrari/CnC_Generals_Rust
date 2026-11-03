@@ -1789,7 +1789,7 @@ fn wave_guide_pushes_add_water_velocity_onto_grid_queue() {
         logic.update_wave_guides_with_effects(&mut crate::game_logic::ScriptPresentationEffects {
             terrain: Some(&mut terrain),
             ..Default::default()
-        });
+});
     }
     let impulses = terrain.0;
     assert!(

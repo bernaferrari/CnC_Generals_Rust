@@ -1116,7 +1116,7 @@ fn supply_wanting_falls_back_when_preferred_warehouse_approach_is_full() {
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
-        assert_eq!(logic.try_claim_dock_for_test(preferred, blocker), Ok(false));
+        assert_eq!(logic.try_claim_dock_for_test(preferred, blocker).expect("result"), false);
     }
 
     let collector = logic
@@ -1193,7 +1193,7 @@ fn admitted_supply_dock_still_transfers_if_relationship_changes_in_transit() {
     }
     // The source is legal when the dock session is admitted and the truck
     // starts travelling. C++ AIDock does not re-run ActionManager at action().
-    assert_eq!(logic.try_claim_dock_for_test(dock, collector), Ok(false));
+    assert_eq!(logic.try_claim_dock_for_test(dock, collector).expect("result"), false);
     logic
         .players
         .get_mut(&1)

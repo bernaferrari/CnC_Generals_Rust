@@ -1429,12 +1429,7 @@ mod tests {
         // C++ IsSubdualDamage (Damage.h:95-107) + ActiveBody.cpp:471-488.
         // Pre-fix: map_store collapsed SUBDUAL_MISSILE → Unresistable HP.
         let mut tank = vehicle("SubdualTank", 11, 200.0);
-        assert!(!tank.take_damage_from_typed(
-            80.0,
-            None,
-            DamageType::SubdualMissile,
-            &mut health_events
-        ));
+        assert!(!tank.take_damage_from_typed(80.0, None, DamageType::SubdualMissile, 0, &mut health_events));
         assert!(
             (tank.health.current - 200.0).abs() < 1e-3,
             "SUBDUAL_MISSILE must not deal HP, got {}",
@@ -1448,12 +1443,7 @@ mod tests {
         let mut immune = Object::new(ThingTemplate::new("BareImmune"), ObjectId(13), Team::USA);
         assert_eq!(immune.subdual_damage_cap, 0.0);
         let before_hp = immune.health.current;
-        assert!(!immune.take_damage_from_typed(
-            40.0,
-            None,
-            DamageType::SubdualMissile,
-            &mut health_events
-        ));
+        assert!(!immune.take_damage_from_typed(40.0, None, DamageType::SubdualMissile, 0, &mut health_events));
         assert_eq!(immune.health.current, before_hp);
         assert_eq!(immune.subdual_damage, 0.0);
 
@@ -1463,12 +1453,7 @@ mod tests {
         assert_eq!(bare.subdual_damage_cap, 100.0);
         bare.health.current = 100.0;
         bare.health.maximum = 100.0;
-        assert!(!bare.take_damage_from_typed(
-            40.0,
-            None,
-            DamageType::SubdualMissile,
-            &mut health_events
-        ));
+        assert!(!bare.take_damage_from_typed(40.0, None, DamageType::SubdualMissile, 0, &mut health_events));
         assert!((bare.health.current - 100.0).abs() < 1e-3);
         assert!(
             (bare.subdual_damage - 40.0).abs() < 1e-3,
@@ -1485,12 +1470,7 @@ mod tests {
         // ECMTankVehicleDisabler is SUBDUAL_VEHICLE — accumulate, never HP.
         let mut tank = vehicle("SubdualVehTank", 21, 400.0);
         tank.subdual_damage_cap = 600.0;
-        assert!(!tank.take_damage_from_typed(
-            24.0,
-            None,
-            DamageType::SubdualVehicle,
-            &mut health_events
-        ));
+        assert!(!tank.take_damage_from_typed(24.0, None, DamageType::SubdualVehicle, 0, &mut health_events));
         assert!(
             (tank.health.current - 400.0).abs() < 1e-3,
             "SUBDUAL_VEHICLE must not deal HP, got {}",
@@ -1549,12 +1529,7 @@ mod tests {
             crate::game_logic::ContainModuleKind::RiderChange;
         moving.set_status_moving(true);
         moving.occupants.push(ObjectId(99));
-        assert!(moving.take_damage_from_typed(
-            1.0,
-            None,
-            DamageType::KillPilot,
-            &mut health_events
-        ));
+        assert!(moving.take_damage_from_typed(1.0, None, DamageType::KillPilot, 0, &mut health_events));
         assert!(moving.status.destroyed);
         assert!(moving.health.current <= 0.0);
         assert!(!moving.is_unmanned());
@@ -1565,19 +1540,14 @@ mod tests {
             crate::game_logic::ContainModuleKind::RiderChange;
         parked.set_status_moving(false);
         parked.occupants.push(ObjectId(98));
-        assert!(!parked.take_damage_from_typed(
-            1.0,
-            None,
-            DamageType::KillPilot,
-            &mut health_events
-        ));
+        assert!(!parked.take_damage_from_typed(1.0, None, DamageType::KillPilot, 0, &mut health_events));
         assert!((parked.health.current - 150.0).abs() < 1e-3);
         assert!(!parked.is_unmanned());
         assert!(parked.occupants.is_empty());
         assert!(parked.rider_change_scuttled_on_frame > 0);
 
         let mut tank = vehicle("Tank", 23, 200.0);
-        assert!(!tank.take_damage_from_typed(1.0, None, DamageType::KillPilot, &mut health_events));
+        assert!(!tank.take_damage_from_typed(1.0, None, DamageType::KillPilot, 0, &mut health_events));
         assert!((tank.health.current - 200.0).abs() < 1e-3);
         assert!(tank.is_unmanned());
         assert_eq!(tank.team, Team::Neutral);
@@ -1593,23 +1563,13 @@ mod tests {
         let mut logic = crate::game_logic::GameLogic::new();
 
         let mut tank = vehicle("SameFrameHp", 24, 100.0);
-        assert!(!tank.take_damage_from_typed(
-            25.0,
-            None,
-            DamageType::Unresistable,
-            &mut health_events
-        ));
+        assert!(!tank.take_damage_from_typed(25.0, None, DamageType::Unresistable, 0, &mut health_events));
         assert!(
             (tank.health.current - 75.0).abs() < 1e-3,
             "host HP must update this frame under damage authority, got {}",
             tank.health.current
         );
-        assert!(tank.take_damage_from_typed(
-            80.0,
-            None,
-            DamageType::Unresistable,
-            &mut health_events
-        ));
+        assert!(tank.take_damage_from_typed(80.0, None, DamageType::Unresistable, 0, &mut health_events));
         assert!(tank.health.current <= 0.0);
         assert!(tank.status.destroyed);
     }
@@ -1628,24 +1588,14 @@ mod tests {
         warehouse.health.current = 1000.0;
         warehouse.health.maximum = 1000.0;
         assert!(warehouse.uses_immortal_body());
-        assert!(!warehouse.take_damage_from_typed(
-            50_000.0,
-            None,
-            DamageType::Explosive,
-            &mut health_events
-        ));
+        assert!(!warehouse.take_damage_from_typed(50_000.0, None, DamageType::Explosive, 0, &mut health_events));
         assert!(
             (warehouse.health.current - 1.0).abs() < 1e-3,
             "SupplyWarehouse must stay at 1 HP, got {}",
             warehouse.health.current
         );
         assert!(!warehouse.status.destroyed);
-        assert!(!warehouse.take_damage_from_typed(
-            99.0,
-            None,
-            DamageType::Unresistable,
-            &mut health_events
-        ));
+        assert!(!warehouse.take_damage_from_typed(99.0, None, DamageType::Unresistable, 0, &mut health_events));
         assert!((warehouse.health.current - 1.0).abs() < 1e-3);
         assert!(!warehouse.status.destroyed);
 
@@ -1658,23 +1608,13 @@ mod tests {
         segment.health.maximum = 50.0;
         segment.firewall_segment = true;
         assert!(segment.uses_immortal_body());
-        assert!(!segment.take_damage_from_typed(
-            500.0,
-            None,
-            DamageType::Explosive,
-            &mut health_events
-        ));
+        assert!(!segment.take_damage_from_typed(500.0, None, DamageType::Explosive, 0, &mut health_events));
         assert!((segment.health.current - 1.0).abs() < 1e-3);
         assert!(!segment.status.destroyed);
 
         let mut tank = vehicle("AmericaTankCrusader", 33, 400.0);
         assert!(!tank.uses_immortal_body());
-        assert!(tank.take_damage_from_typed(
-            400.0,
-            None,
-            DamageType::Unresistable,
-            &mut health_events
-        ));
+        assert!(tank.take_damage_from_typed(400.0, None, DamageType::Unresistable, 0, &mut health_events));
         assert!(tank.status.destroyed);
     }
 
@@ -1712,7 +1652,7 @@ mod tests {
         let mut unit = Object::new(tmpl, ObjectId(41), Team::USA);
         unit.health.current = 40.0;
         unit.health.maximum = 100.0;
-        assert!(!unit.take_damage_from_typed(20.0, None, DamageType::Healing, &mut health_events));
+        assert!(!unit.take_damage_from_typed(20.0, None, DamageType::Healing, 0, &mut health_events));
         assert!(
             (unit.health.current - 50.0).abs() < 1e-3,
             "HEALING must use armor coeff 0.5 (heal 10), got {}",
@@ -1727,12 +1667,7 @@ mod tests {
         // C++ Damage.h:63 DAMAGE_MICROWAVE; IsSubdualDamage false (Damage.h:95-107).
         // TankArmor MICROWAVE 0%; HumanArmor default 100%.
         let mut tank = vehicle("MicrowaveTank", 42, 100.0);
-        assert!(!tank.take_damage_from_typed(
-            40.0,
-            None,
-            DamageType::Microwave,
-            &mut health_events
-        ));
+        assert!(!tank.take_damage_from_typed(40.0, None, DamageType::Microwave, 0, &mut health_events));
         assert!(
             (tank.health.current - 100.0).abs() < 1e-3,
             "TankArmor MICROWAVE 0% must deal 0 HP, got {}",
@@ -1750,12 +1685,7 @@ mod tests {
         let mut ranger = Object::new(inf, ObjectId(43), Team::USA);
         ranger.health.current = 100.0;
         ranger.health.maximum = 100.0;
-        assert!(!ranger.take_damage_from_typed(
-            40.0,
-            None,
-            DamageType::Microwave,
-            &mut health_events
-        ));
+        assert!(!ranger.take_damage_from_typed(40.0, None, DamageType::Microwave, 0, &mut health_events));
         assert!(
             (ranger.health.current - 60.0).abs() < 1e-3,
             "infantry MICROWAVE is armor-scaled HP, got {}",
@@ -1765,7 +1695,7 @@ mod tests {
 
         // Leftover host EMP alias is the same store type (Microwave).
         let mut tank2 = vehicle("EmpAliasTank", 44, 100.0);
-        assert!(!tank2.take_damage_from_typed(40.0, None, DamageType::EMP, &mut health_events));
+        assert!(!tank2.take_damage_from_typed(40.0, None, DamageType::EMP, 0, &mut health_events));
         assert!((tank2.health.current - 100.0).abs() < 1e-3);
         assert!(tank2.subdual_damage.abs() < 1e-3);
     }
@@ -1819,7 +1749,7 @@ mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         let mut o = vehicle("StatusNone", 46, 100.0);
-        assert!(!o.take_damage_from_typed(2000.0, None, DamageType::Status, &mut health_events));
+        assert!(!o.take_damage_from_typed(2000.0, None, DamageType::Status, 0, &mut health_events));
         assert!(!o.is_faerie_fire());
         assert!((o.health.current - 100.0).abs() < 1e-3);
     }
@@ -1969,12 +1899,7 @@ mod tests {
                 armor: Some("TankArmor".into()),
                 damage_fx: Some("TankDamageFX".into()),
             });
-        assert!(!tank.take_damage_from_typed(
-            20.0,
-            None,
-            DamageType::Unresistable,
-            &mut health_events
-        ));
+        assert!(!tank.take_damage_from_typed(20.0, None, DamageType::Unresistable, 0, &mut health_events));
         let dispatched = take_dispatched_armor_damage_fx();
         assert!(
             dispatched
@@ -2442,12 +2367,7 @@ mod tests {
                 damage_fx: None,
             });
         assert_eq!(bus.body_damage_state, HostBodyDamageType::Pristine);
-        assert!(!bus.take_damage_from_typed(
-            200.0,
-            None,
-            DamageType::Explosive,
-            &mut health_events
-        ));
+        assert!(!bus.take_damage_from_typed(200.0, None, DamageType::Explosive, 0, &mut health_events));
         assert!(bus.armor_set_second_life);
         assert_eq!(bus.health.maximum, BATTLE_BUS_SECOND_LIFE_MAX_HEALTH);
         assert_eq!(bus.health.current, BATTLE_BUS_SECOND_LIFE_MAX_HEALTH);
@@ -2481,7 +2401,7 @@ mod tests {
                 armor: Some("BusFlameArmor".into()),
                 damage_fx: None,
             });
-        assert!(!bus.take_damage_from_typed(200.0, None, DamageType::Flame, &mut health_events));
+        assert!(!bus.take_damage_from_typed(200.0, None, DamageType::Flame, 0, &mut health_events));
         assert!(
             bus.armor_set_second_life,
             "raw 200 >= 50 must start second life despite 0.1 flame armor"
@@ -2540,7 +2460,7 @@ mod tests {
                 armor: Some("TreeFlameArmor".into()),
                 damage_fx: None,
             });
-        assert!(!tree.take_damage_from_typed(999.0, None, DamageType::Flame, &mut health_events));
+        assert!(!tree.take_damage_from_typed(999.0, None, DamageType::Flame, 0, &mut health_events));
         assert!(
             (tree.health.current - 37.75).abs() < 0.05,
             "raw clamp then 0.25 armor must leave 37.75, got {}",
@@ -2570,7 +2490,7 @@ mod tests {
                 armor: Some("TreeVulnArmor".into()),
                 damage_fx: None,
             });
-        assert!(tree.take_damage_from_typed(40.0, None, DamageType::Explosive, &mut health_events));
+        assert!(tree.take_damage_from_typed(40.0, None, DamageType::Explosive, 0, &mut health_events));
         assert!(tree.status.destroyed);
     }
 
@@ -2581,23 +2501,13 @@ mod tests {
         // C++ ActiveBody.cpp:329-330: m_indestructible returns before armor/HP.
         let mut o = vehicle("ScriptProp", 95, 100.0);
         o.set_indestructible(true);
-        assert!(!o.take_damage_from_typed(50.0, None, DamageType::Explosive, &mut health_events));
+        assert!(!o.take_damage_from_typed(50.0, None, DamageType::Explosive, 0, &mut health_events));
         assert!((o.health.current - 100.0).abs() < 1e-3);
-        assert!(!o.take_damage_from_typed(
-            999.0,
-            None,
-            DamageType::Unresistable,
-            &mut health_events
-        ));
+        assert!(!o.take_damage_from_typed(999.0, None, DamageType::Unresistable, 0, &mut health_events));
         assert!((o.health.current - 100.0).abs() < 1e-3);
         assert!(!o.status.destroyed);
         o.set_indestructible(false);
-        assert!(!o.take_damage_from_typed(
-            10.0,
-            None,
-            DamageType::Unresistable,
-            &mut health_events
-        ));
+        assert!(!o.take_damage_from_typed(10.0, None, DamageType::Unresistable, 0, &mut health_events));
         assert!((o.health.current - 90.0).abs() < 1e-3);
     }
 }

@@ -1423,7 +1423,7 @@ End
         &mut crate::game_logic::ScriptPresentationEffects {
             audio: Some(&mut output),
             ..Default::default()
-        },
+},
     );
     let u = logic.host_object(rider).unwrap();
     assert_eq!(u.next_mood_check_time, 77);
@@ -1693,7 +1693,7 @@ fn play_container_enter_sound_drains_leftover_template_sound_enter() {
         &mut crate::game_logic::ScriptPresentationEffects {
             audio: Some(&mut output),
             ..Default::default()
-        },
+},
     );
     audio::assert_events(&output, &[("EnterAuthored", transport)]);
 }

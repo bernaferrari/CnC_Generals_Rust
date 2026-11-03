@@ -233,7 +233,7 @@ fn ordinary_player_completion_reaches_owned_ai_script_and_power_before_modules()
         );
         assert_eq!(object.builder_id, Some(builder));
         assert_eq!(
-            world.host_object(builder).unwrap().dozer_task_build_target,
+            world.host_object(builder).unwrap().dozer_task_build_target(),
             Some(id)
         );
         assert!(!object.construction_power_admitted);

@@ -1086,13 +1086,13 @@ End
             &mut crate::game_logic::ScriptPresentationEffects {
                 audio: Some(&mut output),
                 ..Default::default()
-            },
+},
         );
         logic.process_destroy_list_with_effects(
             &mut crate::game_logic::ScriptPresentationEffects {
                 audio: Some(&mut output),
                 ..Default::default()
-            },
+},
         );
         let r = logic.host_object(rider).expect("survivor stays in world");
         assert!(

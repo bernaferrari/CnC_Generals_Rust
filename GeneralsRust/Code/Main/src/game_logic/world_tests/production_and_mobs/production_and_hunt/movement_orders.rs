@@ -908,7 +908,7 @@ fn player_stop_clears_a_building_ignore() {
         unit.movement.path = vec![Vec3::new(40.0, 0.0, 0.0)];
         unit.set_status_moving(true);
     }
-    assert_eq!(logic.unit_command_stop(unit_id), Ok(true));
+    assert_eq!(logic.unit_command_stop(unit_id).expect("result"), true);
     let unit = logic.host_object(unit_id).expect("unit");
     assert_eq!(unit.ai_state(), AIState::Idle);
     assert!(unit.ignored_obstacle_id.is_none());
@@ -942,7 +942,7 @@ fn aircraft_stop_clears_a_building_ignore() {
         unit.movement.path = vec![Vec3::new(40.0, 30.0, 0.0)];
         unit.set_status_moving(true);
     }
-    assert_eq!(logic.unit_command_stop(jet), Ok(true));
+    assert_eq!(logic.unit_command_stop(jet).expect("result"), true);
     let unit = logic.host_object(jet).expect("jet");
     assert!(unit.ignored_obstacle_id.is_none());
     assert!(unit.movement.path.is_empty());

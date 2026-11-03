@@ -507,11 +507,11 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
         assert_eq!(dz.ai_state(), AIState::Repairing);
         assert_eq!(dz.target, Some(damaged));
         assert_eq!(
-            dz.dozer_task_build_target,
+            dz.dozer_task_build_target(),
             Some(scaffold),
             "REPAIR must keep BUILD pending"
         );
-        assert_eq!(dz.dozer_task_repair_target, Some(damaged));
+        assert_eq!(dz.dozer_task_repair_target(), Some(damaged));
     }
     logic.dozer_internal_task_complete(dozer, true);
     if let Some((dz, partition)) = logic.host_object_and_partition_mut(dozer) {
@@ -528,7 +528,7 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
     let dz = logic.host_object(dozer).expect("dz");
     assert_eq!(dz.ai_state(), AIState::Constructing);
     assert_eq!(dz.target, Some(scaffold));
-    assert_eq!(dz.dozer_task_build_target, Some(scaffold));
+    assert_eq!(dz.dozer_task_build_target(), Some(scaffold));
 }
 
 #[test]
@@ -580,8 +580,8 @@ fn same_frame_build_repair_tie_resumes_build() {
             dz.dozer_task_build_order_frame,
             dz.dozer_task_repair_order_frame
         );
-        assert_eq!(dz.dozer_task_build_target, Some(scaffold));
-        assert_eq!(dz.dozer_task_repair_target, Some(damaged));
+        assert_eq!(dz.dozer_task_build_target(), Some(scaffold));
+        assert_eq!(dz.dozer_task_repair_target(), Some(damaged));
     }
     if let Some((dz, partition)) = logic.host_object_and_partition_mut(dozer) {
         dz.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
@@ -641,7 +641,7 @@ fn idle_resumes_parked_repair_when_most_recent() {
     let dz = logic.host_object(dozer).expect("dz");
     assert_eq!(dz.ai_state(), AIState::Repairing);
     assert_eq!(dz.target, Some(damaged));
-    assert_eq!(dz.dozer_task_repair_target, Some(damaged));
+    assert_eq!(dz.dozer_task_repair_target(), Some(damaged));
 }
 
 #[test]
@@ -767,7 +767,7 @@ fn player_stop_cancels_current_build_so_idle_does_not_resume() {
     {
         let dz = logic.host_object(dozer).expect("dz");
         assert_eq!(
-            dz.dozer_task_build_target, None,
+            dz.dozer_task_build_target(), None,
             "hq-msoee: player Stop must cancel current BUILD slot"
         );
     }
@@ -844,7 +844,7 @@ fn execute_build_records_build_slot_and_docks_off_center() {
     {
         let dz = logic.host_object(dozer).expect("dz");
         assert_eq!(
-            dz.dozer_task_build_target,
+            dz.dozer_task_build_target(),
             Some(scaffold),
             "hq-gkpuk: new construct must write BUILD slot"
         );
@@ -954,7 +954,7 @@ fn gather_cancels_build_and_blocks_idle_resume_while_supply() {
     {
         let w = logic.host_object(worker).expect("w");
         assert!(
-            w.dozer_task_build_target.is_none(),
+            w.dozer_task_build_target().is_none(),
             "hq-5nio2: gather must cancel current BUILD"
         );
         assert_eq!(w.ai_state(), AIState::Gathering);
@@ -1015,7 +1015,7 @@ fn new_task_snaps_action_dock_off_pad_via_find_position_around() {
     logic.dozer_new_task_build(dozer, pad);
     let dock = logic
         .host_object(dozer)
-        .and_then(|d| d.dozer_dock_action)
+        .and_then(|d| d.dozer_dock_action())
         .expect("ACTION dock");
     let seed = crate::game_logic::host_repair::dozer_repair_approach_position(
         glam::Vec3::new(200.0, 0.0, 0.0),
@@ -1124,29 +1124,29 @@ fn replacing_build_task_retains_both_scaffold_builder_ids() {
         .expect("second real scaffold");
     logic.frame = 5;
     logic.dozer_new_task_build(dozer, first);
-    let first_dock = logic.host_object(dozer).unwrap().dozer_dock_action;
+    let first_dock = logic.host_object(dozer).unwrap().dozer_dock_action();
     assert!(first_dock.is_some());
     logic.frame = 6;
     logic.dozer_new_task_build(dozer, second);
     assert_eq!(logic.host_object(first).unwrap().builder_id, Some(dozer));
     assert_eq!(logic.host_object(second).unwrap().builder_id, Some(dozer));
     let active = logic.host_object(dozer).unwrap();
-    assert_eq!(active.dozer_task_build_target, Some(second));
+    assert_eq!(active.dozer_task_build_target(), Some(second));
     assert_eq!(active.dozer_task_build_order_frame, 6);
-    let second_dock = active.dozer_dock_action;
+    let second_dock = active.dozer_dock_action();
     assert!(second_dock.is_some());
     assert_ne!(second_dock, first_dock);
     logic.frame = 7;
     logic.dozer_new_task_build(dozer, second);
     let repeated = logic.host_object(dozer).unwrap();
-    assert_eq!(repeated.dozer_task_build_target, Some(second));
+    assert_eq!(repeated.dozer_task_build_target(), Some(second));
     assert_eq!(repeated.dozer_task_build_order_frame, 7);
-    assert_eq!(repeated.dozer_dock_action, second_dock);
+    assert_eq!(repeated.dozer_dock_action(), second_dock);
     logic.dozer_internal_task_complete(dozer, false);
     let completed = logic.host_object(dozer).unwrap();
-    assert_eq!(completed.dozer_task_build_target, None);
+    assert_eq!(completed.dozer_task_build_target(), None);
     assert_eq!(completed.dozer_task_build_order_frame, 0);
-    assert_eq!(completed.dozer_dock_action, None);
+    assert_eq!(completed.dozer_dock_action(), None);
     assert_eq!(logic.host_object(first).unwrap().builder_id, Some(dozer));
     assert_eq!(logic.host_object(second).unwrap().builder_id, Some(dozer));
 }

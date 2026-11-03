@@ -385,7 +385,7 @@ fn unit_move_notifies_tree_buffer_topple() {
         &mut crate::game_logic::ScriptPresentationEffects {
             terrain: Some(&mut visual),
             ..Default::default()
-        },
+},
     );
     assert_ne!(
         peer.tree_buffer_mut().trees()[peer_tree_ndx].topple_state,
