@@ -123,7 +123,9 @@ Confirm `write_screenshot_png` is **absent** from InGame Call graph after the fi
 
 ```
 git log origin/main -3 --oneline
-1d4f1d719 fidelity: retail terrain TGA candidates + on-screen PNG gates
-b67530f45 perf: Arc facility-name cache + O(objects) player census
-b46793d15 Unseal: ww3d-engine — perf: non-blocking screenshot finalize
+e55e78c40 perf: stash Lone Eagle heightmap by move, clone samples once for terrain
+7abbf16ba perf: take ScriptList for sides write; document Lone Eagle CPU parse
+d9ff2da2b perf: ObjectsList NameKey lookups + one settings walk; defer UpgradeCenter init
 ```
+
+Release CPU parse (`lone_eagle_parse_bench`, 2026-11-03 America/Sao_Paulo, load ~5): total **~0.01–0.02 s** (settings ~5–10 ms). Full InGame median still pending: `main` currently fails `cargo build --release` on AnimatedSoundMgr API (WWVegas ownership migration; Common call sites not yet updated).
