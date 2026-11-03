@@ -179,7 +179,15 @@ mod native_browser {
         }
     }
 
-    #[cfg(target_os = "macos")]
+    /// Unit tests must not spin up real WKWebView/NSWindow — that OOMs the full
+    /// lib suite (SIGKILL while entering `close_browser_window_*` after video tests).
+    #[cfg(all(target_os = "macos", test))]
+    fn present_wkwebview(url: &str, x: i32, y: i32, width: i32, height: i32) -> Option<usize> {
+        let _ = (url, x, y, width, height);
+        None
+    }
+
+    #[cfg(all(target_os = "macos", not(test)))]
     fn present_wkwebview(url: &str, x: i32, y: i32, width: i32, height: i32) -> Option<usize> {
         use cocoa::base::{id, nil};
         use cocoa::foundation::{NSPoint, NSRect, NSSize, NSString};
