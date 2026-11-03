@@ -208,11 +208,16 @@ impl Object {
         self.sole_healing_benefactor_id
     }
 
-    pub fn estimate_damage(&self, _damage_info: &DamageInfoInput) -> Real {
+    pub fn estimate_damage(&self, damage_info: &DamageInfoInput) -> Real {
         if let Some(body) = &self.body {
             if let Ok(body_guard) = body.lock() {
-                return body_guard.estimate_damage(_damage_info).unwrap_or(0.0);
+                return body_guard.estimate_damage(damage_info).unwrap_or(0.0);
             }
+        }
+        // C++ InactiveBody::estimateDamage: Unresistable still applies when the
+        // object has no active health pool (raw/test objects, stripped modules).
+        if damage_info.damage_type == DamageType::Unresistable {
+            return damage_info.amount;
         }
         0.0
     }
@@ -1424,13 +1429,18 @@ impl Object {
         target: &Object,
         cmd_source: CommandSourceType,
     ) -> CanAttackResult {
-        self.weapon_set.get_able_to_attack_specific_object(
-            attack_type,
-            self.get_id(),
-            target.get_id(),
-            cmd_source,
-            None,
-        )
+        // C++ Object/WeaponSet take Object* for source and victim. Prefer the
+        // borrowed-object overload so callers that already hold both objects
+        // (CommandXlat selection attack) do not re-lock by id through the
+        // registry — nested std::sync::RwLock reads are unsafe/lossy.
+        self.weapon_set
+            .get_able_to_attack_specific_object_for_objects(
+                attack_type,
+                self,
+                target,
+                cmd_source,
+                None,
+            )
     }
 
     /// Evaluate eligibility on the Objects already held by an AI transition.
