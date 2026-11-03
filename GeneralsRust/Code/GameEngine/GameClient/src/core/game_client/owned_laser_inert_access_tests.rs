@@ -337,7 +337,7 @@ fn owned_laser_ui_failure_preserves_installed_particles_payload_and_receiver() {
             panic!("UI failure before owned Laser teardown");
         }
     });
-    first.client.subsystem_manager.in_game_ui = Some(ui);
+    first.client.subsystem_manager.in_game_ui = Some(crate::core::subsystems::InGameUISubsystem::default());
     let error = first.try_destroy().unwrap_err();
     assert!(error.to_string().contains("UI lock poisoned"));
     assert_eq!(

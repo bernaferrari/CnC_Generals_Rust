@@ -297,7 +297,7 @@ mod tests {
         let mut window = GameWindow::new();
         window.set_name(name);
         window.set_position(x, y).unwrap();
-        window.set_size(width, height).unwrap();
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| window.set_size(width, height, effects).unwrap());
         window
     }
 

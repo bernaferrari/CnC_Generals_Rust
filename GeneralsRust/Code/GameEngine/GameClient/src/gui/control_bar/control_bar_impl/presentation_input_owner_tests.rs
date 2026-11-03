@@ -164,7 +164,7 @@ fn presentation_input_owner_science_preserves_cpp_exceptions_and_player_preceden
     get_science_store_mut()
         .unwrap()
         .add_science(ScienceInfo::new(SCIENCE, "ScienceOwnerRequired"));
-    get_special_power_store_mut().unwrap().add_template(
+    get_special_power_store_mut().unwrap().write().unwrap().add_template(
         SpecialPowerTemplate::new("OwnerRequiredPower".to_owned(), 2_147_400_002)
             .with_required_science(SCIENCE),
     );

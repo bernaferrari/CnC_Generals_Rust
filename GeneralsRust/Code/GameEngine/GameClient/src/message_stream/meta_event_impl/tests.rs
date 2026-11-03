@@ -743,7 +743,8 @@ mod tests {
         }
 
         {
-            let mut list = ThePlayerList().write().unwrap_or_else(|e| e.into_inner());
+            let list_handle = ThePlayerList();
+            let mut list = list_handle.write().unwrap_or_else(|e| e.into_inner());
             list.clear();
             list.add_player(Arc::clone(&local_player));
             list.set_local_player_index(0);
@@ -783,7 +784,8 @@ mod tests {
 
         let local_player = Arc::new(RwLock::new(Player::new(0)));
         {
-            let mut list = ThePlayerList().write().unwrap_or_else(|e| e.into_inner());
+            let list_handle = ThePlayerList();
+            let mut list = list_handle.write().unwrap_or_else(|e| e.into_inner());
             list.clear();
             list.add_player(Arc::clone(&local_player));
             list.set_local_player_index(0);
@@ -826,7 +828,8 @@ mod tests {
         }
 
         {
-            let mut list = ThePlayerList().write().unwrap_or_else(|e| e.into_inner());
+            let list_handle = ThePlayerList();
+            let mut list = list_handle.write().unwrap_or_else(|e| e.into_inner());
             list.clear();
             list.add_player(Arc::clone(&local_player));
             list.set_local_player_index(0);
@@ -991,7 +994,8 @@ mod tests {
         }
 
         {
-            let mut list = ThePlayerList().write().unwrap_or_else(|e| e.into_inner());
+            let list_handle = ThePlayerList();
+            let mut list = list_handle.write().unwrap_or_else(|e| e.into_inner());
             list.clear();
             list.add_player(Arc::clone(&player_usa));
             list.add_player(Arc::clone(&player_china));
@@ -1056,7 +1060,8 @@ mod tests {
         }
 
         {
-            let mut list = ThePlayerList().write().unwrap_or_else(|e| e.into_inner());
+            let list_handle = ThePlayerList();
+            let mut list = list_handle.write().unwrap_or_else(|e| e.into_inner());
             list.clear();
             list.add_player(Arc::clone(&player_usa));
             list.add_player(Arc::clone(&player_china));
@@ -1095,7 +1100,8 @@ mod tests {
 
         let local_player = Arc::new(RwLock::new(Player::new(0)));
         {
-            let mut list = ThePlayerList().write().unwrap_or_else(|e| e.into_inner());
+            let list_handle = ThePlayerList();
+            let mut list = list_handle.write().unwrap_or_else(|e| e.into_inner());
             list.clear();
             list.add_player(Arc::clone(&local_player));
             list.set_local_player_index(0);
@@ -1420,7 +1426,8 @@ mod tests {
             guard.set_defeated(true);
         }
         {
-            let mut list = ThePlayerList().write().unwrap_or_else(|e| e.into_inner());
+            let list_handle = ThePlayerList();
+            let mut list = list_handle.write().unwrap_or_else(|e| e.into_inner());
             list.clear();
             list.add_player(Arc::clone(&local_player));
             list.set_local_player_index(0);

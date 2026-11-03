@@ -885,14 +885,14 @@ mod overlay_tests {
         let image = manager.win_find_image(name).expect("mapped metadata");
 
         reset_win_draw_image_queued_count();
-        manager.win_draw_transparent_overlay_image(&image, 0, 0, 64, 64);
+        { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); manager.win_draw_transparent_overlay_image(&image, 0, 0, 64, 64, &mut __dc); }
         assert_eq!(
             win_draw_image_queued_count(),
             0,
             "missing overlay pixels must leave the base cameo visible"
         );
 
-        manager.win_draw_image(&image, 0, 0, 64, 64, WIN_COLOR_UNDEFINED);
+        { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); manager.win_draw_image(&image, 0, 0, 64, 64, WIN_COLOR_UNDEFINED, &mut __dc); }
         assert_eq!(
             win_draw_image_queued_count(),
             1,

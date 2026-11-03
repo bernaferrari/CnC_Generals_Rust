@@ -133,7 +133,7 @@ impl WindowManager {
         before: LayoutRegistrationBefore,
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        self.rollback_failed_layout_with_effects(layout, info, before, None, effects)
+        self.rollback_failed_layout_with_effects(layout, info, before, effects)
     }
     fn rollback_failed_layout_with_effects(
         &mut self,
