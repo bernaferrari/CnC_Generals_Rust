@@ -172,15 +172,19 @@ fn inactive_body_delivers_incoming_source_without_manufacturing_hit_history() {
         Some(incoming),
         0.0,
         DamageType::Unresistable,
-        HostDeathType::Normal
+        HostDeathType::Detonated,
     ));
     let object = owner.host_object(victim).unwrap();
+    // InactiveBody.cpp:77-84 — onDie(damageInfo) only; never stamps ActiveBody hit history.
     assert_eq!(object.last_damage_source, None);
     assert_eq!(object.last_damage_timestamp, None);
+    assert!(object.status.on_die_started);
+    assert_eq!(object.status.death_type, HostDeathType::Detonated);
+    // StructureToppleUpdate reads OnDieInput.source/direction from the lethal hit.
     let topple = object
         .structure_topple_data
         .as_ref()
-        .expect("inactive onDie forwards input");
+        .expect("inactive onDie forwards incoming damage context");
     assert!(topple.dir_x < -0.9);
     assert!(topple.dir_y.abs() < 0.4);
 }
