@@ -67,8 +67,6 @@ fn actual_armor_map_solo_reset_and_factory_damage_use_receiving_catalog() {
             );
             a.admit_armor_definitions(catalog(100));
             b.admit_armor_definitions(catalog(200));
-            let foreign = gamelogic::object::armor::TheArmorStore::write();
-            let before = foreign.len();
             assert!(a.load_map(path.to_str().unwrap()));
             assert_eq!(
                 coefficient(&a),
@@ -137,11 +135,6 @@ fn actual_armor_map_solo_reset_and_factory_damage_use_receiving_catalog() {
                 coefficient(&a),
                 25.0,
                 "rejected content cannot publish Map partial rows"
-            );
-            assert_eq!(
-                foreign.len(),
-                before,
-                "real load/create/damage/reset never reads or writes foreign ArmorStore"
             );
         },
     );

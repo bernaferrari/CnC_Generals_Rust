@@ -458,7 +458,7 @@ fn player_stop_routes_attack_move_through_owned_idle_before_stamping_source() {
             .unit_command_attack_move_to(id, Vec3::new(100., 0., 60.))
             .expect("checked AttackMove command")
     );
-    assert_eq!(world.unit_command_stop(id).expect("checked Stop operation"), Ok(true));
+    assert_eq!(world.unit_command_stop(id).expect("checked Stop operation"), true);
     let unit = world.host_object(id).unwrap();
     assert_eq!(unit.ai_state(), AIState::Idle);
     assert_eq!(unit.unit_ai_runtime.parent_state(), None);

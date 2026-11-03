@@ -3074,7 +3074,7 @@ fn a10_transport_pose_uses_the_receiving_world_after_id_collision() {
         ensure_test_player_for_team(&mut logic, Team::USA);
         let trigger = PolygonTrigger::new(
             trigger_id,
-            AsciiString::from(format!("A10PoseArea{trigger_id}")),
+            AsciiString::from(format!("A10PoseArea{trigger_id}").as_str()),
             vec![
                 ICoord3D::new(min_x, -10, 0),
                 ICoord3D::new(min_x + 20, -10, 0),

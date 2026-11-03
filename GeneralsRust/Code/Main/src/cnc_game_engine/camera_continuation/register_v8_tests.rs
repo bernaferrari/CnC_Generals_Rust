@@ -102,7 +102,7 @@ fn v9_fps_continuation_wraps_v8_and_preserves_signed_enabled_state() {
 #[test]
 fn v9_limiter_owner_rejects_mismatched_legacy_v8_rate_projection() {
     let mut wire = fixture();
-    let legacy_camera: &mut Vec<u8> = &mut wire.base.base.base.base.base.camera;
+    let legacy_camera: &mut Vec<u8> = &mut wire.base.base.base.base.base.base.camera;
     let mut projection: super::super::CameraState = codec().deserialize(legacy_camera).unwrap();
     projection.script_fps_limit = Some(27);
     *legacy_camera = codec().serialize(&projection).unwrap();

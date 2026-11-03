@@ -1061,7 +1061,7 @@ mod tests {
         assert!(plan.is_valid());
         let mut states = HashMap::new();
         retain_fire_starts_from_plans(&mut states, &[plan]);
-        let state = states.get(&(41, 2)).expect("retained visual state");
+        let state = states.get(&(crate::assets::NativeDrawOwnerId::Actor(41), 2)).expect("retained visual state");
         assert_eq!(state.last_seen_weapon_discharge_sequence, 4);
         assert_eq!(
             state.recoil_slots[0][0].phase,

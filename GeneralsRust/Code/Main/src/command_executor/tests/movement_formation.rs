@@ -85,9 +85,9 @@ fn service_executor_revalidates_authored_kindof_matrix_not_building_names() {
 
     let mut executor = CommandExecutor::new(&mut logic, 0);
     assert!(matches!(executor.execute_get_repaired(&[ground_ok], repair_target), Ok(CommandResult::Success)), "ground vehicle requires and accepts authored REPAIR_PAD");
-    assert!(executor.execute_get_repaired(&[ground_reject], name_only_target).unwrap() == CommandResult::InvalidCommand, "Repair/Hospital/Airfield spelling without REPAIR_PAD must fail authority");
-    assert!(executor.execute_get_repaired(&[aircraft_ok], airfield_target).unwrap() == CommandResult::Success, "airborne VEHICLE+AIRCRAFT requires and accepts authored FS_AIRFIELD");
-    assert!(executor.execute_get_healed(&[infantry_ok], heal_target).unwrap() == CommandResult::Success, "infantry requires and accepts authored HEAL_PAD");
+    assert_eq!(executor.execute_get_repaired(&[ground_reject], name_only_target).unwrap(), CommandResult::InvalidCommand, "Repair/Hospital/Airfield spelling without REPAIR_PAD must fail authority");
+    assert_eq!(executor.execute_get_repaired(&[aircraft_ok], airfield_target).unwrap(), CommandResult::Success, "airborne VEHICLE+AIRCRAFT requires and accepts authored FS_AIRFIELD");
+    assert_eq!(executor.execute_get_healed(&[infantry_ok], heal_target).unwrap(), CommandResult::Success, "infantry requires and accepts authored HEAL_PAD");
 }
 
 #[test]

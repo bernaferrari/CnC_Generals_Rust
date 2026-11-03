@@ -2406,7 +2406,7 @@ impl GameLogic {
         )
     }
 
-    pub(in super::super) fn update_fire_spread_with_effects(
+    pub(crate) fn update_fire_spread_with_effects(
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {

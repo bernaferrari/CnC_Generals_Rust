@@ -1271,7 +1271,7 @@ mod tests {
         ));
 
         assert_eq!(
-            commands.execute_command(&command, &mut game_logic) == CommandResult::Success, "the physical Enter command must reach live command authority");
+            commands.execute_command(&command, &mut game_logic).expect("command"), CommandResult::Success, "the physical Enter command must reach live command authority");
         let infantry_after = game_logic
             .host_object(infantry_id)
             .expect("infantry remains live while walking to carrier");
@@ -1490,7 +1490,7 @@ End
             CommandType::Enter { target_id } if target_id == bike_id
         ));
         assert_eq!(
-            commands.execute_command(&command, &mut game_logic) == CommandResult::Success, "executor repeats parsed roster/controller authority");
+            commands.execute_command(&command, &mut game_logic).expect("command"), CommandResult::Success, "executor repeats parsed roster/controller authority");
         assert_eq!(game_logic
                 .host_object(incoming_rider_id)
                 .expect("incoming rider remains live while approaching")
@@ -1706,7 +1706,7 @@ End
             CommandType::Enter { target_id } if target_id == garrison_id
         ));
         assert_eq!(
-            commands.execute_command(&command, &mut game_logic) == CommandResult::Success, "the selected infantry must reach the same authority Enter path");
+            commands.execute_command(&command, &mut game_logic).expect("command"), CommandResult::Success, "the selected infantry must reach the same authority Enter path");
         let infantry_after = game_logic
             .host_object(infantry_id)
             .expect("infantry remains live while approaching the garrison");

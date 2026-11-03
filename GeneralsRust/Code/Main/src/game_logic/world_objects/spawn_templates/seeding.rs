@@ -305,7 +305,7 @@ impl GameLogic {
 
     /// Catalogue seeding core with no global state, used to characterize the
     /// exact-data-only policy in tests.
-    pub(in super::super::super) fn seed_asset_definition_templates_from_snapshot<I>(
+    pub(crate) fn seed_asset_definition_templates_from_snapshot<I>(
         &mut self,
         definitions: I,
     ) -> usize

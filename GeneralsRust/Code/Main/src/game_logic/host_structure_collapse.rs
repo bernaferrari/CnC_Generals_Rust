@@ -603,8 +603,8 @@ mod tests {
             };
             let mut modules = ModuleInfo::new();
             modules.add_module_info(
-                AsciiString::from("StructureCollapseUpdate"),
-                AsciiString::from("Collapse"),
+                "StructureCollapseUpdate".to_string(),
+                "Collapse".to_string(),
                 Arc::new(data),
                 0,
                 false,

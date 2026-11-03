@@ -969,7 +969,7 @@ End
         assert_eq!(
             executor
                 .execute_command(command(name_only_id, 1))
-                .expect("name-only command result") == CommandResult::InvalidCommand, "a name/KindOf-shaped reactor must not gain Overcharge authority");
+                .expect("name-only command result").expect("command"), CommandResult::InvalidCommand, "a name/KindOf-shaped reactor must not gain Overcharge authority");
         assert!(executor
                 .execute_command(command(zero_bonus_id, 2))
                 .expect("zero-bonus command result") == CommandResult::Success);
