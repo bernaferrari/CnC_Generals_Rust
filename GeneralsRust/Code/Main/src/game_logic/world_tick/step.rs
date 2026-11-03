@@ -602,15 +602,14 @@ impl GameLogic {
         // so nested GameLogic-crate free functions that still call
         // active_services() see this world (transitional; delete when those
         // take &WorldServices).
-        let stores = std::sync::Arc::clone(&self.world_services);
-        gamelogic::system::engine_stores::with_world_services(&stores, || {
+        self.with_own_services_mut(|this| {
             // Presentation spawn/destruction events are logic-frame scoped.
             // Keep active particle systems themselves, but never replay old
             // spawn events forever on later presentation frames.
-            self.combat_particles.clear_frame_events();
+            this.combat_particles.clear_frame_events();
             // The driving world already owns its live Object values.
             // A comparison session never supplies begin-step state.
-            self.with_host_logic_step(|logic| {
+            this.with_host_logic_step(|logic| {
                 logic.update_simulation_in_step(dt, ui, command_phase)
             })
             .expect("a fixed step enters its owner phase once")

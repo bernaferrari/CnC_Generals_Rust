@@ -1032,15 +1032,17 @@ impl GameLogic {
 
     /// C++ `chooseLocomotorSet(PANIC/WANDER)` on one host unit.
     pub fn apply_unit_locomotor_set(&mut self, unit_id: ObjectId, set: &str) -> bool {
-        use crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind;
-        let (kind, panicking) = match set.trim().to_ascii_lowercase().as_str() {
-            "panic" => (HostLocomotorSetKind::Panic, true),
-            "wander" => (HostLocomotorSetKind::Wander, false),
-            "normal" => (HostLocomotorSetKind::Normal, false),
-            "taxiing" | "set_taxiing" => (HostLocomotorSetKind::Taxiing, false),
-            _ => return false,
-        };
-        self.apply_host_locomotor_set_at_cell(unit_id, kind, panicking)
+        self.with_own_services_mut(|this| {
+            use crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind;
+            let (kind, panicking) = match set.trim().to_ascii_lowercase().as_str() {
+                "panic" => (HostLocomotorSetKind::Panic, true),
+                "wander" => (HostLocomotorSetKind::Wander, false),
+                "normal" => (HostLocomotorSetKind::Normal, false),
+                "taxiing" | "set_taxiing" => (HostLocomotorSetKind::Taxiing, false),
+                _ => return false,
+            };
+            this.apply_host_locomotor_set_at_cell(unit_id, kind, panicking)
+        })
     }
 
     /// C++ `chooseLocomotorSet` then `chooseGoodLocomotorFromCurrentSet` on this

@@ -1409,16 +1409,18 @@ impl GameLogic {
         team: Team,
         position: Vec3,
     ) -> Option<ObjectId> {
-        let owner_player_id = self.unique_player_id_for_team(team);
-        let id = self.create_object_with_owner(
-            template_name,
-            team,
-            owner_player_id,
-            position,
-            FactoryCreationPurpose::AtCreation,
-        )?;
-        self.apply_cash_bounty_on_object_created(id);
-        Some(id)
+        self.with_own_services_mut(|this| {
+            let owner_player_id = this.unique_player_id_for_team(team);
+            let id = this.create_object_with_owner(
+                template_name,
+                team,
+                owner_player_id,
+                position,
+                FactoryCreationPurpose::AtCreation,
+            )?;
+            this.apply_cash_bounty_on_object_created(id);
+            Some(id)
+        })
     }
 
     pub(crate) fn create_object_with_script_effects(
@@ -1452,22 +1454,24 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
-        let owner_player_id = self.unique_player_id_for_team(team);
-        let Some(id) = self.create_object_with_initial_team_and_ui_checked(
-            template_name,
-            team,
-            owner_player_id,
-            position,
-            FactoryCreationPurpose::AtCreation,
-            None,
-            interpreter,
-            ui,
-        )?
-        else {
-            return Ok(None);
-        };
-        self.apply_cash_bounty_on_object_created(id);
-        Ok(Some(id))
+        self.with_own_services_mut(|this| {
+            let owner_player_id = this.unique_player_id_for_team(team);
+            let Some(id) = this.create_object_with_initial_team_and_ui_checked(
+                template_name,
+                team,
+                owner_player_id,
+                position,
+                FactoryCreationPurpose::AtCreation,
+                None,
+                interpreter,
+                ui,
+            )?
+            else {
+                return Ok(None);
+            };
+            this.apply_cash_bounty_on_object_created(id);
+            Ok(Some(id))
+        })
     }
 
     /// Create an object for a specific controlling player while retaining the
@@ -1478,13 +1482,15 @@ impl GameLogic {
         owner_player_id: u32,
         position: Vec3,
     ) -> Option<ObjectId> {
-        self.create_object_for_player_with_effects(
-            template_name,
-            owner_player_id,
-            position,
-            None,
-            &mut Default::default(),
-        )
+        self.with_own_services_mut(|this| {
+            this.create_object_for_player_with_effects(
+                template_name,
+                owner_player_id,
+                position,
+                None,
+                &mut Default::default(),
+            )
+        })
     }
 
     pub(crate) fn create_object_for_player_with_effects(
@@ -1518,28 +1524,30 @@ impl GameLogic {
         interpreter: Option<&gamelogic::scripting::engine::ScriptEngine>,
         ui: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<Option<ObjectId>> {
-        let Some(player) = self.players.get(&owner_player_id) else {
-            return Ok(None);
-        };
-        let team = player.team;
-        if team == Team::Neutral {
-            return Ok(None);
-        }
-        let Some(id) = self.create_object_with_initial_team_and_ui_checked(
-            template_name,
-            team,
-            Some(owner_player_id),
-            position,
-            FactoryCreationPurpose::AtCreation,
-            None,
-            interpreter,
-            ui,
-        )?
-        else {
-            return Ok(None);
-        };
-        self.apply_cash_bounty_on_object_created(id);
-        Ok(Some(id))
+        self.with_own_services_mut(|this| {
+            let Some(player) = this.players.get(&owner_player_id) else {
+                return Ok(None);
+            };
+            let team = player.team;
+            if team == Team::Neutral {
+                return Ok(None);
+            }
+            let Some(id) = this.create_object_with_initial_team_and_ui_checked(
+                template_name,
+                team,
+                Some(owner_player_id),
+                position,
+                FactoryCreationPurpose::AtCreation,
+                None,
+                interpreter,
+                ui,
+            )?
+            else {
+                return Ok(None);
+            };
+            this.apply_cash_bounty_on_object_created(id);
+            Ok(Some(id))
+        })
     }
 
     /// Weapon.cpp creates a projectile on the firing controller's default

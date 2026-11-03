@@ -67,10 +67,10 @@ impl GameLogic {
         let live_draw_playback_world = std::sync::Arc::new(());
         let world_services = gamelogic::system::engine_stores::new_world_services();
         let main_services = std::sync::Arc::new(crate::main_services::MainServices::new());
-        // Bind this instance's WorldServices (and nested CommonServices) plus
-        // MainServices before UpgradeCenter::init / NameKey work. Stay bound
-        // for method-call free-function bridges; Drop uninstalls. Staged
-        // candidates that must stay unpublished use new_unpublished().
+        // Temporarily bind World/Common/Main for UpgradeCenter::init / NameKey.
+        // Do not leave them published until Drop: two instances on one thread
+        // would otherwise share an ambient head. Method calls use
+        // with_own_services{,_mut}. Drop still uninstalls as a safety net.
         gamelogic::system::engine_stores::install_services(std::sync::Arc::clone(&world_services));
         crate::main_services::install_main_services(std::sync::Arc::clone(&main_services));
         // The original UpgradeCenter::init reserves these three mask bits
@@ -796,20 +796,17 @@ impl GameLogic {
         };
         instance.refresh_pathfinding_ai_definitions();
         instance.rebuild_objective_lookup();
-        // Instance owns and remains bound to its WorldServices/CommonServices
-        // and MainServices (installed above). Drop pops them. Staged restore
-        // candidates that must not displace a live world use new_unpublished().
+        // Pop construction binds so ambient is clear between method calls.
+        let _ = gamelogic::system::engine_stores::uninstall_services(&instance.world_services);
+        let _ = crate::main_services::uninstall_main_services_if_current(&instance.main_services);
         // WorldServices constructs a fresh shroud; it never copies prior state.
         instance
     }
 
-    /// Staged-restore / inert candidate: owns fresh services but does not stay
-    /// on the ambient World/Common/Main stacks (a live world remains head).
+    /// Staged-restore / inert candidate. Same as [`Self::new`]: construction
+    /// binds are temporary; the instance is not left on the ambient stacks.
     pub fn new_unpublished() -> Self {
-        let instance = Self::new();
-        let _ = gamelogic::system::engine_stores::uninstall_services(&instance.world_services);
-        let _ = crate::main_services::uninstall_main_services_if_current(&instance.main_services);
-        instance
+        Self::new()
     }
 
     /// Admit the canonical ordered GameData result into this receiving match.
@@ -929,22 +926,21 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        let services = Arc::clone(&self.world_services);
-        gamelogic::system::engine_stores::with_world_services(&services, || {
-            self.validate_reset_with_effects(effects)?;
+        self.with_own_services_mut(|this| {
+            this.validate_reset_with_effects(effects)?;
 
             // C++ GameLogic::reset clears these controls and restores the
             // input/pause state before Object onDelete callbacks run.
             // Keep this prefix ahead of the ordered Object drain so callbacks
             // observe the reset session state.
-            self.buildable_status_overrides.clear();
-            self.control_bar_overrides.clear();
-            self.is_paused = false;
-            self.set_script_input_enabled(true);
-            self.objects.suspend_ordinary_lookup_for_reset();
+            this.buildable_status_overrides.clear();
+            this.control_bar_overrides.clear();
+            this.is_paused = false;
+            this.set_script_input_enabled(true);
+            this.objects.suspend_ordinary_lookup_for_reset();
 
-            self.destroy_all_objects_immediate_with_effects_checked(effects)?;
-            self.reset_with_receiving_services(effects)
+            this.destroy_all_objects_immediate_with_effects_checked(effects)?;
+            this.reset_with_receiving_services(effects)
         })
     }
 

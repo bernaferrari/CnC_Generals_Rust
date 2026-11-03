@@ -81,9 +81,8 @@ impl GameLogic {
     where
         F: FnMut(f32, &str),
     {
-        let services = Arc::clone(&self.world_services);
-        gamelogic::system::engine_stores::with_world_services(&services, || {
-            self.load_map_with_definition_source_and_progress(
+        self.with_own_services_mut(|this| {
+            this.load_map_with_definition_source_and_progress(
                 map_name,
                 None,
                 difficulty,
@@ -210,9 +209,8 @@ impl GameLogic {
             &str,
         ) -> Result<(), String>,
     {
-        let services = Arc::clone(&self.world_services);
-        gamelogic::system::engine_stores::with_world_services(&services, || {
-            self.load_map_with_definition_source_and_progress_checked(
+        self.with_own_services_mut(|this| {
+            this.load_map_with_definition_source_and_progress_checked(
                 map_name,
                 None,
                 difficulty,
@@ -291,9 +289,8 @@ impl GameLogic {
             .owned_script_engine
             .as_ref()
             .map(|engine| engine.get_global_difficulty());
-        let services = Arc::clone(&self.world_services);
-        gamelogic::system::engine_stores::with_world_services(&services, || {
-            self.load_map_with_definition_source_and_progress_checked(
+        self.with_own_services_mut(|this| {
+            this.load_map_with_definition_source_and_progress_checked(
                 map_name,
                 Some(source),
                 difficulty,

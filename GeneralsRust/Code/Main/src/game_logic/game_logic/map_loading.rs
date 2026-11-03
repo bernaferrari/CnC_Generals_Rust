@@ -94,6 +94,46 @@ impl super::GameLogic {
 mod tests {
     use super::*;
     #[test]
+    fn same_thread_peers_bind_services_only_during_own_calls() {
+        use gamelogic::system::engine_stores::{is_services_active, try_active_services};
+        let mut a = super::super::GameLogic::new();
+        let mut b = super::super::GameLogic::new();
+        // Construction must not leave either instance published.
+        assert!(!is_services_active(&a.world_services));
+        assert!(!is_services_active(&b.world_services));
+        assert!(try_active_services().is_none());
+
+        a.with_own_services_mut(|this| {
+            assert!(is_services_active(&this.world_services));
+            let active = try_active_services().expect("a publishes during own call");
+            assert!(std::sync::Arc::ptr_eq(&active, &this.world_services));
+            // Peer must not be the ambient head while a is bound.
+            assert!(!is_services_active(&b.world_services));
+        });
+        assert!(!is_services_active(&a.world_services));
+        assert!(try_active_services().is_none());
+
+        b.with_own_services_mut(|this| {
+            assert!(is_services_active(&this.world_services));
+            let active = try_active_services().expect("b publishes during own call");
+            assert!(std::sync::Arc::ptr_eq(&active, &this.world_services));
+            assert!(!is_services_active(&a.world_services));
+        });
+        assert!(!is_services_active(&b.world_services));
+        assert!(try_active_services().is_none());
+
+        // Interleaved method-scoped binds: drop order of the instances must
+        // not reinstate a buried peer (Drop only pops if current / buries).
+        a.with_own_services(|| {
+            assert!(is_services_active(&a.world_services));
+        });
+        drop(b);
+        assert!(try_active_services().is_none());
+        assert!(!is_services_active(&a.world_services));
+        let _ = a;
+    }
+
+    #[test]
     fn constructors_and_same_thread_peers_never_publish_or_change_loading_owner() {
         let mut a = super::super::GameLogic::new();
         assert!(!a.is_loading_map() && !a.is_loading_saved_snapshot());

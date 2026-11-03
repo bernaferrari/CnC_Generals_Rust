@@ -1541,6 +1541,28 @@ impl GameLogic {
     /// (C++ single-world engine: the world being started or committed is THE
     /// world). Idempotent per bundle — a live world resetting itself must
     /// not push a duplicate active-stack entry.
+
+    /// Bind this instance's WorldServices (nested CommonServices) and MainServices
+    /// for the duration of `f` only. Nested restore is stack-based; a peer
+    /// instance left alive on the same thread cannot observe these binds after
+    /// return. Prefer this over leaving services published until Drop.
+    pub(crate) fn with_own_services<R>(&self, f: impl FnOnce() -> R) -> R {
+        let world = std::sync::Arc::clone(&self.world_services);
+        let main = std::sync::Arc::clone(&self.main_services);
+        crate::main_services::with_main_services(&main, || {
+            gamelogic::system::engine_stores::with_world_services(&world, f)
+        })
+    }
+
+    /// Mutable variant of [`Self::with_own_services`].
+    pub(crate) fn with_own_services_mut<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let world = std::sync::Arc::clone(&self.world_services);
+        let main = std::sync::Arc::clone(&self.main_services);
+        crate::main_services::with_main_services(&main, || {
+            gamelogic::system::engine_stores::with_world_services(&world, || f(self))
+        })
+    }
+
     pub(crate) fn install_as_active_stores(&self) {
         // Transitional: publishes this world's services for nested GameLogic-crate
         // free functions that still call active_services(). Prefer passing
