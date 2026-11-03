@@ -3337,6 +3337,10 @@ pub(crate) mod entity_lifecycle_projectiles;
 mod entity_lifecycle_residuals;
 #[cfg(test)]
 mod entity_lifecycle_round_trip_tests;
+#[cfg(test)]
+mod kill_special_reentry_tests;
+#[cfg(test)]
+mod damage_status_type_owner_tests;
 mod entity_lifecycle_tags;
 mod entity_lifecycle_weapon_slots;
 mod fx;
