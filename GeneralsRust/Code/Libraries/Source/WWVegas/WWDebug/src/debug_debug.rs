@@ -6,9 +6,7 @@ use crate::debug_io_con::DebugIOCon;
 use crate::debug_io_flat::DebugIOFlat;
 use crate::debug_io_net::DebugIONet;
 use crate::debug_io_ods::DebugIOOds;
-use once_cell::sync::OnceCell;
 use std::collections::VecDeque;
-use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,7 +71,7 @@ pub struct Debug {
 }
 
 impl Debug {
-    fn new() -> Self {
+    pub(crate) fn new_session() -> Self {
         Self {
             io_factories: Vec::new(),
             cmd_groups: Vec::new(),
@@ -89,48 +87,40 @@ impl Debug {
         }
     }
 
-    pub fn instance() -> &'static Mutex<Debug> {
-        struct InstanceRuntime(OnceCell<Mutex<Debug>>);
-        impl std::ops::Deref for InstanceRuntime {
-            type Target = OnceCell<Mutex<Debug>>;
-            fn deref(&self) -> &Self::Target { &self.0 }
-        }
-        static INSTANCE: InstanceRuntime = InstanceRuntime(OnceCell::new());
-        INSTANCE.get_or_init(|| Mutex::new(Debug::new()))
-    }
 
-    pub fn add_io_factory(id: &str, description: &str, factory: IOFactory) -> bool {
-        let mut dbg = Debug::instance().lock().unwrap();
+
+    pub fn add_io_factory(session: &crate::WwDebugSession, id: &str, description: &str, factory: IOFactory) -> bool {
+        let mut dbg = session.debug.lock().unwrap();
         dbg.add_io_factory_internal(id, description, factory)
     }
 
-    pub fn add_commands(group: &str, cmdif: Box<dyn DebugCmdInterface>) -> bool {
-        let mut dbg = Debug::instance().lock().unwrap();
+    pub fn add_commands(session: &crate::WwDebugSession, group: &str, cmdif: Box<dyn DebugCmdInterface>) -> bool {
+        let mut dbg = session.debug.lock().unwrap();
         dbg.add_commands_internal(group, cmdif)
     }
 
-    pub fn remove_commands(ptr: *const ()) {
-        let mut dbg = Debug::instance().lock().unwrap();
+    pub fn remove_commands(session: &crate::WwDebugSession, ptr: *const ()) {
+        let mut dbg = session.debug.lock().unwrap();
         dbg.cmd_groups.retain(|entry| {
             let raw: *const () = (&*entry.cmdif) as *const _ as *const ();
             raw != ptr
         });
     }
 
-    pub fn command(cmd: &str) {
-        let mut dbg = Debug::instance().lock().unwrap();
+    pub fn command(session: &crate::WwDebugSession, cmd: &str) {
+        let mut dbg = session.debug.lock().unwrap();
         dbg.ensure_initialized();
         dbg.exec_command(cmd);
     }
 
-    pub fn update() {
-        let mut dbg = Debug::instance().lock().unwrap();
+    pub fn update(session: &crate::WwDebugSession) {
+        let mut dbg = session.debug.lock().unwrap();
         dbg.ensure_initialized();
         dbg.poll_io();
     }
 
-    pub fn set_build_info(version: &str, internal_version: &str, build_date: &str) {
-        let mut dbg = Debug::instance().lock().unwrap();
+    pub fn set_build_info(session: &crate::WwDebugSession, version: &str, internal_version: &str, build_date: &str) {
+        let mut dbg = session.debug.lock().unwrap();
         dbg.build_info = Some(BuildInfo {
             version: version.to_string(),
             internal_version: internal_version.to_string(),

@@ -99,7 +99,7 @@ impl ProfileTimer {
     }
 
     #[cfg(not(target_arch = "x86_64"))]
-    fn estimate_cpu_frequency() -> ProfileResult<u64> {
+    pub(crate) fn estimate_cpu_frequency() -> ProfileResult<u64> {
         // For non-x86_64 platforms, use CPU info if available
         // or return a reasonable default
 

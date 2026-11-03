@@ -43,7 +43,7 @@ use crate::common::{
     recorder::{with_recorder, with_recorder_mut},
     rts::science::ScienceSubsystem,
 };
-use ww3d_animation::{initialize_animated_sound_mgr, initialize_animated_sound_mgr_from_bytes};
+use ww3d_animation::{AnimatedSoundMgr, initialize_animated_sound_mgr, initialize_animated_sound_mgr_from_bytes};
 
 // Forward declarations - these will be implemented as we convert more systems
 pub trait GameLogicInterface: Send + Sync {

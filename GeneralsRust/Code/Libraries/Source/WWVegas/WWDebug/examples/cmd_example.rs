@@ -10,6 +10,7 @@ use profile::{
 use std::io::Write;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let session = wwdebug::WwDebugSession::new();
     // Initialize the profiler
     profile::init();
 
@@ -38,10 +39,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("4. Running example profiling:");
 
     // Start profiling ranges that match our patterns
-    Profile::start_range(Some("example.main"))?;
+    Profile::start_range(&session, Some("example.main"))?;
 
     // Add some high-level profile data
-    let high_level = Profile::high_level();
+    let high_level = Profile::high_level(&session));
     let counter =
         high_level.add_profile("example.counter", "Example counter", "operations", 0, 0)?;
 
@@ -52,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     timer.increment(123.5);
 
-    Profile::stop_range(Some("example.main"))?;
+    Profile::stop_range(&session, Some("example.main"))?;
 
     // Example 5: Add result functions
     println!("5. Setting up result output:");

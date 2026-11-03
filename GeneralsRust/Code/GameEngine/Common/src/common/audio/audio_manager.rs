@@ -20,7 +20,7 @@ use crate::common::audio::{
 };
 use crate::common::system::{SubsystemInterface, SubsystemResult, SubsystemState};
 use anyhow::anyhow;
-use ww3d_animation::initialize_animated_sound_mgr;
+use ww3d_animation::{AnimatedSoundMgr, initialize_animated_sound_mgr};
 use ww3d_core::errors::{W3DError, W3DResult};
 
 /// Audio handle special values (from C++)
@@ -326,11 +326,13 @@ impl AudioManager {
         let audio_settings = AudioSettings::default();
         let audio_cache = Arc::new(AudioFileCache::new(audio_settings.max_cache_size as usize));
 
-        if let Err(err) = initialize_animated_sound_mgr::<&str>(&ww3d_animation::AnimatedSoundMgr::new(), None) {
+        let animated_sound_mgr = std::sync::Arc::new(AnimatedSoundMgr::new());
+        if let Err(err) = initialize_animated_sound_mgr::<&str>(&animated_sound_mgr, None) {
             log::debug!("Animated sound metadata not available: {err:?}");
         }
 
         AudioManager {
+            animated_sound_mgr,
             audio_settings,
             misc_audio: MiscAudio::default(),
             _stream: stream,
