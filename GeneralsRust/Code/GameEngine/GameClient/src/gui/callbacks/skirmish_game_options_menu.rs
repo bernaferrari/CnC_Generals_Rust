@@ -111,37 +111,41 @@ fn with_state_on_owner<R>(
 ) -> R {
     let mut f = Some(f);
     if let Some(owner) = owner {
-        return owner.with_skirmish_game_options_mut(|state| match state.try_borrow_mut() {
-            Ok(mut guard) => f.take().expect("skirmish")(&mut guard),
-            Err(_) => {
-                log::warn!("skirmish options re-entrant with_state; using scratch");
-                f.take().expect("skirmish")(&mut SkirmishGameOptionsState::default())
-            }
+        // C++ mutates file-statics in place; never throw away writes on a scratch
+        // default (that silently discarded peer/owner state under re-entry).
+        return owner.with_skirmish_game_options_mut(|state| {
+            let mut guard = state
+                .try_borrow_mut()
+                .expect("skirmish options re-entrant mut borrow on WindowManagerOwner");
+            f.take().expect("skirmish")(&mut guard)
         });
     }
     if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.window_manager_owner_ref().with_skirmish_game_options_mut(|state| {
-            match state.try_borrow_mut() {
-                Ok(mut guard) => f.take().expect("skirmish")(&mut guard),
-                Err(_) => {
-                    log::warn!("skirmish options re-entrant with_state; using scratch");
-                    f.take().expect("skirmish")(&mut SkirmishGameOptionsState::default())
-                }
-            }
-        })
+        client
+            .window_manager_owner_ref()
+            .with_skirmish_game_options_mut(|state| {
+                let mut guard = state
+                    .try_borrow_mut()
+                    .expect("skirmish options re-entrant mut borrow on live GameClient owner");
+                f.take().expect("skirmish")(&mut guard)
+            })
     }) {
         return result;
     }
     #[cfg(test)]
     {
-        return TEST_SKIRMISH_GAME_OPTIONS.with(|s| match s.try_borrow_mut() {
-            Ok(mut guard) => f.take().expect("skirmish")(&mut guard),
-            Err(_) => f.take().expect("skirmish")(&mut SkirmishGameOptionsState::default()),
+        return TEST_SKIRMISH_GAME_OPTIONS.with(|s| {
+            let mut guard = s
+                .try_borrow_mut()
+                .expect("skirmish options re-entrant mut borrow on test TLS");
+            f.take().expect("skirmish")(&mut guard)
         });
     }
     #[cfg(not(test))]
     {
-        f.take().expect("skirmish")(&mut SkirmishGameOptionsState::default())
+        panic!(
+            "skirmish options require a WindowManagerOwner loan or live GameClient; no process scratch"
+        );
     }
 }
 
@@ -2567,6 +2571,92 @@ mod tests {
                 "SkirmishGameOptionsMenu.wnd:ButtonStartMissing"
             , effects)));
         }
+    }
+}
+
+
+#[cfg(test)]
+mod ownership_isolation_tests {
+    use super::*;
+    use crate::gui::window_manager::WindowManagerOwner;
+    use std::rc::Rc;
+
+    #[test]
+    fn two_same_thread_owners_with_matching_window_ids_keep_independent_skirmish_state() {
+        crate::test_support::ensure_ambient_host();
+        let first = WindowManagerOwner::new();
+        let second = WindowManagerOwner::new();
+
+        let first_window = first
+            .with_manager(|manager| manager.test_create_window(None, 0, 0, 20, 20).unwrap());
+        let second_window = second
+            .with_manager(|manager| manager.test_create_window(None, 0, 0, 20, 20).unwrap());
+        assert_eq!(first_window.borrow().id, second_window.borrow().id);
+        assert!(!Rc::ptr_eq(&first_window, &second_window));
+
+        with_state_on_owner(Some(&first), |state| {
+            state.selected_map = Some("Maps/OwnerA/OwnerA.map".into());
+            state.button_pushed = true;
+            state.parent = Some(Rc::clone(&first_window));
+        });
+        with_state_on_owner(Some(&second), |state| {
+            state.selected_map = Some("Maps/OwnerB/OwnerB.map".into());
+            state.button_pushed = false;
+            state.parent = Some(Rc::clone(&second_window));
+        });
+
+        with_state_on_owner(Some(&first), |state| {
+            assert_eq!(
+                state.selected_map.as_deref(),
+                Some("Maps/OwnerA/OwnerA.map")
+            );
+            assert!(state.button_pushed);
+            assert!(
+                state
+                    .parent
+                    .as_ref()
+                    .is_some_and(|w| Rc::ptr_eq(w, &first_window))
+            );
+        });
+        with_state_on_owner(Some(&second), |state| {
+            assert_eq!(
+                state.selected_map.as_deref(),
+                Some("Maps/OwnerB/OwnerB.map")
+            );
+            assert!(!state.button_pushed);
+            assert!(
+                state
+                    .parent
+                    .as_ref()
+                    .is_some_and(|w| Rc::ptr_eq(w, &second_window))
+            );
+        });
+    }
+
+    #[test]
+    fn reentrant_owner_borrow_does_not_silently_discard_skirmish_writes() {
+        crate::test_support::ensure_ambient_host();
+        let owner = WindowManagerOwner::new();
+        with_state_on_owner(Some(&owner), |outer| {
+            outer.selected_map = Some("Maps/Outer/Outer.map".into());
+            let nested = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                with_state_on_owner(Some(&owner), |inner| {
+                    inner.selected_map = Some("Maps/Scratch/Scratch.map".into());
+                });
+            }));
+            assert!(
+                nested.is_err(),
+                "nested mut borrow must fail closed instead of writing a throwaway scratch"
+            );
+            assert_eq!(
+                outer.selected_map.as_deref(),
+                Some("Maps/Outer/Outer.map"),
+                "outer owner state must survive failed re-entry"
+            );
+        });
+        with_state_on_owner(Some(&owner), |state| {
+            assert_eq!(state.selected_map.as_deref(), Some("Maps/Outer/Outer.map"));
+        });
     }
 }
 
