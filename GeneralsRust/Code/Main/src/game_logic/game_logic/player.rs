@@ -271,6 +271,13 @@ impl PlayerTemplateIdentity {
             return None;
         }
 
+        // Keep CommonServices alive for load + lookup; a scope inside
+        // ensure_player_templates_loaded alone would drop the catalog.
+        let _common = if game_engine::common::common_services::try_common_services().is_none() {
+            Some(game_engine::common::common_services::CommonServicesScope::new())
+        } else {
+            None
+        };
         game_engine::common::ini::ensure_player_templates_loaded();
         let store = game_engine::common::rts::player_template::get_player_template_store();
         Self::from_exact_name_in(template_name, &store)

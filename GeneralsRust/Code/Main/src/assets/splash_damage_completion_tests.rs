@@ -219,7 +219,9 @@ fn create_single_file_big(path: &Path, virtual_path: &str, data: &[u8]) {
 }
 
 fn install() -> (GameLogic, Observer) {
-    gamelogic::initialize_weapon_store().unwrap();
+    // CommonServices for DamageFX / FXList / audio; WorldServices bound after
+    // GameLogic::new so initialize_weapon_store hits this world's cell.
+    let _common = game_engine::common::common_services::CommonServicesScope::new();
     let mut weapons = String::new();
     for (name, radius, affects, scatter) in [
         ("SplashCompletionHit", 5, "ENEMIES NEUTRALS", ""),
@@ -251,10 +253,7 @@ End
 "#
         ));
     }
-    assert_eq!(
-        crate::assets::ini_template_loader::register_weapons_from_ini_text(&weapons),
-        3
-    );
+    // Weapon store registration waits until this world's services are bound.
     init_global_damage_fx_store();
     let mut effects = String::new();
     for rows in ["SplashCompletionRows", "SplashCompletionNestedRows"] {
@@ -397,6 +396,13 @@ End
         }
     }
     let mut world = GameLogic::new();
+    world.with_own_services(|| {
+        gamelogic::initialize_weapon_store().unwrap();
+        assert_eq!(
+            crate::assets::ini_template_loader::register_weapons_from_ini_text(&weapons),
+            3
+        );
+    });
     let content = crate::assets::ReceivingObjectContent::from_sources([(
         "Data/INI/Object/SplashCompletion.ini".into(),
         objects,

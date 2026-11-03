@@ -505,18 +505,20 @@ impl GameLogic {
         intended_id: ObjectId,
         weapon_name: Option<&str>,
     ) -> u32 {
-        self.apply_instant_hit_splash_at_with_effects(
-            impact,
-            primary_damage,
-            secondary_damage,
-            primary_radius,
-            secondary_radius,
-            attacker_id,
-            attacker_team,
-            intended_id,
-            weapon_name,
-            &mut Default::default(),
-        )
+        self.with_own_services_mut(|this| {
+            this.apply_instant_hit_splash_at_with_effects(
+                impact,
+                primary_damage,
+                secondary_damage,
+                primary_radius,
+                secondary_radius,
+                attacker_id,
+                attacker_team,
+                intended_id,
+                weapon_name,
+                &mut Default::default(),
+            )
+        })
     }
 
     pub(crate) fn apply_instant_hit_splash_at_with_effects(
@@ -744,16 +746,18 @@ impl GameLogic {
         skip_id: ObjectId,
         weapon_name: Option<&str>,
     ) -> u32 {
-        self.apply_scatter_miss_splash_at_with_effects(
-            impact,
-            weapon_damage,
-            splash_radius,
-            attacker_id,
-            attacker_team,
-            skip_id,
-            weapon_name,
-            &mut Default::default(),
-        )
+        self.with_own_services_mut(|this| {
+            this.apply_scatter_miss_splash_at_with_effects(
+                impact,
+                weapon_damage,
+                splash_radius,
+                attacker_id,
+                attacker_team,
+                skip_id,
+                weapon_name,
+                &mut Default::default(),
+            )
+        })
     }
 
     pub(crate) fn apply_scatter_miss_splash_at_with_effects(
