@@ -164,3 +164,107 @@ fn owner_exit_goal_releases_object_borrow_and_preserves_cpp_gates() {
         }
     }
 }
+
+#[derive(Debug)]
+struct ScatterBorrowWitness {
+    rider: Arc<RwLock<Object>>,
+    wrote_during_callback: bool,
+    moved: bool,
+}
+
+impl AIUpdateInterface for ScatterBorrowWitness {
+    fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+    fn is_moving(&self) -> bool {
+        false
+    }
+    fn is_idle(&self) -> bool {
+        true
+    }
+    fn set_movement_target(&mut self, _target: &Coord3D) -> Result<(), String> {
+        Ok(())
+    }
+    fn ignore_obstacle(
+        &mut self,
+        _obj_id: Option<ObjectID>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+    fn ai_move_to_position(
+        &mut self,
+        _pos: &Coord3D,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.moved = true;
+        self.wrote_during_callback = self.rider.try_write().is_ok();
+        Ok(())
+    }
+}
+
+#[test]
+fn death_scatter_releases_object_write_before_ai_move() {
+    // hq-on6u2 / OpenContain.cpp:679-709 — AI ignore/move must not run under
+    // the passenger Object write that posed the scatter.
+    #[cfg(not(target_arch = "wasm32"))]
+    if !matches!(
+        crate::test_process::run_bounded(
+            concat!(
+                module_path!(),
+                "::death_scatter_releases_object_write_before_ai_move"
+            )
+            .strip_prefix("gamelogic::")
+            .unwrap(),
+            "GENERALS_SCATTER_BORROW_CHILD",
+        ),
+        crate::test_process::TestProcess::Child
+    ) {
+        return;
+    }
+    let _serial = crate::test_sync::lock();
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let core = crate::system::engine_stores::new_for_world();
+        crate::system::engine_stores::with_active_stores(&core, || {
+            let owner_id = 0x0A62_2001 as ObjectID;
+            let rider_id = owner_id + 1;
+            let owner = registered_object("ScatterOwner", owner_id, "VEHICLE");
+            let rider = registered_object("ScatterRider", rider_id, "INFANTRY");
+            owner
+                .write()
+                .unwrap()
+                .set_position(&Coord3D::new(10.0, 20.0, 0.0));
+            let witness = Arc::new(Mutex::new(ScatterBorrowWitness {
+                rider: Arc::clone(&rider),
+                wrote_during_callback: false,
+                moved: false,
+            }));
+            rider.write().unwrap().set_ai_update_interface(Some(
+                witness.clone() as Arc<Mutex<dyn AIUpdateInterface>>
+            ));
+            let contain = OpenContain::new(
+                Arc::downgrade(&owner),
+                &OpenContainModuleData::default(),
+            )
+            .unwrap();
+            let followup = {
+                let mut rider_guard = rider.write().unwrap();
+                contain
+                    .scatter_to_nearby_position(&mut rider_guard)
+                    .expect("scatter plans under write")
+            };
+            let (ai, dest) = followup.expect("rider with AI returns follow-up");
+            assert!(!witness.lock().unwrap().moved, "AI must wait for release");
+            contain.apply_scatter_ai_followup(&ai, &dest);
+            let w = witness.lock().unwrap();
+            assert!(w.moved, "AI move runs after Object write release");
+            assert!(
+                w.wrote_during_callback,
+                "callback must be able to reacquire passenger Object write"
+            );
+            drop(w);
+            rider.write().unwrap().set_ai_update_interface(None);
+            OBJECT_REGISTRY.unregister_object(owner_id);
+            OBJECT_REGISTRY.unregister_object(rider_id);
+        })
+    });
+}

@@ -439,11 +439,16 @@ impl MobNexusContain {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-        if self.module_data.scatter_nearby_on_exit {
-            let _ = self.base.scatter_to_nearby_position(&mut rider);
-        }
+        let scatter_ai = if self.module_data.scatter_nearby_on_exit {
+            self.base.scatter_to_nearby_position(&mut rider)?
+        } else {
+            None
+        };
         self.extra_slots_in_use -= (slot_count as i32) - 1;
         drop(rider);
+        if let Some((ai, dest)) = scatter_ai {
+            self.base.apply_scatter_ai_followup(&ai, &dest);
+        }
 
         if self.base.get_contain_count() == 0 {
             if let Some(drawable) = self

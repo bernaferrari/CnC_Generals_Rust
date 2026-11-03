@@ -873,6 +873,8 @@ impl TransportContain {
             ))
         });
 
+        // hq-on6u2: pose under Object write, release, then AI scatter callbacks.
+        let mut scatter_ai = None;
         if let Ok(mut rider) = obj.write() {
             if let Some((above_terrain, owner_dead, owner_is_bike, bike_secondary)) = owner_state {
                 if above_terrain {
@@ -887,7 +889,7 @@ impl TransportContain {
                     }
                 }
                 if owner_dead {
-                    let _ = self.base.scatter_to_nearby_position(&mut rider);
+                    scatter_ai = self.base.scatter_to_nearby_position(&mut rider)?;
                 }
                 if owner_is_bike
                     && rider.is_kind_of(KindOf::Hero)
@@ -903,6 +905,9 @@ impl TransportContain {
                     }
                 }
             }
+        }
+        if let Some((ai, dest)) = scatter_ai {
+            self.base.apply_scatter_ai_followup(&ai, &dest);
         }
         if self.module_data.go_aggressive_on_exit {
             if let Ok(rider) = obj.try_read() {
