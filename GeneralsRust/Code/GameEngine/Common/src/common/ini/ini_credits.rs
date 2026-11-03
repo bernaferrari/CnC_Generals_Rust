@@ -502,39 +502,30 @@ impl Default for CreditsManager {
     }
 }
 
-/// Global credits manager instance
-struct CreditsManagerSlot(OnceCell<RwLock<CreditsManager>>);
-impl std::ops::Deref for CreditsManagerSlot {
-    type Target = OnceCell<RwLock<CreditsManager>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
+fn credits_manager_cell() -> std::sync::Arc<RwLock<CreditsManager>> {
+    crate::common::common_services::common_services()
+        .credits_manager
+        .clone()
 }
-static CREDITS_MANAGER: CreditsManagerSlot = CreditsManagerSlot(OnceCell::new());
 
-/// Get the global credits manager (read access)
+/// Get the credits manager (read access) on the published CommonServices.
 pub fn get_credits_manager() -> RwLockReadGuard<'static, CreditsManager> {
-    CREDITS_MANAGER
-        .get_or_init(|| RwLock::new(CreditsManager::new()))
-        .read()
-        .unwrap()
+    let cell = credits_manager_cell();
+    let guard = cell.read().unwrap();
+    unsafe { std::mem::transmute(guard) }
 }
 
-/// Get the global credits manager (write access)
+/// Get the credits manager (write access) on the published CommonServices.
 pub fn get_credits_manager_mut() -> RwLockWriteGuard<'static, CreditsManager> {
-    CREDITS_MANAGER
-        .get_or_init(|| RwLock::new(CreditsManager::new()))
-        .write()
-        .unwrap()
+    let cell = credits_manager_cell();
+    let guard = cell.write().unwrap();
+    unsafe { std::mem::transmute(guard) }
 }
 
-/// Initialize the global credits manager
+/// Initialize / reset the credits manager on the published CommonServices.
 pub fn init_credits_manager() {
-    if CREDITS_MANAGER.0.get().is_none() {
-        let _ = CREDITS_MANAGER.0.set(RwLock::new(CreditsManager::new()));
-    } else if let Some(manager) = CREDITS_MANAGER.0.get() {
-        if let Ok(mut guard) = manager.write() {
-            *guard = CreditsManager::new();
-        }
-    }
+    let cell = credits_manager_cell();
+    *cell.write().unwrap() = CreditsManager::new();
 }
 
 /// Parse credits definition from INI block

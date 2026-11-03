@@ -24,12 +24,17 @@ use crate::common::rts::production_prerequisite::PrereqObjectCounter;
 use crate::common::message_stream::message_stream::CommandListAppendFn;
 use crate::common::damage_fx::DamageFXStore;
 use crate::common::resource_manager::ResourceManager;
+use crate::common::ini::ini_online_chat_colors::OnlineChatColors;
+use crate::common::ini::ini_webpage_url::WebBrowser;
+use crate::common::ini::ini_credits::CreditsManager;
+
 use crate::common::system::geometry::Coord3D;
 use crate::common::time::SimulationClock;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
+use parking_lot::RwLock as ParkingRwLock;
 
 /// GameClient / GameAudio / GameLogic random streams owned by one game instance.
 #[derive(Debug)]
@@ -146,6 +151,12 @@ pub struct CommonServices {
     pub damage_fx_store: Mutex<DamageFXStore>,
     /// Resource manager (was process RESOURCE_MANAGER).
     pub resource_manager: Arc<Mutex<ResourceManager>>,
+    /// Online chat colors (was process ONLINE_CHAT_COLORS).
+    pub online_chat_colors: Arc<ParkingRwLock<OnlineChatColors>>,
+    /// Web browser URL table (was process WEB_BROWSER).
+    pub web_browser: Arc<RwLock<WebBrowser>>,
+    /// Credits manager (was process CREDITS_MANAGER).
+    pub credits_manager: Arc<RwLock<CreditsManager>>,
 }
 
 impl Default for CommonServices {
@@ -173,6 +184,9 @@ impl Default for CommonServices {
             async_playback_handle_pool: AtomicU32::new(10_000_000),
             damage_fx_store: Mutex::new(DamageFXStore::new()),
             resource_manager: Arc::new(Mutex::new(ResourceManager::new())),
+            online_chat_colors: Arc::new(ParkingRwLock::new(OnlineChatColors::new())),
+            web_browser: Arc::new(RwLock::new(WebBrowser::new())),
+            credits_manager: Arc::new(RwLock::new(CreditsManager::new())),
         }
     }
 }
