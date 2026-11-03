@@ -173,6 +173,13 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<u32> {
+        self.with_own_services_mut(|this| this.update_owned_partition_with_effects_inner(effects))
+    }
+
+    fn update_owned_partition_with_effects_inner(
+        &mut self,
+        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<u32> {
         let mut contacts = Vec::new();
         let mut seen = std::collections::HashSet::new();
         while let Some(dirty) = self.partition_manager.take_next_receiving_dirty() {

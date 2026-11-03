@@ -720,12 +720,14 @@ impl GameLogic {
 
     /// Add one AI opponent with an explicit difficulty (skirmish config path).
     pub fn add_ai_opponent(&mut self, player_id: u32, team: Team, difficulty: AIDifficulty) {
-        self.ensure_ai_faction_templates(team);
-        self.ai_manager.add_ai_player(player_id, team, difficulty);
-        crate::ai::AIManager::apply_ctor_can_build_units(self, player_id);
-        // C++ AISkirmishPlayer ctor runs after the AIPlayer base ctor and
-        // re-enables production (AISkirmishPlayer.cpp:61).
-        crate::ai::AIManager::apply_skirmish_can_build_units(self, player_id);
+        self.with_own_services_mut(|this| {
+            this.ensure_ai_faction_templates(team);
+            this.ai_manager.add_ai_player(player_id, team, difficulty);
+            crate::ai::AIManager::apply_ctor_can_build_units(this, player_id);
+            // C++ AISkirmishPlayer ctor runs after the AIPlayer base ctor and
+            // re-enables production (AISkirmishPlayer.cpp:61).
+            crate::ai::AIManager::apply_skirmish_can_build_units(this, player_id);
+        })
     }
 
     /// After `load_map` wipes world objects, rebind host AI rebuild soup and
@@ -831,6 +833,10 @@ impl GameLogic {
 
     /// Ensure faction templates the host AI build/produce paths require are registered.
     pub fn ensure_ai_faction_templates(&mut self, team: Team) {
+        self.with_own_services_mut(|this| this.ensure_ai_faction_templates_with_services(team))
+    }
+
+    fn ensure_ai_faction_templates_with_services(&mut self, team: Team) {
         // Prefer real WeaponStore / LocomotorStore stats (seeded/INI).
         let _ = super::super::weapon_bootstrap::ensure_host_weapon_store();
         if self.locomotor_definitions.is_none() {

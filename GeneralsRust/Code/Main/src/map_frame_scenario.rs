@@ -248,6 +248,12 @@ fn retail_root_looks_valid(root: &Path) -> bool {
             .unwrap_or(false)
 }
 
+/// Resolve and publish `GENERALS_ASSETS_DIR` when windows_game / retail is present.
+/// Tests that need PlayerTemplate.ini or maps call this and skip when `None`.
+pub fn ensure_assets_env_for_tests() -> Option<PathBuf> {
+    ensure_lone_eagle_assets_env()
+}
+
 fn ensure_lone_eagle_assets_env() -> Option<PathBuf> {
     for key in ["GENERALS_RETAIL_DIR", "GENERALS_ASSETS_DIR"] {
         if let Ok(dir) = std::env::var(key) {

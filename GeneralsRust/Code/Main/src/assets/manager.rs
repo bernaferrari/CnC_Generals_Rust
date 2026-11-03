@@ -2501,7 +2501,9 @@ pub(crate) async fn init_asset_manager_with_sources<T>(
 
 /// Get reference to global asset manager
 pub fn get_asset_manager() -> Option<Arc<Mutex<AssetManager>>> {
-    crate::main_services::main_services()
+    // Callers treat None as "no catalogue"; never panic on unbound MainServices.
+    let services = crate::main_services::try_main_services()?;
+    services
         .asset_manager
         .lock()
         .unwrap_or_else(|p| p.into_inner())

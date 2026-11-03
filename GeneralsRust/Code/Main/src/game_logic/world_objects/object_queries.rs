@@ -3078,6 +3078,16 @@ impl GameLogic {
         player_id: u32,
         player_template: PlayerTemplateIdentity,
     ) -> bool {
+        self.with_own_services_mut(|this| {
+            this.bind_player_template_identity_with_services(player_id, player_template)
+        })
+    }
+
+    fn bind_player_template_identity_with_services(
+        &mut self,
+        player_id: u32,
+        player_template: PlayerTemplateIdentity,
+    ) -> bool {
         let Some(template) = self.resolve_player_template_identity(&player_template) else {
             return false;
         };

@@ -3058,17 +3058,22 @@ fn air_force_side_uses_a10_skillset_not_paladin() {
     assert_eq!(residual[0][0], "AirF_SCIENCE_A10ThunderboltMissileStrike1");
     assert_ne!(residual[0][0], "SCIENCE_PaladinTank");
 
+    let _ = crate::map_frame_scenario::ensure_assets_env_for_tests();
+    let Some(identity) =
+        crate::game_logic::PlayerTemplateIdentity::from_exact_name("FactionAmericaAirForceGeneral")
+    else {
+        eprintln!(
+            "air_force_side_uses_a10_skillset_not_paladin: SKIP (set GENERALS_ASSETS_DIR to windows_game retail root)"
+        );
+        return;
+    };
     let mut logic = crate::game_logic::GameLogic::new();
     logic.add_player(crate::game_logic::Player::new(1, Team::USA, "AirF", false));
-    if let Some(identity) =
-        crate::game_logic::PlayerTemplateIdentity::from_exact_name("FactionAmericaAirForceGeneral")
-    {
-        let _ = logic.bind_player_template_identity(1, identity);
-        let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
-        let sets = ai.live_side_skillsets(&logic);
-        let first = sets[0].first().map(String::as_str).unwrap_or("");
-        assert_ne!(first, "SCIENCE_PaladinTank");
-    }
+    let _ = logic.bind_player_template_identity(1, identity);
+    let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let sets = ai.live_side_skillsets(&logic);
+    let first = sets[0].first().map(String::as_str).unwrap_or("");
+    assert_ne!(first, "SCIENCE_PaladinTank");
 }
 
 #[test]
@@ -3325,13 +3330,20 @@ fn air_force_side_info_skillset_is_a10_not_paladin() {
     assert_eq!(residual[0][0], "AirF_SCIENCE_A10ThunderboltMissileStrike1");
     assert_eq!(residual[1][0], "SCIENCE_SpectreGunship1");
 
+    let _ = crate::map_frame_scenario::ensure_assets_env_for_tests();
+    let Some(identity) = crate::game_logic::PlayerTemplateIdentity::from_exact_name(
+        "FactionAmericaAirForceGeneral",
+    ) else {
+        eprintln!(
+            "air_force_side_info_skillset_is_a10_not_paladin: SKIP (set GENERALS_ASSETS_DIR to windows_game retail root)"
+        );
+        return;
+    };
+
     let mut logic = crate::game_logic::GameLogic::new();
     let mut player = crate::game_logic::Player::new(1, Team::USA, "Air Force AI", false);
     player.science_purchase_points = 5;
     logic.add_player(player);
-    let identity =
-        crate::game_logic::PlayerTemplateIdentity::from_exact_name("FactionAmericaAirForceGeneral")
-            .expect("retail Air Force PlayerTemplate");
     assert!(logic.bind_player_template_identity(1, identity));
 
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);

@@ -1167,6 +1167,20 @@ impl GameLogic {
         pos: Option<glam::Vec3>,
         attack_type: AbleToAttackType,
     ) -> CanAttackResult {
+        self.with_own_services(|| {
+            self.get_able_to_use_weapon_against_target_with_services(
+                unit_id, victim_id, pos, attack_type,
+            )
+        })
+    }
+
+    fn get_able_to_use_weapon_against_target_with_services(
+        &self,
+        unit_id: ObjectId,
+        victim_id: Option<ObjectId>,
+        pos: Option<glam::Vec3>,
+        attack_type: AbleToAttackType,
+    ) -> CanAttackResult {
         let Some(source) = self.objects.get(&unit_id) else {
             return CanAttackResult::NotPossible;
         };
