@@ -27,6 +27,7 @@ impl<'a> CommandExecutor<'a> {
         flag: u8,
         enabled: bool,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             // Wave 233: weapon-set flag via GameLogic authority API.
@@ -53,6 +54,7 @@ impl<'a> CommandExecutor<'a> {
         exact: bool,
         as_team: bool,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         // Wave 232: promote attack-path via GameLogic unit_command_promote_attack_path.
         let path_res = self.execute_follow_waypoint_path(units, waypoints, exact, as_team)?;
         if !matches!(path_res, CommandResult::Success) {
@@ -74,6 +76,7 @@ impl<'a> CommandExecutor<'a> {
         team_code: u8,
         max_shots: i32,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         use crate::game_logic::Team;
         let enemy_team = match team_code {
             0 => Team::GLA,
@@ -143,6 +146,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         // Wave 232: attack last-writes via GameLogic unit_command_attack.
         self.execute_group_attack_object(units, target_id, false)
     }
@@ -152,6 +156,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         self.execute_attack(units, target_id)
     }
 
@@ -160,6 +165,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         // Wave 232: force-attack last-writes via GameLogic unit_command_force_attack.
         self.execute_group_attack_object(units, target_id, true)
     }
@@ -316,6 +322,7 @@ impl<'a> CommandExecutor<'a> {
         target: ObjectId,
         mode: crate::game_logic::GuardMode,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         self.execute_guard(
             units,
             &crate::command_system::GuardTarget::Object(target),
@@ -332,6 +339,7 @@ impl<'a> CommandExecutor<'a> {
         mode: crate::game_logic::GuardMode,
         polygon_name: Option<&str>,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         let (center, radius) = if let Some(name) = polygon_name.filter(|n| !n.is_empty()) {
             if let Some((c, r, _)) = self.game_logic.host_named_guard_area_polygon(name) {
                 (c, if r > 0.0 { r } else { radius })
@@ -370,6 +378,7 @@ impl<'a> CommandExecutor<'a> {
         location: Option<Vec3>,
         max_shots: i32,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             let attack_pos = match location {
@@ -539,6 +548,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(crate) fn execute_stop(&mut self, units: &[ObjectId]) -> CommandResult {
+        let _bind = self.bind_services();
         // Wave 232: stop last-writes via GameLogic unit_command_stop.
         let mut extra_stop: Vec<ObjectId> = Vec::new();
         let mut hive_ids = extra_stop.clone();
@@ -588,6 +598,7 @@ impl<'a> CommandExecutor<'a> {
         target: &GuardTarget,
         mode: crate::game_logic::GuardMode,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // Wave 232: guard last-writes via GameLogic unit_command_guard_full.
         // C++ AIGroup::groupGuardPosition/Object — leftover AI interface only.
         // Structures/turrets/stunned still scan; no canMove/Immobile/Structure gate.
@@ -672,6 +683,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         attitude: crate::game_logic::host_strategy_center::HostAiAttitude,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             // Wave 233: AI attitude via GameLogic authority API.
@@ -696,6 +708,7 @@ impl<'a> CommandExecutor<'a> {
         slot: u8,
         lock_type_code: u8,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // Wave 233: weapon lock via GameLogic unit_command_set_weapon_lock.
         use crate::game_logic::WeaponLockType;
         let lock_type = match lock_type_code {
@@ -727,6 +740,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         lock_type_code: u8,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // Wave 233: release weapon lock via GameLogic authority API.
         use crate::game_logic::WeaponLockType;
         let lock_type = match lock_type_code {
@@ -758,6 +772,7 @@ impl<'a> CommandExecutor<'a> {
         radius: f32,
         polygon_name: Option<&str>,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let (center, radius, tag) =
             resolve_attack_area(self.game_logic, center, radius, polygon_name);
         if !center.x.is_finite() || !center.z.is_finite() {

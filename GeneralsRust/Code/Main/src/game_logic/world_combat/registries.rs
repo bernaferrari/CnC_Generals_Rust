@@ -558,11 +558,13 @@ impl GameLogic {
     /// C++ move-to-and-evacuate arrival residual: dump all occupants near container.
     /// When `and_exit`, mark the transport sold/destroyed after unload (script exit residual).
     pub fn evacuate_container_now(&mut self, container_id: ObjectId, and_exit: bool) -> bool {
-        self.evacuate_container_now_with_effects(
-            container_id,
-            and_exit,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
+        self.with_own_services_mut(|this| {
+            this.evacuate_container_now_with_effects(
+                container_id,
+                and_exit,
+                &mut crate::game_logic::ScriptPresentationEffects::default(),
+            )
+        })
     }
 
     pub(crate) fn evacuate_container_now_with_effects(

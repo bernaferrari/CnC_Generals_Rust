@@ -644,9 +644,9 @@ fn projectile_stream_name_prefers_actual_parsed_field_over_dragon_seed() {
     impl Drop for RestoreStore {
         fn drop(&mut self) {
             if let Some(previous) = self.0.take() {
-                gamelogic::weapon::with_weapon_store_mut(|store| *store = previous).unwrap();
+                let _ = gamelogic::weapon::with_weapon_store_mut(|store| *store = previous);
             } else {
-                gamelogic::weapon::shutdown_weapon_store().unwrap();
+                let _ = gamelogic::weapon::shutdown_weapon_store();
             }
         }
     }

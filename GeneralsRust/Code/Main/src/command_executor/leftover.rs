@@ -23,6 +23,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         surrendered: bool,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             // Wave 233: surrender via GameLogic authority API.
@@ -151,6 +152,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             let Some((alive, name, is_infantry, has_deploy_style_metadata)) =
@@ -231,6 +233,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let (target_pos, target_alive, target_is_resource) =
             match self.game_logic.host_object(target_id) {
                 Some(target) => (
@@ -297,6 +300,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(super) fn execute_return_to_base(&mut self, units: &[ObjectId]) -> CommandResult {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             // Freeze the command player at the physical UI boundary.  The
@@ -323,6 +327,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             let Some(unit) = self.game_logic.host_object(unit_id) else {
@@ -415,6 +420,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         enabled: bool,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         let mut any = false;
         for &unit_id in units {
             // Wave 233: mine-clearing detail via GameLogic authority API.
@@ -443,6 +449,7 @@ impl<'a> CommandExecutor<'a> {
         name: &str,
         duration_frames: i32,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // Wave 233: emoticon via GameLogic unit_command_set_emoticon.
         let mut any = false;
         for &unit_id in units {
@@ -462,6 +469,7 @@ impl<'a> CommandExecutor<'a> {
 
     /// C++ AIGroup::groupGoProne residual.
     pub(crate) fn execute_go_prone(&mut self, units: &[ObjectId]) -> CommandResult {
+        let _bind = self.bind_services();
         // Wave 233: go-prone via GameLogic unit_command_go_prone.
         // Retail infantry prone window residual (~2s).
         const PRONE_SECS: f32 = 2.0;
@@ -482,6 +490,7 @@ impl<'a> CommandExecutor<'a> {
         &mut self,
         units: &[ObjectId],
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         use crate::game_logic::host_mines::{DOZER_MINE_CLEAR_SCAN_RANGE, is_mine_clearer};
         let mut any = false;
         for &unit_id in units {
@@ -574,6 +583,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         // C++ ActionManager::canRepairObject + DozerAIUpdate::privateRepair.
         let (
             target_pos,
@@ -687,6 +697,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         // C++ ActionManager::canGetRepairedAt: vehicle → authored
         // KINDOF_REPAIR_PAD, aircraft → authored KINDOF_FS_AIRFIELD.  The
         // host BuildingType is name-derived and cannot authorize this path.
@@ -797,6 +808,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         target_id: ObjectId,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         let (
             target_pos,
             target_alive,
@@ -867,6 +879,7 @@ impl<'a> CommandExecutor<'a> {
         units: &[ObjectId],
         location: Vec3,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         let mut applied = false;
         for &unit_id in units {
             // Wave 233: rally point via GameLogic authority API.
@@ -886,6 +899,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub(crate) fn execute_cheer(&mut self, units: &[ObjectId]) -> CommandResult {
+        let _bind = self.bind_services();
         // Wave 232: cheer last-writes via GameLogic unit_command_cheer.
         // C++ AIGroup::groupCheer:
         // setSpecialModelConditionState(SPECIAL_CHEERING, LOGICFRAMES_PER_SECOND * 3)
@@ -916,6 +930,7 @@ impl<'a> CommandExecutor<'a> {
         location: Vec3,
         text: &str,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // C++ GameLogicDispatch.cpp:1582-1671 MSG_PLACE_BEACON.
         let Some(player) = self.game_logic.get_player(player_id) else {
             return CommandResult::InvalidCommand;
@@ -1017,6 +1032,7 @@ impl<'a> CommandExecutor<'a> {
         player_id: u32,
         selected: &[ObjectId],
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // C++ GameLogicDispatch.cpp:1675-1727 MSG_REMOVE_BEACON:
         // owner destroys selected beacon objects; local non-owner hides them.
         // Retail is strictly selection-driven: empty / non-beacon selection is a no-op.
@@ -1059,6 +1075,7 @@ impl<'a> CommandExecutor<'a> {
         selected: &[ObjectId],
         text: &str,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // C++ GameLogicDispatch.cpp:1731-1758 MSG_SET_BEACON_TEXT.
         let mut any = false;
         for &id in selected {
@@ -1091,6 +1108,7 @@ impl<'a> CommandExecutor<'a> {
         player_index: u32,
         enabled: bool,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // C++ GameLogicDispatch.cpp:603-614 MSG_ENABLE_RETALIATION_MODE.
         if self.game_logic.get_player(player_index).is_none() {
             return CommandResult::InvalidCommand;
@@ -1105,6 +1123,7 @@ impl<'a> CommandExecutor<'a> {
         player_id: u32,
         transfer_to_ally: bool,
     ) -> CommandResult {
+        let _bind = self.bind_services();
         // C++ GameLogicDispatch.cpp:1762-1797 MSG_SELF_DESTRUCT.
         if self.game_logic.get_player(player_id).is_none() {
             return CommandResult::InvalidCommand;

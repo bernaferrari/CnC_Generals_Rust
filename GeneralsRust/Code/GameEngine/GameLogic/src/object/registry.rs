@@ -320,11 +320,17 @@ pub struct ObjectRegistryGlobal;
 pub static OBJECT_REGISTRY: ObjectRegistryGlobal = ObjectRegistryGlobal;
 
 impl ObjectRegistryGlobal {
+    fn try_get(self) -> Option<std::sync::Arc<ObjectRegistry>> {
+        crate::system::engine_stores::try_active_services()
+            .map(|services| std::sync::Arc::clone(services.object_registry()))
+    }
+
     fn get(self) -> std::sync::Arc<ObjectRegistry> {
-        std::sync::Arc::clone(
-            crate::system::engine_stores::active_services()
-                .object_registry(),
-        )
+        self.try_get().unwrap_or_else(|| {
+            panic!(
+                "ObjectRegistry requires with_world_services / install_services (no process bag)"
+            )
+        })
     }
 
     pub fn register_object(self, id: ObjectID, object: &Arc<RwLock<Object>>) {
@@ -344,11 +350,11 @@ impl ObjectRegistryGlobal {
     }
 
     pub fn get_object(self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-        self.get().get_object(id)
+        self.try_get()?.get_object(id)
     }
 
     pub fn contains(self, id: ObjectID) -> bool {
-        self.get().contains(id)
+        self.try_get().is_some_and(|registry| registry.contains(id))
     }
 
     pub fn with_object<R>(self, id: ObjectID, f: impl FnOnce(&Object) -> R) -> Option<R> {
@@ -360,11 +366,14 @@ impl ObjectRegistryGlobal {
     }
 
     pub fn is_empty(self) -> bool {
-        self.get().is_empty()
+        // Host matches never admit crate Objects; unbound ⇒ empty (fail closed).
+        self.try_get().map(|registry| registry.is_empty()).unwrap_or(true)
     }
 
     pub fn store_is_empty(self) -> bool {
-        self.get().store_is_empty()
+        self.try_get()
+            .map(|registry| registry.store_is_empty())
+            .unwrap_or(true)
     }
 
     pub fn get_all_objects(self) -> Vec<Arc<RwLock<Object>>> {

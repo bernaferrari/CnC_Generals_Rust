@@ -25,6 +25,49 @@ use glam::Vec3;
 use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
+
+/// RAII publish of the driving world's services for one CommandExecutor entry.
+struct CommandServicesLoan {
+    world: std::sync::Arc<gamelogic::system::engine_stores::WorldServices>,
+    main: std::sync::Arc<crate::main_services::MainServices>,
+    installed_world: bool,
+    installed_main: bool,
+}
+
+impl CommandServicesLoan {
+    fn publish(game_logic: &crate::game_logic::GameLogic) -> Self {
+        let world = std::sync::Arc::clone(&game_logic.world_services);
+        let main = std::sync::Arc::clone(&game_logic.main_services);
+        let installed_world = !gamelogic::system::engine_stores::is_services_active(&world);
+        if installed_world {
+            gamelogic::system::engine_stores::install_services(std::sync::Arc::clone(&world));
+        }
+        let installed_main = crate::main_services::try_main_services()
+            .map(|active| !std::sync::Arc::ptr_eq(&active, &main))
+            .unwrap_or(true);
+        if installed_main {
+            crate::main_services::install_main_services(std::sync::Arc::clone(&main));
+        }
+        Self {
+            world,
+            main,
+            installed_world,
+            installed_main,
+        }
+    }
+}
+
+impl Drop for CommandServicesLoan {
+    fn drop(&mut self) {
+        if self.installed_world {
+            let _ = gamelogic::system::engine_stores::uninstall_services(&self.world);
+        }
+        if self.installed_main {
+            let _ = crate::main_services::uninstall_main_services_if_current(&self.main);
+        }
+    }
+}
+
 /// Command executor that processes game commands.
 ///
 /// Wave 955: host_object/host_objects authority dual-read seal (no presentation dual-read).
@@ -131,8 +174,16 @@ impl<'a> CommandExecutor<'a> {
             .unwrap_or_else(|| Team::from_player_id(player_id))
     }
 
+
+    /// Publish this world's World/Main (and nested Common) services for one
+    /// command entry. GameLogic::new leaves ambient unbound between calls.
+    fn bind_services(&self) -> CommandServicesLoan {
+        CommandServicesLoan::publish(self.game_logic)
+    }
+
     /// Execute a game command and return result
     pub fn execute_command(&mut self, command: GameCommand) -> Result<CommandResult, String> {
+        let _bind = self.bind_services();
         self.accepted_gather_carrier_ids.clear();
         debug!(
             "Executing command {:?} for player {}",

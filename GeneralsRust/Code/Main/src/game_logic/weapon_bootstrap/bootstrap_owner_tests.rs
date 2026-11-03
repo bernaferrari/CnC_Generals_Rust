@@ -80,11 +80,10 @@ impl RestoreStore {
 impl Drop for RestoreStore {
     fn drop(&mut self) {
         if let Some(previous) = self.0.take() {
-            // A failed absent-store query may leave the catalog absent. Restore
-            // its actual presence before restoring the exact owned contents.
-            gamelogic::initialize_weapon_store().expect("restore previous catalog presence");
-            gamelogic::weapon::with_weapon_store_mut(|store| *store = previous)
-                .expect("restore exact previous catalog");
+            // Soft restores: a failed query may leave the catalog unbound; never
+            // panic in Drop (double-panic → SIGABRT hides later suite results).
+            let _ = gamelogic::initialize_weapon_store();
+            let _ = gamelogic::weapon::with_weapon_store_mut(|store| *store = previous);
         } else {
             let _ = gamelogic::weapon::shutdown_weapon_store();
         }

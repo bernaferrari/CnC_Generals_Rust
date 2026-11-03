@@ -87,7 +87,10 @@ impl Drop for ForeignRoster {
     fn drop(&mut self) {
         *gamelogic::player::ThePlayerList()
             .write()
-            .unwrap_or_else(|e| e.into_inner()) = self.previous.take().unwrap();
+            .unwrap_or_else(|e| e.into_inner()) = match self.previous.take() {
+                Some(prev) => prev,
+                None => return,
+            };
     }
 }
 

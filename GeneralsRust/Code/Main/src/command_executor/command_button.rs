@@ -30,6 +30,7 @@ impl<'a> CommandExecutor<'a> {
         location: Option<Vec3>,
         target: Option<ObjectId>,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         if definition.command.eq_ignore_ascii_case("STOP") {
             return Ok(self.execute_stop(units));
         }
@@ -76,6 +77,7 @@ impl<'a> CommandExecutor<'a> {
         button: &str,
         waypoints: &[Vec3],
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         use crate::command_system::{CommandType, command_type_from_button_name};
 
         if waypoints.is_empty() {
@@ -122,6 +124,7 @@ impl<'a> CommandExecutor<'a> {
         location: Option<Vec3>,
         target: Option<ObjectId>,
     ) -> gamelogic::GameLogicResult<CommandResult> {
+        let _bind = self.bind_services();
         use crate::command_system::{
             CommandType, DropTarget, GuardTarget, ModifierKeys, PowerTarget,
             command_type_from_button_name,

@@ -655,7 +655,9 @@ pub fn register_sub_object_name_hook(hook: Option<SubObjectNameHook>) {
 }
 
 pub(crate) fn lookup_sub_object_names(model: &str) -> Vec<String> {
-    let services = crate::system::engine_stores::active_services();
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return Vec::new();
+    };
     let Ok(guard) = services.sub_object_name_hook().read() else {
         return Vec::new();
     };
@@ -676,7 +678,7 @@ pub fn register_model_bounds_hook(hook: Option<ModelBoundsHook>) {
 }
 
 pub(crate) fn lookup_model_obj_bounds(model: &str) -> Option<([f32; 3], [f32; 3])> {
-    let services = crate::system::engine_stores::active_services();
+    let services = crate::system::engine_stores::try_active_services()?;
     let guard = services.model_obj_bounds_hook().read().ok()?;
     guard.as_ref()?(model)
 }
@@ -687,7 +689,7 @@ fn lookup_pristine_bone(
     frame: i32,
     bone_name: &str,
 ) -> Option<(i32, Matrix3D)> {
-    let services = crate::system::engine_stores::active_services();
+    let services = crate::system::engine_stores::try_active_services()?;
     let guard = services.pristine_bone_lookup_hook().read().ok()?;
     let hook = guard.as_ref()?;
     hook(model, scale, frame, bone_name)

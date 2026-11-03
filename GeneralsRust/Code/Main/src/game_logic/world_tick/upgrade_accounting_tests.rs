@@ -172,7 +172,11 @@ fn production_upgrade_and_encoded_restore_never_publish_into_foreign_core_player
             struct Restore(Option<gamelogic::player::PlayerList>);
             impl Drop for Restore {
                 fn drop(&mut self) {
-                    *gamelogic::player::player_list().write().unwrap() = self.0.take().unwrap();
+                    if let Some(prev) = self.0.take() {
+                        *gamelogic::player::player_list()
+                            .write()
+                            .unwrap_or_else(|e| e.into_inner()) = prev;
+                    }
                 }
             }
             let mut foreign = gamelogic::player::Player::new(0);
