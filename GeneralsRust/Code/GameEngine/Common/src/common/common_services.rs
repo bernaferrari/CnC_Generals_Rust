@@ -1,13 +1,19 @@
 //! Owned Common engine-context services (C++ TheXxx singletons on TheGameEngine).
 //!
-//! Dense Common modules hang their process slots off [`CommonServices`] instead of
-//! file-level Mutex/TLS. A scoped install publishes the active Arc for legacy free
-//! functions during the migration; GameEngine (and tests) own the Arc.
+//! Dense Common modules hang mutable TheXxx state off [`CommonServices`]. GameEngine
+//! (and tests) own an `Arc<CommonServices>` and publish it for free-function bridges
+//! via [`with_common_services`]. The active pointer is **thread-local** so two game
+//! instances on two threads never share RNG / ThingFactory / CRC flags.
+//!
+//! There is no process-wide shared `CommonServices`. An unscoped thread gets a
+//! private per-thread fallback Arc (legacy single-threaded call sites) that is
+//! never visible to other threads.
 
 use crate::common::random_value::{RandomState, SessionRandom};
 use crate::common::thing::thing_factory::ThingFactory;
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 
 /// GameClient / GameAudio / GameLogic random streams owned by one game instance.
 #[derive(Debug)]
@@ -84,9 +90,9 @@ impl Default for CrcRuntimeFlags {
 pub struct CommonServices {
     pub random: RandomServices,
     pub crc_flags: CrcRuntimeFlags,
-    /// ThingFactory process slot (was `static THING_FACTORY`).
+    /// ThingFactory slot for this instance (C++ `TheThingFactory`).
     pub thing_factory: Arc<Mutex<Option<ThingFactory>>>,
-    /// Session logic RNG publish slot (was TLS; Mutex is fine on the game thread).
+    /// Session logic RNG publish slot for this instance.
     logic_rng_owner: Mutex<Option<SessionRandom>>,
 }
 
@@ -135,50 +141,134 @@ impl CommonServices {
     }
 }
 
-struct ProcessCommon(LazyLock<Arc<CommonServices>>);
-static PROCESS_COMMON: ProcessCommon =
-    ProcessCommon(LazyLock::new(|| Arc::new(CommonServices::default())));
-
-struct ScopedCommonStack {
-    stack: Mutex<Vec<Arc<CommonServices>>>,
+thread_local! {
+    /// Nested `with_common_services` installs for this thread only.
+    static ACTIVE_STACK: RefCell<Vec<Arc<CommonServices>>> = const { RefCell::new(Vec::new()) };
+    /// Private per-thread fallback — never shared across threads.
+    static THREAD_FALLBACK: RefCell<Option<Arc<CommonServices>>> = const { RefCell::new(None) };
 }
-static SCOPED_COMMON: LazyLock<ScopedCommonStack> = LazyLock::new(|| ScopedCommonStack {
-    stack: Mutex::new(Vec::new()),
-});
 
-/// Active CommonServices: scoped install, else process fallback.
+/// Active CommonServices for this thread: scoped install, else private fallback.
 pub fn common_services() -> Arc<CommonServices> {
-    SCOPED_COMMON
-        .stack
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .last()
-        .cloned()
-        .unwrap_or_else(|| Arc::clone(&PROCESS_COMMON.0))
+    ACTIVE_STACK.with(|stack| {
+        if let Some(top) = stack.borrow().last() {
+            return Arc::clone(top);
+        }
+        THREAD_FALLBACK.with(|cell| {
+            let mut slot = cell.borrow_mut();
+            if slot.is_none() {
+                *slot = Some(Arc::new(CommonServices::default()));
+            }
+            Arc::clone(slot.as_ref().unwrap())
+        })
+    })
 }
 
-/// Publish `services` for the duration of `f` (nested worlds restore prior).
+/// Publish `services` for the duration of `f` on **this thread** (nested restore).
 pub fn with_common_services<R>(services: &Arc<CommonServices>, f: impl FnOnce() -> R) -> R {
-    SCOPED_COMMON
-        .stack
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .push(Arc::clone(services));
+    ACTIVE_STACK.with(|stack| {
+        stack.borrow_mut().push(Arc::clone(services));
+    });
     struct Pop;
     impl Drop for Pop {
         fn drop(&mut self) {
-            SCOPED_COMMON
-                .stack
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .pop();
+            ACTIVE_STACK.with(|stack| {
+                stack.borrow_mut().pop();
+            });
         }
     }
     let _pop = Pop;
     f()
 }
 
-/// Cold process Arc (tests that need a fresh bag should prefer [`with_common_services`]).
-pub fn process_common_services() -> Arc<CommonServices> {
-    Arc::clone(&PROCESS_COMMON.0)
+/// Reset this thread's private fallback (tests). Does not touch other threads.
+pub fn reset_thread_common_services_fallback() {
+    THREAD_FALLBACK.with(|cell| {
+        *cell.borrow_mut() = None;
+    });
+}
+
+#[cfg(test)]
+mod independence_tests {
+    use super::*;
+    use std::sync::{Barrier, Arc as StdArc};
+    use std::thread;
+
+    #[test]
+    fn two_common_services_on_two_threads_are_independent() {
+        let a = Arc::new(CommonServices::new());
+        let b = Arc::new(CommonServices::new());
+        a.random.init_with_seed(111);
+        b.random.init_with_seed(222);
+        assert_eq!(a.random.logic_base_seed.load(Ordering::SeqCst), 111);
+        assert_eq!(b.random.logic_base_seed.load(Ordering::SeqCst), 222);
+        assert!(!Arc::ptr_eq(&a, &b));
+
+        let barrier = StdArc::new(Barrier::new(2));
+        let a2 = Arc::clone(&a);
+        let b2 = Arc::clone(&b);
+        let bar1 = StdArc::clone(&barrier);
+        let bar2 = StdArc::clone(&barrier);
+
+        let t1 = thread::spawn(move || {
+            with_common_services(&a2, || {
+                common_services()
+                    .random
+                    .logic_base_seed
+                    .store(1110, Ordering::SeqCst);
+                bar1.wait();
+                // Peer has now written 2220 into b; our a must stay 1110.
+                assert_eq!(
+                    common_services().random.logic_base_seed.load(Ordering::SeqCst),
+                    1110
+                );
+            });
+        });
+        let t2 = thread::spawn(move || {
+            with_common_services(&b2, || {
+                common_services()
+                    .random
+                    .logic_base_seed
+                    .store(2220, Ordering::SeqCst);
+                bar2.wait();
+                assert_eq!(
+                    common_services().random.logic_base_seed.load(Ordering::SeqCst),
+                    2220
+                );
+            });
+        });
+        t1.join().unwrap();
+        t2.join().unwrap();
+
+        assert_eq!(a.random.logic_base_seed.load(Ordering::SeqCst), 1110);
+        assert_eq!(b.random.logic_base_seed.load(Ordering::SeqCst), 2220);
+    }
+
+    #[test]
+    fn unscoped_threads_get_private_fallbacks_not_a_shared_process_bag() {
+        let barrier = StdArc::new(Barrier::new(2));
+        let bar1 = StdArc::clone(&barrier);
+        let bar2 = StdArc::clone(&barrier);
+        let t1 = thread::spawn(move || {
+            reset_thread_common_services_fallback();
+            common_services().random.init_with_seed(41);
+            bar1.wait();
+            assert_eq!(
+                common_services().random.logic_base_seed.load(Ordering::SeqCst),
+                41,
+                "peer thread must not overwrite this thread's fallback"
+            );
+        });
+        let t2 = thread::spawn(move || {
+            reset_thread_common_services_fallback();
+            common_services().random.init_with_seed(42);
+            bar2.wait();
+            assert_eq!(
+                common_services().random.logic_base_seed.load(Ordering::SeqCst),
+                42
+            );
+        });
+        t1.join().unwrap();
+        t2.join().unwrap();
+    }
 }

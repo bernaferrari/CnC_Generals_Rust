@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Count process-wide mutable statics per crate area.
 # Counts: `static mut`, `static` with Mutex|RwLock|Atomic*|RefCell|Cell
-# (including those nested under OnceLock/Lazy/LazyLock/OnceCell), and
-# `thread_local!`. Excludes tests/, examples/, benches/, *_tests.rs, tests.rs,
-# and items under #[cfg(test)] modules/attributes.
+# (including those nested under OnceLock/Lazy/LazyLock/OnceCell),
+# opaque *Slot/*Bag wrappers whose same-file struct body holds those types,
+# and `thread_local!`. Excludes tests/, examples/, benches/, *_tests.rs,
+# tests.rs, and items under #[cfg(test)] modules/attributes.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 python3 - "$ROOT" "$@" <<'PY'
@@ -21,6 +22,37 @@ pat_static = re.compile(
 )
 pat_tls = re.compile(r"(?m)^[ \t]*thread_local!\s*\{")
 mut_ty = re.compile(r"\b(Mutex|RwLock|Atomic\w+|RefCell|Cell)\b")
+# Opaque wrappers (FooSlot / FooBag) hide interior Mutex/Atomic from the type
+# line; treat them as mutable when the same-file struct body contains mut_ty.
+opaque_name = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*(?:Slot|Bag))\b")
+
+
+def struct_body_is_mutable(text, type_name):
+    """True if `struct TypeName` / `pub struct TypeName` body mentions mut_ty."""
+    # Strip generics/wrappers: LazyLock<FooSlot> -> FooSlot
+    names = opaque_name.findall(type_name)
+    if not names:
+        return False
+    for name in names:
+        for m in re.finditer(
+            rf"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?struct[ \t]+{re.escape(name)}\b[^{{]*\{{",
+            text,
+        ):
+            start = m.end() - 1
+            depth = 0
+            i = start
+            while i < len(text):
+                if text[i] == "{":
+                    depth += 1
+                elif text[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        body = text[start : i + 1]
+                        if mut_ty.search(body):
+                            return True
+                        break
+                i += 1
+    return False
 
 
 def cfg_test_depths(text):
@@ -158,7 +190,12 @@ for label, rel in roots.items():
                 if head.lstrip().startswith("//"):
                     continue
                 name, ty = m.group(1), m.group(2)
-                if re.search(r"\bstatic\s+mut\b", head) or mut_ty.search(ty):
+                is_mut = (
+                    re.search(r"\bstatic\s+mut\b", head) is not None
+                    or mut_ty.search(ty) is not None
+                    or struct_body_is_mutable(text, ty)
+                )
+                if is_mut:
                     if (
                         m.start() in test_body
                         or item_has_cfg_test_attr(text, m.start())
