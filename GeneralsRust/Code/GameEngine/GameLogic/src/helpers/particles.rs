@@ -263,14 +263,24 @@ fn apply_host_fx_pose_frame(
 /// Particle system manager bridge to the client-side implementation.
 pub struct TheParticleSystemManager;
 
-static PARTICLE_SYSTEM_MANAGER: OnceLock<Arc<dyn ParticleSystemManagerInterface>> = OnceLock::new();
-
 pub fn register_particle_system_manager(manager: Arc<dyn ParticleSystemManagerInterface>) -> bool {
-    PARTICLE_SYSTEM_MANAGER.set(manager).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services
+        .particle_system_manager()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(manager);
+    true
 }
 
-fn get_particle_system_manager() -> Option<&'static Arc<dyn ParticleSystemManagerInterface>> {
-    PARTICLE_SYSTEM_MANAGER.get()
+fn get_particle_system_manager() -> Option<Arc<dyn ParticleSystemManagerInterface>> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services
+        .particle_system_manager()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 pub type ScorchHook = Arc<dyn Fn(&Coord3D, Real, i32) + Send + Sync>;
@@ -351,8 +361,8 @@ fn get_animation_metadata_hook() -> Option<&'static AnimationMetadataHook> {
 impl TheParticleSystemManager {
     /// Capture the already-installed bridge for one synchronous owner operation.
     /// This is a borrow only; it creates no manager, allocation, or publication.
-    pub(crate) fn borrowed_manager(&self) -> Option<&dyn ParticleSystemManagerInterface> {
-        get_particle_system_manager().map(Arc::as_ref)
+    pub(crate) fn borrowed_manager(&self) -> Option<Arc<dyn ParticleSystemManagerInterface>> {
+        get_particle_system_manager()
     }
 
     pub fn get() -> Option<&'static Self> {
