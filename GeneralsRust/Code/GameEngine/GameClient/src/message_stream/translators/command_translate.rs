@@ -316,10 +316,11 @@ impl GameMessageTranslator for CommandTranslator {
         true
     }
     fn translate_game_message(&mut self, msg: &GameMessage) -> GameMessageDisposition {
-        log::error!(
-            "GUI translator requires translate_game_message_with_context; message left untranslated"
-        );
-        GameMessageDisposition::KeepMessage
+        // C++ CommandXlat::translateGameMessage handles Meta* without an opaque
+        // window query. Screen-space picks still need with_context.
+        let mut state = crate::core::subsystems::InGameUISubsystem::default();
+        let mut ui = crate::message_stream::ReceivingUi::new(&mut state, 0, 0);
+        self.translate_with_window_query(msg, &mut |_, _, _| false, &mut ui)
     }
     fn translate_game_message_with_context(
         &mut self,
