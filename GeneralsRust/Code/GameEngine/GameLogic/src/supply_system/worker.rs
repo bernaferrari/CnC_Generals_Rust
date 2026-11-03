@@ -1202,11 +1202,13 @@ impl WorkerAIUpdate {
         true
     }
 
+    /// C++ WorkerAIUpdate.cpp:1376-1386 gates on Upgrade_GLAWorkerShoes.
+    /// Without a live upgrade owner, never invent the authored boost amount.
     pub fn get_upgraded_supply_boost(&self) -> u32 {
         if let Some(upgrade) = &self.upgrade_system {
             upgrade.get_supply_boost(self.player_index)
         } else {
-            self.data.upgraded_supply_boost
+            0
         }
     }
 
@@ -1313,8 +1315,18 @@ mod worker_dozer_parity_tests {
         worker.drop_all_boxes_if_carrying();
         assert_eq!(worker.get_number_boxes(), 0);
     }
+
+    #[test]
+    fn ungated_worker_shoes_boost_is_zero_without_upgrade_owner() {
+        // C++ WorkerAIUpdate.cpp:1376-1386 gates on Upgrade_GLAWorkerShoes.
+        let mut data = WorkerAIUpdateData::default();
+        data.upgraded_supply_boost = 8;
+        let worker = WorkerAIUpdate::new(data, INVALID_ID, 0);
+        assert_eq!(worker.get_upgraded_supply_boost(), 0);
+    }
 }
 
 #[cfg(test)]
 #[path = "construction_tests.rs"]
 mod construction_tests;
+
