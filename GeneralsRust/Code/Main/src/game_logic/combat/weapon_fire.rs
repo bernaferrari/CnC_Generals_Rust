@@ -263,9 +263,10 @@ pub fn apply_ready_projectileless_delayed_damage(
     health_events: &mut crate::game_logic::HostHealthEvents,
     ownership_events: &mut crate::game_logic::host_owner_log::OwnershipEvents,
 ) {
-    let ready = take_ready_projectileless_delayed_damage(combat, current_frame);
+    // Weapon.cpp:1589-1604 — dealDamageInternal then erase, continue the same
+    // list walk so same-frame callback-appended due entries still fire now.
     let historic_damage_limit = combat.historic_damage_limit();
-    for shot in ready {
+    drain_ready_projectileless_delayed(combat, current_frame, |combat, shot| {
         combat.apply_projectileless_delayed_shot(
             &shot,
             objects,
@@ -275,24 +276,39 @@ pub fn apply_ready_projectileless_delayed_damage(
             health_events,
             ownership_events,
         );
-    }
+    });
 }
 
-/// Select one batch only. Callback-enqueued shots remain on the live owner.
-pub(in crate::game_logic) fn take_ready_projectileless_delayed_damage(
+/// C++ WeaponStore::update delayed-damage walk: process one due entry at a time
+/// so a dealDamageInternal callback can append another due entry and have it
+/// run before this update returns.
+pub(in crate::game_logic) fn drain_ready_projectileless_delayed(
     combat: &mut CombatSystem,
     current_frame: u32,
-) -> Vec<LiveProjectilelessDelayedDamage> {
-    let queue = &mut combat.projectileless_delayed;
-    let mut ready = Vec::new();
+    mut apply: impl FnMut(&mut CombatSystem, LiveProjectilelessDelayedDamage),
+) {
     let mut i = 0;
-    while i < queue.len() {
-        if queue[i].when <= current_frame {
-            ready.push(queue.remove(i));
+    while i < combat.projectileless_delayed.len() {
+        if combat.projectileless_delayed[i].when <= current_frame {
+            let shot = combat.projectileless_delayed.remove(i);
+            apply(combat, shot);
         } else {
             i += 1;
         }
     }
+}
+
+/// Test/inspection helper: extract all currently-due entries without applying.
+/// Production delivery uses [`drain_ready_projectileless_delayed`] so same-frame
+/// appends still run (Weapon.cpp:1589-1604).
+pub(in crate::game_logic) fn take_ready_projectileless_delayed_damage(
+    combat: &mut CombatSystem,
+    current_frame: u32,
+) -> Vec<LiveProjectilelessDelayedDamage> {
+    let mut ready = Vec::new();
+    drain_ready_projectileless_delayed(combat, current_frame, |_combat, shot| {
+        ready.push(shot);
+    });
     ready
 }
 

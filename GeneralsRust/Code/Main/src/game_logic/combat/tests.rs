@@ -2893,6 +2893,40 @@ pub(in crate::game_logic) mod tests {
     }
 
     #[test]
+    fn delayed_damage_same_frame_callback_append_runs_before_update_returns() {
+        // Weapon.cpp:1589-1604 — erase after dealDamageInternal and continue the
+        // same list walk. Extract-all-then-apply would leave callback-appended
+        // due entries until the next frame.
+        let mut combat = CombatSystem::new();
+        let _combat_serial = combat_test_guard();
+        queue_delayed_impact_for_test(
+            &mut combat,
+            10,
+            lifecycle_test_pending_projectile("DelaySeedShot", None, Vec3::ZERO),
+            Vec3::ZERO,
+        );
+        let mut applied = Vec::new();
+        drain_ready_projectileless_delayed(&mut combat, 10, |combat, shot| {
+            let name = shot.pending.projectile_object_name.clone();
+            applied.push(name.clone());
+            if name == "DelaySeedShot" {
+                queue_delayed_impact_for_test(
+                    combat,
+                    10,
+                    lifecycle_test_pending_projectile("DelayCallbackShot", None, Vec3::ZERO),
+                    Vec3::ZERO,
+                );
+            }
+        });
+        assert_eq!(
+            applied,
+            vec!["DelaySeedShot".to_string(), "DelayCallbackShot".to_string()],
+            "same-frame callback append must fire in this WeaponStore::update"
+        );
+        assert_eq!(live_projectileless_delayed_count_for_test(&combat), 0);
+    }
+
+    #[test]
     fn fire_at_projectileless_weapon_skips_dummy_projectile() {
         let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
 
