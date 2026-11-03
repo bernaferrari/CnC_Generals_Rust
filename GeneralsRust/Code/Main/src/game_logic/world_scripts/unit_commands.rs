@@ -3832,7 +3832,7 @@ mod tests {
             .expect("rally factory");
         let obj = logic.host_object_mut(id).expect("factory mut");
         obj.building_data = Some(BuildingData::new(BuildingType::WarFactory));
-        obj.thing_mut().template.production_exit_metadata = Some(ProductionExitMetadata {
+        obj.template_mut().production_exit_metadata = Some(ProductionExitMetadata {
             style: ProductionExitStyle::Default,
             unit_create_point: [0.0; 3],
             natural_rally_point: [0.0; 3],
@@ -3895,8 +3895,8 @@ mod tests {
     fn production_exit_interface_keeps_priority_over_open_contain() {
         let (mut logic, id) = rally_factory_logic();
         let object = logic.host_object_mut(id).expect("factory");
-        object.thing_mut().template.contain_module.kind = ContainModuleKind::Transport;
-        object.thing_mut().template.contain_module.slots = Some(4);
+        object.template_mut().contain_module.kind = ContainModuleKind::Transport;
+        object.template_mut().contain_module.slots = Some(4);
         let dest = glam::Vec3::new(40.0, 0.0, 12.0);
 
         assert!(logic.unit_command_set_rally_point(id, dest));

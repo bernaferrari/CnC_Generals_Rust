@@ -3375,6 +3375,11 @@ fn live_team_garrison_specific_building_drains_ai_enter() {
 
 #[test]
 fn live_team_garrison_nearest_preserves_roster_order_for_membership() {
+    use gamelogic::scripting::core::{
+        Condition, ConditionType, OrCondition, Parameter, ParameterType, Script, ScriptAction,
+        ScriptActionType, ScriptList,
+    };
+    use gamelogic::scripting::engine::ScriptEngine;
     let mut logic = GameLogic::new();
     logic.add_player(
         Player::new(1, Team::USA, "RosterOwner", true).with_script_identity("RosterOwner"),
