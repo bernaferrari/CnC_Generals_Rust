@@ -369,18 +369,10 @@ impl Default for ResourceManager {
     }
 }
 
-/// Global resource manager instance
-struct ResourceManagerSlot(std::sync::OnceLock<Arc<Mutex<ResourceManager>>>);
-impl std::ops::Deref for ResourceManagerSlot {
-    type Target = std::sync::OnceLock<Arc<Mutex<ResourceManager>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static RESOURCE_MANAGER: ResourceManagerSlot = ResourceManagerSlot(std::sync::OnceLock::new());
-
-/// Get the global resource manager instance
+/// Get the resource manager owned by the published CommonServices.
 pub fn get_resource_manager() -> Arc<Mutex<ResourceManager>> {
-    RESOURCE_MANAGER
-        .get_or_init(|| Arc::new(Mutex::new(ResourceManager::new())))
+    crate::common::common_services::common_services()
+        .resource_manager
         .clone()
 }
 
