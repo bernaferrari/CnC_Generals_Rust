@@ -2953,11 +2953,11 @@ mod tests {
         // TerrainVisualStub must forward add/remove into TerrainVisualImpl
         // W3DTreeBuffer that impl_gpu.rs record_tree_draws already reads.
         const DRAWABLE_ID: u32 = 0x00C0_FFEE;
-        if let Ok(mut visual) = crate::terrain::terrain_visual::get_terrain_visual() {
-            if visual.is_none() {
-                *visual = Some(crate::terrain::terrain_visual::TerrainVisualSystem::new());
-            }
-        }
+        // get_terrain_visual requires a published Arc (live GameClient or
+        // init_terrain_visual). Headless unit tests must publish first or
+        // with_live_tree_buffer silently no-ops.
+        crate::terrain::terrain_visual::init_terrain_visual()
+            .expect("publish TerrainVisualImpl for stub forward");
 
         let mut module_data = W3DTreeDrawModuleData::new();
         module_data.model_name = AsciiString::from("AlpineTree");

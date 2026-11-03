@@ -2585,10 +2585,15 @@ mod tests {
         assert_eq!(snapshot.render_object.sub_objects.len(), 1);
         assert_eq!(snapshot.render_object.sub_objects[0].name, "GhostHlodChild");
         assert!(snapshot.render_object.sub_objects[0].visible);
+        // C++ HTree::Base_Update(root) then HLod::Update_Sub_Object_Transforms
+        // installs HTree::Get_Transform(bone) on each child (hlod.cpp:3242).
+        // Ghost xfer writes that world-rooted Get_Transform, never a local
+        // bind pose. Parent legacy transform (2,3,4) * bind (2,0,0) = (4,3,4).
         assert_eq!(
             snapshot.render_object.sub_objects[0].transform,
             gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(
-                GameMat4::from_translation(GameVec3::new(2.0, 0.0, 0.0))
+                GameMat4::from_translation(GameVec3::new(2.0, 3.0, 4.0))
+                    * GameMat4::from_translation(GameVec3::new(2.0, 0.0, 0.0))
             )
         );
         assert!(snapshot.uv_animations_disabled);
@@ -2695,9 +2700,13 @@ mod tests {
             .expect("HLOD with frozen bone frame should capture");
         assert_eq!(capture.render_objects[0].class_id, RenderObjectClass::HLod);
         assert_eq!(capture.render_objects[0].sub_objects.len(), 2);
+        // BoneOverrideState matches C++ Control_Bone relative_tm
+        // (pivot.cpp Capture_Update: Transform = Transform * CapTransform).
+        // Bind pose child (2,0,0) * relative frozen (4,5,6) = (6,5,6).
+        let expected_child = GameMat4::from_translation(GameVec3::new(2.0, 0.0, 0.0)) * frozen;
         assert_eq!(
             capture.render_objects[0].sub_objects[0].transform,
-            gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(frozen)
+            gamelogic::object::w3d_ghost_object::Matrix3x4::from_logic_matrix(expected_child)
         );
         assert!(capture.render_objects[0].sub_objects[0].visible);
         assert!(

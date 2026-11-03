@@ -218,15 +218,23 @@ impl CampaignManager {
     pub fn init(&mut self) {
         self.challenge_game_info = None;
         init_campaign_store();
+        ensure_campaign_filesystem_backends();
 
         let sources = discover_campaign_ini_files();
         if sources.is_empty() {
             let mut ini = INI::new();
-            if ini
-                .load("Data/INI/Campaign.ini", INILoadType::Overwrite)
-                .is_ok()
-            {
-                let _ = ini.load("Data/INI/Default/Campaign.ini", INILoadType::MultiFile);
+            // Prefer the retail archive member when the loose extract is a
+            // head-cut / non-authoritative paste (common on repacked INIZH).
+            if load_campaign_ini_with_recovery(
+                &mut ini,
+                Path::new("Data/INI/Campaign.ini"),
+                INILoadType::Overwrite,
+            ) {
+                let _ = load_campaign_ini_with_recovery(
+                    &mut ini,
+                    Path::new("Data/INI/Default/Campaign.ini"),
+                    INILoadType::MultiFile,
+                );
                 self.sync_from_store();
             }
             return;
@@ -244,11 +252,10 @@ impl CampaignManager {
             } else {
                 INILoadType::MultiFile
             };
-            if let Err(err) = ini.load(source, load_type) {
+            if !load_campaign_ini_with_recovery(&mut ini, source, load_type) {
                 log::warn!(
-                    "CampaignManager::init: failed to load '{}': {}",
-                    source.display(),
-                    err
+                    "CampaignManager::init: failed to load '{}'",
+                    source.display()
                 );
             }
         }
@@ -808,6 +815,71 @@ pub trait XferHelper {
     }
 }
 
+
+fn ensure_campaign_filesystem_backends() {
+    use game_engine::common::system::big_file_system::BigArchiveBackend;
+    use game_engine::common::system::file_system::get_file_system;
+    use game_engine::common::system::local_file_system::LocalFileSystem;
+    use game_engine::common::system::subsystem_interface::{
+        SubsystemInterface as CommonSubsystemInterface, SubsystemState,
+    };
+    use std::sync::Once;
+
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| {
+        let fs = get_file_system();
+        let Ok(mut fs_guard) = fs.lock() else {
+            return;
+        };
+        {
+            let local: &mut LocalFileSystem = fs_guard.ensure_backend(LocalFileSystem::new);
+            if let Ok(cwd) = env::current_dir() {
+                local.add_search_path(cwd);
+            }
+        }
+        {
+            let big: &mut BigArchiveBackend = fs_guard.ensure_backend(BigArchiveBackend::new);
+            for root in game_engine::common::system::install_layout::zh_install_roots() {
+                big.add_search_path(root);
+            }
+            for root in game_engine::common::system::install_layout::extracted_asset_roots() {
+                big.add_search_path(root);
+            }
+        }
+        if fs_guard.state() != SubsystemState::Running {
+            let _ = CommonSubsystemInterface::init(&mut *fs_guard);
+        }
+    });
+}
+
+/// Load Campaign.ini via normal path, falling back to truncated-head recovery
+/// and the INIZH.big virtual member when the loose extract is head-cut.
+fn load_campaign_ini_with_recovery(ini: &mut INI, path: &Path, load_type: INILoadType) -> bool {
+    if ini.load(path, load_type).is_ok() {
+        return true;
+    }
+    // Truncated/head-cut loose extracts (repacked INIZH) still contain intact
+    // Campaign blocks after the garbage prefix.
+    if ini.load_recovering_truncated_head(path).is_ok() {
+        return true;
+    }
+    // Relative retail name so prep_file can stage the INIZH.big member.
+    let retail = if path
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .contains("default")
+    {
+        Path::new("Data/INI/Default/Campaign.ini")
+    } else {
+        Path::new("Data/INI/Campaign.ini")
+    };
+    if path != retail {
+        ini.load(retail, load_type).is_ok() || ini.load_recovering_truncated_head(retail).is_ok()
+    } else {
+        false
+    }
+}
+
 fn discover_campaign_ini_files() -> Vec<PathBuf> {
     let mut roots = std::collections::BTreeSet::new();
     if let Ok(cwd) = env::current_dir() {
@@ -855,9 +927,11 @@ fn discover_campaign_ini_files() -> Vec<PathBuf> {
 }
 
 fn push_ini_file(files: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path: PathBuf) {
-    if path.is_file()
-        && game_engine::common::system::install_layout::ini_loose_override_is_authoritative(&path)
-    {
+    // Authoritative loose files win. Truncated/head-cut extracts are still
+    // recorded so `load_campaign_ini_with_recovery` can recover intact blocks
+    // or fall through to INIZH.big — skipping them entirely left CampaignManager
+    // empty when TheFileSystem was not yet booted in unit tests.
+    if path.is_file() {
         let key = fs::canonicalize(&path).unwrap_or(path.clone());
         if seen.insert(key) {
             files.push(path);

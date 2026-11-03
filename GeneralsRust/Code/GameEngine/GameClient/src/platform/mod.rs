@@ -217,12 +217,14 @@ impl PlatformContext {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
+    /// winit `EventLoop::new` must run on the macOS main thread. Lib unit
+    /// tests use worker threads, so this case lives in the harness=false
+    /// integration binary `tests/platform_context_main_thread.rs`.
     #[test]
+    #[ignore = "winit EventLoop requires macOS main thread; see tests/platform_context_main_thread.rs"]
     fn create_platform_context() {
         crate::test_support::ensure_ambient_host();
-        let result = PlatformContext::new("Test", 800, 600);
+        let result = super::PlatformContext::new("Test", 800, 600);
         assert!(result.is_ok());
     }
 }

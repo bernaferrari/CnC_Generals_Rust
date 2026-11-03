@@ -140,7 +140,12 @@ pub fn resolve_campaign_map_file(map_name: &str) -> Option<std::path::PathBuf> {
             root.join(&rel),
             root.join("windows_game/extracted_big_files/MapsZH")
                 .join(&rel),
+            root.join("windows_game/extracted_big_files_v2/MapsZH")
+                .join(&rel),
             root.join("windows_game/extracted_big_files/MapsZH/Maps")
+                .join(&stem)
+                .join(format!("{stem}.map")),
+            root.join("windows_game/extracted_big_files_v2/MapsZH/Maps")
                 .join(&stem)
                 .join(format!("{stem}.map")),
         ];
