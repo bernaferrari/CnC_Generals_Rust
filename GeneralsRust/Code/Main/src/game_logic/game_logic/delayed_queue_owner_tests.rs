@@ -47,16 +47,19 @@ fn queue_authored_shot(
     // independent bootstrap seed flag may already be set by an earlier test;
     // initialize this real owned store explicitly before registering authored
     // rules instead of mutating that production flag or an unrelated catalog.
-    gamelogic::initialize_weapon_store().expect("initialize actual fixture weapon store");
-    crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
-    gamelogic::weapon::with_weapon_store_mut(|store| {
-        let mut template = gamelogic::weapon::WeaponTemplate::new(name.clone());
-        template.weapon_speed = authored.projectile_speed;
-        template.primary_damage = authored.primary_damage;
-        template.projectile_name.clear();
-        store.add_weapon_template(template);
-    })
-    .expect("owned fixture store is installed");
+    // WeaponStore lives on WorldServices; bind this world's bag for init/register.
+    world.with_own_services(|| {
+        gamelogic::initialize_weapon_store().expect("initialize actual fixture weapon store");
+        crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+        gamelogic::weapon::with_weapon_store_mut(|store| {
+            let mut template = gamelogic::weapon::WeaponTemplate::new(name.clone());
+            template.weapon_speed = authored.projectile_speed;
+            template.primary_damage = authored.primary_damage;
+            template.projectile_name.clear();
+            store.add_weapon_template(template);
+        })
+        .expect("owned fixture store is installed");
+    });
     let mut pending = lifecycle_test_pending_projectile(
         authored.effects.projectile_object.as_str(),
         Some(target),
@@ -222,9 +225,11 @@ fn delayed_deadline_wraps_cpp_u32_and_is_due_in_current_high_frame() {
     // differs deliberately. Thirty units / ten units per frame = three frames.
 
     queue_authored_shot(&mut world, source, target, 40.0, 10.0);
-    let mirrored =
+    // WeaponStore is per-world; observe it under this world's services (no process bag).
+    let mirrored = world.with_own_services(|| {
         gamelogic::weapon::with_weapon_store(|store| store.delayed_damage_snapshot_residual())
-            .expect("independent Core store remains available");
+            .expect("world WeaponStore remains available while services are bound")
+    });
     assert!(
         mirrored.is_empty(),
         "Main must not publish a Core damage mirror"
@@ -274,9 +279,10 @@ fn delayed_deadline_before_rollover_waits_until_normal_due_and_applies_once() {
     let hp = world.objects[&target].health.current;
 
     queue_authored_shot(&mut world, source, target, 40.0, 10.0);
-    let mirrored =
+    let mirrored = world.with_own_services(|| {
         gamelogic::weapon::with_weapon_store(|store| store.delayed_damage_snapshot_residual())
-            .expect("independent Core store remains available");
+            .expect("world WeaponStore remains available while services are bound")
+    });
     assert!(
         mirrored.is_empty(),
         "Main must not publish a Core damage mirror"

@@ -26,11 +26,12 @@ impl RestoreCombatInputs {
 
 impl Drop for RestoreCombatInputs {
     fn drop(&mut self) {
+        // Never panic from Drop: an earlier failure may leave WorldServices
+        // unbound, and a second panic aborts the whole test process (SIGABRT).
         if let Some(previous) = self.weapon_store.take() {
-            gamelogic::weapon::with_weapon_store_mut(|store| *store = previous)
-                .expect("restore the previously initialized weapon store");
+            let _ = gamelogic::weapon::with_weapon_store_mut(|store| *store = previous);
         } else {
-            gamelogic::weapon::shutdown_weapon_store().expect("restore absent weapon store");
+            let _ = gamelogic::weapon::shutdown_weapon_store();
         }
     }
 }

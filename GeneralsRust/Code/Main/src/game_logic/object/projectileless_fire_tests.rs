@@ -29,7 +29,7 @@ impl Drop for RestoreInputs {
             gamelogic::weapon::with_weapon_store_mut(|current| *current = store)
                 .expect("restore exact compatibility weapon store");
         } else {
-            gamelogic::weapon::shutdown_weapon_store().expect("restore absent store");
+            let _ = gamelogic::weapon::shutdown_weapon_store();
         }
     }
 }

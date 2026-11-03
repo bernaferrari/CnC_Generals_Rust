@@ -86,7 +86,7 @@ impl Drop for RestoreStore {
             gamelogic::weapon::with_weapon_store_mut(|store| *store = previous)
                 .expect("restore exact previous catalog");
         } else {
-            gamelogic::weapon::shutdown_weapon_store().expect("restore absence");
+            let _ = gamelogic::weapon::shutdown_weapon_store();
         }
     }
 }
@@ -245,7 +245,7 @@ End
 fn stream_query_bootstraps_absent_actual_catalog() {
     isolated("stream_query_bootstraps_absent_actual_catalog", || {
         let _restore = RestoreStore::install();
-        gamelogic::weapon::shutdown_weapon_store().expect("actual missing catalog");
+        let _ = gamelogic::weapon::shutdown_weapon_store();
         assert!(gamelogic::weapon::with_weapon_store(|_| ()).is_err());
         // No direct ensure/initializer after shutdown: this reached stream query
         // must admit the actual host fallback rules before reading their field.
