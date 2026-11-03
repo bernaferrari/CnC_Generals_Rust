@@ -504,3 +504,18 @@ note = "GameSpyOverlayState on WindowManagerOwner (online_ui); removed process T
 path = "Code/GameEngine/GameClient/src/gamespy_game.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameSpyGame.cpp"
 note = "GameSpy GameInfo on WindowManagerOwner (online_ui); removed process TLS; peels prefer owner/live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/core/game_client/ids.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp"
+note = "HOST_CONTAINED_FLASH_QUEUE on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/message_stream/player_state.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/MessageStream"
+note = "LOCAL_PLAYER_ID on GameClient.local_player_id; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/system/anim2_d.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/System/Anim2D.cpp"
+note = "Anim2DCollection Arc on GameClient; update via instance; peels live client; cfg(test) TLS fallback only."
