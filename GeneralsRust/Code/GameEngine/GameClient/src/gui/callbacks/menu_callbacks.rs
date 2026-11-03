@@ -2112,13 +2112,14 @@ impl Default for OptionsMenu {
 impl MenuCallbacks for OptionsMenu {
     fn system(
         &mut self,
-        _window: &mut GameWindow,
-        _msg: WindowMessage,
-        _data1: WindowMsgData,
-        _data2: WindowMsgData,
+        window: &mut GameWindow,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
-        panic!("OptionsMenu system callback requires receiving WindowEventEffects")
+        // Effects are already the receiving loan; forward to the real handler.
+        self.system_with_effects(window, msg, data1, data2, effects)
     }
 
     fn init(
@@ -2657,13 +2658,14 @@ impl MenuCallbacks for MapSelectMenu {
 
     fn system(
         &mut self,
-        _window: &mut GameWindow,
-        _msg: WindowMessage,
-        _data1: WindowMsgData,
-        _data2: WindowMsgData,
+        window: &mut GameWindow,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) -> WindowMsgHandled {
-        panic!("MapSelectMenu system dispatch requires receiving event effects");
+        // Effects are already the receiving loan; forward to the real handler.
+        self.system_with_effects(window, msg, data1, data2, effects)
     }
 
     fn system_with_effects(
@@ -3593,15 +3595,42 @@ pub fn drive_os_wnd_options_menu_firewall_like_cpp(
 
 #[cfg(test)]
 mod options_os_wnd_tests {
-    use crate::test_support::with_receiving_ui;
-
     use super::*;
 
-    fn install_named_button(owner: &crate::gui::window_manager::WindowManagerOwner, name: &str, x: i32, y: i32) {
-        owner.with_manager(|manager| {
-            let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
+    fn with_fixture(operation: impl FnOnce(&mut WindowEventEffects<'_>)) {
+        // Mirror WindowEventEffects::with_standalone loans so Accept/apply paths
+        // that touch ui/menu_world/script_display do not panic mid-drive.
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+        let mut ime = crate::gui::ime_manager::ImeManager::new();
+        let mut main_menu = crate::gui::shell::main_menu::MainMenu::new();
+        let mut menu_host = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut script_display =
+            crate::core::script_action_handler::ScriptDisplayReceiver::default();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        effects.ui = Some(&mut ui);
+        effects.ime = Some(&mut ime);
+        effects.main_menu = Some(&mut main_menu);
+        effects.menu_host = Some(&mut menu_host);
+        effects.menu_world =
+            Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts::default());
+        effects.script_display = Some(&mut script_display);
+        operation(&mut effects);
+    }
+
+    fn install_named_button(name: &str, x: i32, y: i32, effects: &mut WindowEventEffects<'_>) {
+        effects.with_manager(|manager, effects| {
+            let button = manager
+                .create_window(None, x, y, 80, 24, effects)
+                .expect(name);
             button.borrow_mut().set_name(name);
-            let _ = button.borrow_mut().hide_without_manager_side_effects(false);
+            button.borrow_mut().hide(false, manager);
         });
     }
 
@@ -3615,17 +3644,18 @@ mod options_os_wnd_tests {
             crate::test_process::TestProcess::ParentVerified => return,
             crate::test_process::TestProcess::Child => {}
         }
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        install_named_button(&owner, "OptionsMenu.wnd:ButtonAccept", 10, 10);
-        assert!(
-            WindowEventEffects::with_standalone(|effects| drive_os_wnd_options_menu_accept_like_cpp(effects)),
-            "OS WND click on ButtonAccept must latch Accept residual"
-        );
-        assert_eq!(
-            WindowEventEffects::with_standalone(|effects| residual_options_menu_last_action(effects)),
-            ResidualOptionsMenuAction::Accept
-        );
-        assert!(!WindowEventEffects::with_standalone(|effects| drive_os_wnd_options_menu_back_like_cpp(effects)));
+        with_fixture(|effects| {
+            install_named_button("OptionsMenu.wnd:ButtonAccept", 10, 10, effects);
+            assert!(
+                drive_os_wnd_options_menu_accept_like_cpp(effects),
+                "OS WND click on ButtonAccept must latch Accept residual"
+            );
+            assert_eq!(
+                residual_options_menu_last_action(effects),
+                ResidualOptionsMenuAction::Accept
+            );
+            assert!(!drive_os_wnd_options_menu_back_like_cpp(effects));
+        });
     }
 
     #[test]
@@ -3643,9 +3673,9 @@ mod options_os_wnd_tests {
         apply.music_volume = 80;
         apply.gamma_slider = 100;
         apply.resolution = (1024, 768);
-        assert!(crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
-            apply_options_from_host(apply, effects)
-        }));
+        with_fixture(|effects| {
+            assert!(apply_options_from_host(apply, effects));
+        });
         // Gamma lives on the receiving display; host apply still mutates music residual.
         assert!((runtime_global_data::read().music_volume_factor - 0.8).abs() < 0.01);
     }
@@ -3689,9 +3719,9 @@ mod options_os_wnd_tests {
         let mut apply = HostOptionsApply::default();
         apply.detail_index = 3;
         apply.resolution = (1024, 768);
-        assert!(crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
-            apply_options_from_host(apply, effects)
-        }));
+        with_fixture(|effects| {
+            assert!(apply_options_from_host(apply, effects));
+        });
         {
             let g = runtime_global_data::read();
             assert!(g.writable.use_shadow_volumes);
@@ -3719,7 +3749,6 @@ mod options_os_wnd_tests {
     #[test]
     fn apply_options_from_host_publishes_scroll_anchors() {
         crate::test_support::ensure_ambient_host();
-        with_receiving_ui(|ui| {
         match crate::test_process::run_bounded(
             module_path!(),
             "apply_options_from_host_publishes_scroll_anchors",
@@ -3729,42 +3758,37 @@ mod options_os_wnd_tests {
         }
         use crate::gui::options_host_bridge::HostOptionsRequest;
 
-        let mut messages = Vec::new();
-        let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
-        let mut effects = WindowEventEffects::new(&mut messages);
-        effects.menu_host = Some(&mut mailbox);
+        with_fixture(|effects| {
+            let _ = effects
+                .menu_host
+                .as_deref_mut()
+                .map(|host| host.options.take_requests())
+                .unwrap_or_default();
+            let original_draw = effects.ui().get_draw_rmb_scroll_anchor();
+            let original_move = effects.ui().get_move_rmb_scroll_anchor();
 
-        let _ = effects
-            .menu_host
-            .as_deref_mut()
-            .map(|host| host.options.take_requests())
-            .unwrap_or_default();
-        let original_draw = ui.get_draw_rmb_scroll_anchor();
-        let original_move = ui.get_move_rmb_scroll_anchor();
-
-        let mut apply = HostOptionsApply::default();
-        apply.draw_anchor = true;
-        apply.move_anchor = true;
-        apply.resolution = (1024, 768);
-        assert!(apply_options_from_host(apply, &mut effects));
-        let reqs = effects
-            .menu_host
-            .as_deref_mut()
-            .map(|host| host.options.take_requests())
-            .unwrap_or_default();
-        assert!(
-            reqs.contains(&HostOptionsRequest::DrawRmbScrollAnchor { enabled: true }),
-            "{reqs:?}"
-        );
-        assert!(
-            reqs.contains(&HostOptionsRequest::MoveRmbScrollAnchor { enabled: true }),
-            "{reqs:?}"
-        );
-        assert!(ui.get_draw_rmb_scroll_anchor());
-        assert!(ui.get_move_rmb_scroll_anchor());
-
-        ui.set_draw_rmb_scroll_anchor(original_draw);
-        ui.set_move_rmb_scroll_anchor(original_move);
+            let mut apply = HostOptionsApply::default();
+            apply.draw_anchor = true;
+            apply.move_anchor = true;
+            apply.resolution = (1024, 768);
+            assert!(apply_options_from_host(apply, effects));
+            let reqs = effects
+                .menu_host
+                .as_deref_mut()
+                .map(|host| host.options.take_requests())
+                .unwrap_or_default();
+            assert!(
+                reqs.contains(&HostOptionsRequest::DrawRmbScrollAnchor { enabled: true }),
+                "{reqs:?}"
+            );
+            assert!(
+                reqs.contains(&HostOptionsRequest::MoveRmbScrollAnchor { enabled: true }),
+                "{reqs:?}"
+            );
+            assert!(effects.ui().get_draw_rmb_scroll_anchor());
+            assert!(effects.ui().get_move_rmb_scroll_anchor());
+            effects.ui_mut().set_draw_rmb_scroll_anchor(original_draw);
+            effects.ui_mut().set_move_rmb_scroll_anchor(original_move);
         });
     }
 
@@ -3778,19 +3802,20 @@ mod options_os_wnd_tests {
             crate::test_process::TestProcess::ParentVerified => return,
             crate::test_process::TestProcess::Child => {}
         }
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        install_named_button(&owner, "OptionsMenu.wnd:ButtonKeyboardOptions", 10, 40);
-        install_named_button(&owner, "OptionsMenu.wnd:ButtonDefaults", 10, 70);
-        assert!(WindowEventEffects::with_standalone(|effects| drive_os_wnd_options_menu_keyboard_like_cpp(effects)));
-        assert_eq!(
-            WindowEventEffects::with_standalone(|effects| residual_options_menu_last_action(effects)),
-            ResidualOptionsMenuAction::Keyboard
-        );
-        assert!(WindowEventEffects::with_standalone(|effects| drive_os_wnd_options_menu_defaults_like_cpp(effects)));
-        assert_eq!(
-            WindowEventEffects::with_standalone(|effects| residual_options_menu_last_action(effects)),
-            ResidualOptionsMenuAction::Defaults
-        );
+        with_fixture(|effects| {
+            install_named_button("OptionsMenu.wnd:ButtonKeyboardOptions", 10, 40, effects);
+            install_named_button("OptionsMenu.wnd:ButtonDefaults", 10, 70, effects);
+            assert!(drive_os_wnd_options_menu_keyboard_like_cpp(effects));
+            assert_eq!(
+                residual_options_menu_last_action(effects),
+                ResidualOptionsMenuAction::Keyboard
+            );
+            assert!(drive_os_wnd_options_menu_defaults_like_cpp(effects));
+            assert_eq!(
+                residual_options_menu_last_action(effects),
+                ResidualOptionsMenuAction::Defaults
+            );
+        });
     }
 }
 
@@ -3914,52 +3939,61 @@ pub fn drive_os_wnd_credits_menu_prepare_skip_like_cpp(
 mod credits_os_wnd_tests {
     use super::*;
 
+    fn with_fixture(operation: impl FnOnce(&mut WindowEventEffects<'_>)) {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        operation(&mut effects);
+    }
+
+    fn install_parent(effects: &mut WindowEventEffects<'_>, y: i32) {
+        let owner = effects
+            .window_manager_owner
+            .expect("parent install requires receiving owner");
+        owner.with_manager(|manager| {
+            let parent = manager
+                .test_create_window(None, 10, y, 200, 120)
+                .expect("ParentCreditsWindow");
+            parent
+                .borrow_mut()
+                .set_name("CreditsMenu.wnd:ParentCreditsWindow");
+            let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
+        });
+    }
+
     #[test]
     fn os_wnd_credits_menu_skip_hits_parent_then_latches() {
         crate::test_support::ensure_ambient_host();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        { // was owner.with_scope
-            owner.with_manager(|manager| {
-                let parent = manager
-                    .test_create_window(None, 10, 10, 200, 120)
-                    .expect("ParentCreditsWindow");
-                parent
-                    .borrow_mut()
-                    .set_name("CreditsMenu.wnd:ParentCreditsWindow");
-                let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
-            });
+        with_fixture(|effects| {
+            install_parent(effects, 10);
             assert!(
-                WindowEventEffects::with_standalone(|effects| drive_os_wnd_credits_menu_skip_like_cpp(effects)),
+                drive_os_wnd_credits_menu_skip_like_cpp(effects),
                 "OS WND click on ParentCreditsWindow must latch skip residual"
             );
             assert_eq!(
-                WindowEventEffects::with_standalone(|effects| residual_credits_menu_last_action(effects)),
+                residual_credits_menu_last_action(effects),
                 ResidualCreditsMenuAction::Skip
             );
-            assert!(!WindowEventEffects::with_standalone(|effects| residual_credits_menu_is_active(effects)));
-        }
+            assert!(!residual_credits_menu_is_active(effects));
+        });
     }
 
     #[test]
     fn os_wnd_credits_menu_finished_hits_parent_then_latches() {
         crate::test_support::ensure_ambient_host();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        { // was owner.with_scope
-            owner.with_manager(|manager| {
-                let parent = manager
-                    .test_create_window(None, 10, 140, 200, 120)
-                    .expect("ParentCreditsWindow finished");
-                parent
-                    .borrow_mut()
-                    .set_name("CreditsMenu.wnd:ParentCreditsWindow");
-                let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
-            });
-            assert!(WindowEventEffects::with_standalone(|effects| drive_os_wnd_credits_menu_finished_like_cpp(effects)));
+        with_fixture(|effects| {
+            install_parent(effects, 140);
+            assert!(drive_os_wnd_credits_menu_finished_like_cpp(effects));
             assert_eq!(
-                WindowEventEffects::with_standalone(|effects| residual_credits_menu_last_action(effects)),
+                residual_credits_menu_last_action(effects),
                 ResidualCreditsMenuAction::Finished
             );
-        }
+        });
     }
 }
 

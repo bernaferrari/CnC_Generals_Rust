@@ -860,39 +860,54 @@ pub fn drive_os_wnd_credits_roll_finished_like_cpp(
 #[cfg(test)]
 mod os_wnd_tests {
     use super::*;
-use crate::gui::game_window::WindowEventEffects;
-    
+    use crate::gui::game_window::WindowEventEffects;
+
+    fn with_fixture(operation: impl FnOnce(&mut WindowEventEffects<'_>, &crate::gui::window_manager::WindowManagerOwner)) {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        operation(&mut effects, &owner);
+    }
+
     #[test]
     fn os_wnd_credits_roll_prepare_hits_parent_then_latches_lines() {
         crate::test_support::ensure_ambient_host();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        owner.with_manager(|manager| {
-            let parent = manager
-                .test_create_window(None, 10, 10, 200, 120)
-                .expect("ParentCreditsWindow");
-            parent
-                .borrow_mut()
-                .set_name("CreditsMenu.wnd:ParentCreditsWindow");
-            let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
+        with_fixture(|effects, owner| {
+            owner.with_manager(|manager| {
+                let parent = manager
+                    .test_create_window(None, 10, 10, 200, 120)
+                    .expect("ParentCreditsWindow");
+                parent
+                    .borrow_mut()
+                    .set_name("CreditsMenu.wnd:ParentCreditsWindow");
+                let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
+            });
+            assert!(
+                crate::gui::callbacks::owned_credits_menu::attach_credits_playback_for_owner(owner),
+                "ParentCreditsWindow must own credits playback"
+            );
+            assert!(
+                drive_os_wnd_credits_roll_prepare_like_cpp(effects),
+                "OS WND click on ParentCreditsWindow must prepare short credits roll"
+            );
+            assert!(crate::gui::callbacks::owned_credits_menu::with_credits_for_owner(
+                owner,
+                |guard, _| residual_credits_line_count(guard) >= 3 && !residual_credits_is_finished(guard),
+            )
+            .unwrap_or(false));
+            assert!(drive_os_wnd_credits_roll_update_like_cpp(effects));
+            assert_eq!(
+                crate::gui::callbacks::owned_credits_menu::with_credits_for_owner(
+                    owner,
+                    |guard, _| residual_credits_last_action(guard),
+                ),
+                Some(ResidualCreditsAction::Update)
+            );
         });
-        // drive_os_wnd_* still needs a receiving owner/effects path — keep owner alive
-        let owner = owner;
-        assert!(
-            WindowEventEffects::with_standalone(|effects| drive_os_wnd_credits_roll_prepare_like_cpp(effects)),
-            "OS WND click on ParentCreditsWindow must prepare short credits roll"
-        );
-        assert!(crate::gui::callbacks::owned_credits_menu::with_credits_for_owner(
-            &owner,
-            |guard, _| residual_credits_line_count(guard) >= 3 && !residual_credits_is_finished(guard),
-        )
-        .unwrap_or(false));
-        assert!(WindowEventEffects::with_standalone(|effects| drive_os_wnd_credits_roll_update_like_cpp(effects)));
-        assert_eq!(
-            crate::gui::callbacks::owned_credits_menu::with_credits_for_owner(
-                &owner,
-                |guard, _| residual_credits_last_action(guard),
-            ),
-            Some(ResidualCreditsAction::Update)
-        );
     }
 }

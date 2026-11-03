@@ -3845,7 +3845,9 @@ pub fn dispatch_os_click_named_window(name: &str, effects: &mut WindowEventEffec
         .expect("named click requires receiving window owner");
     owner.record_widget_tree_click_used(false);
 
-    let Some((x, y)) = owner.with_manager(|manager| {
+    // Use the receiving effects manager loan. `with_standalone` already holds
+    // `owner.with_manager`, so a second owner borrow_mut panics (RefCell).
+    let Some((x, y)) = effects.with_manager(|manager, _effects| {
         let window = manager.find_window_by_name(name)?;
         let (sx, sy, w, h) = {
             let guard = window.borrow();
@@ -3869,8 +3871,29 @@ pub fn dispatch_os_click_named_window(name: &str, effects: &mut WindowEventEffec
 
     let data = (((y as u32) << 16) | ((x as u32) & 0xFFFF)) as WindowMsgData;
     // Named dispatch and live OS mouse share the same sticky nav latch.
-    let _ = note_os_wnd_widget_tree_hit(owner, x, y);
-    let (down, up) = owner.with_manager(|manager| {
+    // Prefer the effects loan — owner try_borrow is None while standalone holds it.
+    let hit = effects.with_manager_ref(|manager| {
+        manager
+            .get_window_under_cursor(x, y, false)
+            .is_some_and(|window| match window.try_borrow() {
+                Ok(guard) => {
+                    if guard.is_hidden() || !guard.is_enabled() {
+                        return false;
+                    }
+                    if let Some(layout) = guard.get_layout() {
+                        if layout.borrow().is_hidden() {
+                            return false;
+                        }
+                    }
+                    true
+                }
+                Err(_) => false,
+            })
+    });
+    if hit {
+        owner.record_widget_tree_navigation();
+    }
+    let (down, up) = effects.with_manager(|manager, effects| {
         let down = manager.process_mouse_event_with_delta_and_message_sink(
             WindowMessage::LeftDown,
             x,
