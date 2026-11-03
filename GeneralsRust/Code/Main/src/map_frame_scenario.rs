@@ -8,6 +8,7 @@
 //! Wave 957: host_object/host_objects authority dual-read seal.
 use crate::game_logic::script_loader::find_map_file;
 use crate::game_logic::{GameLogic, GameMode};
+use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
 use std::path::{Path, PathBuf};
 
 /// Default number of logic frames to advance for the gate scenario.
@@ -217,32 +218,68 @@ pub struct LoneEagleSkirmishFingerprint {
     pub order_overlay: Option<String>,
 }
 
-fn ensure_lone_eagle_assets_env() {
-    if std::env::var_os("GENERALS_ASSETS_DIR").is_some() {
-        return;
-    }
-    for candidate in [
-        "/Users/bernardoferrari/Downloads/cnc-zero-hour-work-preserved-20261010/windows_game",
-        "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/windows_game",
-    ] {
-        let p = Path::new(candidate);
-        if p
-            .join("extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map")
-            .is_file()
-            || p.join("Data/EnglishZH.big").is_file()
-        {
-            // SAFETY: process env for asset discovery in gates/tests.
-            unsafe {
-                std::env::set_var("GENERALS_ASSETS_DIR", candidate);
-            }
-            return;
-        }
-    }
+/// Same retail root probe as `retail_skirmish_map_gate` / `player_orders_gate`.
+fn retail_root_looks_valid(root: &Path) -> bool {
+    let data = if root
+        .file_name()
+        .is_some_and(|n| n.eq_ignore_ascii_case("Data"))
+    {
+        root.to_path_buf()
+    } else {
+        root.join("Data")
+    };
+    data.join("MapsZH.big").is_file()
+        || data.join("EnglishZH.big").is_file()
+        || root
+            .parent()
+            .map(|p| {
+                p.join("extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map")
+                    .is_file()
+            })
+            .unwrap_or(false)
 }
 
-/// Resolve Lone Eagle.map from GENERALS_ASSETS_DIR or known local trees.
+fn ensure_lone_eagle_assets_env() -> Option<PathBuf> {
+    for key in ["GENERALS_RETAIL_DIR", "GENERALS_ASSETS_DIR"] {
+        if let Ok(dir) = std::env::var(key) {
+            let p = PathBuf::from(&dir);
+            if retail_root_looks_valid(&p) {
+                if std::env::var_os("GENERALS_ASSETS_DIR").is_none() {
+                    // SAFETY: process env for asset discovery in gates/tests.
+                    unsafe {
+                        std::env::set_var("GENERALS_ASSETS_DIR", &p);
+                    }
+                }
+                return Some(p);
+            }
+        }
+    }
+    for candidate in [
+        PathBuf::from("windows_game/Command & Conquer Generals Zero Hour"),
+        PathBuf::from("../windows_game/Command & Conquer Generals Zero Hour"),
+        PathBuf::from("/Users/bernardoferrari/Downloads/cnc-zero-hour-work-preserved-20261010/windows_game/Command & Conquer Generals Zero Hour"),
+        PathBuf::from("/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/windows_game/Command & Conquer Generals Zero Hour"),
+        PathBuf::from("/Users/bernardoferrari/Downloads/cnc-zero-hour-work-preserved-20261010/windows_game"),
+        PathBuf::from("/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/windows_game"),
+    ] {
+        if retail_root_looks_valid(&candidate) {
+            let resolved = candidate.canonicalize().unwrap_or(candidate);
+            // SAFETY: process env for asset discovery in gates/tests.
+            unsafe {
+                std::env::set_var("GENERALS_ASSETS_DIR", &resolved);
+            }
+            return Some(resolved);
+        }
+    }
+    None
+}
+
+/// Resolve Lone Eagle.map via find_map_file (retail archives) or extracted trees.
 pub fn lone_eagle_map_path() -> Option<String> {
-    ensure_lone_eagle_assets_env();
+    let _ = ensure_lone_eagle_assets_env();
+    if let Some(found) = find_map_file("Lone Eagle") {
+        return Some(found.display().to_string());
+    }
     const CANDIDATES: &[&str] = &[
         "windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
         "/Users/bernardoferrari/Downloads/cnc-zero-hour-work-preserved-20261010/windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
@@ -265,26 +302,35 @@ pub fn run_lone_eagle_skirmish(
     frames: u32,
     diverge_token: u32,
 ) -> Option<LoneEagleSkirmishFingerprint> {
+    let _retail = ensure_lone_eagle_assets_env()?;
     let map = lone_eagle_map_path()?;
     let mut logic = GameLogic::new();
     // Publish this instance before start/load/update — no process-bag fallback.
     logic.install_as_active_stores();
-    logic.start_new_game(GameMode::Skirmish);
+    // Same in-process retail admit bootstrap as initial_skirmish_owner_tests /
+    // playable Lone Eagle hosts: GameData partition cell + golden skirmish slots.
+    logic.admit_camera_application_movement(
+        game_engine::common::ini::ini_game_data::CameraMovementRules::default()
+            .overlay_ini_text("GameData\n PartitionCellSize = 40\nEnd\n")
+            .ok()?,
+    );
+    // Match initial_skirmish_owner_tests::world(): admit → apply_skirmish → load_map
+    // (no start_new_game before load — that path wiped/raced retail map stage).
+    apply_skirmish_config(&mut logic, &golden_skirmish_config(&map)).ok()?;
     let services = std::sync::Arc::clone(&logic.world_services);
-    gamelogic::system::engine_stores::with_world_services(&services, || {
-        services
-            .session_flags()
-            .next_command_id
-            .store(1 + diverge_token, std::sync::atomic::Ordering::SeqCst);
-        if diverge_token != 0 {
-            if let Ok(mut overlay) = services.map_string_overlay().write() {
-                overlay.insert(
-                    "parallel_order".to_string(),
-                    diverge_token.to_string(),
-                );
-            }
+    // Prefer owned session flags on this instance (no ambient read).
+    services
+        .session_flags()
+        .next_command_id
+        .store(1 + diverge_token, std::sync::atomic::Ordering::SeqCst);
+    if diverge_token != 0 {
+        if let Ok(mut overlay) = services.map_string_overlay().write() {
+            overlay.insert(
+                "parallel_order".to_string(),
+                diverge_token.to_string(),
+            );
         }
-    });
+    }
     let loaded = logic.load_map(&map) || logic.load_map("Lone Eagle");
     let before = logic.get_frame();
     for _ in 0..frames {
@@ -294,13 +340,11 @@ pub fn run_lone_eagle_skirmish(
     let after = logic.get_frame();
     let players_ptr = std::sync::Arc::as_ptr(logic.world_services.players()) as usize;
     let sides_ptr = std::sync::Arc::as_ptr(logic.world_services.sides()) as usize;
-    let order_overlay = gamelogic::system::engine_stores::with_world_services(&services, || {
-        services
-            .map_string_overlay()
-            .read()
-            .ok()
-            .and_then(|o| o.get("parallel_order").cloned())
-    });
+    let order_overlay = services
+        .map_string_overlay()
+        .read()
+        .ok()
+        .and_then(|o| o.get("parallel_order").cloned());
     Some(LoneEagleSkirmishFingerprint {
         frames_advanced: after.saturating_sub(before),
         frame_after: after,
@@ -314,9 +358,11 @@ pub fn run_lone_eagle_skirmish(
 
 /// Two-thread barrier retail check: same orders match; different tokens diverge.
 pub fn run_parallel_lone_eagle_skirmishes() -> Result<(), String> {
-    ensure_lone_eagle_assets_env();
+    if ensure_lone_eagle_assets_env().is_none() {
+        return Err("Lone Eagle retail assets missing (set GENERALS_ASSETS_DIR to windows_game/Command & Conquer Generals Zero Hour)".into());
+    }
     if lone_eagle_map_path().is_none() {
-        return Err("Lone Eagle assets missing".into());
+        return Err("Lone Eagle.map not found after retail asset bootstrap".into());
     }
     use std::sync::{Arc, Barrier, Mutex};
     use std::thread;
