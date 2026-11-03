@@ -950,7 +950,27 @@ pub fn drive_os_wnd_skirmish_map_select_like_cpp(
 #[cfg(test)]
 mod tests {
     use super::*;
-use crate::gui::game_window::WindowEventEffects;
+    use crate::gui::game_window::WindowEventEffects;
+
+    fn with_owner_effects<R>(
+        owner: &crate::gui::window_manager::WindowManagerOwner,
+        operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R,
+    ) -> R {
+        let mut messages = Vec::new();
+        let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+        let mut ime = crate::gui::ime_manager::ImeManager::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(owner);
+        effects.ui = Some(&mut ui);
+        effects.ime = Some(&mut ime);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        let result = operation(&mut effects);
+        owner.complete_event_callbacks(&mut effects);
+        result
+    }
 
     #[test]
     fn preview_image_name_falls_back_to_unknown_map() {
@@ -1016,7 +1036,7 @@ use crate::gui::game_window::WindowEventEffects;
                 let _ = ok.borrow_mut().hide_without_manager_side_effects(false);
             });
             assert!(
-                WindowEventEffects::with_standalone(|effects| drive_os_wnd_skirmish_map_select_like_cpp("maps\\alpine_war.map", effects)),
+                with_owner_effects(&owner, |effects| { drive_os_wnd_skirmish_map_select_like_cpp("maps\\alpine_war.map", effects) }),
                 "OS WND clicks must commit map into skirmish setup"
             );
             let committed = get_skirmish_setup().lock().unwrap_or_else(|e| e.into_inner())
@@ -1025,7 +1045,9 @@ use crate::gui::game_window::WindowEventEffects;
                 .get_map()
                 .to_string();
             assert_eq!(committed, "maps\\alpine_war.map");
-            assert!(!WindowEventEffects::with_standalone(|effects| drive_os_wnd_skirmish_map_select_like_cpp("", effects)));
+            assert!(!with_owner_effects(&owner, |effects| {
+                drive_os_wnd_skirmish_map_select_like_cpp("", effects)
+            }));
         }
     }
 
@@ -1106,8 +1128,8 @@ use crate::gui::game_window::WindowEventEffects;
         install_map_listbox_for_test(listbox_id, Some(1), &owner);
 
         let window = GameWindow::new();
-        owner.with_manager(|wm| {
-            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+        with_owner_effects(&owner, |effects| {
+            effects.with_manager(|wm, effects| {
                 assert_eq!(
                     skirmish_map_select_menu_system(
                         &window,
@@ -1138,8 +1160,8 @@ use crate::gui::game_window::WindowEventEffects;
         install_map_listbox_for_test(listbox_id, None, &owner);
 
         let window = GameWindow::new();
-        owner.with_manager(|wm| {
-            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+        with_owner_effects(&owner, |effects| {
+            effects.with_manager(|wm, effects| {
                 assert_eq!(
                     skirmish_map_select_menu_system(
                         &window,
