@@ -3189,3 +3189,52 @@ fn stick_to_ground_snaps_when_not_falling() {
     let _ = o.tick_physics_motion_step(0, 0.0, &mut health_events);
     assert!((o.get_position().y - 0.0).abs() < 1e-4);
 }
+
+#[test]
+fn private_face_uses_cpp_is_mobile_gate_not_can_move() {
+    use crate::game_logic::{AIState, KindOf, Object, ObjectAudio, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut logic = GameLogic::new();
+    let mut vt = ThingTemplate::new("FgV");
+    vt.add_kind_of(KindOf::Infantry);
+    let vid = ObjectId(1391);
+    logic.objects.insert(vid, {
+        let mut o = Object::new(vt, vid, Team::GLA);
+        o.set_position(Vec3::new(0.0, 0.0, 10.0));
+        o
+    });
+    let mk = |id: u32, kind: KindOf| {
+        let mut t = ThingTemplate::new("FgA");
+        t.add_kind_of(kind);
+        let mut o = Object::new(t, ObjectId(id), Team::USA);
+        o.set_position(Vec3::ZERO);
+        o
+    };
+    // Deployed infantry: can_move()==false, C++ isMobile()==true -> faces.
+    let dep = ObjectId(1392);
+    let mut o = mk(1392, KindOf::Infantry);
+    o.set_status_deployed(true);
+    assert!(!o.can_move() && o.is_mobile_for_ai_command());
+    logic.objects.insert(dep, o);
+    assert!(logic.private_face_object(dep, vid));
+    assert_eq!(logic.objects[&dep].ai_state(), AIState::FacingObject);
+    assert!(logic.private_face_position(dep, Vec3::new(5.0, 0.0, 0.0)));
+    assert_eq!(logic.objects[&dep].ai_state(), AIState::FacingPosition);
+    // Capturing: C++ privateFace* does not refuse.
+    let cap = ObjectId(1393);
+    logic.objects.insert(cap, mk(1393, KindOf::Infantry));
+    {
+        let GameLogic { objects, queued_audio_events, .. } = &mut logic;
+        objects
+            .get_mut(&cap)
+            .unwrap()
+            .set_ai_state(AIState::Capturing, &mut ObjectAudio::queue(queued_audio_events));
+    }
+    assert!(logic.private_face_object(cap, vid));
+    assert_eq!(logic.objects[&cap].ai_state(), AIState::FacingObject);
+    // KINDOF_IMMOBILE still refused.
+    let imm = ObjectId(1394);
+    logic.objects.insert(imm, mk(1394, KindOf::Immobile));
+    assert!(!logic.private_face_object(imm, vid));
+    assert!(!logic.private_face_position(imm, Vec3::ONE));
+}

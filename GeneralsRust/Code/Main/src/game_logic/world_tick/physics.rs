@@ -1134,7 +1134,7 @@ impl GameLogic {
         let Some(u) = self.objects.get_mut(&unit_id) else {
             return false;
         };
-        if !u.can_move() {
+        if !u.is_mobile_for_ai_command() {
             return false;
         }
         u.is_blocked = false;
@@ -1145,18 +1145,13 @@ impl GameLogic {
         u.set_face_active(true);
         u.set_face_loco_frame(0);
         let _ = u.arm_face_locomotor_goal(target_pos);
-        let faced = !matches!(u.ai_state(), AIState::SpecialAbility | AIState::Capturing);
-        if faced {
-            u.target_location = None;
-
-            u.set_status_attacking(false);
-            u.set_status_force_attack(false);
-            u.set_ai_state(
-                AIState::FacingObject,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            );
-        }
-        {}
+        u.target_location = None;
+        u.set_status_attacking(false);
+        u.set_status_force_attack(false);
+        u.set_ai_state(
+            AIState::FacingObject,
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+        );
         true
     }
 
@@ -1165,7 +1160,7 @@ impl GameLogic {
         let Some(u) = self.objects.get_mut(&unit_id) else {
             return false;
         };
-        if !u.can_move() {
+        if !u.is_mobile_for_ai_command() {
             return false;
         }
         u.is_blocked = false;
@@ -1175,19 +1170,14 @@ impl GameLogic {
         u.set_face_active(true);
         u.set_face_loco_frame(0);
         let _ = u.arm_face_locomotor_goal(pos);
-        let faced = !matches!(u.ai_state(), AIState::SpecialAbility | AIState::Capturing);
-        if faced {
-            u.target = None;
-            u.target_location = None;
-
-            u.set_status_attacking(false);
-            u.set_status_force_attack(false);
-            u.set_ai_state(
-                AIState::FacingPosition,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            );
-        }
-        {}
+        u.target = None;
+        u.target_location = None;
+        u.set_status_attacking(false);
+        u.set_status_force_attack(false);
+        u.set_ai_state(
+            AIState::FacingPosition,
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+        );
         true
     }
 
