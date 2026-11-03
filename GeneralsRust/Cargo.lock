@@ -4133,7 +4133,6 @@ dependencies = [
  "crc32fast",
  "criterion",
  "crossbeam",
- "ctor",
  "dashmap",
  "dbus 0.9.12",
  "env_logger",

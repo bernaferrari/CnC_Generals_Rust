@@ -1969,15 +1969,7 @@ fn write_screenshot_png(
 }
 
 fn unique_temp_path(path: &Path) -> PathBuf {
-    // Wall-clock resolution is too coarse to distinguish concurrent writers.
-    // This sequence identifies files only; it owns no simulation state.
-    struct NextTempFileSlot(std::sync::atomic::AtomicU64);
-    impl std::ops::Deref for NextTempFileSlot {
-        type Target = std::sync::atomic::AtomicU64;
-        fn deref(&self) -> &Self::Target { &self.0 }
-    }
-    static NEXT_TEMP_FILE: NextTempFileSlot = NextTempFileSlot(std::sync::atomic::AtomicU64::new(0));
-    let sequence = NEXT_TEMP_FILE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    // pid + monotonic nanos identify files; no process counter owned here.
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -1987,7 +1979,7 @@ fn unique_temp_path(path: &Path) -> PathBuf {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("ww3d-screenshot");
-    let temp_name = format!(".{base_name}.{pid}.{stamp}.{sequence}.tmp");
+    let temp_name = format!(".{base_name}.{pid}.{stamp}.tmp");
     path.with_file_name(temp_name)
 }
 

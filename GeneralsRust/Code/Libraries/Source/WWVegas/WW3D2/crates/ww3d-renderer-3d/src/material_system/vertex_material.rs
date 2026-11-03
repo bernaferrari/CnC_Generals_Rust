@@ -17,6 +17,13 @@
 use super::texture_mapper::TextureMapperType;
 use glam::Vec3;
 use std::sync::atomic::{AtomicU32, Ordering};
+struct VertexMaterialIdRuntime {
+    next_id: AtomicU32,
+}
+static VERTEX_MATERIAL_IDS: VertexMaterialIdRuntime = VertexMaterialIdRuntime {
+    next_id: AtomicU32::new(1),
+};
+
 use std::sync::{Arc, OnceLock};
 
 /// Maximum number of texture stages supported
@@ -224,8 +231,8 @@ impl VertexMaterialClass {
             type Target = AtomicU32;
             fn deref(&self) -> &Self::Target { &self.0 }
         }
-        static NEXT_ID: NextIdSlot = NextIdSlot(AtomicU32::new(1));
-        let unique_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        // ids from VERTEX_MATERIAL_IDS (was local static starting at 1)
+        let unique_id = VERTEX_MATERIAL_IDS.next_id.fetch_add(1, Ordering::Relaxed);
 
         Self {
             name: String::new(),
@@ -259,8 +266,8 @@ impl VertexMaterialClass {
                 type Target = AtomicU32;
                 fn deref(&self) -> &Self::Target { &self.0 }
             }
-            static NEXT_ID: NextIdSlot = NextIdSlot(AtomicU32::new(1));
-            NEXT_ID.fetch_add(1, Ordering::Relaxed)
+        // ids from VERTEX_MATERIAL_IDS (was local static starting at 1)
+        VERTEX_MATERIAL_IDS.next_id.fetch_add(1, Ordering::Relaxed)
         };
         cloned
     }
@@ -639,8 +646,8 @@ impl VertexMaterialClass {
             type Target = AtomicU32;
             fn deref(&self) -> &Self::Target { &self.0 }
         }
-        static NEXT_ID: NextIdSlot = NextIdSlot(AtomicU32::new(1000));
-        let unique_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        // ids from VERTEX_MATERIAL_IDS (was local static starting at 1000)
+        let unique_id = VERTEX_MATERIAL_IDS.next_id.fetch_add(1, Ordering::Relaxed);
         self.unique_id = unique_id;
         self.crc_dirty = true;
     }

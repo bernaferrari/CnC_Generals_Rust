@@ -7,24 +7,16 @@ use crate::{
 };
 use std::sync::atomic::{AtomicU32, Ordering};
 
-struct GlobalScaleBitsSlot(AtomicU32);
-impl std::ops::Deref for GlobalScaleBitsSlot {
-    type Target = AtomicU32;
-    fn deref(&self) -> &Self::Target { &self.0 }
+struct LogicalListenerRuntime {
+    global_scale_bits: AtomicU32,
+    oldest_timestamp: AtomicU32,
+    newest_timestamp: AtomicU32,
 }
-static GLOBAL_SCALE_BITS: GlobalScaleBitsSlot = GlobalScaleBitsSlot(AtomicU32::new(1.0f32.to_bits()));
-struct OldestTimestampSlot(AtomicU32);
-impl std::ops::Deref for OldestTimestampSlot {
-    type Target = AtomicU32;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static OLDEST_TIMESTAMP: OldestTimestampSlot = OldestTimestampSlot(AtomicU32::new(0));
-struct NewestTimestampSlot(AtomicU32);
-impl std::ops::Deref for NewestTimestampSlot {
-    type Target = AtomicU32;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static NEWEST_TIMESTAMP: NewestTimestampSlot = NewestTimestampSlot(AtomicU32::new(1));
+static LOGICAL_LISTENER_RUNTIME: LogicalListenerRuntime = LogicalListenerRuntime {
+    global_scale_bits: AtomicU32::new(1.0f32.to_bits()),
+    oldest_timestamp: AtomicU32::new(0),
+    newest_timestamp: AtomicU32::new(1),
+};
 
 #[derive(Debug, Clone)]
 pub struct LogicalListener {
@@ -89,21 +81,21 @@ impl LogicalListener {
     }
 
     pub fn new_timestamp() -> u32 {
-        NEWEST_TIMESTAMP.fetch_add(1, Ordering::SeqCst)
+        LOGICAL_LISTENER_RUNTIME.newest_timestamp.fetch_add(1, Ordering::SeqCst)
     }
 
     pub fn newest_timestamp() -> u32 {
-        NEWEST_TIMESTAMP.load(Ordering::SeqCst).saturating_sub(1)
+        LOGICAL_LISTENER_RUNTIME.newest_timestamp.load(Ordering::SeqCst).saturating_sub(1)
     }
 
     pub fn oldest_timestamp() -> u32 {
-        OLDEST_TIMESTAMP.load(Ordering::SeqCst)
+        LOGICAL_LISTENER_RUNTIME.oldest_timestamp.load(Ordering::SeqCst)
     }
 
     pub fn set_oldest_timestamp(timestamp: u32) {
-        let mut current = OLDEST_TIMESTAMP.load(Ordering::SeqCst);
+        let mut current = LOGICAL_LISTENER_RUNTIME.oldest_timestamp.load(Ordering::SeqCst);
         while timestamp > current {
-            match OLDEST_TIMESTAMP.compare_exchange(
+            match LOGICAL_LISTENER_RUNTIME.oldest_timestamp.compare_exchange(
                 current,
                 timestamp,
                 Ordering::SeqCst,
@@ -116,11 +108,11 @@ impl LogicalListener {
     }
 
     pub fn global_scale() -> f32 {
-        f32::from_bits(GLOBAL_SCALE_BITS.load(Ordering::Relaxed))
+        f32::from_bits(LOGICAL_LISTENER_RUNTIME.global_scale_bits.load(Ordering::Relaxed))
     }
 
     pub fn set_global_scale(scale: f32) {
         let clamped = scale.max(0.0);
-        GLOBAL_SCALE_BITS.store(clamped.to_bits(), Ordering::Relaxed);
+        LOGICAL_LISTENER_RUNTIME.global_scale_bits.store(clamped.to_bits(), Ordering::Relaxed);
     }
 }
