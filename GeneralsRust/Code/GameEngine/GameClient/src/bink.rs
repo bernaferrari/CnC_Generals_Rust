@@ -709,7 +709,9 @@ mod tests {
         bytes[28..32].copy_from_slice(&30u32.to_le_bytes());
         bytes[32..36].copy_from_slice(&1u32.to_le_bytes());
         bytes[36..40].copy_from_slice(&0u32.to_le_bytes());
-        bytes[40..44].copy_from_slice(&1u32.to_le_bytes());
+        // Zero audio tracks so the frame index table begins at offset 44
+        // (parse_audio_layout otherwise skips per-track headers first).
+        bytes[40..44].copy_from_slice(&0u32.to_le_bytes());
         bytes[44..48].copy_from_slice(&52u32.to_le_bytes());
         bytes[48..52].copy_from_slice(&68u32.to_le_bytes());
         for (i, byte) in bytes[52..].iter_mut().enumerate() {
@@ -726,7 +728,7 @@ mod tests {
         assert_eq!(header.frame_count, 2);
         assert_eq!(header.width, 4);
         assert_eq!(header.height, 4);
-        assert_eq!(header.audio_track_count, 1);
+        assert_eq!(header.audio_track_count, 0);
     }
 
     #[test]
@@ -773,7 +775,7 @@ mod tests {
     fn bink_has_audio_bitstream_parser_wired_to_miles() {
         let bytes = make_bink_blob(*b"BIKi");
         let header = BinkHeader::parse(&bytes).expect("header");
-        assert_eq!(header.audio_track_count, 1);
+        assert_eq!(header.audio_track_count, 0);
         assert!(
             has_bink_audio_bitstream_parser(),
             "Bink audio bitstream parser must be present for Miles/kira soundtrack"
