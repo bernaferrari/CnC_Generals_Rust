@@ -35,6 +35,7 @@ pub(super) fn append(bytes: &mut Vec<u8>, world: &GameLogic) -> SaveLoadResult<(
                 Some(BodyKind::Active) => 1,
                 Some(BodyKind::Inactive) => 2,
                 Some(BodyKind::Immortal) => 3,
+                Some(BodyKind::Highlander) => 4,
             },
         })
         .collect();
@@ -115,6 +116,7 @@ pub(super) fn validate(
             1 => Some(BodyKind::Active),
             2 => Some(BodyKind::Inactive),
             3 => Some(BodyKind::Immortal),
+            4 => Some(BodyKind::Highlander),
             _ => return Err(corrupted("invalid body-kind value")),
         };
         if let Some(kind) = kind {
@@ -195,7 +197,7 @@ mod tests {
             Vec::new(),
             vec![Record {
                 object_id: id.0,
-                kind: 4,
+                kind: 5,
             }],
             vec![Record {
                 object_id: id.0 + 10,

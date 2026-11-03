@@ -2666,7 +2666,15 @@ impl GameLogic {
             if crate::game_logic::host_battle_bus::is_battle_bus_template(template_name) {
                 object.install_battle_bus_transport();
             }
-            if crate::game_logic::host_highlander_body::is_highlander_body_template(template_name) {
+            // Authored Body subclass owns HighlanderBody; name peel only for
+            // unbound host templates.
+            let highlander = match object.get_template().body_kind {
+                Some(kind) => kind == crate::game_logic::thing::BodyKind::Highlander,
+                None => crate::game_logic::host_highlander_body::is_highlander_body_template(
+                    template_name,
+                ),
+            };
+            if highlander {
                 object.install_highlander_body();
             }
             object.install_deploy_style_if_needed();

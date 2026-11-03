@@ -8,6 +8,9 @@ pub(crate) enum BodyKind {
     Inactive,
     /// ActiveBody-family ImmortalBody (ImmortalBody.cpp:31-37 health floor).
     Immortal,
+    /// ActiveBody-family HighlanderBody (HighlanderBody.cpp:33-34 floor;
+    /// DAMAGE_UNRESISTABLE still kills).
+    Highlander,
 }
 
 impl BodyKind {
@@ -16,10 +19,11 @@ impl BodyKind {
             Some(Self::Inactive)
         } else if name.eq_ignore_ascii_case("ImmortalBody") {
             Some(Self::Immortal)
+        } else if name.eq_ignore_ascii_case("HighlanderBody") {
+            Some(Self::Highlander)
         } else if [
             "ActiveBody",
             "StructureBody",
-            "HighlanderBody",
             "HiveStructureBody",
             "UndeadBody",
         ]
