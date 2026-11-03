@@ -1593,6 +1593,11 @@ pub struct Object {
     /// dropping culled-but-live objects.
     #[serde(skip)]
     pub visual_draw_identity_token: std::sync::Arc<()>,
+    /// C++ `Object::getDrawable() != NULL`. Cleared when the receiving Drawable
+    /// is retired while the Object still lives; weapon muzzle FX (Weapon.cpp:889)
+    /// must not run without it. FireOCL stays independent of this flag.
+    #[serde(skip, default = "default_true")]
+    pub has_drawable: bool,
     /// Immutable attachment identity, equivalent to original m_partitionData's
     /// owner. No ambient selection or mutable state is reachable through it.
     #[serde(skip)]

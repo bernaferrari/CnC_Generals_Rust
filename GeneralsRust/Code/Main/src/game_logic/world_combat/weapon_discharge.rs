@@ -12,7 +12,7 @@ use super::super::*;
 pub(in crate::game_logic) struct AcceptedWeaponDischarge {
     pub(in crate::game_logic) has_authored_fire_fx: bool,
     event: crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent,
-    source_generation: u64,
+    pub(in crate::game_logic) source_generation: u64,
     skip_object_barrel: bool,
 }
 
