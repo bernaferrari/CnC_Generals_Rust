@@ -2230,6 +2230,123 @@ fn smoke_drive_save_load_chain(
 
 
 
+
+/// Sample the on-screen radar gadget (bottom-left HUD) from a captured frame.
+/// `radar_pixels` only proves the CPU terrain texture is non-black; shroud or a
+/// missing draw can still leave the gadget black. Require enough non-black,
+/// non-uniform samples inside the radar rectangle (C++ W3DRadar::draw into the
+/// radar window).
+fn png_minimap_on_screen_has_terrain(path: &Path) -> bool {
+    let Ok(data) = fs::read(path) else {
+        return false;
+    };
+    let Ok(img) = image::load_from_memory(&data) else {
+        return false;
+    };
+    let rgba = img.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    if w < 320 || h < 240 {
+        return false;
+    }
+    // ControlBar radar sits bottom-left; keep a generous rect that still avoids
+    // the money/text strip to the right of the gadget on 1280x720.
+    let x0 = (w as f32 * 0.02) as u32;
+    let y0 = (h as f32 * 0.72) as u32;
+    let x1 = (w as f32 * 0.16) as u32;
+    let y1 = (h as f32 * 0.97) as u32;
+    let mut non_black = 0u32;
+    let mut samples = 0u32;
+    let mut sum = [0u64; 3];
+    let mut sum_sq = [0u64; 3];
+    let mut buckets = std::collections::HashSet::new();
+    let mut y = y0;
+    while y < y1 {
+        let mut x = x0;
+        while x < x1 {
+            let p = rgba.get_pixel(x, y).0;
+            samples += 1;
+            if p[0] | p[1] | p[2] != 0 {
+                non_black += 1;
+            }
+            for i in 0..3 {
+                let v = p[i] as u64;
+                sum[i] += v;
+                sum_sq[i] += v * v;
+            }
+            buckets.insert((p[0] >> 3, p[1] >> 3, p[2] >> 3));
+            x = x.saturating_add(2);
+        }
+        y = y.saturating_add(2);
+    }
+    if samples < 64 || non_black * 5 < samples {
+        // <20% non-black → still the empty black gadget.
+        return false;
+    }
+    let mut max_var = 0.0f64;
+    for i in 0..3 {
+        let mean = sum[i] as f64 / samples as f64;
+        let var = sum_sq[i] as f64 / samples as f64 - mean * mean;
+        max_var = max_var.max(var);
+    }
+    // Uniform fill or a single icon on black fails; retail snow/rock radar has
+    // hundreds of color buckets and material variance.
+    buckets.len() >= 24 && max_var >= 200.0
+}
+
+/// Playable terrain view (upper ~65%) must show tile-level color variance.
+/// Grey stand-in Art/Terrain placeholders are nearly uniform (~var 50); retail
+/// Lone Eagle snow/rock/cliff atlases are far more varied.
+fn png_terrain_view_has_retail_tile_variance(path: &Path) -> bool {
+    let Ok(data) = fs::read(path) else {
+        return false;
+    };
+    let Ok(img) = image::load_from_memory(&data) else {
+        return false;
+    };
+    let rgba = img.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    if w < 320 || h < 240 {
+        return false;
+    }
+    let x0 = (w as f32 * 0.08) as u32;
+    let y0 = (h as f32 * 0.08) as u32;
+    let x1 = (w as f32 * 0.92) as u32;
+    let y1 = (h as f32 * 0.58) as u32;
+    let mut samples = 0u32;
+    let mut sum = [0u64; 3];
+    let mut sum_sq = [0u64; 3];
+    let mut buckets = std::collections::HashSet::new();
+    let mut y = y0;
+    while y < y1 {
+        let mut x = x0;
+        while x < x1 {
+            let p = rgba.get_pixel(x, y).0;
+            samples += 1;
+            for i in 0..3 {
+                let v = p[i] as u64;
+                sum[i] += v;
+                sum_sq[i] += v * v;
+            }
+            buckets.insert((p[0] >> 3, p[1] >> 3, p[2] >> 3));
+            x = x.saturating_add(3);
+        }
+        y = y.saturating_add(3);
+    }
+    if samples < 256 {
+        return false;
+    }
+    let mut max_var = 0.0f64;
+    for i in 0..3 {
+        let mean = sum[i] as f64 / samples as f64;
+        let var = sum_sq[i] as f64 / samples as f64 - mean * mean;
+        max_var = max_var.max(var);
+    }
+    // Prior grey stand-in frames measured ~53 variance / ~40 buckets in a
+    // corner crop; retail snow/rock is well above both.
+    buckets.len() >= 120 && max_var >= 250.0
+}
+
+
 /// Reject clear-color / sky-only frames: lower half must show edge/texture variance.
 fn is_procedural_runtime_fallback_png(path: &Path) -> bool {
     // Matches RuntimeHostBridge::build_procedural_fallback_png (1280x720 smooth
@@ -2594,11 +2711,13 @@ fn smoke_drive_present_frame_chain(
         let image_ok = copied
             && !is_procedural_runtime_fallback_png(Path::new(&st.present_screenshot_path))
             && png_lower_half_has_texture_variance(Path::new(&st.present_screenshot_path))
+            && png_minimap_on_screen_has_terrain(Path::new(&st.present_screenshot_path))
+            && png_terrain_view_has_retail_tile_variance(Path::new(&st.present_screenshot_path))
             && (snap.live_frame_ok || st.saw_live_frame_ok);
         st.present_image_ok = image_ok;
         if !image_ok {
             result.detail = format!(
-                "present_frame_fail; image is smooth gradient / missing content; screenshot={} terrain={} models={} ui={} selection={} radar_pixels={}",
+                "present_frame_fail; image lacks on-screen radar terrain or retail tile variance; screenshot={} terrain={} models={} ui={} selection={} radar_pixels={}",
                 st.present_screenshot_path,
                 st.max_terrain_chunks,
                 st.max_render_models,

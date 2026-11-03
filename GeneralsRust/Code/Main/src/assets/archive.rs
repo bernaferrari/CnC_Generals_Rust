@@ -253,16 +253,15 @@ impl ArchiveFileSystem {
 
     fn warn_if_base_archives_missing(&self) {
         let loaded = self.core.get_loaded_big_files();
-        let has_textures_big = loaded
+        let lower: Vec<String> = loaded
             .iter()
             .map(|name| name.as_str().to_ascii_lowercase())
-            .any(|name| name.ends_with("textures.big"));
-        let has_w3d_big = loaded
-            .iter()
-            .map(|name| name.as_str().to_ascii_lowercase())
-            .any(|name| name.ends_with("w3d.big"));
+            .collect();
+        let has_textures_big = lower.iter().any(|name| name.ends_with("textures.big"));
+        let has_w3d_big = lower.iter().any(|name| name.ends_with("w3d.big"));
+        let has_terrain_big = lower.iter().any(|name| name.ends_with("terrain.big"));
 
-        if has_textures_big && has_w3d_big {
+        if has_textures_big && has_w3d_big && has_terrain_big {
             return;
         }
 
@@ -273,9 +272,12 @@ impl ArchiveFileSystem {
         if !has_w3d_big {
             missing.push("W3D.big");
         }
+        if !has_terrain_big {
+            missing.push("Terrain.big");
+        }
 
         warn!(
-            "Base Generals archives not loaded (missing: {}). Zero Hour models may reference textures unavailable in ZH-only archives.",
+            "Base Generals archives not loaded (missing: {}). Ground tile TGAs (TMSnow/TLCliff/TXRock) and ZH model textures need the original Generals install, not TerrainZH.big alone.",
             missing.join(", ")
         );
     }
