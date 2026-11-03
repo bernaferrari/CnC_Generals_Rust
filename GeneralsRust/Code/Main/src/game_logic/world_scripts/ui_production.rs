@@ -3381,12 +3381,12 @@ impl GameLogic {
         *self.build_facility_template_names_cache.borrow_mut() = None;
     }
 
-    pub fn build_facility_template_names(&self) -> std::collections::HashSet<String> {
+    pub fn build_facility_template_names(&self) -> std::sync::Arc<std::collections::HashSet<String>> {
         if let Some(cached) = self.build_facility_template_names_cache.borrow().as_ref() {
-            return cached.clone();
+            return std::sync::Arc::clone(cached);
         }
-        let names = self.compute_build_facility_template_names();
-        *self.build_facility_template_names_cache.borrow_mut() = Some(names.clone());
+        let names = std::sync::Arc::new(self.compute_build_facility_template_names());
+        *self.build_facility_template_names_cache.borrow_mut() = Some(std::sync::Arc::clone(&names));
         names
     }
 

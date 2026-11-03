@@ -116,7 +116,7 @@ impl<'a> AiWorldView<'a> {
     pub(super) fn object_owned_by_player(&self, object: &Object, player_id: u32) -> bool {
         self.world.object_owned_by_player(object, player_id)
     }
-    pub(super) fn build_facility_template_names(&self) -> std::collections::HashSet<String> {
+    pub(super) fn build_facility_template_names(&self) -> std::sync::Arc<std::collections::HashSet<String>> {
         self.world.build_facility_template_names()
     }
     pub(super) fn template(&self, name: &str) -> Option<&'a ThingTemplate> {
