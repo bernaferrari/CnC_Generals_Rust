@@ -3,7 +3,8 @@ use super::*;
 #[cfg(feature = "game_client")]
 mod particle_capture_failure_control {
     use super::*;
-    use crate::game_logic::combat_particles::with_client_particle_manager;
+    use crate::save_load::snapshot::ClientDrawableWorldSnapshot;
+    use game_client::core::game_client::GameClient;
     use game_client::effects::ParticleSystemTemplate;
     use game_client::system::SubsystemInterface;
     use std::sync::Arc;
@@ -16,7 +17,8 @@ mod particle_capture_failure_control {
             || {
                 // C++ GameState.cpp:1354-1375 rethrows failed snapshot blocks;
                 // XferSave.cpp's ASCII length is one byte, not a lossy null companion.
-                with_client_particle_manager(|manager| manager.reset().unwrap()).unwrap();
+                let mut client = GameClient::new().expect("CPU-only GameClient");
+                client.particle_systems_mut().reset().unwrap();
                 let save_info = fixture_save_info();
                 let prior_archive = SaveFileManager::write_common_sav_chunks(
                     &WorldSnapshot::default(),
@@ -34,19 +36,25 @@ mod particle_capture_failure_control {
                 assert!(!temp_directory.exists());
                 let world = GameLogic::new();
 
-                let capture_result = with_client_particle_manager(|manager| {
-                    let mut template = ParticleSystemTemplate::new("x".repeat(256));
-                    template.info_mut().system_lifetime = 1000;
-                    let template = Arc::new(template);
-                    manager.register_template(template.clone());
-                    manager.create_particle_system(&template, true).unwrap();
-                    manager.capture_xfer_bytes()
-                })
-                .unwrap();
-                let save_result = saves.save_game(filename, &world, &save_info);
-                // Reset before checking OLD or NEW results: a failing OLD assertion must
-                // not leave the deliberately unrepresentable system in the live manager.
-                with_client_particle_manager(|manager| manager.reset().unwrap()).unwrap();
+                let mut template = ParticleSystemTemplate::new("x".repeat(256));
+                template.info_mut().system_lifetime = 1000;
+                let template = Arc::new(template);
+                client.particle_systems_mut().register_template(template.clone());
+                client
+                    .particle_systems_mut()
+                    .create_particle_system(&template, true)
+                    .unwrap();
+                let capture_result = client.particle_systems_mut().capture_xfer_bytes();
+                let save_result = saves.save_game_with_client_state(
+                    filename,
+                    &world,
+                    ClientDrawableWorldSnapshot::default(),
+                    &mut client,
+                    &save_info,
+                );
+                // Reset before checking: a failing OLD assertion must not leave
+                // the deliberately unrepresentable system in the receiving owner.
+                client.particle_systems_mut().reset().unwrap();
 
                 let capture_error = capture_result.expect_err("256-byte names cannot be encoded");
                 let save_error =
@@ -65,7 +73,8 @@ mod particle_capture_failure_control {
 #[cfg(feature = "game_client")]
 mod mission_particle_capture {
     use super::*;
-    use crate::game_logic::combat_particles::with_client_particle_manager;
+    use crate::save_load::snapshot::ClientDrawableWorldSnapshot;
+    use game_client::core::game_client::GameClient;
     use game_client::effects::ParticleSystemTemplate;
     use game_client::system::SubsystemInterface;
     use std::sync::Arc;
@@ -81,15 +90,22 @@ mod mission_particle_capture {
                 let mut save_info = fixture_save_info();
                 save_info.save_type = SaveFileType::Mission;
                 let world = GameLogic::new();
-                with_client_particle_manager(|manager| {
-                    manager.reset().unwrap();
-                    let template = Arc::new(ParticleSystemTemplate::new("x".repeat(256)));
-                    manager.register_template(template.clone());
-                    manager.create_particle_system(&template, true).unwrap();
-                })
-                .unwrap();
-                let result = saves.save_game("mission_particle_capture", &world, &save_info);
-                with_client_particle_manager(|manager| manager.reset().unwrap()).unwrap();
+                let mut client = GameClient::new().expect("CPU-only GameClient");
+                client.particle_systems_mut().reset().unwrap();
+                let template = Arc::new(ParticleSystemTemplate::new("x".repeat(256)));
+                client.particle_systems_mut().register_template(template.clone());
+                client
+                    .particle_systems_mut()
+                    .create_particle_system(&template, true)
+                    .unwrap();
+                let result = saves.save_game_with_client_state(
+                    "mission_particle_capture",
+                    &world,
+                    ClientDrawableWorldSnapshot::default(),
+                    &mut client,
+                    &save_info,
+                );
+                client.particle_systems_mut().reset().unwrap();
                 result.expect("mission save must not encode the excluded particle block");
                 let archive =
                     std::fs::read(saves.get_save_path("mission_particle_capture")).unwrap();

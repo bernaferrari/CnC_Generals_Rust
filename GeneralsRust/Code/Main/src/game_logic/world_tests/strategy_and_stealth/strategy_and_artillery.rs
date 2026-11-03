@@ -1992,22 +1992,17 @@ End
             .iter()
             .filter(|entry| entry.client_system_id.is_some())
             .count();
-        let delivered =
-            crate::game_logic::combat_particles::with_client_particle_manager(|manager| {
-                game_logic
-                    .combat_particles_mut()
-                    .backfill_client_systems(manager)
-            })
-            .unwrap_or(0);
+        let mut client = game_client::core::game_client::GameClient::new()
+            .expect("CPU-only GameClient for combat particle admission");
+        let delivered = game_logic
+            .combat_particles_mut()
+            .backfill_client_systems(client.particle_systems_mut());
         assert!(
             already_delivered + delivered > 0,
             "actual presentation delivery must admit combat systems into client manager"
         );
-        let guard =
-            game_client::effects::get_particle_system_manager().expect("particle manager readable");
-        let manager = guard.as_ref().expect("manager initialized");
         assert!(
-            manager.active_system_count() > 0,
+            client.particle_systems().active_system_count() > 0,
             "client ParticleSystemManager must hold systems after combat kill/fire"
         );
     }
