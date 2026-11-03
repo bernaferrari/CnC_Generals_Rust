@@ -44,6 +44,20 @@ use crate::System::SaveGame::{
 use parking_lot::RwLock as ParkingRwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use std::thread::ThreadId;
+
+
+/// Untyped live GameClient snapshot bridge (address + frame).
+/// Typed register/borrow APIs live in the GameClient crate.
+#[derive(Clone, Copy, Default)]
+pub struct LiveGameClientBridge {
+    pub raw: Option<usize>,
+    pub owner_thread: Option<ThreadId>,
+    pub generation: u64,
+    pub borrowed: bool,
+    /// Cached frame so readers avoid aliasing `GameClient::update`.
+    pub frame: u32,
+}
 
 /// One game-instance owned system-manager bag.
 pub struct SystemStores {
@@ -143,6 +157,8 @@ pub struct SystemStores {
     pub audio_shroud_resolver: Mutex<Option<Arc<dyn AudioShroudResolver>>>,
     pub speech_registry: RwLock<std::collections::HashMap<String, crate::common::audio::game_speech::Speech>>,
     pub effects_next_handle: std::sync::atomic::AtomicU32,
+    /// Live GameClient snapshot bridge (same-thread exclusive borrow).
+    pub live_game_client: Mutex<LiveGameClientBridge>,
 }
 
 impl SystemStores {
@@ -216,6 +232,7 @@ impl SystemStores {
             audio_shroud_resolver: Mutex::new(None),
             speech_registry: RwLock::new(std::collections::HashMap::new()),
             effects_next_handle: std::sync::atomic::AtomicU32::new(10000),
+            live_game_client: Mutex::new(LiveGameClientBridge::default()),
         }
     }
 
