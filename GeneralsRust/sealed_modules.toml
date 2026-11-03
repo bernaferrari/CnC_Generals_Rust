@@ -379,3 +379,8 @@ note = "SkirmishMapSelectState on WindowManagerOwner; removed process TLS; peels
 path = "Code/GameEngine/GameClient/src/gui/callbacks/skirmish_battle_honor_display.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/SkirmishBattleHonors.cpp"
 note = "Battle-honor row-skip is a populate local; removed process TLS Cell ROWS_TO_SKIP."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/popup_join_game.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupJoinGame.cpp"
+note = "PopupJoinState on WindowManagerOwner (online_ui); removed process TLS; peels use live-client loan / cfg(test) TLS fallback."
