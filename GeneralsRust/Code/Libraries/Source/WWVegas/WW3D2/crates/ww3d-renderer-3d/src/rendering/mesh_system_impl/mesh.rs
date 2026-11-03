@@ -12,12 +12,6 @@ use super::*;
 /// Thread-safe debug ID counter for mesh objects
 /// C++ Reference: Original code used static mut for mesh_debug_id assignment
 /// Rust Implementation: Uses AtomicU32 with SeqCst ordering for thread safety
-struct MeshDebugIdCountSlot(AtomicU32);
-impl std::ops::Deref for MeshDebugIdCountSlot {
-    type Target = AtomicU32;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static MESH_DEBUG_ID_COUNT: MeshDebugIdCountSlot = MeshDebugIdCountSlot(AtomicU32::new(0));
 
 impl Default for MeshClass {
     fn default() -> Self {
@@ -28,7 +22,7 @@ impl Default for MeshClass {
 impl MeshClass {
     pub fn new() -> Self {
         // Atomically increment and get the debug ID (thread-safe, no unsafe needed)
-        let debug_id = MESH_DEBUG_ID_COUNT.fetch_add(1, Ordering::SeqCst);
+        let debug_id = crate::process_state::RENDERER_3D.mesh_debug_id_count.fetch_add(1, Ordering::SeqCst);
         Self {
             name: String::new(),
             model: None,

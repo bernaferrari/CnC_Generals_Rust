@@ -42,23 +42,11 @@ pub struct CompHeaderType {
 }
 
 fn iff_files() -> &'static Mutex<Vec<Option<WWFile>>> {
-    struct FilesSlot(OnceLock<Mutex<Vec<Option<WWFile>>>>);
-    impl std::ops::Deref for FilesSlot {
-        type Target = OnceLock<Mutex<Vec<Option<WWFile>>>>;
-        fn deref(&self) -> &Self::Target { &self.0 }
-    }
-    static FILES: FilesSlot = FilesSlot(OnceLock::new());
-    FILES.get_or_init(|| Mutex::new(Vec::new()))
+    &crate::process_state::WWLIB.iff_files
 }
 
 fn uncomp_buffer() -> &'static Mutex<Option<Vec<u8>>> {
-    struct BufferSlot(OnceLock<Mutex<Option<Vec<u8>>>>);
-    impl std::ops::Deref for BufferSlot {
-        type Target = OnceLock<Mutex<Option<Vec<u8>>>>;
-        fn deref(&self) -> &Self::Target { &self.0 }
-    }
-    static BUFFER: BufferSlot = BufferSlot(OnceLock::new());
-    BUFFER.get_or_init(|| Mutex::new(None))
+    &crate::process_state::WWLIB.iff_buffer
 }
 
 #[allow(non_snake_case)]

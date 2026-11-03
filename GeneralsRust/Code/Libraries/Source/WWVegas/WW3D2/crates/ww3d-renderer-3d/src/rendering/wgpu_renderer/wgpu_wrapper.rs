@@ -1575,12 +1575,12 @@ unsafe impl Send for WgpuWrapper {}
 unsafe impl Sync for WgpuWrapper {}
 
 /// Global wrapper instance mirroring the DX8 global singleton.
-struct WgpuWrapperInstanceSlot(OnceLock<Mutex<WgpuWrapper>>);
-impl std::ops::Deref for WgpuWrapperInstanceSlot {
+struct WgpuWrapperInstanceRuntime(OnceLock<Mutex<WgpuWrapper>>);
+impl std::ops::Deref for WgpuWrapperInstanceRuntime {
     type Target = OnceLock<Mutex<WgpuWrapper>>;
     fn deref(&self) -> &Self::Target { &self.0 }
 }
-static WGPU_WRAPPER_INSTANCE: WgpuWrapperInstanceSlot = WgpuWrapperInstanceSlot(OnceLock::new());
+static WGPU_WRAPPER_INSTANCE: WgpuWrapperInstanceRuntime = WgpuWrapperInstanceRuntime(OnceLock::new());
 
 /// Retrieve the global wrapper instance. Panic if it has not been initialised.
 pub fn get_wgpu_wrapper() -> std::sync::MutexGuard<'static, WgpuWrapper> {

@@ -11,22 +11,15 @@ const DIFFUSE_TO_AMBIENT_FRACTION: f32 = 1.0;
 const NEAR_BLACK: f32 = 0.05;
 const WWMATH_EPSILON: f32 = 1.0e-5;
 
-struct LightingLodCutoffBag {
-    lighting_lod_cutoff: std::sync::Mutex<f32>,
-}
-static LIGHTING_LOD_CUTOFF_TLS_BAG: std::sync::LazyLock<LightingLodCutoffBag> = std::sync::LazyLock::new(|| LightingLodCutoffBag {
-        lighting_lod_cutoff: std::sync::Mutex::new(0.5),
-});
-
 
 /// C++ `Set_Lighting_LOD_Cutoff`.
 pub fn set_lighting_lod_cutoff(cutoff: f32) {
-    { let mut cell = LIGHTING_LOD_CUTOFF_TLS_BAG.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()); *cell = cutoff };
+    { let mut cell = crate::process_state::RENDERER_3D.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()); *cell = cutoff };
 }
 
 /// C++ `Get_Lighting_LOD_Cutoff` (default 0.5, cutoff² = 0.25).
 pub fn get_lighting_lod_cutoff() -> f32 {
-    LIGHTING_LOD_CUTOFF_TLS_BAG.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    crate::process_state::RENDERER_3D.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 fn lighting_lod_cutoff2() -> f32 {

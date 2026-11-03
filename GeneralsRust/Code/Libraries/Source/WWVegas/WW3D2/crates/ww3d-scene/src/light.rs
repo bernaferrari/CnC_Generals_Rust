@@ -622,24 +622,17 @@ fn hsv_to_rgb(hsv: Vec3) -> Vec3 {
     }
 }
 
-struct LightingLodCutoffBag {
-    lighting_lod_cutoff: std::sync::Mutex<f32>,
-}
-static LIGHTING_LOD_CUTOFF_TLS_BAG: std::sync::LazyLock<LightingLodCutoffBag> = std::sync::LazyLock::new(|| LightingLodCutoffBag {
-        lighting_lod_cutoff: std::sync::Mutex::new(0.5),
-});
-
 
 /// Set the lighting LOD cutoff
 ///
 /// Lights with diffuse intensity below this threshold are converted to pure ambient
 pub fn set_lighting_lod_cutoff(cutoff: f32) {
-    { let mut cell = LIGHTING_LOD_CUTOFF_TLS_BAG.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()); *cell = cutoff };
+    { let mut cell = crate::process_state::SCENE.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()); *cell = cutoff };
 }
 
 /// Get the lighting LOD cutoff
 pub fn get_lighting_lod_cutoff() -> f32 {
-    LIGHTING_LOD_CUTOFF_TLS_BAG.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    crate::process_state::SCENE.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 #[cfg(test)]

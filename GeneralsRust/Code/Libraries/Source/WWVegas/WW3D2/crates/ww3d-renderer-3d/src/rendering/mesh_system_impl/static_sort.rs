@@ -22,10 +22,10 @@ pub(super) struct StaticSortState {
     flush_depth: u32,
 }
 
-struct StaticSortStateBag {
+struct StaticSortStateRuntime {
     static_sort_state: std::sync::Mutex<StaticSortState>,
 }
-static STATIC_SORT_STATE_TLS_BAG: std::sync::LazyLock<StaticSortStateBag> = std::sync::LazyLock::new(|| StaticSortStateBag {
+static STATIC_SORT_STATE_TLS_BAG: std::sync::LazyLock<StaticSortStateRuntime> = std::sync::LazyLock::new(|| StaticSortStateRuntime {
         static_sort_state: std::sync::Mutex::new(StaticSortState {
         entries: Vec::new(),
         meshes: Vec::new(),

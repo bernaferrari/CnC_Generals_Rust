@@ -141,10 +141,10 @@ impl ShaderGlobalState {
     }
 }
 
-struct ShaderStateBag {
+struct ShaderStateRuntime {
     shader_state: std::sync::Mutex<ShaderGlobalState>,
 }
-static SHADER_STATE_TLS_BAG: std::sync::LazyLock<ShaderStateBag> = std::sync::LazyLock::new(|| ShaderStateBag {
+static SHADER_STATE_TLS_BAG: std::sync::LazyLock<ShaderStateRuntime> = std::sync::LazyLock::new(|| ShaderStateRuntime {
         shader_state: std::sync::Mutex::new(ShaderGlobalState::new()),
 });
 

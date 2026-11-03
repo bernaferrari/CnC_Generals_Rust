@@ -328,10 +328,10 @@ impl RingMeshArray {
 
 // Thread-local storage for shared mesh arrays
 // C++ used global static arrays, we use thread-local for safety
-struct RingMeshArrayBag {
+struct RingMeshArrayRuntime {
     ring_mesh_array: std::sync::Mutex<Option<RingMeshArray>>,
 }
-static RING_MESH_ARRAY_TLS_BAG: std::sync::LazyLock<RingMeshArrayBag> = std::sync::LazyLock::new(|| RingMeshArrayBag {
+static RING_MESH_ARRAY_TLS_BAG: std::sync::LazyLock<RingMeshArrayRuntime> = std::sync::LazyLock::new(|| RingMeshArrayRuntime {
         ring_mesh_array: std::sync::Mutex::new(None),
 });
 

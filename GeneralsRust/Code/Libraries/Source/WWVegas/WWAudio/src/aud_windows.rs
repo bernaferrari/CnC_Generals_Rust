@@ -277,12 +277,6 @@ pub struct ExtendedAudioFormat {
 
 /// Global window handle for DirectSound cooperation
 // THREAD: game thread sets the window handle, audio service thread reads it
-struct AudioMainWindowHandleSlot(Mutex<Option<isize>>);
-impl std::ops::Deref for AudioMainWindowHandleSlot {
-    type Target = Mutex<Option<isize>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static AUDIO_MAIN_WINDOW_HANDLE: AudioMainWindowHandleSlot = AudioMainWindowHandleSlot(Mutex::new(None));
 
 impl AudThread {
     /// Create a new audio thread
@@ -693,14 +687,14 @@ pub fn windows_debug_print(message: &str) {
 
 /// Set the main window handle for DirectSound cooperation
 pub fn set_windows_handle(hwnd: isize) {
-    if let Ok(mut handle) = AUDIO_MAIN_WINDOW_HANDLE.lock() {
+    if let Ok(mut handle) = crate::process_state::WWAUDIO.main_window_handle.lock() {
         *handle = Some(hwnd);
     }
 }
 
 /// Get the main window handle
 pub fn get_windows_handle() -> Option<isize> {
-    AUDIO_MAIN_WINDOW_HANDLE.lock().ok().and_then(|h| *h)
+    crate::process_state::WWAUDIO.main_window_handle.lock().ok().and_then(|h| *h)
 }
 
 /// Convert milliseconds to Duration safely

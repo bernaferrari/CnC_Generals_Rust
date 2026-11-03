@@ -698,12 +698,12 @@ pub struct PhysicsBodyId(u64);
 impl PhysicsBodyId {
     fn new() -> Self {
         use std::sync::atomic::{AtomicU64, Ordering};
-        struct CounterSlot(AtomicU64);
-        impl std::ops::Deref for CounterSlot {
+        struct CounterRuntime(AtomicU64);
+        impl std::ops::Deref for CounterRuntime {
             type Target = AtomicU64;
             fn deref(&self) -> &Self::Target { &self.0 }
         }
-        static COUNTER: CounterSlot = CounterSlot(AtomicU64::new(0));
+        static COUNTER: CounterRuntime = CounterRuntime(AtomicU64::new(0));
         Self(COUNTER.fetch_add(1, Ordering::SeqCst))
     }
 }

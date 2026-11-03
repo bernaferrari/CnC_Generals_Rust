@@ -608,12 +608,12 @@ impl ShdRenderer {
 }
 
 /// Global renderer instance
-struct GlobalRendererSlot(Lazy<RwLock<Option<Box<dyn ShaderRenderer>>>>);
-impl std::ops::Deref for GlobalRendererSlot {
+struct GlobalRendererRuntime(Lazy<RwLock<Option<Box<dyn ShaderRenderer>>>>);
+impl std::ops::Deref for GlobalRendererRuntime {
     type Target = Lazy<RwLock<Option<Box<dyn ShaderRenderer>>>>;
     fn deref(&self) -> &Self::Target { &self.0 }
 }
-static GLOBAL_RENDERER: GlobalRendererSlot = GlobalRendererSlot(Lazy::new(|| RwLock::new(None)));
+static GLOBAL_RENDERER: GlobalRendererRuntime = GlobalRendererRuntime(Lazy::new(|| RwLock::new(None)));
 
 /// Shader renderer manager - provides global access to the renderer
 pub struct ShdRendererManager;

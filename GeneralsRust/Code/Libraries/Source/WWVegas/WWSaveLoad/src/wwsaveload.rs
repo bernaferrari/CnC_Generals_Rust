@@ -242,22 +242,23 @@ impl DefinitionManager {
 }
 
 /// Global definition manager instance
-struct TheDefinitionMgrSlot(OnceLock<Mutex<DefinitionManager>>);
-impl std::ops::Deref for TheDefinitionMgrSlot {
-    type Target = OnceLock<Mutex<DefinitionManager>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
+struct DefinitionMgrRuntime {
+    mgr: OnceLock<Mutex<DefinitionManager>>,
+    lock: RwLock<()>,
 }
-static THE_DEFINITION_MGR: TheDefinitionMgrSlot = TheDefinitionMgrSlot(OnceLock::new());
-struct DefinitionMgrLockSlot(RwLock<()>);
-impl std::ops::Deref for DefinitionMgrLockSlot {
-    type Target = RwLock<()>;
-    fn deref(&self) -> &Self::Target { &self.0 }
+impl DefinitionMgrRuntime {
+    const fn new() -> Self {
+        Self {
+            mgr: OnceLock::new(),
+            lock: RwLock::new(()),
+        }
+    }
 }
-static DEFINITION_MGR_LOCK: DefinitionMgrLockSlot = DefinitionMgrLockSlot(RwLock::new(()));
+static DEFINITION_MGR: DefinitionMgrRuntime = DefinitionMgrRuntime::new();
 
 /// Get a reference to the global definition manager
 fn get_definition_manager() -> std::sync::MutexGuard<'static, DefinitionManager> {
-    THE_DEFINITION_MGR
+    DEFINITION_MGR.mgr
         .get_or_init(|| Mutex::new(DefinitionManager::new()))
         .lock()
         .unwrap()
@@ -275,7 +276,7 @@ impl WWSaveLoad {
     /// This function should be called once by the application during startup.
     /// It initializes the global definition manager and prepares the save/load system.
     pub fn init() {
-        let _lock = DEFINITION_MGR_LOCK.write();
+        let _lock = DEFINITION_MGR.lock.write();
 
         // Initialize the definition manager if not already done
         let _mgr = get_definition_manager();
@@ -289,7 +290,7 @@ impl WWSaveLoad {
     /// This function should be called once by the application during shutdown.
     /// It frees all definitions and cleans up the save/load system resources.
     pub fn shutdown() {
-        let _lock = DEFINITION_MGR_LOCK.write();
+        let _lock = DEFINITION_MGR.lock.write();
 
         // Free all definitions from the global definition manager
         let mut def_mgr = get_definition_manager();

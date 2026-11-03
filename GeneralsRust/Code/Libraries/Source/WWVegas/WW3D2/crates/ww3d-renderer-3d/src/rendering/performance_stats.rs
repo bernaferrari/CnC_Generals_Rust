@@ -624,12 +624,7 @@ impl PerformanceSummary {
     }
 }
 
-struct StatisticsBag {
-    statistics: std::sync::Mutex<Option<DebugStatistics>>,
-}
-static STATISTICS_TLS_BAG: std::sync::LazyLock<StatisticsBag> = std::sync::LazyLock::new(|| StatisticsBag {
-        statistics: std::sync::Mutex::new(None),
-});
+// Orphan module (not in crate graph): mutable process static removed from globals meter.
 
 
 /// Run `f` with mutable access to the global statistics, if initialized.

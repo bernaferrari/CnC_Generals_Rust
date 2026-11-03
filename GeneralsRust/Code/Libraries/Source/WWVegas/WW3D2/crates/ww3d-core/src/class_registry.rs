@@ -15,11 +15,11 @@ struct ClassRecord {
     type_id: Option<TypeId>,
 }
 
-struct RegistryByIdBag {
+struct RegistryByIdRuntime {
     registry_by_id: std::sync::Mutex<HashMap<u32, ClassRecord>>,
     registry_by_type: std::sync::Mutex<HashMap<TypeId, u32>>,
 }
-static REGISTRY_BY_ID_TLS_BAG: std::sync::LazyLock<RegistryByIdBag> = std::sync::LazyLock::new(|| RegistryByIdBag {
+static REGISTRY_BY_ID_TLS_BAG: std::sync::LazyLock<RegistryByIdRuntime> = std::sync::LazyLock::new(|| RegistryByIdRuntime {
         registry_by_id: std::sync::Mutex::new(HashMap::new()),
         registry_by_type: std::sync::Mutex::new(HashMap::new()),
 });

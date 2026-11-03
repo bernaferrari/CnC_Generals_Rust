@@ -27,15 +27,9 @@ impl Default for RendererConfig {
     }
 }
 
-struct ConfigBag {
-    config: std::sync::Mutex<RendererConfig>,
-}
-static CONFIG: std::sync::LazyLock<ConfigBag> = std::sync::LazyLock::new(|| ConfigBag {
-    config: std::sync::Mutex::new(RendererConfig::default()),
-});
 
 pub fn init_from_env() {
-    *CONFIG.config.lock().unwrap_or_else(|p| p.into_inner()) = RendererConfig::default();
+    *crate::process_state::RENDERER_3D.config.lock().unwrap_or_else(|p| p.into_inner()) = RendererConfig::default();
     // Update from env
     let prefer_16 =
         env::var("WW3D_PREFER_16BIT_TEXTURES").map(|v| v == "1" || v.eq_ignore_ascii_case("true"));
@@ -48,7 +42,7 @@ pub fn init_from_env() {
         .filter(|&v| v >= 1);
 
     {
-        let mut cfg = CONFIG.config.lock().unwrap_or_else(|p| p.into_inner());
+        let mut cfg = crate::process_state::RENDERER_3D.config.lock().unwrap_or_else(|p| p.into_inner());
         if let Ok(v) = prefer_16 {
             cfg.prefer_16bit_textures = v;
         }
@@ -70,7 +64,7 @@ pub fn init_from_env() {
 }
 
 pub fn get() -> RendererConfig {
-    CONFIG
+    crate::process_state::RENDERER_3D
         .config
         .lock()
         .unwrap_or_else(|p| p.into_inner())
@@ -80,5 +74,5 @@ pub fn get() -> RendererConfig {
 pub fn set(cfg: RendererConfig) {
     let mut cfg = cfg;
     cfg.max_anisotropy = cfg.max_anisotropy.clamp(1, 16);
-    *CONFIG.config.lock().unwrap_or_else(|p| p.into_inner()) = cfg;
+    *crate::process_state::RENDERER_3D.config.lock().unwrap_or_else(|p| p.into_inner()) = cfg;
 }

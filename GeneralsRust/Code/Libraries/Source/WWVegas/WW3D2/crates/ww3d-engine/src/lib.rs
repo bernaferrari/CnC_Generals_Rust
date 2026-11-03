@@ -2154,12 +2154,12 @@ fn select_alpha_mode(supported: &[wgpu::CompositeAlphaMode]) -> wgpu::CompositeA
 }
 
 /// Global engine singleton mirroring the original static WW3D API.
-struct EngineSlot(OnceCell<Mutex<Option<Engine>>>);
-impl std::ops::Deref for EngineSlot {
+struct EngineRuntime(OnceCell<Mutex<Option<Engine>>>);
+impl std::ops::Deref for EngineRuntime {
     type Target = OnceCell<Mutex<Option<Engine>>>;
     fn deref(&self) -> &Self::Target { &self.0 }
 }
-static ENGINE: EngineSlot = EngineSlot(OnceCell::new());
+static ENGINE: EngineRuntime = EngineRuntime(OnceCell::new());
 
 fn global_engine() -> &'static Mutex<Option<Engine>> {
     ENGINE.get_or_init(|| Mutex::new(None))
@@ -2634,9 +2634,9 @@ mod tests {
 
     /// Serialize the GPU-backed engine tests in this binary.
     fn engine_test_lock() -> std::sync::MutexGuard<'static, ()> {
-        struct LockSlot(std::sync::LazyLock<std::sync::Mutex<()>>);
-        static LOCK: LockSlot =
-            LockSlot(std::sync::LazyLock::new(|| std::sync::Mutex::new(())));
+        struct LockRuntime(std::sync::LazyLock<std::sync::Mutex<()>>);
+        static LOCK: LockRuntime =
+            LockRuntime(std::sync::LazyLock::new(|| std::sync::Mutex::new(())));
         LOCK.0.lock().unwrap_or_else(|e| e.into_inner())
     }
 

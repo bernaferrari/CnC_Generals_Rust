@@ -334,13 +334,7 @@ pub struct TaskId(u64);
 impl TaskId {
     fn new() -> Self {
         use std::sync::atomic::{AtomicU64, Ordering};
-        struct CounterSlot(AtomicU64);
-        impl std::ops::Deref for CounterSlot {
-            type Target = AtomicU64;
-            fn deref(&self) -> &Self::Target { &self.0 }
-        }
-        static COUNTER: CounterSlot = CounterSlot(AtomicU64::new(0));
-        Self(COUNTER.fetch_add(1, Ordering::SeqCst))
+        Self(crate::process_state::SCENE.task_id_counter.fetch_add(1, Ordering::SeqCst))
     }
 }
 

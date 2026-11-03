@@ -778,12 +778,12 @@ impl BSP {
 // read back by fragment consumers; the raw-pointer clipper aliasing inside
 // `shatter_mesh` is written against the mutex guard being held for the whole
 // operation, so keep the mutex.
-struct ShatterSystemSlot(OnceLock<Mutex<ShatterSystemData>>);
-impl std::ops::Deref for ShatterSystemSlot {
+struct ShatterSystemRuntime(OnceLock<Mutex<ShatterSystemData>>);
+impl std::ops::Deref for ShatterSystemRuntime {
     type Target = OnceLock<Mutex<ShatterSystemData>>;
     fn deref(&self) -> &Self::Target { &self.0 }
 }
-static SHATTER_SYSTEM: ShatterSystemSlot = ShatterSystemSlot(OnceLock::new());
+static SHATTER_SYSTEM: ShatterSystemRuntime = ShatterSystemRuntime(OnceLock::new());
 
 /// Internal data for the shatter system
 struct ShatterSystemData {

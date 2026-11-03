@@ -23,12 +23,6 @@ pub struct TextureDecisionRecord {
     pub mip_levels: u32,
 }
 
-struct DecisionsBag {
-    decisions: std::sync::Mutex<Vec<TextureDecisionRecord>>,
-}
-static DECISIONS: std::sync::LazyLock<DecisionsBag> = std::sync::LazyLock::new(|| DecisionsBag {
-    decisions: std::sync::Mutex::new(Vec::new()),
-});
 
 /// Record a texture format decision for later analysis.
 pub fn record_decision(name: impl Into<String>, decision: &FormatDecision, mip_levels: u32) {
@@ -41,17 +35,17 @@ pub fn record_decision(name: impl Into<String>, decision: &FormatDecision, mip_l
         mip_levels,
     };
 
-    DECISIONS.decisions.lock().unwrap_or_else(|p| p.into_inner()).push(record);
+    crate::process_state::RENDERER_3D.texture_decisions.lock().unwrap_or_else(|p| p.into_inner()).push(record);
 }
 
 /// Snapshot the recorded decisions and clear the buffer.
 pub fn drain_decisions() -> Vec<TextureDecisionRecord> {
-    std::mem::take(&mut *DECISIONS.decisions.lock().unwrap_or_else(|p| p.into_inner()))
+    std::mem::take(&mut *crate::process_state::RENDERER_3D.texture_decisions.lock().unwrap_or_else(|p| p.into_inner()))
 }
 
 /// Borrow a copy of the current decision log without clearing it.
 pub fn snapshot_decisions() -> Vec<TextureDecisionRecord> {
-    DECISIONS.decisions.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    crate::process_state::RENDERER_3D.texture_decisions.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 /// Summary information derived from recorded decisions.
@@ -70,7 +64,7 @@ pub struct TextureMetricsSummary {
 /// Build a summary of the current decision log without clearing it.
 pub fn summarize() -> TextureMetricsSummary {
     let empty = Vec::new();
-    let guard = DECISIONS.decisions.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    let guard = crate::process_state::RENDERER_3D.texture_decisions.lock().unwrap_or_else(|p| p.into_inner()).clone();
     let guard: &Vec<TextureDecisionRecord> = if guard.is_empty() { &empty } else { &guard };
 
     if guard.is_empty() {
