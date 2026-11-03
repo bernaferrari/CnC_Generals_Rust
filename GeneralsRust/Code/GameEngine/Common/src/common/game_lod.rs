@@ -2,8 +2,6 @@
 // Loads GameLOD.ini and exposes dynamic LOD parameters used by gameplay systems.
 
 use std::fs;
-use std::sync::OnceLock;
-
 use crate::common::ini::ini_game_data::{GlobalData, get_global_data};
 use crate::common::ini::ini_game_lod::{
     ChipsetType, CpuType, DynamicGameLODLevel, StaticGameLODInfo, StaticGameLODLevel,
@@ -12,24 +10,30 @@ use crate::common::ini::ini_game_lod::{
 use crate::common::ini::{INI, INILoadType};
 use crate::common::user_preferences::UserPreferences;
 
-static REBUILD_SHADOWS: OnceLock<fn()> = OnceLock::new();
-static REBUILD_SHORELINE: OnceLock<fn()> = OnceLock::new();
-static REBUILD_TANK_TRACKS: OnceLock<fn()> = OnceLock::new();
-static ADJUST_CLIENT_LOD: OnceLock<fn(i32)> = OnceLock::new();
-static GAME_LOD_INI_LOADED: OnceLock<bool> = OnceLock::new();
+fn set_lod_hook(slot: &std::sync::Mutex<Option<fn()>>, hook: fn()) {
+    *slot.lock().unwrap_or_else(|p| p.into_inner()) = Some(hook);
+}
 
 /// Terrain/Shadow slices register these; Common only invokes them.
 pub fn register_rebuild_shadows(hook: fn()) {
-    let _ = REBUILD_SHADOWS.set(hook);
+    let services = crate::common::common_services::common_services();
+    set_lod_hook(&services.system.rebuild_shadows, hook);
 }
 pub fn register_rebuild_shoreline(hook: fn()) {
-    let _ = REBUILD_SHORELINE.set(hook);
+    let services = crate::common::common_services::common_services();
+    set_lod_hook(&services.system.rebuild_shoreline, hook);
 }
 pub fn register_rebuild_tank_tracks(hook: fn()) {
-    let _ = REBUILD_TANK_TRACKS.set(hook);
+    let services = crate::common::common_services::common_services();
+    set_lod_hook(&services.system.rebuild_tank_tracks, hook);
 }
 pub fn register_adjust_client_lod(hook: fn(i32)) {
-    let _ = ADJUST_CLIENT_LOD.set(hook);
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .adjust_client_lod
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(hook);
 }
 
 /// C++ `TheGlobalData->m_useShadowDecals` (Options "2D Shadows").
@@ -347,24 +351,28 @@ fn apply_static_lod_level(
 
     // C++ GameLODManager::applyStaticLODLevel client/terrain side effects.
     if requested_texture_reduction != prev_texture {
-        if let Some(hook) = ADJUST_CLIENT_LOD.get() {
+        let services = crate::common::common_services::common_services();
+        if let Some(hook) = *services.system.adjust_client_lod.lock().unwrap_or_else(|p| p.into_inner()) {
             hook(0);
         }
     }
     if lod_info.use_shadow_volumes != prev_shadow_volumes
         || lod_info.use_shadow_decals != prev_shadow_decals
     {
-        if let Some(hook) = REBUILD_SHADOWS.get() {
+        let services = crate::common::common_services::common_services();
+        if let Some(hook) = *services.system.rebuild_shadows.lock().unwrap_or_else(|p| p.into_inner()) {
             hook();
         }
     }
     if lod_info.show_soft_water_edge != prev_soft_water {
-        if let Some(hook) = REBUILD_SHORELINE.get() {
+        let services = crate::common::common_services::common_services();
+        if let Some(hook) = *services.system.rebuild_shoreline.lock().unwrap_or_else(|p| p.into_inner()) {
             hook();
         }
     }
     if invoke_legacy_terrain_hook {
-        if let Some(hook) = REBUILD_TANK_TRACKS.get() {
+        let services = crate::common::common_services::common_services();
+        if let Some(hook) = *services.system.rebuild_tank_tracks.lock().unwrap_or_else(|p| p.into_inner()) {
             hook();
         }
     }
@@ -618,10 +626,18 @@ pub fn prefers_low_res_movies() -> bool {
 /// C++ `GameLODManager::init`: load GameLOD.ini, GameLODPresets.ini, snapshot
 /// Custom from GlobalData, apply OptionPreferences, then setStaticLODLevel.
 pub fn load_game_lod_ini_presets_and_options() {
-    if GAME_LOD_INI_LOADED.get().is_some() {
-        return;
+    let services = crate::common::common_services::common_services();
+    {
+        let mut loaded = services
+            .system
+            .game_lod_ini_loaded
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if *loaded {
+            return;
+        }
+        *loaded = true;
     }
-    let _ = GAME_LOD_INI_LOADED.set(true);
 
     crate::common::ini::ini_game_lod::init_game_lod_manager();
 

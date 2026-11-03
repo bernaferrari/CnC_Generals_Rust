@@ -85,6 +85,12 @@ pub struct SystemStores {
     pub save_id_counter_hooks: Arc<Mutex<RuntimeIdCounterHooks>>,
     /// SaveGame load lifecycle hooks.
     pub save_load_lifecycle_hooks: Arc<Mutex<SaveLoadLifecycleHooks>>,
+    /// GameLOD client rebuild / adjust hooks (was process OnceLocks).
+    pub rebuild_shadows: Mutex<Option<fn()>>,
+    pub rebuild_shoreline: Mutex<Option<fn()>>,
+    pub rebuild_tank_tracks: Mutex<Option<fn()>>,
+    pub adjust_client_lod: Mutex<Option<fn(i32)>>,
+    pub game_lod_ini_loaded: Mutex<bool>,
 }
 
 impl SystemStores {
@@ -128,6 +134,11 @@ impl SystemStores {
             radar_paint_source: Mutex::new(None),
             save_id_counter_hooks: Arc::new(Mutex::new(RuntimeIdCounterHooks::default())),
             save_load_lifecycle_hooks: Arc::new(Mutex::new(SaveLoadLifecycleHooks::default())),
+            rebuild_shadows: Mutex::new(None),
+            rebuild_shoreline: Mutex::new(None),
+            rebuild_tank_tracks: Mutex::new(None),
+            adjust_client_lod: Mutex::new(None),
+            game_lod_ini_loaded: Mutex::new(false),
         }
     }
 }
