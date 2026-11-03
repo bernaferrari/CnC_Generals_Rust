@@ -1977,3 +1977,57 @@ fn pathfind_cluster_reserved_slot_capacity_matches_cpp() {
     assert!(!sys.queue_path(mk(9000)));
     assert_eq!(sys.pending_path_count(), 511);
 }
+/// Cluster proof for hq-ofskc + hq-edfif1: exact bridge-layer cell identity and
+/// line passability that reads the resolved deck cell, not pinched ground.
+#[test]
+fn pathfind_cluster_bridge_layer_identity_and_line_passable() {
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
+    let ground = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+    let mut g = open_grid(20, 12);
+    // Seed ground water under a future deck cell.
+    g.set_cell_type(GridPos::new(8, 5), PathfindCellType::Water);
+    g.set_cell_type(GridPos::new(9, 5), PathfindCellType::Impassable);
+    g.stamp_bridge_deck(
+        Vec3::new(50.0, 20.0, 40.0),
+        Vec3::new(50.0, 20.0, 60.0),
+        Vec3::new(150.0, 20.0, 40.0),
+        Vec3::new(150.0, 20.0, 60.0),
+        false,
+        &ground,
+    );
+    let deck_id = g.first_bridge_layer_id().expect("deck layer");
+    let deck = PathfindLayerEnum::from_u32(deck_id as u32);
+    assert_ne!(deck, PathfindLayerEnum::Ground);
+
+    let pos = GridPos::new(8, 5);
+    let (actual, ty) = g.path_cell_on_layer(pos, deck);
+    assert_eq!(actual, deck, "hq-ofskc: deck read must keep exact layer id");
+    assert_ne!(
+        ty,
+        PathfindCellType::Water,
+        "hq-ofskc: deck cell must not fall through to seeded ground Water"
+    );
+
+    // Missing peer layer falls back to ground Water without inventing Top.
+    let missing = PathfindLayerEnum::from_u32(deck_id as u32 + 1);
+    let (fb_layer, fb_ty) = g.path_cell_on_layer(pos, missing);
+    assert_eq!(fb_layer, PathfindLayerEnum::Ground);
+    assert_eq!(fb_ty, PathfindCellType::Water);
+
+    // hq-edfif1: line across deck over impassable ground stays passable on deck layer.
+    let ok = g.line_passable_on_layer(
+        GridPos::new(5, 5),
+        GridPos::new(12, 5),
+        SURFACE_GROUND,
+        false,
+        true,
+        None,
+        0,
+        false,
+        deck,
+    );
+    assert!(
+        ok,
+        "resolved deck line must clear ground Impassable via layer cells"
+    );
+}
