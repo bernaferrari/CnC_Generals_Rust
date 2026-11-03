@@ -577,6 +577,7 @@ impl ArchiveFileSystem {
 /// Keyed by canonical search-dir string; entries map lower(name) -> full path.
 /// This is filesystem metadata only (not game assets), shared to cut repeated
 /// `read_dir` during Lone Eagle spawn/hydrate under noisy disk load.
+#[cfg(not(target_os = "macos"))]
 fn case_insensitive_dir_index(search_dir: &Path) -> Option<HashMap<String, PathBuf>> {
     static DIR_INDEX: OnceLock<Mutex<HashMap<String, HashMap<String, PathBuf>>>> = OnceLock::new();
     let key = search_dir.to_string_lossy().to_ascii_lowercase();
@@ -603,44 +604,51 @@ fn case_insensitive_dir_index(search_dir: &Path) -> Option<HashMap<String, PathB
 }
 
 fn resolve_existing_path_case_insensitive(path: &Path) -> Option<PathBuf> {
-    // APFS default is case-insensitive; avoid per-component read_dir on the
-    // hot asset open path when the caller already has the right spelling.
     if path.exists() {
         return Some(path.to_path_buf());
     }
-    let mut resolved = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::Prefix(prefix) => resolved.push(prefix.as_os_str()),
-            Component::RootDir => resolved.push(component.as_os_str()),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !resolved.pop() {
-                    return None;
+    // Case-insensitive volumes (macOS APFS default): exists() already folds
+    // case. Skip the per-component read_dir walk on negative lookups — that
+    // walk dominated Lone Eagle/ShellMap spawn under load (opendir/stat).
+    #[cfg(target_os = "macos")]
+    {
+        return None;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let mut resolved = PathBuf::new();
+        for component in path.components() {
+            match component {
+                Component::Prefix(prefix) => resolved.push(prefix.as_os_str()),
+                Component::RootDir => resolved.push(component.as_os_str()),
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    if !resolved.pop() {
+                        return None;
+                    }
                 }
-            }
-            Component::Normal(part) => {
-                let search_dir = if resolved.as_os_str().is_empty() {
-                    Path::new(".")
-                } else {
-                    resolved.as_path()
-                };
-                // Prefer a direct child exists check before listing.
-                let direct = search_dir.join(part);
-                if direct.exists() {
-                    resolved = direct;
-                    continue;
+                Component::Normal(part) => {
+                    let search_dir = if resolved.as_os_str().is_empty() {
+                        Path::new(".")
+                    } else {
+                        resolved.as_path()
+                    };
+                    let direct = search_dir.join(part);
+                    if direct.exists() {
+                        resolved = direct;
+                        continue;
+                    }
+                    let part_key = part.to_string_lossy().to_ascii_lowercase();
+                    let index = case_insensitive_dir_index(search_dir)?;
+                    let matched = index.get(&part_key)?.clone();
+                    resolved = matched;
                 }
-                let part_key = part.to_string_lossy().to_ascii_lowercase();
-                let index = case_insensitive_dir_index(search_dir)?;
-                let matched = index.get(&part_key)?.clone();
-                resolved = matched;
             }
         }
+        resolved.exists().then_some(resolved)
     }
-
-    resolved.exists().then_some(resolved)
 }
+
 
 /// Base (non-ZH) W3D archives C++ mounts from the original Generals install.
 /// `Win32BIGFileSystem.cpp:37-49` loads ZH `*.big` then registry `InstallPath`.
