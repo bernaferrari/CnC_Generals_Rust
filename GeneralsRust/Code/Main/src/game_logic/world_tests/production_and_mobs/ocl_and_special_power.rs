@@ -930,3 +930,51 @@ fn spawned_require_spawner_kills_children_through_their_own_die_modules() {
         assert!(child.producer_id.is_none(), "producer cleared first");
     }
 }
+
+#[test]
+fn authored_upgrade_die_removes_each_modules_upgrade_from_producer_like_cpp() {
+    // C++ UpgradeDie::onDie (UpgradeDie.cpp): each module removes its own
+    // authored UpgradeToRemove from the producer. No template-name inference;
+    // two UpgradeDie modules on one Object each run once.
+    let mut logic = GameLogic::new();
+    for upgrade in ["Upgrade_FixtureA", "Upgrade_FixtureB"] {
+        let mut ini = game_engine::common::ini::INI::new();
+        ini.with_inline_source(&format!("Upgrade {upgrade}\nType = OBJECT\nEnd\n"), |ini| {
+            ini.read_line()?;
+            logic.upgrade_definitions.parse_upgrade_definition(ini)
+        })
+        .expect("upgrade def");
+    }
+    logic
+        .admit_object_ini_sources([(
+            "AuthoredUpgradeDie.ini".into(),
+            "Object FixtureProducer\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\nObject FixtureGenericChild\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = UpgradeDie DieA\n DeathTypes = ALL\n UpgradeToRemove = Upgrade_FixtureA\n End\n Behavior = UpgradeDie DieB\n DeathTypes = ALL\n UpgradeToRemove = Upgrade_FixtureB\n End\nEnd\n"
+                .into(),
+        )])
+        .expect("ini");
+    logic.players.insert(
+        1,
+        crate::game_logic::Player::new(1, Team::USA, "Owner", true),
+    );
+    let producer = logic
+        .create_object_for_player("FixtureProducer", 1, Vec3::ZERO)
+        .expect("producer");
+    logic.apply_upgrade_to_object(producer, "Upgrade_FixtureA");
+    logic.apply_upgrade_to_object(producer, "Upgrade_FixtureB");
+    let child = logic
+        .create_object_for_player("FixtureGenericChild", 1, Vec3::new(20.0, 0.0, 0.0))
+        .expect("child");
+    logic.host_object_mut(child).unwrap().producer_id = Some(producer);
+    assert!(
+        logic
+            .host_object(producer)
+            .unwrap()
+            .has_object_upgrade_complete("Upgrade_FixtureA")
+    );
+
+    logic.apply_host_damage(child, 1000.0);
+
+    let p = logic.host_object(producer).unwrap();
+    assert!(!p.has_object_upgrade_complete("Upgrade_FixtureA"), "DieA removes its upgrade");
+    assert!(!p.has_object_upgrade_complete("Upgrade_FixtureB"), "DieB removes its upgrade");
+}

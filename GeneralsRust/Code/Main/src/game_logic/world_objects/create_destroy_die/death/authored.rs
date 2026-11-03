@@ -421,7 +421,9 @@ impl GameLogic {
                 NativeDieKind::Spawn => {
                     self.apply_spawned_require_spawner_on_die_with_effects(id, presentation_effects)
                 }
-                NativeDieKind::Upgrade => self.maybe_apply_upgrade_die(id),
+                NativeDieKind::Upgrade { upgrade_to_remove } => {
+                    self.apply_authored_upgrade_die(id, upgrade_to_remove)
+                }
                 NativeDieKind::Rebuild => {
                     let _ = self.maybe_spawn_rebuild_hole_with_effects(id, presentation_effects);
                 }

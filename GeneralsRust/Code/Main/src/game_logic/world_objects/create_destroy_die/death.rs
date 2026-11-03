@@ -1185,6 +1185,31 @@ impl GameLogic {
         }
     }
 
+    /// C++ UpgradeDie::onDie for one authored module: remove that module's
+    /// own UpgradeToRemove from the live producer. The name-inferred residual
+    /// payload is marked consumed so it cannot remove a second time.
+    pub(in super::super::super) fn apply_authored_upgrade_die(
+        &mut self,
+        id: ObjectId,
+        upgrade: &str,
+    ) {
+        let Some(obj) = self.objects.get_mut(&id) else {
+            return;
+        };
+        if let Some(ud) = obj.upgrade_die.as_mut() {
+            ud.fired = true;
+        }
+        let Some(pid) = obj.producer_id.filter(|pid| self.objects.contains_key(pid)) else {
+            self.upgrade_die_reg.record_missing_producer();
+            return;
+        };
+        if self.remove_object_upgrade_with_receiving_rules(pid, upgrade) {
+            self.upgrade_die_reg.record_removal();
+        } else {
+            self.upgrade_die_reg.record_missing_upgrade();
+        }
+    }
+
     pub(in super::super::super) fn maybe_apply_dam_die(&mut self, id: ObjectId) {
         if self.dam_template_at(id) {
             self.apply_dam_die_enable_waveguides();
