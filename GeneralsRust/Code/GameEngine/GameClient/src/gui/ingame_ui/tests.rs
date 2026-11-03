@@ -317,6 +317,9 @@ mod tests {
     fn mouseover_tooltip_appends_playable_player_name_only_in_multiplayer_like_cpp() {
         crate::test_support::ensure_ambient_host();
         let mut player = Player::new(0);
+        let mut template = gamelogic::player::PlayerTemplate::new("America".to_owned());
+        template.playable = true;
+        player.init(std::sync::Arc::new(template));
         player.set_display_name("Commander");
 
         assert_eq!(

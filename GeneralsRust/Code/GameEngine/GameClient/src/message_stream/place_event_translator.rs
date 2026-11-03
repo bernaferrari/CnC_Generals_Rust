@@ -328,9 +328,9 @@ mod tests {
         ui.place_build_available(Some("TestStructure".to_string()), Some(42));
         ui.set_pending_special_power(7, 11, 42);
 
-        assert!(with_receiving_ui(|ui| active_special_power_construction(42, "TestStructure", ui)).is_some());
-        assert!(with_receiving_ui(|ui| active_special_power_construction(7, "TestStructure", ui)).is_none());
-        assert!(with_receiving_ui(|ui| active_special_power_construction(42, "OtherStructure", ui)).is_none());
+        assert!(active_special_power_construction(42, "TestStructure", ui).is_some());
+        assert!(active_special_power_construction(7, "TestStructure", ui).is_none());
+        assert!(active_special_power_construction(42, "OtherStructure", ui).is_none());
 
         ui.clear_pending_special_power();
         ui.place_build_available(None, None);

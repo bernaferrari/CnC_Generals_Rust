@@ -165,11 +165,16 @@ fn update_description_window(
         return;
     };
 
-    let mut win_ref = win.borrow_mut();
-    let (width, height) = win_ref.get_size();
+    // Measure under a short-lived borrow. Hierarchy lookups and set_size must
+    // not run while any tree window is already mutably (or immutably) held —
+    // get_window_by_id walks roots with window.borrow().
+    let (width, height, font) = {
+        let win_ref = win.borrow();
+        (win_ref.get_size().0, win_ref.get_size().1, win_ref.get_font().cloned())
+    };
     let mut display_manager = get_display_string_manager();
     let display = display_manager.new_display_string();
-    if let Some(font) = win_ref.get_font() {
+    if let Some(font) = font.as_ref() {
         let font_desc = font.to_font_desc();
         if let Ok(font_ref) = crate::gui::get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&font_desc) {
             display.borrow_mut().set_font(font_ref);
@@ -186,14 +191,18 @@ fn update_description_window(
         return;
     };
 
-    let mut parent_ref = parent.borrow_mut();
-    let (parent_width, parent_height) = parent_ref.get_size();
+    let (parent_width, parent_height, parent_x, parent_y) = {
+        let parent_ref = parent.borrow();
+        let (w, h) = parent_ref.get_size();
+        let (x, y) = parent_ref.get_position();
+        (w, h, x, y)
+    };
     let mut adjusted_diff = diff;
     if parent_height + adjusted_diff < 102 {
         adjusted_diff = 102 - parent_height;
     }
-    let (parent_x, parent_y) = parent_ref.get_position();
-    parent_ref
+    parent
+        .borrow_mut()
         .set_size(parent_width, parent_height + adjusted_diff, effects)
         .ok();
 
@@ -202,7 +211,8 @@ fn update_description_window(
         let (cur_x, cur_y) = marker.borrow().get_screen_position();
         let base = state.base_marker_pos.get_or_insert((cur_x, cur_y));
         let offset = (cur_x - base.0, cur_y - base.1);
-        parent_ref
+        parent
+            .borrow_mut()
             .set_position(
                 parent_x,
                 (parent_y - adjusted_diff) + (offset.1 - state.last_marker_offset.1),
@@ -210,16 +220,20 @@ fn update_description_window(
             .ok();
         state.last_marker_offset = offset;
     } else {
-        parent_ref
+        parent
+            .borrow_mut()
             .set_position(parent_x, parent_y - adjusted_diff)
             .ok();
     }
 
-    let (desc_width, desc_height) = win_ref.get_size();
-    win_ref
-        .set_size(desc_width, desc_height + adjusted_diff, effects)
-        .ok();
-    let _ = win_ref.set_text(description);
+    let (desc_width, desc_height) = win.borrow().get_size();
+    {
+        let mut win_ref = win.borrow_mut();
+        win_ref
+            .set_size(desc_width, desc_height + adjusted_diff, effects)
+            .ok();
+        let _ = win_ref.set_text(description);
+    }
 }
 
 fn leftover_append_line(description: &mut String, extra: &str) {
@@ -683,7 +697,8 @@ fn populate_layout_for_command(
                 let _ = win.borrow_mut().show();
                 let _ = win.borrow_mut().set_text(&cost);
             } else {
-                let _ = win.borrow_mut().hide(true, manager);
+                let _ = win.borrow_mut().hide_without_manager_side_effects(true);
+                manager.window_hiding(&win);
             }
         }
     }
@@ -738,7 +753,8 @@ fn populate_layout_for_window(
             let _ = win.borrow_mut().set_text(&name);
         }
         if let Some(win) = manager.get_window_by_id(cost_id) {
-            let _ = win.borrow_mut().hide(true, manager);
+            let _ = win.borrow_mut().hide_without_manager_side_effects(true);
+            manager.window_hiding(&win);
         }
     }
 
