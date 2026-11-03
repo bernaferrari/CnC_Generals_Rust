@@ -1418,37 +1418,39 @@ fn click_to_gather_uses_gamedata_factor_and_cell_cap() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use glam::Vec3;
 
-    let prev_factor = game_engine::common::ini::get_global_data()
-        .map(|d| d.read().group_move_click_to_gather_factor);
-    if let Some(data) = game_engine::common::ini::get_global_data() {
-        data.write().group_move_click_to_gather_factor = 0.5;
-    }
-
     let mut logic = GameLogic::new();
-    let mut tpl = ThingTemplate::new("CG_V");
-    tpl.add_kind_of(KindOf::Vehicle);
-    tpl.add_kind_of(KindOf::Selectable);
-    tpl.set_health(200.0);
-    logic.templates.insert("CG_V".to_string(), tpl);
-    let a = logic
-        .create_object("CG_V", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-        .unwrap();
-    let b = logic
-        .create_object("CG_V", Team::USA, Vec3::new(100.0, 0.0, 0.0))
-        .unwrap();
-    let exec = CommandExecutor::new(&mut logic, 0);
-    assert!(
-        exec.should_tighten_group_move(&[a, b], Vec3::new(50.0, 0.0, 0.0)),
-        "click in the central half of the bbox must tighten"
-    );
-    assert!(
-        !exec.should_tighten_group_move(&[a, b], Vec3::new(5.0, 0.0, 0.0)),
-        "click inside the full bbox but outside the 0.5 gather rect must not tighten"
-    );
+    logic.with_own_services_mut(|logic| {
+        let prev_factor = game_engine::common::ini::get_global_data()
+            .map(|d| d.read().group_move_click_to_gather_factor);
+        if let Some(data) = game_engine::common::ini::get_global_data() {
+            data.write().group_move_click_to_gather_factor = 0.5;
+        }
 
-    if let Some(data) = game_engine::common::ini::get_global_data() {
-        data.write().group_move_click_to_gather_factor = prev_factor.unwrap_or(0.5);
-    }
+        let mut tpl = ThingTemplate::new("CG_V");
+        tpl.add_kind_of(KindOf::Vehicle);
+        tpl.add_kind_of(KindOf::Selectable);
+        tpl.set_health(200.0);
+        logic.templates.insert("CG_V".to_string(), tpl);
+        let a = logic
+            .create_object("CG_V", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let b = logic
+            .create_object("CG_V", Team::USA, Vec3::new(100.0, 0.0, 0.0))
+            .unwrap();
+        let exec = CommandExecutor::new(logic, 0);
+        assert!(
+            exec.should_tighten_group_move(&[a, b], Vec3::new(50.0, 0.0, 0.0)),
+            "click in the central half of the bbox must tighten"
+        );
+        assert!(
+            !exec.should_tighten_group_move(&[a, b], Vec3::new(5.0, 0.0, 0.0)),
+            "click inside the full bbox but outside the 0.5 gather rect must not tighten"
+        );
+
+        if let Some(data) = game_engine::common::ini::get_global_data() {
+            data.write().group_move_click_to_gather_factor = prev_factor.unwrap_or(0.5);
+        }
+    });
 }
 
 #[test]

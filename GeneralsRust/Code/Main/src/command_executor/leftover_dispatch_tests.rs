@@ -488,12 +488,17 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
         sc.builder_id = Some(dozer);
     }
     damage_for_fixture(&mut logic, damaged, 200.0);
+    assert!(logic.dozer_new_task_build(dozer, scaffold).expect("park BUILD"));
     {
         let dz = logic.host_object_mut(dozer).expect("dz");
         dz.target = Some(scaffold);
         dz.set_ai_state(
             AIState::Constructing,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        // Mid-build: primary has entered BUILD even though newTask resets current.
+        dz.dozer_tasks.enter_primary_task(
+            gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Build,
         );
     }
     let result = CommandExecutor::new(&mut logic, 0)
@@ -827,7 +832,7 @@ fn execute_build_records_build_slot_and_docks_off_center() {
             crate::assets::ReceivingObjectContent::from_sources([(
                 "dozer-build-slot.ini".into(),
                 "Object AmericaVehicleDozerSlot
-KindOf = VEHICLE DOZER WORKER SELECTABLE
+KindOf = VEHICLE DOZER SELECTABLE
 Body = ActiveBody Body
 MaxHealth = 300
 InitialHealth = 300
