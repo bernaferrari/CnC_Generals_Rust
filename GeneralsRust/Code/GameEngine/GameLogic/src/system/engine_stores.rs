@@ -109,6 +109,8 @@ pub struct WorldServices {
     eva: Arc<Mutex<EvaState>>,
     control_bar_ui_hooks: Mutex<Option<std::sync::Arc<dyn crate::control_bar::ControlBarUiHooks>>>,
     game_pause_hooks: Mutex<Option<std::sync::Arc<dyn crate::helpers::GamePauseHooks>>>,
+    observer_audio_locality_hooks: Mutex<Option<std::sync::Arc<dyn crate::helpers::ObserverAudioLocalityHooks>>>,
+    observer_audio_view_hooks: Mutex<Option<std::sync::Arc<dyn crate::helpers::ObserverAudioViewHooks>>>,
     control_bar_bridge: RwLock<Option<std::sync::Arc<crate::control_bar::ControlBarBridge>>>,
     damage_over_time_fields: Mutex<Vec<DamageOverTimeField>>,
     damage_over_time_next_id: AtomicU32,
@@ -169,6 +171,8 @@ impl WorldServices {
             eva: Arc::new(Mutex::new(EvaState::new_enabled())),
             control_bar_ui_hooks: Mutex::new(None),
             game_pause_hooks: Mutex::new(None),
+            observer_audio_locality_hooks: Mutex::new(None),
+            observer_audio_view_hooks: Mutex::new(None),
             control_bar_bridge: RwLock::new(None),
             damage_over_time_fields: Mutex::new(Vec::new()),
             damage_over_time_next_id: AtomicU32::new(50000),
@@ -230,6 +234,8 @@ impl WorldServices {
             eva: Arc::new(Mutex::new(EvaState::new_enabled())),
             control_bar_ui_hooks: Mutex::new(None),
             game_pause_hooks: Mutex::new(None),
+            observer_audio_locality_hooks: Mutex::new(None),
+            observer_audio_view_hooks: Mutex::new(None),
             control_bar_bridge: RwLock::new(None),
             damage_over_time_fields: Mutex::new(Vec::new()),
             damage_over_time_next_id: AtomicU32::new(50000),
@@ -317,6 +323,16 @@ impl WorldServices {
         &self,
     ) -> &Mutex<Option<std::sync::Arc<dyn crate::helpers::GamePauseHooks>>> {
         &self.game_pause_hooks
+    }
+    pub(crate) fn observer_audio_locality_hooks(
+        &self,
+    ) -> &Mutex<Option<std::sync::Arc<dyn crate::helpers::ObserverAudioLocalityHooks>>> {
+        &self.observer_audio_locality_hooks
+    }
+    pub(crate) fn observer_audio_view_hooks(
+        &self,
+    ) -> &Mutex<Option<std::sync::Arc<dyn crate::helpers::ObserverAudioViewHooks>>> {
+        &self.observer_audio_view_hooks
     }
     pub(crate) fn control_bar_bridge(
         &self,
