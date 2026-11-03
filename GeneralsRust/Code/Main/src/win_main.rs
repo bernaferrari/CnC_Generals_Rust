@@ -40,51 +40,6 @@ use winit::{
 // and use AtomicPtr to maintain compatibility with Windows APIs.
 // They represent opaque handles from the Windows API and are appropriate for FFI.
 
-/// Application instance handle (equivalent to HINSTANCE)
-struct ApplicationInstanceSlot(AtomicPtr<c_void>);
-impl std::ops::Deref for ApplicationInstanceSlot {
-    type Target = AtomicPtr<c_void>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static APPLICATION_INSTANCE: ApplicationInstanceSlot = ApplicationInstanceSlot(AtomicPtr::new(std::ptr::null_mut()));
-
-/// Application window handle (equivalent to HWND)
-struct ApplicationWindowSlot(AtomicPtr<c_void>);
-impl std::ops::Deref for ApplicationWindowSlot {
-    type Target = AtomicPtr<c_void>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static APPLICATION_WINDOW: ApplicationWindowSlot = ApplicationWindowSlot(AtomicPtr::new(std::ptr::null_mut()));
-
-/// Win32 mouse interface pointer
-struct TheWin32MouseSlot(AtomicPtr<c_void>);
-impl std::ops::Deref for TheWin32MouseSlot {
-    type Target = AtomicPtr<c_void>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static THE_WIN32_MOUSE: TheWin32MouseSlot = TheWin32MouseSlot(AtomicPtr::new(std::ptr::null_mut()));
-
-/// Whether application is windowed
-struct ApplicationIsWindowedSlot(AtomicBool);
-impl std::ops::Deref for ApplicationIsWindowedSlot {
-    type Target = AtomicBool;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static APPLICATION_IS_WINDOWED: ApplicationIsWindowedSlot = ApplicationIsWindowedSlot(AtomicBool::new(false));
-
-/// Message time from Windows
-struct TheMessageTimeSlot(AtomicU32);
-impl std::ops::Deref for TheMessageTimeSlot {
-    type Target = AtomicU32;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static THE_MESSAGE_TIME: TheMessageTimeSlot = TheMessageTimeSlot(AtomicU32::new(0));
-struct LauncherShutdownRequestedSlot(AtomicBool);
-impl std::ops::Deref for LauncherShutdownRequestedSlot {
-    type Target = AtomicBool;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static LAUNCHER_SHUTDOWN_REQUESTED: LauncherShutdownRequestedSlot = LauncherShutdownRequestedSlot(AtomicBool::new(false));
 
 // Constants from C++
 const GENERALS_GUID: &str = "685EAFF2-3216-4265-B047-251C5F4B82F3";
@@ -106,7 +61,8 @@ pub unsafe fn win_main(
     _lp_cmd_line: *const c_char,
     n_cmd_show: c_int,
 ) -> c_int {
-    APPLICATION_INSTANCE.store(h_instance, Ordering::Relaxed);
+    let _main_services_scope = crate::main_services::MainServicesScope::new();
+    crate::main_services::main_services().application_instance.store(h_instance, Ordering::Relaxed);
 
     if let Err(err) = set_working_directory_to_executable() {
         warn!("Failed to set working directory to executable path: {err}");
@@ -133,7 +89,7 @@ pub unsafe fn win_main(
     // Check for windowed mode flag - exactly like C++
     for arg in &args {
         if arg.to_lowercase() == "-win" {
-            APPLICATION_IS_WINDOWED.store(true, Ordering::Relaxed);
+            crate::main_services::main_services().application_is_windowed.store(true, Ordering::Relaxed);
         }
     }
 
@@ -141,7 +97,7 @@ pub unsafe fn win_main(
     if !initialize_app_windows(
         h_instance,
         n_cmd_show,
-        APPLICATION_IS_WINDOWED.load(Ordering::Relaxed),
+        crate::main_services::main_services().application_is_windowed.load(Ordering::Relaxed),
     ) {
         return 0;
     }
@@ -213,7 +169,7 @@ unsafe fn initialize_app_windows(
     _n_cmd_show: c_int,
     run_windowed: bool,
 ) -> bool {
-    APPLICATION_IS_WINDOWED.store(run_windowed, Ordering::Relaxed);
+    crate::main_services::main_services().application_is_windowed.store(run_windowed, Ordering::Relaxed);
     true
 }
 
@@ -360,7 +316,7 @@ pub unsafe fn check_for_launcher_messages() -> Result<()> {
         match message {
             crate::copy_protection::LauncherMessage::GameShutdown { .. } => {
                 info!("Received shutdown message from launcher");
-                LAUNCHER_SHUTDOWN_REQUESTED.store(true, Ordering::Relaxed);
+                crate::main_services::main_services().launcher_shutdown_requested.store(true, Ordering::Relaxed);
             }
             crate::copy_protection::LauncherMessage::VersionCheck { .. } => {
                 info!("Received version check message from launcher");
@@ -386,7 +342,7 @@ pub unsafe fn process_copy_protection_messages() {
 }
 
 pub fn is_launcher_shutdown_requested() -> bool {
-    LAUNCHER_SHUTDOWN_REQUESTED.load(Ordering::Relaxed)
+    crate::main_services::main_services().launcher_shutdown_requested.load(Ordering::Relaxed)
 }
 
 /// Build window + event loop and run the cross-platform RTS path from WinMain.
@@ -655,7 +611,7 @@ fn parse_level(level: &str) -> log::LevelFilter {
 #[cfg(test)]
 mod tests {
     use super::{
-        APPLICATION_IS_WINDOWED, DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION, STARTUP_WINDOW_TITLE,
+        DEFAULT_XRESOLUTION, DEFAULT_YRESOLUTION, STARTUP_WINDOW_TITLE,
         centered_startup_position_from_monitor, command_line, initialize_app_windows,
         resolve_window_mode, startup_window_attributes,
     };
@@ -699,19 +655,20 @@ mod tests {
 
     #[test]
     fn initialize_app_windows_tracks_startup_window_mode_flag() {
-        APPLICATION_IS_WINDOWED.store(false, Ordering::Relaxed);
+        let _scope = crate::main_services::MainServicesScope::new();
+        crate::main_services::main_services().application_is_windowed.store(false, Ordering::Relaxed);
 
         // SAFETY: test-only call with null instance; fn only stores a flag.
         unsafe {
             assert!(initialize_app_windows(std::ptr::null_mut(), 1, true));
         }
-        assert!(APPLICATION_IS_WINDOWED.load(Ordering::Relaxed));
+        assert!(crate::main_services::main_services().application_is_windowed.load(Ordering::Relaxed));
 
         // SAFETY: same null-arg test call; asserts flag toggling only.
         unsafe {
             assert!(initialize_app_windows(std::ptr::null_mut(), 1, false));
         }
-        assert!(!APPLICATION_IS_WINDOWED.load(Ordering::Relaxed));
+        assert!(!crate::main_services::main_services().application_is_windowed.load(Ordering::Relaxed));
     }
 
     #[test]

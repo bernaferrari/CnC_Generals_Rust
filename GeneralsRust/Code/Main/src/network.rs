@@ -224,41 +224,36 @@ pub struct NetworkInterface {
     lan_api: Mutex<Option<LanApi>>,
 }
 
-fn active_interface_slot() -> &'static StdRwLock<Option<Arc<RwLock<NetworkInterface>>>> {
-    struct SlotSlot(OnceLock<StdRwLock<Option<Arc<RwLock<NetworkInterface>>>>>);
-    impl std::ops::Deref for SlotSlot {
-        type Target = OnceLock<StdRwLock<Option<Arc<RwLock<NetworkInterface>>>>>;
-        fn deref(&self) -> &Self::Target { &self.0 }
-    }
-    static SLOT: SlotSlot = SlotSlot(OnceLock::new());
-    SLOT.get_or_init(|| StdRwLock::new(None))
-}
-
 fn set_active_network_interface(interface: Arc<RwLock<NetworkInterface>>) {
-    if let Ok(mut slot) = active_interface_slot().write() {
-        *slot = Some(interface);
-    }
+    let services = crate::main_services::main_services();
+    *services
+        .network
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(interface);
 }
 
 pub fn clear_active_network_interface() {
-    if let Ok(mut slot) = active_interface_slot().write() {
-        *slot = None;
-    }
+    let services = crate::main_services::main_services();
+    *services
+        .network
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = None;
 }
 
 pub fn has_active_network_interface() -> bool {
-    active_interface_slot()
-        .read()
-        .ok()
-        .and_then(|slot| slot.as_ref().map(|_| true))
-        .unwrap_or(false)
+    crate::main_services::main_services()
+        .network
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .is_some()
 }
 
 pub fn active_session_frame_data_ready() -> Option<bool> {
-    let interface = active_interface_slot()
-        .read()
-        .ok()
-        .and_then(|slot| slot.as_ref().cloned())?;
+    let interface = crate::main_services::main_services()
+        .network
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()?;
     let handle = Handle::try_current().ok()?;
     Some(handle.block_on(async {
         let net_guard = interface.read().await;

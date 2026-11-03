@@ -154,6 +154,7 @@ pub async fn run_cnc_game(
     window_attributes: WindowAttributes,
     cmd_args: Arc<CommandLineArgs>,
 ) -> Result<()> {
+    let _main_services_scope = crate::main_services::MainServicesScope::new();
     info!("🎮 Starting Command & Conquer Generals Zero Hour - Real Game");
 
     register_real_game_client_bootstrap();
@@ -544,10 +545,12 @@ pub async fn run_cnc_game(
                                     if let raw_window_handle::RawWindowHandle::Win32(win) =
                                         handle.as_raw()
                                     {
-                                        crate::win_main::APPLICATION_WINDOW.store(
-                                            win.hwnd.get() as *mut std::ffi::c_void,
-                                            std::sync::atomic::Ordering::Relaxed,
-                                        );
+                                        crate::main_services::main_services()
+                                            .application_window
+                                            .store(
+                                                win.hwnd.get() as *mut std::ffi::c_void,
+                                                std::sync::atomic::Ordering::Relaxed,
+                                            );
                                         debug!("Win32 window handle stored");
                                     }
                                 }

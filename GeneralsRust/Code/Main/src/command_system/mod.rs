@@ -9,7 +9,7 @@ pub(in crate::command_system) use glam::{Vec2, Vec3};
 pub(in crate::command_system) use serde::{Deserialize, Serialize};
 pub(in crate::command_system) use std::collections::{HashMap, VecDeque};
 pub(in crate::command_system) use std::f32::consts::TAU;
-pub(in crate::command_system) use std::sync::{Mutex, OnceLock};
+pub(in crate::command_system) use std::sync::{Arc, Mutex, OnceLock};
 pub(in crate::command_system) use std::time::{Duration, Instant, SystemTime};
 
 mod helpers;
