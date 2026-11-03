@@ -76,7 +76,8 @@ impl Player {
         let rank_arc = the_rank_info_store_arc();
         if let Ok(rank_store) = rank_arc.read() {
             let rank_count = rank_store.get_rank_level_count() as Int;
-            if new_level > rank_count {
+            // Empty store (unit fixtures) must not clamp every rank to 0.
+            if rank_count > 0 && new_level > rank_count {
                 new_level = rank_count;
             }
         }

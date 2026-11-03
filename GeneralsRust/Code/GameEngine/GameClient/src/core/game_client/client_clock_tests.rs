@@ -18,6 +18,8 @@ fn actual_presentation_shell_preserves_the_admitted_client_frame() {
         .expect("fresh local player command queue");
     let mut client = GameClient::new().unwrap();
     client.window_manager_owner().shell_handle().init().unwrap();
+    client.subsystem_manager.in_game_ui =
+        Some(crate::core::subsystems::InGameUISubsystem::default());
     client.initialized = true;
     client.set_frame(37);
     client.update_presentation_shell(0.0, 0, 0).unwrap();
@@ -30,6 +32,8 @@ fn actual_presentation_shell_preserves_the_admitted_client_frame() {
     );
     let mut peer = GameClient::new().unwrap();
     peer.window_manager_owner().shell_handle().init().unwrap();
+    peer.subsystem_manager.in_game_ui =
+        Some(crate::core::subsystems::InGameUISubsystem::default());
     peer.initialized = true;
     peer.set_frame(900);
     peer.update_presentation_shell(0.0, 0, 0).unwrap();
@@ -46,6 +50,8 @@ fn actual_presentation_shell_preserves_the_admitted_client_frame() {
         ))
         .unwrap();
     let mut restored = GameClient::new().unwrap();
+    restored.subsystem_manager.in_game_ui =
+        Some(crate::core::subsystems::InGameUISubsystem::default());
     restored.initialized = true;
     restored.set_frame(901);
     restored

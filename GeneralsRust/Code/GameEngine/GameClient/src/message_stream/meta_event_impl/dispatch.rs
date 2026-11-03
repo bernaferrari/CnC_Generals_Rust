@@ -78,20 +78,24 @@ fn dispatch_map_entry(
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_DESHROUD") {
+        // C++ KEEP_MESSAGE after applying.
         reveal_local_player_map_permanently();
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_DESHROUD") {
-        if !TheGameLogic::is_in_multiplayer_game() {
-            reveal_local_player_map_permanently();
+        // C++ CommandXlat: apply in SP, KEEP_MESSAGE (no DESTROY).
+        if TheGameLogic::is_in_multiplayer_game() {
+            return None;
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        reveal_local_player_map_permanently();
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_ENSHROUD") {
+        // C++ KEEP_MESSAGE after applying.
         shroud_local_player_map();
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_DUMP_ASSETS") {
@@ -174,15 +178,15 @@ fn dispatch_map_entry(
         .name
         .eq_ignore_ascii_case("CHEAT_TOGGLE_HAND_OF_GOD_MODE")
     {
-        if !TheGameLogic::is_in_multiplayer_game() {
-            let enabled = toggle_shared_bool_state(&mut ui.state.meta_demo.hand_of_god_mode);
-            ui.message(if enabled {
-                "Hand-Of-God Mode is ON"
-            } else {
-                "Hand-Of-God Mode is OFF"
-            });
-            return Some(GameMessageDisposition::DestroyMessage);
+        if TheGameLogic::is_in_multiplayer_game() {
+            return None;
         }
+        let enabled = toggle_shared_bool_state(&mut ui.state.meta_demo.hand_of_god_mode);
+        ui.message(if enabled {
+            "Hand-Of-God Mode is ON"
+        } else {
+            "Hand-Of-God Mode is OFF"
+        });
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -218,32 +222,36 @@ fn dispatch_map_entry(
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_ADD_CASH") {
-        if !TheGameLogic::is_in_multiplayer_game() {
-            let _ = with_local_player_mut(|player| {
-                player.get_money_mut().deposit_money(10_000);
-            });
+        // C++ CommandXlat.cpp MSG_CHEAT_ADD_CASH: deposit in SP, never DESTROY_MESSAGE.
+        if TheGameLogic::is_in_multiplayer_game() {
+            return None;
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        let _ = with_local_player_mut(|player| {
+            player.get_money_mut().deposit_money(10_000);
+        });
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_ADDCASH") {
-        if !TheGameLogic::is_in_multiplayer_game() {
-            let _ = with_local_player_mut(|player| {
-                player.get_money_mut().deposit_money(10_000);
-            });
+        // Parity with MSG_META_DEMO_ADD_CASH / CHEAT_ADD_CASH keep semantics.
+        if TheGameLogic::is_in_multiplayer_game() {
+            return None;
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        let _ = with_local_player_mut(|player| {
+            player.get_money_mut().deposit_money(10_000);
+        });
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_INSTANT_BUILD") {
-        if !TheGameLogic::is_in_multiplayer_game() {
-            #[cfg(any(debug_assertions, feature = "internal"))]
-            {
-                let _ = with_local_player_mut(|player| {
-                    player.toggle_instant_build();
-                });
-            }
-            return Some(GameMessageDisposition::DestroyMessage);
+        if TheGameLogic::is_in_multiplayer_game() {
+            return None;
+        }
+        #[cfg(any(debug_assertions, feature = "internal"))]
+        {
+            let _ = with_local_player_mut(|player| {
+                player.toggle_instant_build();
+            });
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -282,13 +290,13 @@ fn dispatch_map_entry(
         .name
         .eq_ignore_ascii_case("CHEAT_GIVE_SCIENCEPURCHASEPOINTS")
     {
-        if !TheGameLogic::is_in_multiplayer_game() {
-            let _ = with_local_player_mut(|player| {
-                player.add_science_purchase_points(1);
-            });
-            ui.message("Adding a SciencePurchasePoint");
-            return Some(GameMessageDisposition::DestroyMessage);
+        if TheGameLogic::is_in_multiplayer_game() {
+            return None;
         }
+        let _ = with_local_player_mut(|player| {
+            player.add_science_purchase_points(1);
+        });
+        ui.message("Adding a SciencePurchasePoint");
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -304,7 +312,10 @@ fn dispatch_map_entry(
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_GIVE_ALL_SCIENCES") {
-        if !TheGameLogic::is_in_multiplayer_game() {
+        if TheGameLogic::is_in_multiplayer_game() {
+            return None;
+        }
+        {
             let _ = with_local_player_mut(|player| {
                 if let Some(science_store) = get_science_store() {
                     for (&science, _) in science_store.iter() {
@@ -318,15 +329,15 @@ fn dispatch_map_entry(
             ui.message("Granting all sciences!");
             return Some(GameMessageDisposition::DestroyMessage);
         }
-        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_SWITCH_TEAMS") {
-        if !TheGameLogic::is_in_multiplayer_game() {
-            if TheGameLogic::is_in_game() {
-                let _ = switch_to_next_non_neutral_player(ui.state);
-            }
-            return Some(GameMessageDisposition::DestroyMessage);
+        // C++: only destroy/apply outside multiplayer; MP leaves KEEP_MESSAGE.
+        if TheGameLogic::is_in_multiplayer_game() {
+            return None;
+        }
+        if TheGameLogic::is_in_game() {
+            let _ = switch_to_next_non_neutral_player(ui.state);
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -380,9 +391,10 @@ fn dispatch_map_entry(
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_KILL_SELECTION") {
-        if !TheGameLogic::is_in_multiplayer_game() {
-            kill_local_player_selection();
+        if TheGameLogic::is_in_multiplayer_game() {
+            return None;
         }
+        kill_local_player_selection();
         return Some(GameMessageDisposition::DestroyMessage);
     }
 
@@ -451,7 +463,7 @@ fn dispatch_map_entry(
 
     if let Some((is_cheat_alias, script_index)) = parse_runscript_alias(&record.name) {
         if is_cheat_alias && TheGameLogic::is_in_multiplayer_game() {
-            return Some(GameMessageDisposition::DestroyMessage);
+            return None;
         }
         run_key_script_alias(script_index);
         return Some(GameMessageDisposition::DestroyMessage);
@@ -475,7 +487,8 @@ fn dispatch_map_entry(
         .name
         .eq_ignore_ascii_case("DEMO_TOGGLE_MILITARY_SUBTITLES")
     {
-        let _ = dispatch_ui_input(
+        // Fixtures without a receiving UI driver still consume the alias.
+        let _ = try_dispatch_ui_input(
             game_engine::common::message_stream::UiInputAction::DemoMilitarySubtitle,
             display_dispatch,
             ui,
@@ -542,6 +555,18 @@ fn dispatch_map_entry(
                     None,
                 );
             }
+        } else if let Some(global_data) = get_global_data() {
+            // C++ CommandXlat cycles TheWritableGlobalData->m_timeOfDay when the
+            // session model environment has not been published yet.
+            use game_engine::common::ini::TimeOfDay as GlobalTimeOfDay;
+            let mut global = global_data.write();
+            global.time_of_day = match global.time_of_day {
+                GlobalTimeOfDay::Morning => GlobalTimeOfDay::Afternoon,
+                GlobalTimeOfDay::Afternoon => GlobalTimeOfDay::Evening,
+                GlobalTimeOfDay::Evening => GlobalTimeOfDay::Night,
+                GlobalTimeOfDay::Night => GlobalTimeOfDay::Morning,
+                GlobalTimeOfDay::Invalid => GlobalTimeOfDay::Morning,
+            };
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -587,7 +612,7 @@ fn dispatch_map_entry(
             let mut global = global_data.write();
             global.disable_render = !global.disable_render;
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None; // C++ KEEP_MESSAGE
     }
 
     if record
@@ -775,7 +800,7 @@ fn dispatch_map_entry(
                 "Show Object Extents OFF"
             });
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None; // C++ KEEP_MESSAGE
     }
 
     if record
@@ -791,10 +816,11 @@ fn dispatch_map_entry(
                 "Show AudioLocations OFF"
             });
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None; // C++ KEEP_MESSAGE
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_SHOW_HEALTH") {
+        // C++ KEEP_MESSAGE after toggle.
         if let Some(global_data) = get_global_data() {
             let mut global = global_data.write();
             global.show_object_health = !global.show_object_health;
@@ -804,7 +830,7 @@ fn dispatch_map_entry(
                 "Object Health OFF"
             });
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_METRICS") {
@@ -812,7 +838,7 @@ fn dispatch_map_entry(
             let mut global = global_data.write();
             global.show_metrics = !global.show_metrics;
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None; // C++ KEEP_MESSAGE
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_DEBUG_STATS") {
@@ -847,7 +873,7 @@ fn dispatch_map_entry(
         .eq_ignore_ascii_case("DEBUG_OBJECT_ID_PERFORMANCE")
     {
         report_object_id_lookup_performance(ui);
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record
@@ -855,7 +881,7 @@ fn dispatch_map_entry(
         .eq_ignore_ascii_case("DEBUG_DRAWABLE_ID_PERFORMANCE")
     {
         report_drawable_id_lookup_performance(ui);
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record
@@ -864,7 +890,7 @@ fn dispatch_map_entry(
     {
         let count = TheGameLogic::get_number_sleepy_updates();
         ui.message(&format!("Number of Sleepy Modules: {count}."));
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_NETWORK") {
@@ -914,7 +940,9 @@ fn dispatch_map_entry(
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_MUSIC") {
         let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
         if let Ok(mut audio) = manager.lock() {
-            if audio.is_music_playing() {
+            // C++ toggles the Music affect flag; is_music_playing alone misses
+            // "on but not currently streaming" fixture state.
+            if audio.is_on(AudioAffect::Music) {
                 audio.stop_audio(AudioAffect::Music);
                 audio.set_on(false, AudioAffect::Music);
                 ui.message("Stopping Music");
@@ -952,7 +980,7 @@ fn dispatch_map_entry(
             "Statistics dump made on frame: {}",
             TheGameLogic::get_frame()
         ));
-        return Some(GameMessageDisposition::DestroyMessage);
+        return None;
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_WIN") {
@@ -1020,30 +1048,32 @@ if let Ok(list) = __arc_bind.read() {
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_SHOW_HEALTH") {
-        if !TheGameLogic::is_in_multiplayer_game() {
-            if let Some(global_data) = get_global_data() {
-                let mut global = global_data.write();
-                global.show_object_health = !global.show_object_health;
-                ui.message(if global.show_object_health {
-                    "Object Health ON"
-                } else {
-                    "Object Health OFF"
-                });
-            }
+        // C++ KEEP_MESSAGE; gated out of multiplayer.
+        if TheGameLogic::is_in_multiplayer_game() {
+            return None;
         }
-        return Some(GameMessageDisposition::DestroyMessage);
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.show_object_health = !global.show_object_health;
+            ui.message(if global.show_object_health {
+                "Object Health ON"
+            } else {
+                "Object Health OFF"
+            });
+        }
+        return None;
     }
 
     if record
         .name
         .eq_ignore_ascii_case("CHEAT_TOGGLE_MESSAGE_TEXT")
     {
-        if !TheGameLogic::is_in_multiplayer_game() {
-            ui.toggle_messages();
-            if ui.is_messages_on() {
-                ui.message("GUI:MessagesOn");
-            }
-            return Some(GameMessageDisposition::DestroyMessage);
+        if TheGameLogic::is_in_multiplayer_game() {
+            return None;
+        }
+        ui.toggle_messages();
+        if ui.is_messages_on() {
+            ui.message("GUI:MessagesOn");
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }
@@ -1060,17 +1090,17 @@ if let Ok(list) = __arc_bind.read() {
         .name
         .eq_ignore_ascii_case("CHEAT_TOGGLE_SPECIAL_POWER_DELAYS")
     {
-        if !TheGameLogic::is_in_multiplayer_game() {
-            if let Some(global_data) = get_global_data() {
-                let mut global = global_data.write();
-                global.special_power_uses_delay = !global.special_power_uses_delay;
-                ui.message(if global.special_power_uses_delay {
-                    "Special Power (Superweapon) Delay: ON"
-                } else {
-                    "Special Power (Superweapon) Delay: OFF"
-                });
-            }
-            return Some(GameMessageDisposition::DestroyMessage);
+        if TheGameLogic::is_in_multiplayer_game() {
+            return None;
+        }
+        if let Some(global_data) = get_global_data() {
+            let mut global = global_data.write();
+            global.special_power_uses_delay = !global.special_power_uses_delay;
+            ui.message(if global.special_power_uses_delay {
+                "Special Power (Superweapon) Delay: ON"
+            } else {
+                "Special Power (Superweapon) Delay: OFF"
+            });
         }
         return Some(GameMessageDisposition::DestroyMessage);
     }

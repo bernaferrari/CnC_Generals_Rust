@@ -33,6 +33,9 @@ mod tests {
     fn active_command_map_names() -> Vec<String> {
         let root = repo_root();
         let paths = [
+            root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/CommandMap.ini"),
+            root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/CommandMapDebug.ini"),
+            root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/CommandMapDemo.ini"),
             root.join("windows_game/extracted_big_files_v2/INI/CommandMap.ini"),
             root.join("windows_game/extracted_big_files_v2/INI/CommandMapDebug.ini"),
             root.join("windows_game/extracted_big_files_v2/INI/CommandMapDemo.ini"),
@@ -40,6 +43,7 @@ mod tests {
             root.join(
                 "windows_game/extracted_big_files_v2/W3DEnglishZH/Data/English/CommandMap.ini",
             ),
+            root.join("Data/INI/CommandMap.ini"),
         ];
 
         let mut names = Vec::new();
@@ -95,7 +99,10 @@ mod tests {
     }
 
     fn dispatch_for_test(record: &MetaMapRec) -> Option<GameMessageDisposition> {
-        with_receiving_ui(|ui| dispatch_on(ui, record))
+        with_receiving_ui(|ui| {
+            let mut emitted = Vec::new();
+            ui.with_emission_sink(&mut emitted, |ui| dispatch_on(ui, record))
+        })
     }
 
     #[test]
@@ -886,25 +893,24 @@ mod tests {
     #[test]
     fn test_message_text_aliases_toggle_ingame_ui_message_state() {
         crate::test_support::ensure_ambient_host();
-        with_receiving_ui(|ui| {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
+        with_receiving_ui(|ui| {
+            if !ui.is_messages_on() {
+                ui.toggle_messages();
+            }
+            assert!(ui.is_messages_on());
 
-        if !ui.is_messages_on() {
-            ui.toggle_messages();
-        }
-        assert!(ui.is_messages_on());
+            assert_eq!(
+                dispatch_on(ui, &alias_record("DEMO_TOGGLE_MESSAGE_TEXT")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert!(!ui.is_messages_on());
 
-        assert_eq!(
-            dispatch_for_test(&alias_record("DEMO_TOGGLE_MESSAGE_TEXT")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        assert!(!ui.is_messages_on());
-
-        assert_eq!(
-            dispatch_for_test(&alias_record("CHEAT_TOGGLE_MESSAGE_TEXT")),
-            Some(GameMessageDisposition::DestroyMessage)
-        );
-        assert!(ui.is_messages_on());
+            assert_eq!(
+                dispatch_on(ui, &alias_record("CHEAT_TOGGLE_MESSAGE_TEXT")),
+                Some(GameMessageDisposition::DestroyMessage)
+            );
+            assert!(ui.is_messages_on());
         });
     }
 
