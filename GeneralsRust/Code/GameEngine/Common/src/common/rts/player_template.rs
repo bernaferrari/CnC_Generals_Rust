@@ -13,7 +13,6 @@ use crate::common::name_key_generator::{
     NAMEKEY_INVALID, NameKeyGenerator, NameKeyNamespace, NameKeyType,
 };
 use crate::common::rts::Money;
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -643,32 +642,32 @@ impl Default for PlayerTemplateStore {
     }
 }
 
-struct PlayerTemplateStoreSlot(OnceCell<RwLock<PlayerTemplateStore>>);
-impl std::ops::Deref for PlayerTemplateStoreSlot {
-    type Target = OnceCell<RwLock<PlayerTemplateStore>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static PLAYER_TEMPLATE_STORE: PlayerTemplateStoreSlot = PlayerTemplateStoreSlot(OnceCell::new());
+/// Non-blocking read so map-load player sync can fail-open if INI load holds the write lock.
 
-pub(crate) fn player_template_store() -> &'static RwLock<PlayerTemplateStore> {
-    PLAYER_TEMPLATE_STORE.0.get_or_init(|| RwLock::new(PlayerTemplateStore::new()))
+fn player_template_cell() -> std::sync::Arc<std::sync::RwLock<PlayerTemplateStore>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.player_template)
+}
+
+pub(crate) fn player_template_store() -> std::sync::Arc<std::sync::RwLock<PlayerTemplateStore>> {
+    player_template_cell()
 }
 
 pub fn get_player_template_store() -> RwLockReadGuard<'static, PlayerTemplateStore> {
-    player_template_store()
-        .read()
-        .expect("PlayerTemplateStore poisoned")
+    let cell = player_template_cell();
+    let guard = cell.read().expect("PlayerTemplateStore poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
 
-/// Non-blocking read so map-load player sync can fail-open if INI load holds the write lock.
 pub fn try_get_player_template_store() -> Option<RwLockReadGuard<'static, PlayerTemplateStore>> {
-    player_template_store().try_read().ok()
+    let cell = player_template_cell();
+    let guard = cell.try_read().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
 pub fn get_player_template_store_mut() -> RwLockWriteGuard<'static, PlayerTemplateStore> {
-    player_template_store()
-        .write()
-        .expect("PlayerTemplateStore poisoned")
+    let cell = player_template_cell();
+    let guard = cell.write().expect("PlayerTemplateStore poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
 
 #[cfg(test)]

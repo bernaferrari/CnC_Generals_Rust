@@ -41,6 +41,12 @@ use crate::common::ini::ini_video::{VideoPlayer};
 use crate::common::ini::ini_weapon::{WeaponStore};
 use crate::common::ini::ini_weather::{WeatherSetting};
 use crate::common::ini::ini_window_transition::{WindowTransitionStore};
+use crate::common::rts::player_template::PlayerTemplateStore;
+use crate::common::rts::science::ScienceStore as RtsScienceStore;
+use crate::common::rts::special_power::SpecialPowerStore as RtsSpecialPowerStore;
+use crate::common::ini::ini_mouse::CursorInfo;
+use crate::common::ini::ini_object::ObjectDefinition;
+use std::collections::HashMap;
 
 /// INI / definition registries owned by one game instance.
 pub struct IniStores {
@@ -79,6 +85,11 @@ pub struct IniStores {
     pub map_cache: Arc<RwLock<MapCache>>,
     pub map_data: Arc<RwLock<MapData>>,
     pub weather: Arc<RwLock<Option<WeatherSetting>>>,
+    pub player_template: Arc<RwLock<PlayerTemplateStore>>,
+    pub rts_science: Arc<RwLock<RtsScienceStore>>,
+    pub rts_special_power: Arc<RwLock<RtsSpecialPowerStore>>,
+    pub cursor_info: Arc<ParkingRwLock<HashMap<String, CursorInfo>>>,
+    pub object_definitions: Arc<RwLock<HashMap<String, ObjectDefinition>>>,
 }
 
 impl Default for IniStores {
@@ -119,6 +130,11 @@ impl Default for IniStores {
             map_cache: Arc::new(RwLock::new(MapCache::new())),
             map_data: Arc::new(RwLock::new(MapData::new())),
             weather: Arc::new(RwLock::new(None)),
+            player_template: Arc::new(RwLock::new(PlayerTemplateStore::new())),
+            rts_science: Arc::new(RwLock::new(RtsScienceStore::new())),
+            rts_special_power: Arc::new(RwLock::new(RtsSpecialPowerStore::new())),
+            cursor_info: Arc::new(ParkingRwLock::new(HashMap::new())),
+            object_definitions: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }

@@ -192,7 +192,6 @@
 //! let (purchasable, potential) = store.get_purchasable_sciences(&player);
 //! ```
 
-use once_cell::sync::OnceCell;
 use std::any::Any;
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::fs::File;
@@ -1239,41 +1238,29 @@ impl Default for ScienceStore {
     }
 }
 
-/// Global science store instance
-///
-/// In the original C++, this was a global pointer.
-/// In Rust, we'd typically use a different pattern, but
-/// this maintains API compatibility.
-struct ScienceStoreSlot(OnceCell<RwLock<ScienceStore>>);
-impl std::ops::Deref for ScienceStoreSlot {
-    type Target = OnceCell<RwLock<ScienceStore>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static SCIENCE_STORE: ScienceStoreSlot = ScienceStoreSlot(OnceCell::new());
-
 /// Get the global science store
-pub fn get_science_store() -> Option<RwLockReadGuard<'static, ScienceStore>> {
-    SCIENCE_STORE
-        .get()
-        .map(|store| store.read().expect("ScienceStore poisoned"))
-}
-
 /// Initialize the global science store
-pub fn init_science_store() {
-    if SCIENCE_STORE.0.get().is_none() {
-        let _ = SCIENCE_STORE.0.set(RwLock::new(ScienceStore::new()));
-    } else if let Some(store) = SCIENCE_STORE.0.get() {
-        if let Ok(mut guard) = store.write() {
-            *guard = ScienceStore::new();
-        }
-    }
+/// Get a mutable guard to the global science store.
+
+fn rts_science_cell() -> std::sync::Arc<std::sync::RwLock<ScienceStore>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.rts_science)
 }
 
-/// Get a mutable guard to the global science store.
+pub fn get_science_store() -> Option<RwLockReadGuard<'static, ScienceStore>> {
+    let cell = rts_science_cell();
+    let guard = cell.read().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
+pub fn init_science_store() {
+    let cell = rts_science_cell();
+    *cell.write().expect("ScienceStore poisoned") = ScienceStore::new();
+}
+
 pub fn get_science_store_mut() -> Option<RwLockWriteGuard<'static, ScienceStore>> {
-    SCIENCE_STORE
-        .get()
-        .map(|store| store.write().expect("ScienceStore poisoned"))
+    let cell = rts_science_cell();
+    let guard = cell.write().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
 /// Subsystem responsible for loading and maintaining the global science store.

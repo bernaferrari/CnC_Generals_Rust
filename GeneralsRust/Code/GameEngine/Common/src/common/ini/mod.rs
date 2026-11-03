@@ -439,7 +439,7 @@ fn load_player_templates(admission: PlayerTemplateAdmission) {
         }
     }
     let candidate_count = candidate.len();
-    if !admit_player_templates(player_template_store(), candidate, admission) {
+    if !admit_player_templates(&*player_template_store(), candidate, admission) {
         return;
     }
     info!(
