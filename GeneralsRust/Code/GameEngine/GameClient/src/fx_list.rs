@@ -1904,6 +1904,7 @@ mod tests {
     fn owned_catalog_lookup_survives_a_different_name_key_namespace() {
         crate::test_support::ensure_ambient_host();
         let mut store = std::thread::spawn(|| {
+            crate::test_support::ensure_ambient_host();
             NameKeyGenerator::init();
             let mut store = FXListStore::new();
             store.add_fx_list("FX_ClientCatalogExisting".into(), FXList::new());
@@ -1912,6 +1913,7 @@ mod tests {
         .join()
         .unwrap();
         std::thread::spawn(move || {
+            crate::test_support::ensure_ambient_host();
             NameKeyGenerator::init();
             assert!(store.find_fx_list("FX_ClientCatalogMissing").is_none());
             let previous = store.find_fx_list("FX_ClientCatalogExisting").unwrap();

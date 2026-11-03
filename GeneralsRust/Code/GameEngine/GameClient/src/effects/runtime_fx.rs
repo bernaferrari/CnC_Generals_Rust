@@ -51,10 +51,10 @@ fn next_fx_id() -> FXId {
     if let Some(id) = crate::core::game_client::with_live_game_client_mut(|client| client.next_fx_id()) {
         return id;
     }
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(1)
+    // Headless fixtures have no live client; SystemTime nanos collide within one
+    // test body and HashMap-overwrite sibling FX kinds. Keep an atomic fallback.
+    static FALLBACK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    FALLBACK.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 // ---------------------------------------------------------------------------
