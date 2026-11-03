@@ -2170,6 +2170,55 @@ use crate::message_stream::game_message::GameMessageType;
     }
 
     #[test]
+    fn xfer_load_reseeds_presentation_bindings_for_module_continuation() {
+        // hq-0f6bh: load_post_process must re-seed direct bindings so the next
+        // host sync retains_binding instead of reconstructing Xfer modules.
+        crate::test_support::ensure_ambient_host();
+        if crate::core::game_client::global_boundary_fixture::run_in_private_child(
+            module_path!(),
+            "xfer_load_reseeds_presentation_bindings_for_module_continuation",
+        ) {
+            return;
+        }
+        ensure_templates_registered(&["XferBindingSeedTemplate"]);
+        let object_id: ObjectID = 990_042;
+        let logic_template: Arc<dyn gamelogic::thing_template::ThingTemplate> = Arc::new(
+            LogicDefaultThingTemplate::new("XferBindingSeedTemplate".to_string()),
+        );
+        let object = Arc::new(RwLock::new(GameLogicObject::new_raw(
+            logic_template,
+            object_id,
+            ObjectStatusMaskType::none(),
+            None,
+        )));
+        OBJECT_REGISTRY.register_object(object_id, &object);
+
+        let mut client = GameClient::new().unwrap();
+        let mut drawable = BasicDrawable::new(DrawableId::INVALID);
+        drawable.set_template_name(Some("XferBindingSeedTemplate".to_string()));
+        drawable.set_object_id(Some(object_id));
+        let drawable_id = client.register_drawable(Box::new(drawable)).unwrap();
+
+        let bytes = serialize_client(&mut client);
+        let loaded = deserialize_client(&bytes);
+        let loaded_id = loaded
+            .get_drawable_for_object(object_id)
+            .expect("object-bound drawable survives Xfer");
+        let binding = loaded
+            .drawables
+            .presentation_direct_drawable_bindings
+            .get(&loaded_id)
+            .expect("hq-0f6bh: Xfer load must re-seed presentation binding");
+        assert_eq!(binding.binding_key.host_epoch, 0, "pending host-epoch adopt");
+        assert_eq!(binding.binding_key.object_id, object_id);
+        assert_eq!(binding.binding_key.drawable_id, loaded_id);
+        assert_eq!(binding.visual_template_name, "XferBindingSeedTemplate");
+        assert!(binding.semantic_lifetime);
+        let _ = drawable_id;
+        OBJECT_REGISTRY.unregister_object(object_id);
+    }
+
+    #[test]
     fn test_register_drawable_preserves_explicit_template_name_over_object_fallback() {
         crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(

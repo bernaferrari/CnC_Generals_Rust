@@ -822,7 +822,10 @@ impl GameClient {
                     .presentation_direct_drawable_bindings
                     .get(&drawable_id)
                     .map(|binding| {
-                        binding.binding_key.host_epoch == e.host_epoch
+                        // hq-0f6bh: host_epoch 0 = Xfer-restored pending adopt.
+                        let epoch_ok = binding.binding_key.host_epoch == e.host_epoch
+                            || binding.binding_key.host_epoch == 0;
+                        epoch_ok
                             && binding.binding_key.object_id == e.object_id
                             && binding.binding_key.drawable_id == drawable_id
                             && binding.visual_template_name == visual_template_name
@@ -877,6 +880,15 @@ impl GameClient {
             let mut inherited_material_opacity = None;
             if let Some(drawable_id) = existing_drawable_id {
                 if retains_binding {
+                    if let Some(binding) = self
+                        .drawables
+                        .presentation_direct_drawable_bindings
+                        .get_mut(&drawable_id)
+                    {
+                        if binding.binding_key.host_epoch == 0 {
+                            binding.binding_key.host_epoch = e.host_epoch;
+                        }
+                    }
                     let Some(drawable) = self.drawables.drawable_map.get_mut(&drawable_id) else {
                         continue;
                     };
