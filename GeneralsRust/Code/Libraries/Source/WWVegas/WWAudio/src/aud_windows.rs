@@ -686,15 +686,15 @@ pub fn windows_debug_print(message: &str) {
 }
 
 /// Set the main window handle for DirectSound cooperation
-pub fn set_windows_handle(hwnd: isize) {
-    if let Ok(mut handle) = crate::process_state::WWAUDIO.main_window_handle.lock() {
+pub fn set_windows_handle(runtime: &crate::process_state::WwAudioRuntime, hwnd: isize) {
+    if let Ok(mut handle) = runtime.main_window_handle.lock() {
         *handle = Some(hwnd);
     }
 }
 
 /// Get the main window handle
-pub fn get_windows_handle() -> Option<isize> {
-    crate::process_state::WWAUDIO.main_window_handle.lock().ok().and_then(|h| *h)
+pub fn get_windows_handle(runtime: &crate::process_state::WwAudioRuntime) -> Option<isize> {
+    runtime.main_window_handle.lock().ok().and_then(|h| *h)
 }
 
 /// Convert milliseconds to Duration safely

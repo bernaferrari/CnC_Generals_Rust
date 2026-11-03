@@ -39,15 +39,33 @@ impl AssertHandler for DefaultAssertHandler {
 // so this process-global slot stays a mutex.
 
 /// Set custom assertion handler
-pub fn set_assert_handler(handler: Box<dyn AssertHandler + Send + Sync>) {
-    *crate::process_state::WWAUDIO.assert_handler.lock().unwrap_or_else(|p| p.into_inner()) = Some(handler);
+pub fn set_assert_handler(
+    runtime: &crate::process_state::WwAudioRuntime,
+    handler: Box<dyn AssertHandler + Send + Sync>,
+) {
+    *runtime
+        .assert_handler
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(handler);
 }
 
-/// Internal assertion function
+/// Internal assertion function (default handler; pass runtime via set_assert_handler for custom).
 #[doc(hidden)]
 pub fn assert_internal(condition: bool, message: &str, file: &str, line: u32) {
     if !condition {
-        let guard = crate::process_state::WWAUDIO.assert_handler.lock().unwrap_or_else(|p| p.into_inner());
+        DefaultAssertHandler.handle_assertion(message, file, line);
+    }
+}
+
+pub fn assert_internal_with_runtime(
+    runtime: &crate::process_state::WwAudioRuntime,
+    condition: bool,
+    message: &str,
+    file: &str,
+    line: u32,
+) {
+    if !condition {
+        let guard = runtime.assert_handler.lock().unwrap_or_else(|p| p.into_inner());
         match guard.as_deref() {
             Some(handler) => handler.handle_assertion(message, file, line),
             None => DefaultAssertHandler.handle_assertion(message, file, line),

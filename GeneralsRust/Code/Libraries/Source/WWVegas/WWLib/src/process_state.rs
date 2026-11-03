@@ -1,7 +1,7 @@
-//! Packed WWLib process façade (argv / mouse / iff / registry lock).
-//! Prefer moving fields onto an owned [`WwLibRuntime`] passed by `&`/`Arc`.
+//! Owned WWLib session state (argv / mouse / iff / registry lock).
+//! Host constructs [`WwLibRuntime`] and passes `&` / `Arc` — no process LazyLock.
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 
 use crate::wwfile::WWFile;
 use crate::xmouse::Mouse;
@@ -21,30 +21,29 @@ impl ArgvStorage {
 }
 
 pub struct WwLibRuntime {
-    pub registry_locked: AtomicBool,
-    pub argv: Mutex<ArgvStorage>,
+    pub registry_locked: Arc<AtomicBool>,
+    pub argv: Arc<Mutex<ArgvStorage>>,
     pub mouse: Mutex<Option<Arc<dyn Mouse>>>,
     pub iff_files: Mutex<Vec<Option<WWFile>>>,
     pub iff_buffer: Mutex<Option<Vec<u8>>>,
 }
 
+impl Default for WwLibRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WwLibRuntime {
     pub fn new() -> Self {
         Self {
-            registry_locked: AtomicBool::new(false),
-            argv: Mutex::new(ArgvStorage::new()),
+            registry_locked: Arc::new(AtomicBool::new(false)),
+            argv: Arc::new(Mutex::new(ArgvStorage::new())),
             mouse: Mutex::new(None),
             iff_files: Mutex::new(Vec::new()),
             iff_buffer: Mutex::new(None),
         }
     }
-}
-
-pub static WWLIB: LazyLock<WwLibRuntime> = LazyLock::new(WwLibRuntime::new);
-
-/// OnceLock façade used where prior code expected get_or_init semantics for mouse.
-pub fn mouse_slot() -> &'static Mutex<Option<Arc<dyn Mouse>>> {
-    &WWLIB.mouse
 }
 
 #[cfg(test)]
@@ -55,7 +54,7 @@ mod independence_tests {
     use std::thread;
 
     #[test]
-    fn two_owned_wwlib_runtimes_do_not_alias() {
+    fn two_wwlib_runtimes_on_two_threads_are_independent() {
         let a = Arc::new(WwLibRuntime::new());
         let b = Arc::new(WwLibRuntime::new());
         assert!(!Arc::ptr_eq(&a, &b));
