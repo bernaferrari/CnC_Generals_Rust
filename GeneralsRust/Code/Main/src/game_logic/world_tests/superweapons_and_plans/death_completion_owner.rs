@@ -70,7 +70,7 @@ End
                 assert!(object.begin_slow_death_from_ini(
                     frame,
                     &ini,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+                    &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
                 ));
             }
             DeathKind::Jet => {

@@ -111,7 +111,7 @@ fn return_to_base_blocks_fire_until_rearm() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(1));
     assert!(jet.fire_at(
@@ -120,7 +120,7 @@ fn return_to_base_blocks_fire_until_rearm() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(0));
     assert!(jet.needs_return_to_base_rearm());
@@ -130,7 +130,7 @@ fn return_to_base_blocks_fire_until_rearm() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(!Object::weapon_ready_named(
         jet.weapon.as_ref().unwrap(),
@@ -146,7 +146,7 @@ fn return_to_base_blocks_fire_until_rearm() {
         0,
         &mut shot_combat,
         &mut _attack_output,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert_eq!(jet.weapon.as_ref().unwrap().ammo, Some(1));
 }
@@ -306,7 +306,7 @@ fn empty_jet_circles_last_airfield_not_own_pos() {
     assert!(!jet.is_at_jet_producer_location(80.0));
     assert!(jet.enter_circling_dead_airfield(
         1,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(jet.jet_circling_dead_airfield());
     jet.leave_circling_dead_airfield();
@@ -1220,7 +1220,7 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     assert!(o.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(o.status.destroyed);
     assert_eq!(
@@ -1238,7 +1238,7 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     assert!(c.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(c.status.destroyed);
 
@@ -1251,7 +1251,7 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     assert!(w.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(w.status.destroyed);
 
@@ -1265,7 +1265,7 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     assert!(!h.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(!h.status.destroyed);
     h.cell_is_underwater = false;
@@ -1274,7 +1274,7 @@ fn stunned_off_map_cliff_water_kills_without_loco() {
     assert!(!h.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
 }
 
@@ -1293,7 +1293,7 @@ fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
     assert!(!debris.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(!debris.status.destroyed);
 
@@ -1302,7 +1302,7 @@ fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
     assert!(!debris.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(!debris.status.destroyed);
 
@@ -1317,7 +1317,7 @@ fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
     assert!(!crate_obj.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(!crate_obj.status.destroyed);
 
@@ -1327,7 +1327,7 @@ fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
     assert!(debris.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(debris.status.destroyed);
 
@@ -1341,7 +1341,7 @@ fn stunned_ai_less_debris_keeps_tumbling_on_cliff_water() {
     assert!(off.test_stunned_unit_for_destruction(
         0,
         &mut health_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
     ));
     assert!(off.status.destroyed);
 }
@@ -1517,7 +1517,7 @@ fn shock_bounce_keep_flip_before_stun_test() {
             -0.1,
             0.0,
             &mut health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ) > 0.0
     );
     assert!(
@@ -1874,7 +1874,7 @@ fn bounce_damps_pitch_roll_rates_not_zero() {
             -0.1,
             0.0,
             &mut health_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ) > 0.0
     );
     assert!((s.shock_yaw_rate - 0.7).abs() < 1e-5);

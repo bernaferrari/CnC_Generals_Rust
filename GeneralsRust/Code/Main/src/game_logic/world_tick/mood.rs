@@ -1929,11 +1929,11 @@ mod common_target_parity {
             );
             o.set_ai_state(
                 crate::game_logic::AIState::Moving,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             o.set_ai_state(
                 crate::game_logic::AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             assert!(o.idle_mood_reset_pending);
             o.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE;
@@ -1978,7 +1978,7 @@ mod common_target_parity {
         if let Some(o) = logic.host_object_mut(id) {
             o.set_ai_state(
                 crate::game_logic::AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             assert!(!o.idle_mood_reset_pending, "already idle must not rearm");
         }
@@ -2011,7 +2011,7 @@ mod common_target_parity {
         if let Some(unit) = logic.host_object_mut(id) {
             unit.set_ai_state(
                 crate::game_logic::AIState::Moving,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             unit.target = Some(jet_id);
             unit.locomotor_goal_type = crate::game_logic::object::LocoGoalType::PositionOnPath;
@@ -2148,11 +2148,11 @@ mod common_target_parity {
         if let Some(o) = logic.host_object_mut(id) {
             o.set_ai_state(
                 crate::game_logic::AIState::Moving,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             o.set_ai_state(
                 crate::game_logic::AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
         logic.set_fixture_object_position(id, start);
@@ -2165,11 +2165,11 @@ mod common_target_parity {
         if let Some(o) = logic.host_object_mut(id) {
             o.set_ai_state(
                 crate::game_logic::AIState::Moving,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             o.set_ai_state(
                 crate::game_logic::AIState::Idle,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
         logic.set_fixture_object_position(id, far);

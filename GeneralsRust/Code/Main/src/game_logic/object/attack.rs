@@ -1639,7 +1639,7 @@ mod tests {
             0,
             &mut shot_combat,
             &mut _attack_output,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ));
         assert_eq!(attacker.last_fire_slot, 2);
         assert!((attacker.last_fire_damage - 37.0).abs() < f32::EPSILON);
@@ -1679,7 +1679,7 @@ mod tests {
             0,
             &mut shot_combat,
             &mut _attack_output,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ));
         assert!(!unit.status.stealthed);
         assert!(
@@ -1717,7 +1717,7 @@ mod tests {
             0,
             &mut shot_combat,
             &mut _attack_output,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ));
         unit.status.under_construction = false;
         unit.status.sold = true;
@@ -1727,7 +1727,7 @@ mod tests {
             0,
             &mut shot_combat,
             &mut _attack_output,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ));
         unit.status.sold = false;
         assert!(unit.fire_at(
@@ -1736,7 +1736,7 @@ mod tests {
             0,
             &mut shot_combat,
             &mut _attack_output,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ));
     }
 }
