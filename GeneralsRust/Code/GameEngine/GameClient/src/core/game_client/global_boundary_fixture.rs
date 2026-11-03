@@ -9,6 +9,7 @@ pub(crate) fn run_in_private_child(module: &str, name: &str) -> bool {
         .1;
     let exact = format!("{module}::{name}");
     if std::env::var(MARKER).as_deref() == Ok(exact.as_str()) {
+        crate::test_support::ensure_ambient_host();
         let root = std::env::current_dir()
             .expect("private child cwd")
             .join("UserData");

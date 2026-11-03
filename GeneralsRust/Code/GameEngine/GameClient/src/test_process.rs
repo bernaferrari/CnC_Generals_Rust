@@ -16,6 +16,7 @@ pub(crate) fn run_bounded(module: &str, name: &str) -> TestProcess {
         .strip_prefix(concat!(env!("CARGO_CRATE_NAME"), "::"))
         .expect("test belongs to this crate");
     if std::env::var(CHILD_MARKER).ok().as_deref() == Some(test_name) {
+        crate::test_support::ensure_ambient_host();
         return TestProcess::Child;
     }
 
