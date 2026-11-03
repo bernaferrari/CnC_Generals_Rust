@@ -72,7 +72,7 @@ pub mod host_combat_chinook;
 pub mod host_combat_cycle;
 
 #[path = "host_command_button_hunt.rs"]
-pub(super) mod host_command_button_hunt;
+pub mod host_command_button_hunt;
 
 #[path = "host_countermeasures.rs"]
 pub mod host_countermeasures;
