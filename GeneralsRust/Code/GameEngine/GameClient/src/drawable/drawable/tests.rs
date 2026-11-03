@@ -359,7 +359,7 @@ fn icon_pip_gate_matches_cpp_selected_or_moused_over_drawable() {
 
 #[test]
 fn caption_text_is_language_filtered() {
-    get_language_filter().set_words_for_test(["badword"]);
+    get_language_filter().write().unwrap_or_else(|e| e.into_inner()).set_words_for_test(["badword"]);
 
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.set_caption_text("Pilot badword ready");

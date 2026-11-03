@@ -321,7 +321,8 @@ impl Drawable for BasicDrawable {
             return Ok(());
         };
 
-        let draw_group_info = get_draw_group_info()
+        let __dgi = get_draw_group_info();
+        let draw_group_info = __dgi
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();

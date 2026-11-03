@@ -519,3 +519,33 @@ note = "LOCAL_PLAYER_ID on GameClient.local_player_id; peels live client; cfg(te
 path = "Code/GameEngine/GameClient/src/system/anim2_d.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/System/Anim2D.cpp"
 note = "Anim2DCollection Arc on GameClient; update via instance; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/draw_group_info.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/DrawGroupInfo.cpp"
+note = "DrawGroupInfo Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/system/smudge.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/System/Smudge.cpp"
+note = "SmudgeManager Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/game_text.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameText.cpp"
+note = "GameText Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/global_language.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GlobalLanguage.cpp"
+note = "GlobalLanguageData Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/language_filter.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/LanguageFilter.cpp"
+note = "LanguageFilter Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/header_template.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/HeaderTemplate.cpp"
+note = "HeaderTemplateManager Arc on GameClient; peels live client; cfg(test) TLS fallback only. Parser OnceLock is set-once."

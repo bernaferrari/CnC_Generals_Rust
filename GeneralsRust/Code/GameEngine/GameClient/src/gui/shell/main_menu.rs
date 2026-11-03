@@ -2891,7 +2891,7 @@ impl MainMenu {
             global.x_resolution = new_disp_settings.x_res;
             global.y_resolution = new_disp_settings.y_res;
         }
-        get_header_template_manager().header_notify_resolution_change();
+        get_header_template_manager().lock().unwrap_or_else(|e| e.into_inner()).header_notify_resolution_change();
 
         let mut prefs = UserPreferences::new();
         let _ = prefs.load("Options.ini");

@@ -120,7 +120,7 @@ impl BasicDrawable {
             return;
         }
         let mut sanitized = text.to_string();
-        get_language_filter().filter_line(&mut sanitized);
+        get_language_filter().write().unwrap_or_else(|e| e.into_inner()).filter_line(&mut sanitized);
         if self.caption_text.as_deref() != Some(sanitized.as_str()) {
             self.caption_text = Some(sanitized);
         }
