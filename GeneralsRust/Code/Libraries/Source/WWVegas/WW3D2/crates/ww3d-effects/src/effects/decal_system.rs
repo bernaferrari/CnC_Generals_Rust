@@ -989,12 +989,6 @@ impl DecalMesh for SkinDecalMesh {
 
 /// Global decal ID generator
 /// C++ Reference: decalsys.cpp line 9, decalsys.h line 84
-struct DecalIdCounterSlot(AtomicU32);
-impl std::ops::Deref for DecalIdCounterSlot {
-    type Target = AtomicU32;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static DECAL_ID_COUNTER: DecalIdCounterSlot = DecalIdCounterSlot(AtomicU32::new(0));
 
 /// DecalSystem - main system for managing decals globally
 /// C++ Reference: decalsys.h lines 47-85 (DecalSystemClass)
@@ -1010,7 +1004,7 @@ impl DecalSystem {
     /// Generate a unique decal ID
     /// C++ Reference: decalsys.cpp lines 101-104 (Generate_Unique_Global_Decal_Id)
     pub fn generate_decal_id() -> DecalId {
-        DECAL_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
+        DECAL_RUNTIME.id_counter.fetch_add(1, Ordering::Relaxed)
     }
 
     /// Create a new decal generator
@@ -1030,17 +1024,19 @@ impl Default for DecalSystem {
     }
 }
 
-struct DecalSystemBag {
+struct DecalRuntime {
+    id_counter: AtomicU32,
     decal_system: std::sync::Mutex<DecalSystem>,
 }
-static DECAL_SYSTEM_TLS_BAG: std::sync::LazyLock<DecalSystemBag> = std::sync::LazyLock::new(|| DecalSystemBag {
-        decal_system: std::sync::Mutex::new(DecalSystem::new()),
+static DECAL_RUNTIME: std::sync::LazyLock<DecalRuntime> = std::sync::LazyLock::new(|| DecalRuntime {
+    id_counter: AtomicU32::new(0),
+    decal_system: std::sync::Mutex::new(DecalSystem::new()),
 });
 
 
 /// Run `f` with mutable access to the global decal system.
 pub fn with_decal_system<R>(f: impl FnOnce(&mut DecalSystem) -> R) -> R {
-    { let mut system = DECAL_SYSTEM_TLS_BAG.decal_system.lock().unwrap_or_else(|p| p.into_inner()); f(&mut system) }
+    { let mut system = DECAL_RUNTIME.decal_system.lock().unwrap_or_else(|p| p.into_inner()); f(&mut system) }
 }
 
 pub fn init_decal_system() {

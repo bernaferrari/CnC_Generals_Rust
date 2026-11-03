@@ -17,24 +17,16 @@ use ww3d_renderer_3d::render_object_system::RenderObjClass;
 use ww3d_renderer_3d::rendering::shader_system::shader::ShaderClass;
 use ww3d_renderer_3d::texture_system::TextureClass;
 
-struct EmitterIdCounterSlot(AtomicU32);
-impl std::ops::Deref for EmitterIdCounterSlot {
-    type Target = AtomicU32;
-    fn deref(&self) -> &Self::Target { &self.0 }
+struct ParticleEmitterRuntime {
+    emitter_id_counter: AtomicU32,
+    particle_debug_disable: AtomicBool,
+    default_remove_on_complete: AtomicBool,
 }
-static EMITTER_ID_COUNTER: EmitterIdCounterSlot = EmitterIdCounterSlot(AtomicU32::new(0));
-struct ParticleDebugDisableSlot(AtomicBool);
-impl std::ops::Deref for ParticleDebugDisableSlot {
-    type Target = AtomicBool;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static PARTICLE_DEBUG_DISABLE: ParticleDebugDisableSlot = ParticleDebugDisableSlot(AtomicBool::new(false));
-struct DefaultRemoveOnCompleteSlot(AtomicBool);
-impl std::ops::Deref for DefaultRemoveOnCompleteSlot {
-    type Target = AtomicBool;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static DEFAULT_REMOVE_ON_COMPLETE: DefaultRemoveOnCompleteSlot = DefaultRemoveOnCompleteSlot(AtomicBool::new(true));
+static PARTICLE_EMITTER_RUNTIME: ParticleEmitterRuntime = ParticleEmitterRuntime {
+    emitter_id_counter: AtomicU32::new(0),
+    particle_debug_disable: AtomicBool::new(false),
+    default_remove_on_complete: AtomicBool::new(true),
+};
 
 /// Particle property with keyframes
 #[derive(Debug, Clone)]
@@ -340,7 +332,7 @@ impl ParticleEmitterClass {
         frame_mode: ParticleFrameMode,
         line_props: Option<W3dEmitterLinePropertiesStruct>,
     ) -> Self {
-        let emitter_id = EMITTER_ID_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
+        let emitter_id = PARTICLE_EMITTER_RUNTIME.emitter_id_counter.fetch_add(1, Ordering::Relaxed) + 1;
 
         let emit_rate_ms = if emit_rate > 0.0 {
             (1000.0 / emit_rate) as u32
@@ -795,22 +787,22 @@ impl ParticleBufferClass {
 
 /// Set debug disable
 pub fn set_particle_debug_disable(disable: bool) {
-    PARTICLE_DEBUG_DISABLE.store(disable, Ordering::Relaxed);
+    PARTICLE_EMITTER_RUNTIME.particle_debug_disable.store(disable, Ordering::Relaxed);
 }
 
 /// Get debug disable
 pub fn get_particle_debug_disable() -> bool {
-    PARTICLE_DEBUG_DISABLE.load(Ordering::Relaxed)
+    PARTICLE_EMITTER_RUNTIME.particle_debug_disable.load(Ordering::Relaxed)
 }
 
 /// Set default remove on complete
 pub fn set_default_remove_on_complete(remove: bool) {
-    DEFAULT_REMOVE_ON_COMPLETE.store(remove, Ordering::Relaxed);
+    PARTICLE_EMITTER_RUNTIME.default_remove_on_complete.store(remove, Ordering::Relaxed);
 }
 
 /// Get default remove on complete
 pub fn get_default_remove_on_complete() -> bool {
-    DEFAULT_REMOVE_ON_COMPLETE.load(Ordering::Relaxed)
+    PARTICLE_EMITTER_RUNTIME.default_remove_on_complete.load(Ordering::Relaxed)
 }
 
 /// Quick particle emitter creation function

@@ -8,6 +8,7 @@ use crate::errors::{W3DError, W3DResult};
 use std::any::Any;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use crate::asset_manager::AssetManager;
 
 /// Cross-backend frame statistics exposed by the registered renderer.
 #[derive(Debug, Default, Clone)]
@@ -111,6 +112,8 @@ type RendererHandle = Arc<Mutex<Box<dyn RendererBackend>>>;
 pub struct Ww3dContext {
     renderer: Mutex<Option<RendererHandle>>,
     state: Mutex<WW3DState>,
+    /// C++ WW3DAssetManager lives with the WW3D session / display.
+    asset_manager: std::sync::Arc<Mutex<AssetManager>>,
     sync_time_ms: AtomicU32,
     previous_sync_time_ms: AtomicU32,
 }
@@ -124,6 +127,14 @@ impl std::fmt::Debug for Ww3dContext {
                 &self.previous_sync_time_ms.load(Ordering::Relaxed),
             )
             .field("has_renderer", &self.renderer.lock().map(|g| g.is_some()).unwrap_or(false))
+            .field(
+                "asset_cache_total",
+                &self
+                    .asset_manager
+                    .lock()
+                    .map(|g| g.cache_stats().total_count())
+                    .unwrap_or(0),
+            )
             .finish()
     }
 }
@@ -163,6 +174,7 @@ impl Ww3dContext {
         Self {
             renderer: Mutex::new(None),
             state: Mutex::new(WW3DState::default()),
+            asset_manager: std::sync::Arc::new(Mutex::new(AssetManager::new())),
             sync_time_ms: AtomicU32::new(0),
             previous_sync_time_ms: AtomicU32::new(0),
         }
@@ -263,6 +275,25 @@ impl Ww3dContext {
 
     pub fn previous_sync_time(&self) -> u32 {
         self.previous_sync_time_ms.load(Ordering::SeqCst)
+    }
+
+    pub fn asset_manager(&self) -> std::sync::Arc<Mutex<AssetManager>> {
+        std::sync::Arc::clone(&self.asset_manager)
+    }
+
+    pub fn with_asset_manager_mut<R>(&self, f: impl FnOnce(&mut AssetManager) -> R) -> R {
+        let mut mgr = self.asset_manager.lock().unwrap_or_else(|p| p.into_inner());
+        f(&mut mgr)
+    }
+
+    pub fn with_asset_manager_ref<R>(&self, f: impl FnOnce(&AssetManager) -> R) -> R {
+        let mgr = self.asset_manager.lock().unwrap_or_else(|p| p.into_inner());
+        f(&mgr)
+    }
+
+    /// Install this context's asset manager for free-function bridges.
+    pub fn install_asset_manager_bridge(&self) {
+        crate::asset_manager::install_asset_manager(std::sync::Arc::clone(&self.asset_manager));
     }
 
     pub fn enable_sorting(&self, enable: bool) -> W3DResult<()> {
