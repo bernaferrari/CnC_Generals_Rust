@@ -188,9 +188,9 @@ impl HostRadiusDecal {
             let standalone = matches!(&projection, RadiusProjection::Standalone(_));
             projection.handle().release();
             if standalone {
-                game_client::radius_decal::get_projected_shadow_manager()
-                    .write()
-                    .cleanup();
+                let _ = game_client::radius_decal::with_projected_shadow_manager_mut(|m| {
+                    m.cleanup();
+                });
             }
             // Receiving compaction belongs to the explicit client frame/reset;
             // this branch never discovers or mutates a different manager.
@@ -711,9 +711,7 @@ mod tests {
             0,
         );
         assert!(d.delivery_decal.has_projected_shadow());
-        let items = game_client::radius_decal::get_projected_shadow_manager()
-            .read()
-            .collect_render_items();
+        let items = game_client::radius_decal::with_projected_shadow_manager(|m| m.collect_render_items()).unwrap_or_default();
         assert!(
             items.iter().any(|it| {
                 (it.position.x - 1111.0).abs() < 0.01
@@ -724,9 +722,7 @@ mod tests {
             "forward_render collect_render_items must see host delivery ring"
         );
         d.tick(5, true, true);
-        let items = game_client::radius_decal::get_projected_shadow_manager()
-            .read()
-            .collect_render_items();
+        let items = game_client::radius_decal::with_projected_shadow_manager(|m| m.collect_render_items()).unwrap_or_default();
         let ring = items.iter().find(|it| {
             (it.position.x - 1111.0).abs() < 0.01 && (it.position.z - 2222.0).abs() < 0.01
         });
@@ -736,9 +732,7 @@ mod tests {
         d.set_kill_when_no_longer_attacking(true);
         assert!(d.tick(10, false, true));
         assert!(!d.delivery_decal.has_projected_shadow());
-        let items = game_client::radius_decal::get_projected_shadow_manager()
-            .read()
-            .collect_render_items();
+        let items = game_client::radius_decal::with_projected_shadow_manager(|m| m.collect_render_items()).unwrap_or_default();
         assert!(!items.iter().any(|it| {
             (it.position.x - 1111.0).abs() < 0.01 && (it.position.z - 2222.0).abs() < 0.01
         }));
@@ -829,9 +823,7 @@ mod player_owner_tests {
         {
             assert!(decal(&source));
             assert!(!decal(&peer));
-            let items = game_client::radius_decal::get_projected_shadow_manager()
-                .read()
-                .collect_render_items();
+            let items = game_client::radius_decal::with_projected_shadow_manager(|m| m.collect_render_items()).unwrap_or_default();
             let ring = items
                 .iter()
                 .find(|item| {
