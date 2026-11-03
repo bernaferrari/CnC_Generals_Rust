@@ -3138,40 +3138,48 @@ fn arrival_arms_final_position_at_path_last_node() {
 #[test]
 fn leftover_goal_none_settles_final_position() {
     let mut logic = GameLogic::new();
-    let id = ObjectId(7003);
-    let mut unit = ranger_at(7003, Vec3::ZERO);
-    unit.do_final_position = true;
-    unit.final_position = Vec3::new(20.0, 0.0, 0.0);
-    logic.objects.insert(id, unit);
-    logic.update_movement_for_test(&[id], 1.0 / 30.0);
-    let obj = logic.objects.get(&id).expect("unit");
-    let step = 2.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL / 30.0;
-    assert!(
-        obj.do_final_position,
-        "far final position must keep leftover-settling"
-    );
-    assert!(
-        (obj.get_position().x - step).abs() < 1.0e-3,
-        "settle steps 2 cells/s, x={} expected {step}",
-        obj.get_position().x
-    );
+    logic.with_own_services_mut(|logic| {
+        let id = ObjectId(7003);
+        let mut unit = ranger_at(7003, Vec3::ZERO);
+        bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
+        unit.do_final_position = true;
+        unit.final_position = Vec3::new(20.0, 0.0, 0.0);
+        unit.set_locomotor_goal_none();
+        logic.objects.insert(id, unit);
+        logic.update_movement_for_test(&[id], 1.0 / 30.0);
+        let obj = logic.objects.get(&id).expect("unit");
+        let step = 2.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL / 30.0;
+        assert!(
+            obj.do_final_position,
+            "far final position must keep leftover-settling"
+        );
+        assert!(
+            (obj.get_position().x - step).abs() < 1.0e-3,
+            "settle steps 2 cells/s, x={} expected {step}",
+            obj.get_position().x
+        );
+    });
 
     let mut logic = GameLogic::new();
-    let mut unit = ranger_at(7004, Vec3::new(20.0, 0.0, 0.0));
-    unit.do_final_position = true;
-    unit.final_position = Vec3::new(20.1, 0.0, 0.0);
-    logic.objects.insert(ObjectId(7004), unit);
-    logic.update_movement_for_test(&[ObjectId(7004)], 1.0 / 30.0);
-    let obj = logic.objects.get(&ObjectId(7004)).expect("close");
-    assert!(
-        !obj.do_final_position,
-        "dSqr < 0.25 snaps and clears do_final_position"
-    );
-    assert!(
-        (obj.get_position().x - 20.1).abs() < 1.0e-4,
-        "close settle snaps to leftover final_position, x={}",
-        obj.get_position().x
-    );
+    logic.with_own_services_mut(|logic| {
+        let mut unit = ranger_at(7004, Vec3::new(20.0, 0.0, 0.0));
+        bind_fixture_locomotor(&mut unit, "BasicHumanLocomotor");
+        unit.do_final_position = true;
+        unit.final_position = Vec3::new(20.1, 0.0, 0.0);
+        unit.set_locomotor_goal_none();
+        logic.objects.insert(ObjectId(7004), unit);
+        logic.update_movement_for_test(&[ObjectId(7004)], 1.0 / 30.0);
+        let obj = logic.objects.get(&ObjectId(7004)).expect("close");
+        assert!(
+            !obj.do_final_position,
+            "dSqr < 0.25 snaps and clears do_final_position"
+        );
+        assert!(
+            (obj.get_position().x - 20.1).abs() < 1.0e-4,
+            "close settle snaps to leftover final_position, x={}",
+            obj.get_position().x
+        );
+    });
 }
 
 /// hq-99njb: blocked locoUpdate scrubs 2D motive when already at/above cap.
