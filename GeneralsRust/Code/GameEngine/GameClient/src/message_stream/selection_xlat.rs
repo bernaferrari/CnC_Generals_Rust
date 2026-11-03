@@ -2190,6 +2190,7 @@ mod tests {
                 ICoord2D { x: 50, y: 60 },
                 10 + DRAG_TOLERANCE_MS as u32 + 1,
                 Coord3D::default(),
+                ui,
             );
 
             assert!(messages.is_empty());
@@ -2297,7 +2298,7 @@ mod tests {
             "catalog writer and has_kindof reader must share KINDOF_ALWAYS_SELECTABLE"
         );
         assert!(
-            with_receiving_ui(|ui| drawable.can_select(false, &mut |_, _| false, ui)),
+            with_receiving_ui(|ui| drawable.can_select(false, &mut |_, _, _| false, ui)),
             "dead + AlwaysSelectable must pass can_select (SelectionXlat.cpp:113-117)"
         );
 
@@ -2307,7 +2308,7 @@ mod tests {
             ..drawable
         };
         assert!(
-            !with_receiving_ui(|ui| force_only.can_select(false, &mut |_, _| false, ui)),
+            !with_receiving_ui(|ui| force_only.can_select(false, &mut |_, _, _| false, ui)),
             "ForceAttackable without Selectable is not selectable (SelectionXlat.cpp:119-127)"
         );
         }

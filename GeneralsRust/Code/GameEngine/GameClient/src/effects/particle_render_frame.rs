@@ -227,6 +227,7 @@ mod owned_info_tests {
         assert_eq!(emitted.alpha_keys[0].value, 1.0);
         loaded.push_particle(Particle::new(&emitted, 1, 0));
         let mut frame = ParticleRenderFrame {
+            preloaded_texture_assets: Vec::new(),
             uniforms: ParticleUniforms::default(),
             batches: Vec::new(),
             particles_rendered: 0,

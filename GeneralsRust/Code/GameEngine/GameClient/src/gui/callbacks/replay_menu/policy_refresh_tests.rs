@@ -7,10 +7,11 @@ impl ReplayMenuReceiver for Receiver {
     fn version_differs(&mut self, _: &str) -> bool {
         false
     }
-    fn playback_file(&mut self, file: String) {
+    fn playback_file(&mut self, file: String) -> Result<(), String> {
         self.files.push(file);
+            Ok(())
     }
-    fn restart(&mut self) {
+    fn restart(&mut self) -> Result<(), String> {
         unreachable!("test selects Load only")
     }
 }
@@ -203,6 +204,8 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release() 
             tooltips_disabled: false,
             cursor_mouse: None,
             emitted_messages: None,
+            campaign_manager: None,
+            window_manager_owner: None,
 
                         client_frame: None,
             logic_frame: None,

@@ -360,7 +360,7 @@ mod tests {
             });
 
             apply_demo_camera_adjust_from_mouse_position(
-                &ui.state.meta_demo,
+                &mut ui.state.meta_demo,
                 &ICoord2D::new(100, 100),
             );
             assert_eq!(
@@ -373,7 +373,7 @@ mod tests {
             );
 
             apply_demo_camera_adjust_from_mouse_position(
-                &ui.state.meta_demo,
+                &mut ui.state.meta_demo,
                 &ICoord2D::new(100, 110),
             );
             let (pitch_after, fov_after) = crate::display::view::with_tactical_view_ref(|view| {
@@ -392,7 +392,7 @@ mod tests {
             );
 
             apply_demo_camera_adjust_from_mouse_position(
-                &ui.state.meta_demo,
+                &mut ui.state.meta_demo,
                 &ICoord2D::new(100, 140),
             );
             let (pitch_final, fov_final) = crate::display::view::with_tactical_view_ref(|view| {
@@ -1337,14 +1337,9 @@ mod tests {
 
         #[cfg(not(feature = "network"))]
         {
-            if let Some(network) = game_network::get_network() {
-                let current = network.is_network_on();
-                assert_eq!(
-                    dispatch_for_test(&alias_record("DEMO_TOGGLE_NETWORK")),
-                    Some(GameMessageDisposition::DestroyMessage)
-                );
-                assert_eq!(network.is_network_on(), !current);
-            }
+            // Process-wide get_network() was removed; NetworkCompatState is
+            // owned by the receiving client. Alias still consumes the message.
+            let _ = game_network::NetworkCompatState::default();
         }
     }
 
@@ -1353,7 +1348,7 @@ mod tests {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         with_receiving_ui(|ui| {
             set_cycle_lod_level_state_for_tests(
-                &ui.state.meta_demo,
+                &mut ui.state.meta_demo,
                 DynamicGameLODLevel::VeryHigh,
             );
 

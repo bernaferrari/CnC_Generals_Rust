@@ -478,15 +478,17 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn lan_map_select_system_consumes_lifecycle_messages_like_cpp() {
+        let mut wm = crate::gui::window_manager::WindowManager::new();
         let mut window = GameWindow::new();
-
-        assert_eq!(
-            lan_map_select_menu_system(&mut window, WindowMessage::Create, 0, 0),
-            WindowMsgHandled::Handled
-        );
-        assert_eq!(
-            lan_map_select_menu_system(&mut window, WindowMessage::Destroy, 0, 0),
-            WindowMsgHandled::Handled
-        );
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            assert_eq!(
+                lan_map_select_menu_system(&window, WindowMessage::Create, 0, 0, &mut wm, effects),
+                WindowMsgHandled::Handled
+            );
+            assert_eq!(
+                lan_map_select_menu_system(&window, WindowMessage::Destroy, 0, 0, &mut wm, effects),
+                WindowMsgHandled::Handled
+            );
+        });
     }
 }

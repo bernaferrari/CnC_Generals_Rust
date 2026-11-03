@@ -2467,7 +2467,10 @@ mod tests {
                 main_menu: None,
                 menu_world: None,
                 menu_host: None,
-                pending_main_menu_actions: Vec::new(),
+                client_frame: None,
+            logic_frame: None,
+            ui: None,
+            pending_main_menu_actions: Vec::new(),
             };
             assert!(
                 drive_os_wnd_skirmish_start_like_cpp(&mut effects),
@@ -2478,7 +2481,7 @@ mod tests {
                     .iter()
                     .any(|message| message.get_type() == &GameMessageType::NewGame)
             );
-            assert!(!crate::gui::game_window::WindowEventEffects::with_standalone(|effects| dispatch_os_click_named_window(
+            assert!(!crate::gui::game_window::WindowEventEffects::with_standalone(|effects| crate::gui::dispatch_os_click_named_window(
                 "SkirmishGameOptionsMenu.wnd:ButtonStartMissing"
             , effects)));
         }
