@@ -415,12 +415,57 @@ impl VideoPlayerInterface for VideoPlayer {
     }
 }
 
-static THE_VIDEO_PLAYER: OnceLock<Arc<Mutex<Option<VideoPlayer>>>> = OnceLock::new();
-static VIDEO_STREAM_PROVIDER: OnceLock<Mutex<Option<Arc<dyn VideoStreamProvider>>>> =
-    OnceLock::new();
+#[cfg(test)]
+thread_local! {
+    static TEST_VIDEO_PLAYER: std::cell::RefCell<Option<Arc<Mutex<Option<VideoPlayer>>>>> =
+        const { std::cell::RefCell::new(None) };
+    static TEST_VIDEO_STREAM_PROVIDER: std::cell::RefCell<
+        Option<Arc<Mutex<Option<Arc<dyn VideoStreamProvider>>>>>,
+    > = const { std::cell::RefCell::new(None) };
+}
+
+fn video_player_handle() -> Arc<Mutex<Option<VideoPlayer>>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_video_player_slot()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_VIDEO_PLAYER.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| Arc::new(Mutex::new(None)))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(Mutex::new(None))
+    }
+}
+
+fn video_stream_provider_handle() -> Arc<Mutex<Option<Arc<dyn VideoStreamProvider>>>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_video_stream_provider_slot()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_VIDEO_STREAM_PROVIDER.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| Arc::new(Mutex::new(None)))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(Mutex::new(None))
+    }
+}
 
 pub fn init_video_player() {
-    let player = THE_VIDEO_PLAYER.get_or_init(|| Arc::new(Mutex::new(Some(VideoPlayer::new()))));
+    let player = video_player_handle();
     if let Ok(mut guard) = player.lock() {
         if guard.is_none() {
             let mut player = VideoPlayer::new();
@@ -433,13 +478,24 @@ pub fn init_video_player() {
 }
 
 pub fn get_video_player() -> Option<Arc<Mutex<Option<VideoPlayer>>>> {
-    THE_VIDEO_PLAYER.get().cloned()
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.video_player_slot_opt()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_VIDEO_PLAYER.with(|slot| slot.borrow().clone());
+    }
+    #[cfg(not(test))]
+    {
+        None
+    }
 }
 
 pub fn register_video_stream_provider(provider: Arc<dyn VideoStreamProvider>) {
-    let mut slot = video_stream_provider_slot()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let handle = video_stream_provider_handle();
+    let mut slot = handle.lock().unwrap_or_else(|e| e.into_inner());
     *slot = Some(provider);
     drop(slot);
     notify_video_player_provider_state(true);
@@ -447,14 +503,13 @@ pub fn register_video_stream_provider(provider: Arc<dyn VideoStreamProvider>) {
 
 pub fn clear_video_stream_provider() {
     notify_video_player_provider_state(false);
-    let mut slot = video_stream_provider_slot()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let handle = video_stream_provider_handle();
+    let mut slot = handle.lock().unwrap_or_else(|e| e.into_inner());
     *slot = None;
 }
 
 pub fn shutdown_video_player() {
-    if let Some(player) = THE_VIDEO_PLAYER.get() {
+    if let Some(player) = get_video_player() {
         let mut guard = player.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(player) = guard.as_mut() {
             player.deinit();
@@ -463,15 +518,9 @@ pub fn shutdown_video_player() {
     }
 }
 
-fn video_stream_provider_slot() -> &'static Mutex<Option<Arc<dyn VideoStreamProvider>>> {
-    VIDEO_STREAM_PROVIDER.get_or_init(|| Mutex::new(None))
-}
-
 fn get_video_stream_provider() -> Option<Arc<dyn VideoStreamProvider>> {
-    video_stream_provider_slot()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
+    let handle = video_stream_provider_handle();
+    handle.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 fn notify_video_player_provider_state(now_has_valid: Bool) -> Bool {

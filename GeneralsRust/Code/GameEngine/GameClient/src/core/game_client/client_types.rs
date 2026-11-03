@@ -78,6 +78,8 @@ pub struct GameClient {
     snow_manager: Option<std::sync::Arc<std::sync::Mutex<crate::snow::SnowManager>>>,
     supply_and_tech_images: Option<std::sync::Arc<std::sync::Mutex<crate::map_util::TechAndSupplyImages>>>,
     map_cache_manager: Option<std::sync::Arc<std::sync::Mutex<crate::map_util::MapCache>>>,
+    video_player_slot: Option<std::sync::Arc<std::sync::Mutex<Option<crate::video_player::VideoPlayer>>>>,
+    video_stream_provider_slot: Option<std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<dyn crate::video_player::VideoStreamProvider>>>>>,
     startup_shell_image_reported: std::collections::HashSet<String>,
     /// DrawIconUI admitted from the driving Main session before native draw.
     receiving_draw_icon_ui: bool,
