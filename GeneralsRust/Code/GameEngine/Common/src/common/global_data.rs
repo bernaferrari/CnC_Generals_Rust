@@ -8,9 +8,8 @@
 //! the engine.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use once_cell::sync::Lazy;
 
 use crate::common::command_line::{DebugSettings, WritableGlobalData};
 use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
@@ -2258,13 +2257,14 @@ impl Snapshotable for GlobalData {
     }
 }
 
-/// Global singleton mirroring `TheGlobalData` in the C++ codebase.
-pub struct GlobalDataSlot(Lazy<RwLock<GlobalData>>);
-impl std::ops::Deref for GlobalDataSlot {
-    type Target = Lazy<RwLock<GlobalData>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
+/// Instance GlobalData registry (C++ `TheGlobalData` / writable bag).
+pub fn global_data_arc() -> Arc<RwLock<GlobalData>> {
+    Arc::clone(
+        &crate::common::common_services::common_services()
+            .system
+            .runtime_global_data,
+    )
 }
-pub static GLOBAL_DATA: GlobalDataSlot = GlobalDataSlot(Lazy::new(|| RwLock::new(GlobalData::default())));
 
 /// Error type for global data access
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2288,48 +2288,36 @@ impl std::error::Error for GlobalDataError {}
 
 /// Safe read access with panic recovery
 pub fn read_safe() -> Result<RwLockReadGuard<'static, GlobalData>, GlobalDataError> {
-    match GLOBAL_DATA.read() {
-        Ok(guard) => Ok(guard),
+    let services = crate::common::common_services::common_services();
+    match services.system.runtime_global_data.read() {
+        Ok(guard) => Ok(unsafe { std::mem::transmute(guard) }),
         Err(poisoned) => {
             eprintln!("WARN: GlobalData lock poisoned, recovering...");
-            // Recover from poisoning by using the poisoned value
-            Ok(poisoned.into_inner())
+            Ok(unsafe { std::mem::transmute(poisoned.into_inner()) })
         }
     }
 }
 
 /// Safe write access with panic recovery
 pub fn write_safe() -> Result<RwLockWriteGuard<'static, GlobalData>, GlobalDataError> {
-    match GLOBAL_DATA.write() {
-        Ok(guard) => Ok(guard),
+    let services = crate::common::common_services::common_services();
+    match services.system.runtime_global_data.write() {
+        Ok(guard) => Ok(unsafe { std::mem::transmute(guard) }),
         Err(poisoned) => {
             eprintln!("WARN: GlobalData lock poisoned, recovering...");
-            // Recover from poisoning by using the poisoned value
-            Ok(poisoned.into_inner())
+            Ok(unsafe { std::mem::transmute(poisoned.into_inner()) })
         }
     }
 }
 
 /// Legacy convenience functions - now use panic recovery internally
 pub fn read() -> RwLockReadGuard<'static, GlobalData> {
-    match GLOBAL_DATA.read() {
-        Ok(guard) => guard,
-        Err(poisoned) => {
-            eprintln!("WARN: GlobalData read lock poisoned, recovering...");
-            poisoned.into_inner()
-        }
-    }
+    read_safe().expect("GlobalData lock")
 }
 
 /// Legacy convenience functions - now use panic recovery internally
 pub fn write() -> RwLockWriteGuard<'static, GlobalData> {
-    match GLOBAL_DATA.write() {
-        Ok(guard) => guard,
-        Err(poisoned) => {
-            eprintln!("WARN: GlobalData write lock poisoned, recovering...");
-            poisoned.into_inner()
-        }
-    }
+    write_safe().expect("GlobalData lock")
 }
 
 /// Convenience helpers for the most common operations used by subsystems.
@@ -2356,13 +2344,9 @@ pub mod access {
 /// All such tests must hold this lock so parallel suites cannot clobber
 /// sell percentages and other shared knobs mid-assertion.
 pub fn test_isolation_lock() -> &'static Mutex<()> {
-    struct LockSlot(OnceLock<Mutex<()>>);
-    impl std::ops::Deref for LockSlot {
-        type Target = OnceLock<Mutex<()>>;
-        fn deref(&self) -> &Self::Target { &self.0 }
-    }
-    static LOCK: LockSlot = LockSlot(OnceLock::new());
-    LOCK.0.get_or_init(|| Mutex::new(()))
+    let services = crate::common::common_services::common_services();
+    let lock = &services.system.global_data_test_lock;
+    unsafe { std::mem::transmute(lock) }
 }
 
 /// Run `f` while holding [`test_isolation_lock`], restoring GlobalData afterward.

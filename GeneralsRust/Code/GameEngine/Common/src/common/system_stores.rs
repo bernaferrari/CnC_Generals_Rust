@@ -23,6 +23,12 @@ use crate::common::system::radar::{
 };
 use crate::common::system::registry::Registry;
 use crate::common::system::upgrade::center::UpgradeCenter;
+use crate::common::system::subsystem_interface::SubsystemResult;
+use crate::common::game_engine::{GameClientInterface, GameEngine};
+use crate::common::global_data::GlobalData as RuntimeGlobalData;
+use crate::common::recorder::Recorder;
+use crate::common::version::Version;
+use parking_lot::Mutex as ParkingMutex;
 use crate::System::SaveGame::{
     GameState, RuntimeIdCounterHooks, SaveLoadLifecycleHooks,
 };
@@ -91,6 +97,26 @@ pub struct SystemStores {
     pub rebuild_tank_tracks: Mutex<Option<fn()>>,
     pub adjust_client_lod: Mutex<Option<fn(i32)>>,
     pub game_lod_ini_loaded: Mutex<bool>,
+    /// GameEngine client factory / blank-window / instance slots.
+    pub game_client_factory: ParkingMutex<
+        Option<
+            Arc<
+                dyn Fn() -> SubsystemResult<Box<dyn GameClientInterface>>
+                    + Send
+                    + Sync
+                    + 'static,
+            >,
+        >,
+    >,
+    pub command_list_init: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    pub show_blank_window: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    pub hide_blank_window: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    pub game_engine_instance: ParkingMutex<Option<Arc<ParkingMutex<GameEngine>>>>,
+    /// Legacy `common::global_data` registry (distinct from INI GlobalData).
+    pub runtime_global_data: Arc<RwLock<RuntimeGlobalData>>,
+    pub global_data_test_lock: Mutex<()>,
+    pub recorder: Mutex<Option<Mutex<Recorder>>>,
+    pub version: Mutex<Option<ParkingRwLock<Version>>>,
 }
 
 impl SystemStores {
@@ -139,6 +165,15 @@ impl SystemStores {
             rebuild_tank_tracks: Mutex::new(None),
             adjust_client_lod: Mutex::new(None),
             game_lod_ini_loaded: Mutex::new(false),
+            game_client_factory: ParkingMutex::new(None),
+            command_list_init: Mutex::new(None),
+            show_blank_window: Mutex::new(None),
+            hide_blank_window: Mutex::new(None),
+            game_engine_instance: ParkingMutex::new(None),
+            runtime_global_data: Arc::new(RwLock::new(RuntimeGlobalData::default())),
+            global_data_test_lock: Mutex::new(()),
+            recorder: Mutex::new(None),
+            version: Mutex::new(None),
         }
     }
 }
