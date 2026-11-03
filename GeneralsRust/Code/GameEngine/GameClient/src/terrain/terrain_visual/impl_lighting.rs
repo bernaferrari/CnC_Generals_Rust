@@ -176,19 +176,30 @@ impl TerrainVisualImpl {
         });
         // Compatibility-only standalone discovery. Native map admission supplies
         // one explicit catalog and never reparses map-directory Terrain.ini.
-        let loose = Self::collect_terrain_ini_sources(reference);
-        let mut sources: Vec<(String, Vec<u8>)> = loose
-            .iter()
-            .map(|path| {
-                std::fs::read(path)
-                    .map(|bytes| (path.to_string_lossy().into_owned(), bytes))
-                    .map_err(|error| {
-                        TerrainError::InvalidData(format!("{}: {error}", path.display()))
-                    })
-            })
-            .collect::<TerrainResult<_>>()?;
+        //
+        // C++ loads Terrain.ini from the game FS (INIZH.big). Some extracted_big_files
+        // trees contain binary/misnamed "Terrain.ini" placeholders — those must not
+        // shadow the archive. Keep only UTF-8 sources that actually define Terrain.
+        let candidate_loose = Self::collect_terrain_ini_sources(reference);
+        let mut sources: Vec<(String, Vec<u8>)> = Vec::new();
+        let mut valid_loose_paths: Vec<PathBuf> = Vec::new();
+        for path in &candidate_loose {
+            let Ok(bytes) = std::fs::read(path) else {
+                continue;
+            };
+            if !Self::looks_like_terrain_ini_bytes(&bytes) {
+                warn!(
+                    "Ignoring non-terrain loose INI '{}' (corrupt extract or wrong file)",
+                    path.display()
+                );
+                continue;
+            }
+            valid_loose_paths.push(path.clone());
+            sources.push((path.to_string_lossy().into_owned(), bytes));
+        }
         let loose_names: HashSet<String> = sources.iter().map(|(name, _)| name.clone()).collect();
-        let archive_count = Self::append_archive_terrain_ini_sources(&loose, &mut sources);
+        let archive_count =
+            Self::append_archive_terrain_ini_sources(&valid_loose_paths, &mut sources);
         if sources.is_empty() {
             return Ok(());
         }
@@ -206,18 +217,38 @@ impl TerrainVisualImpl {
                 .collect();
             ini_terrain::read_terrain_definition_sources(&borrowed)
         };
+        // Map-directory Terrain.ini is an intentional override. If it fails to
+        // parse, keep the prior catalog (C++ does not silently drop a bad map
+        // override and keep the install default). Global extracted_big_files
+        // placeholders are different — ignore those and retry archive-only.
+        //
+        // Compare via canonicalize: macOS temp paths flip between /var and
+        // /private/var, so literal Path::starts_with misses map-dir overrides.
+        let map_dir = reference
+            .and_then(|path| path.parent().map(Path::to_path_buf))
+            .and_then(|dir| std::fs::canonicalize(&dir).ok());
+        let map_override_present = map_dir.as_ref().is_some_and(|map_dir| {
+            valid_loose_paths.iter().any(|path| {
+                std::fs::canonicalize(path)
+                    .ok()
+                    .and_then(|canon| canon.parent().map(|parent| parent == map_dir.as_path()))
+                    .unwrap_or(false)
+            })
+        });
         let catalog = match parse(&sources) {
             Ok(catalog) => catalog,
-            Err(error) if archive_count > 0 && !loose_names.is_empty() => {
+            Err(error)
+                if archive_count > 0 && !loose_names.is_empty() && !map_override_present =>
+            {
                 warn!(
-                    "Terrain archive definitions failed ({error}); retrying existing loose sources"
+                    "Terrain mixed loose+archive parse failed ({error}); retrying archive only"
                 );
-                let loose: Vec<(&str, &[u8])> = sources
+                let archive_only: Vec<(String, Vec<u8>)> = sources
                     .iter()
-                    .filter(|(name, _)| loose_names.contains(name))
-                    .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+                    .filter(|(name, _)| !loose_names.contains(name))
+                    .cloned()
                     .collect();
-                ini_terrain::read_terrain_definition_sources(&loose)?
+                parse(&archive_only).map_err(TerrainError::from)?
             }
             Err(error) => return Err(error.into()),
         };
@@ -375,6 +406,24 @@ impl TerrainVisualImpl {
         for candidate in &candidates {
             Self::push_if_exists(sources, seen, map_dir.join(candidate));
         }
+    }
+
+    /// Extracted BIG dumps sometimes leave binary or wrong-file "Terrain.ini".
+    /// C++ never sees those; require UTF-8 text with at least one Terrain block.
+    fn looks_like_terrain_ini_bytes(bytes: &[u8]) -> bool {
+        let Ok(text) = std::str::from_utf8(bytes) else {
+            return false;
+        };
+        text.lines().any(|line| {
+            let trimmed = line.split(';').next().unwrap_or("").trim();
+            trimmed.len() >= 7
+                && trimmed[..7].eq_ignore_ascii_case("terrain")
+                && trimmed
+                    .chars()
+                    .nth(7)
+                    .map(|ch| ch.is_whitespace())
+                    .unwrap_or(false)
+        })
     }
 
     fn push_if_exists(sources: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, candidate: PathBuf) {

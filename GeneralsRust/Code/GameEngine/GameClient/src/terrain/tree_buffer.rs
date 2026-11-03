@@ -2008,14 +2008,28 @@ fn ensure_game_fs_backends() {
     static INIT: std::sync::LazyLock<()> = std::sync::LazyLock::new(|| {
         let mut roots = vec![std::path::PathBuf::from(".")];
         if let Ok(cwd) = std::env::current_dir() {
-            roots.push(cwd);
+            roots.push(cwd.clone());
+            // Worktree retail + extracted BIG siblings (INIZH.big lives under Data/).
+            roots.push(cwd.join("windows_game/Command & Conquer Generals Zero Hour"));
+            roots.push(cwd.join("windows_game/Command & Conquer Generals Zero Hour/Data"));
+            roots.push(cwd.join("../windows_game/Command & Conquer Generals Zero Hour"));
+            roots.push(cwd.join("../windows_game/Command & Conquer Generals Zero Hour/Data"));
         }
         if let Ok(exe) = std::env::current_exe() {
             if let Some(parent) = exe.parent() {
                 roots.push(parent.to_path_buf());
             }
         }
-        add_game_fs_search_roots(&roots, false);
+        if let Ok(assets) = std::env::var("GENERALS_ASSETS_DIR") {
+            let assets = std::path::PathBuf::from(assets);
+            roots.push(assets.clone());
+            roots.push(assets.join("Data"));
+            // Sibling extracted tree next to the retail install.
+            if let Some(parent) = assets.parent() {
+                roots.push(parent.join("extracted_big_files_v2"));
+            }
+        }
+        add_game_fs_search_roots(&roots, true);
     });
     std::sync::LazyLock::force(&INIT);
 }
