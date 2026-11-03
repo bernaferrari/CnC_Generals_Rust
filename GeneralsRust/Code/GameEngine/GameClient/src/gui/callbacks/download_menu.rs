@@ -24,7 +24,7 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct DownloadMenuState {
+pub(crate) struct DownloadMenuState {
     window_manager_owner: Option<crate::gui::window_manager::WindowManagerOwner>,
     button_cancel_id: i32,
     static_text_size_id: i32,
@@ -46,11 +46,11 @@ struct DownloadMenuState {
 // state in the dialog itself), so the menu state is a plain thread-local
 // `RefCell` instead of a locked slot — a nested borrow now panics instead of
 // wedging a non-re-entrant mutex.
+#[cfg(test)]
 thread_local! {
-    static DOWNLOAD_MENU_STATE: Rc<RefCell<DownloadMenuState>> =
-        Rc::new(RefCell::new(DownloadMenuState::default()));
+    static TEST_DOWNLOAD_MENU_STATE: std::cell::OnceCell<Rc<RefCell<DownloadMenuState>>> =
+        const { std::cell::OnceCell::new() };
 }
-
 
 fn network_compat<'a>(
     effects: &crate::gui::game_window::WindowEventEffects<'a>,
@@ -61,8 +61,34 @@ fn network_compat<'a>(
         .network_compat()
 }
 
+fn download_menu_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<DownloadMenuState>> {
+    if let Some(owner) = owner {
+        return owner.download_menu_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .download_menu_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_DOWNLOAD_MENU_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(DownloadMenuState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(DownloadMenuState::default()))
+    }
+}
+
 fn download_menu_state() -> Rc<RefCell<DownloadMenuState>> {
-    DOWNLOAD_MENU_STATE.with(|state| state.clone())
+    download_menu_state_on_owner(None)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -75,7 +101,7 @@ fn close_download_window(
     mut selected: Option<&mut GameWindow>,
 ) {
     let parent = {
-        let state_handle = download_menu_state();
+        let state_handle = download_menu_state_on_owner(effects.window_manager_owner);
         let mut state = state_handle.borrow_mut();
         let Some(parent) = state.parent.take() else {
             return;
@@ -328,7 +354,7 @@ pub fn download_menu_init(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_handle = download_menu_state();
+    let state_handle = download_menu_state_on_owner(effects.window_manager_owner);
     let mut state = state_handle.borrow_mut();
     if let Some(owner) = effects.window_manager_owner {
         state.window_manager_owner = Some(owner.clone());
@@ -391,7 +417,7 @@ pub fn download_menu_update(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_handle = download_menu_state();
+    let state_handle = download_menu_state_on_owner(effects.window_manager_owner);
     let mut state = state_handle.borrow_mut();
     let events = {
         let download_slot = download_manager(network_compat(effects));
@@ -442,7 +468,7 @@ pub fn download_menu_system(
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
-            let state_handle = download_menu_state();
+            let state_handle = download_menu_state_on_owner(effects.window_manager_owner);
             let cancel_id = state_handle.borrow().button_cancel_id;
             if control_id == cancel_id {
                 cancel_download(window, effects);

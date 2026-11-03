@@ -84,6 +84,16 @@ struct WindowManagerOwnerState {
     lan_game_options: RefCell<crate::gui::callbacks::lan_game_options_menu::LanGameOptionsState>,
     /// LAN map-select layout slot (was process TLS).
     lan_map_select_layout: RefCell<Option<Rc<RefCell<crate::gui::WindowLayout>>>>,
+    /// LAN map-select menu state (was process TLS).
+    lan_map_select_state: std::sync::Arc<
+        std::sync::Mutex<crate::gui::callbacks::lan_map_select_menu::LanMapSelectState>,
+    >,
+    /// MOTD close-button id (was process TLS Cell).
+    motd_close_button_id: Cell<u32>,
+    /// GameInfoWindow state (was process TLS).
+    game_info_window_state: RefCell<crate::gui::callbacks::game_info_window::GameInfoWindowState>,
+    /// DownloadMenu state (was process TLS).
+    download_menu_state: Rc<RefCell<crate::gui::callbacks::download_menu::DownloadMenuState>>,
     /// LAN lobby menu state (was process TLS).
     #[cfg(feature = "online_ui")]
     lan_lobby_state: Rc<RefCell<crate::gui::callbacks::lan_lobby_menu::LanLobbyState>>,
@@ -197,6 +207,16 @@ impl WindowManagerOwner {
                     crate::gui::callbacks::lan_game_options_menu::LanGameOptionsState::default(),
                 ),
                 lan_map_select_layout: RefCell::new(None),
+                lan_map_select_state: std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::gui::callbacks::lan_map_select_menu::LanMapSelectState::default(),
+                )),
+                motd_close_button_id: Cell::new(0),
+                game_info_window_state: RefCell::new(
+                    crate::gui::callbacks::game_info_window::GameInfoWindowState::default(),
+                ),
+                download_menu_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::download_menu::DownloadMenuState::default(),
+                )),
                 #[cfg(feature = "online_ui")]
                 lan_lobby_state: Rc::new(RefCell::new(
                     crate::gui::callbacks::lan_lobby_menu::LanLobbyState::default(),
@@ -367,6 +387,35 @@ impl WindowManagerOwner {
         f: impl FnOnce(&mut Option<Rc<RefCell<crate::gui::WindowLayout>>>) -> R,
     ) -> R {
         f(&mut self.state.lan_map_select_layout.borrow_mut())
+    }
+
+    pub(crate) fn lan_map_select_state_handle(
+        &self,
+    ) -> std::sync::Arc<
+        std::sync::Mutex<crate::gui::callbacks::lan_map_select_menu::LanMapSelectState>,
+    > {
+        self.state.lan_map_select_state.clone()
+    }
+
+    pub(crate) fn motd_close_button_id(&self) -> u32 {
+        self.state.motd_close_button_id.get()
+    }
+
+    pub(crate) fn set_motd_close_button_id(&self, id: u32) {
+        self.state.motd_close_button_id.set(id);
+    }
+
+    pub(crate) fn with_game_info_window_state_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::gui::callbacks::game_info_window::GameInfoWindowState) -> R,
+    ) -> R {
+        f(&mut self.state.game_info_window_state.borrow_mut())
+    }
+
+    pub(crate) fn download_menu_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::download_menu::DownloadMenuState>> {
+        Rc::clone(&self.state.download_menu_state)
     }
 
     #[cfg(feature = "online_ui")]
