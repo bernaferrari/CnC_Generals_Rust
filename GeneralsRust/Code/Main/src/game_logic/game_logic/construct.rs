@@ -752,7 +752,7 @@ impl GameLogic {
             script_engine: None,
             objects_receive_difficulty_bonus: true,
             session_difficulty: None,
-            owned_script_engine: Some(gamelogic::scripting::engine::ScriptEngine::new().expect("built-in script templates")),
+            owned_script_engine: Some(gamelogic::scripting::engine::ScriptEngine::new_with_services(&world_services).expect("built-in script templates")),
             script_input_enabled: true,
             intro_movie_playing: false,
             named_script_cache: Default::default(),
