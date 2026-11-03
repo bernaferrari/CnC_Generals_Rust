@@ -32,6 +32,18 @@ pub fn ensure_ambient_host() {}
 #[cfg(test)]
 pub use ambient_host::ensure_ambient_host;
 
+/// Park a lexical `GameClient` in the live snapshot slot for the duration of
+/// the returned value. Counters (win_draw / shipped UI draws) and per-client
+/// schedule/LOD state require this — increments are no-ops without it.
+#[cfg(test)]
+pub fn park_live_game_client() -> crate::core::game_client::GameClient {
+    ensure_ambient_host();
+    let mut client = crate::core::game_client::GameClient::new().expect("GameClient");
+    crate::core::game_client::register_live_game_client(&mut client);
+    client
+}
+
+
 #[cfg(test)]
 mod ambient_host {
     use game_engine::common::common_services::{self, CommonServices};

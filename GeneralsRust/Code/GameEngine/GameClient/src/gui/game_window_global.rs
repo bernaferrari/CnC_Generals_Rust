@@ -881,7 +881,7 @@ mod overlay_tests {
 
     #[test]
     fn missing_transparent_overlay_does_not_queue_opaque_base_placeholder() {
-        crate::test_support::ensure_ambient_host();
+        let _client = crate::test_support::park_live_game_client();
         let name = "MissingCameoOverlayPolicyTest";
         get_mapped_image_collection()
             .write()

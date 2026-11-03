@@ -965,10 +965,12 @@ mod tests {
     fn letterbox_fade_out_drops_bottom_bar() {
         crate::test_support::ensure_ambient_host();
         // C++ W3DDisplay.cpp:2021-2022 — bottom drawFillRect commented out while fading out.
-        let fade_in = letterbox_plan(1920.0, 1080.0, 0.5, true);
+        // Use a 4:3 surface so the 16:9 letterbox bars are actually visible
+        // (exact 16:9 yields bar_height 0 and the plan correctly draws nothing).
+        let fade_in = letterbox_plan(800.0, 600.0, 0.5, true);
         assert!(fade_in.draw_top && fade_in.draw_bottom);
-        assert!((fade_in.bar_height - ((1080.0 - 9.0 / 16.0 * 1920.0) * 0.5)).abs() < 0.01);
-        let fade_out = letterbox_plan(1920.0, 1080.0, 0.5, false);
+        assert!((fade_in.bar_height - ((600.0 - 9.0 / 16.0 * 800.0) * 0.5)).abs() < 0.01);
+        let fade_out = letterbox_plan(800.0, 600.0, 0.5, false);
         assert!(fade_out.draw_top && !fade_out.draw_bottom);
         assert!((fade_out.bar_height - fade_in.bar_height).abs() < 0.01);
     }

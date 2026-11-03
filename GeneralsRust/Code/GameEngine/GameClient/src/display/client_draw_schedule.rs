@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn draw_advance_skipped_when_visual_time_frozen() {
-        crate::test_support::ensure_ambient_host();
+        let _client = crate::test_support::park_live_game_client();
         reset_visual_sync_for_test();
         assert!(!compute_w3d_display_freeze(false, 10));
         assert_eq!(advance_visual_sync(false), W3D_FRAME_LENGTH_MS);
@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn physics_loco_advances_once_per_drawn_frame_in_region_order() {
-        crate::test_support::ensure_ambient_host();
+        let _client = crate::test_support::park_live_game_client();
         reset_visual_sync_for_test();
         let region = ViewAabb {
             lo: [0.0, 0.0, -10.0],

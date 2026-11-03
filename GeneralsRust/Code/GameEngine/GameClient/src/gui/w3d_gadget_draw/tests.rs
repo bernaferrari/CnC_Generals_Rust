@@ -765,7 +765,7 @@ fn test_window(x: i32, y: i32, w: i32, h: i32) -> GameWindow {
 
 #[test]
 fn w3d_main_menu_draw_queues_commands_without_mapped_art() {
-    crate::test_support::ensure_ambient_host();
+    let _client = crate::test_support::park_live_game_client();
     super::reset_shipped_ui_draw_command_count();
     let window = test_window(0, 0, 800, 600);
     super::w3d_main_menu_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
@@ -777,7 +777,7 @@ fn w3d_main_menu_draw_queues_commands_without_mapped_art() {
 
 #[test]
 fn w3d_main_menu_four_and_metal_bar_queue_commands_without_art() {
-    crate::test_support::ensure_ambient_host();
+    let _client = crate::test_support::park_live_game_client();
     super::reset_shipped_ui_draw_command_count();
     let window = test_window(0, 80, 800, 40);
     super::w3d_main_menu_four_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
@@ -819,7 +819,7 @@ fn w3d_command_bar_foreground_draw_ships_nothing_without_scheme() {
 
 #[test]
 fn w3d_push_button_draw_queues_fallback_when_colors_undefined() {
-    crate::test_support::ensure_ambient_host();
+    let _client = crate::test_support::park_live_game_client();
     super::reset_shipped_ui_draw_command_count();
     let mut window = test_window(20, 20, 120, 32);
     let button = PushButton::new(7, 0, 0, 120, 32);
@@ -866,7 +866,7 @@ fn w3d_push_button_image_one_never_falls_back_to_authored_red_color() {
 
 #[test]
 fn w3d_power_and_progress_queue_commands_without_art() {
-    crate::test_support::ensure_ambient_host();
+    let _client = crate::test_support::park_live_game_client();
     super::reset_shipped_ui_draw_command_count();
     let mut progress = test_window(10, 10, 200, 16);
     let mut bar = ProgressBar::new(3, 0, 0, 200, 16);

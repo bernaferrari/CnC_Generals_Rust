@@ -931,6 +931,8 @@ mod receiving_lod_tests {
         // Same session as apply_lod / observe (parity with sibling LOD tests).
         super::set_live_renderer_3d(std::sync::Arc::clone(&__r3d));
         ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(&__r3d, 0, 32);
+        // Publish terrain visual through a live GameClient (register publishes it).
+        let _live = crate::test_support::park_live_game_client();
         // A real foreign native holder remains unavailable throughout. The
         // receiving operation must not rediscover or try to borrow that slot.
         let _foreign = crate::terrain::terrain_visual::get_terrain_visual().unwrap();

@@ -1610,7 +1610,7 @@ mod tests {
 
     #[test]
     fn win_draw_image_queues_command_when_gpu_texture_missing() {
-        crate::test_support::ensure_ambient_host();
+        let _client = crate::test_support::park_live_game_client();
         let mut image = Image::with_name("StageENoGpu");
         image.set_filename("stage_e_missing_no_gpu.tga");
         let client = ensure_mapped_image_collection();
