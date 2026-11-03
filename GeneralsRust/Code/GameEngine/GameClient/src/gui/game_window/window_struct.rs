@@ -232,10 +232,35 @@ impl<'effects> WindowEventEffects<'effects> {
     }
 
     /// Stack-local effects for unit tests that do not drive a live GameClient.
+    ///
+    /// Admits a receiving `WindowManagerOwner` + manager, IME/UI, menus/main_menu,
+    /// and a default menu host/world so Shell/WND helpers that require the owned UI
+    /// tree (post-`with_scope` removal) do not panic on bare standalone effects.
+    /// Queued shell ops are drained before return so shell-map presentation applies.
     pub fn with_standalone<R>(operation: impl FnOnce(&mut WindowEventEffects<'_>) -> R) -> R {
         let mut messages = Vec::new();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut ime = crate::gui::ime_manager::ImeManager::new();
+        let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+        let mut menu_manager = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut main_menu = crate::gui::shell::main_menu::MainMenu::new();
+        let mut menu_host = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
         let mut effects = WindowEventEffects::new(&mut messages);
-        operation(&mut effects)
+        effects.window_manager_owner = Some(&owner);
+        effects.ime = Some(&mut ime);
+        effects.ui = Some(&mut ui);
+        effects.menus = Some(menu_manager.receiving_menus(
+            crate::core::game_client::ClientInputAuthority::StandaloneCore,
+        ));
+        effects.main_menu = Some(&mut main_menu);
+        effects.menu_host = Some(&mut menu_host);
+        effects.menu_world =
+            Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts::default());
+        let result = owner.with_manager(|manager| {
+            effects.with_receiving_manager(manager, |effects| operation(effects))
+        });
+        owner.complete_event_callbacks(&mut effects);
+        result
     }
 
     pub(crate) fn queue_window_callback(&mut self, step: PendingWindowCallback) {
@@ -998,27 +1023,26 @@ impl<'effects> WindowEventEffects<'effects> {
             .map(|host| host.shell_map_settings())
     }
 
-    /// Shell.cpp queues ClearGameData before NewGame. It does not reset inline.
-    /// Keep those commands in this receiving stream and preserve their source order.
-    pub fn request_shell_map(&mut self, on: bool) {
+    /// Admit shell-map world commands into this receiving stream.
+    /// Returns `Some(enabled)` when the display-only presentation tail should run.
+    /// Returns `None` when C++ would no-op (no world facts / initial_file / already in shell game).
+    pub(crate) fn admit_shell_map_request(&mut self, on: bool) -> Option<bool> {
         use crate::gui::campaign_launch_host_bridge::MenuHostRequest;
         // C++ explicitly does nothing while no GameLogic exists. An absent
         // driving-world input never selects an ambient Core world.
-        let Some(facts) = self.menu_world else {
-            return;
-        };
+        let facts = self.menu_world?;
         let host = self
             .menu_host
             .as_deref_mut()
             .expect("Shell map requires receiving client host");
         let settings = host.shell_map_settings();
         if !settings.initial_file.is_empty() {
-            return;
+            return None;
         }
         let enabled = on && settings.enabled;
         let map = settings.map.clone();
         if enabled && facts.in_shell_game {
-            return;
+            return None;
         }
         if (enabled && facts.in_game) || (!enabled && facts.in_shell_game) {
             self.emitted_messages
@@ -1033,8 +1057,18 @@ impl<'effects> WindowEventEffects<'effects> {
             );
             self.emitted_messages.push(message);
         }
-        // MainMenuInit runs while Shell is borrowed. Apply its display-only
-        // tail at the existing receiving Shell callback boundary.
+        Some(enabled)
+    }
+
+    /// Shell.cpp queues ClearGameData before NewGame. It does not reset inline.
+    /// Keep those commands in this receiving stream and preserve their source order.
+    ///
+    /// Presentation is deferred onto the receiving Shell callback boundary because
+    /// MainMenuInit may call this while Shell is already borrowed.
+    pub fn request_shell_map(&mut self, on: bool) {
+        let Some(enabled) = self.admit_shell_map_request(on) else {
+            return;
+        };
         let owner = self
             .window_manager_owner
             .expect("Shell map requires receiving WindowManager");

@@ -522,7 +522,11 @@ impl Shell {
 
     /// Show or hide the shell map
     pub fn show_shell_map(&mut self, use_shell_map: bool, effects: &mut WindowEventEffects<'_>) {
-        effects.request_shell_map(use_shell_map);
+        // Caller already holds &mut Shell — apply the display tail on this shell.
+        // `request_shell_map` still queues the same apply for MainMenuInit (shell borrowed).
+        if let Some(enabled) = effects.admit_shell_map_request(use_shell_map) {
+            self.apply_shell_map_presentation(enabled, effects);
+        }
     }
 
     /// Display-only tail; world commands were already queued by their source callback.
@@ -535,6 +539,9 @@ impl Shell {
             self.shell_map_on = true;
             return;
         }
+        // Always clear the flag when turning shell-map off; background work still
+        // requires an active shell (matches C++ presentation while shell is up).
+        self.shell_map_on = false;
         if !self.is_shell_active {
             return;
         }
@@ -553,7 +560,6 @@ impl Shell {
                 top.bring_forward_with_effects(effects);
             }
         }
-        self.shell_map_on = false;
         self.clear_background = false;
     }
 
