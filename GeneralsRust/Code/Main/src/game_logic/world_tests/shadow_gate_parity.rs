@@ -129,7 +129,7 @@ fn coupled_shadow_fire_spread_runs_on_host() {
     assert!(logic.host_object(a).unwrap().has_fire_spread());
     assert!(logic.host_object(b).unwrap().has_fire_spread());
 
-    assert!(logic.ignite_object_fire_spread(a));
+    assert!(logic.ignite_object_fire_spread(a, &mut crate::game_logic::ScriptPresentationEffects::default()));
     {
         // Force the first spread attempt due immediately.
         let o = logic.host_object_mut(a).unwrap();

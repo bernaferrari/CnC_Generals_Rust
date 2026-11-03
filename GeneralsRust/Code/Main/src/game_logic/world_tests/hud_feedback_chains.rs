@@ -219,7 +219,28 @@ fn under_construction_selection_writes_localized_percent_label() {
         );
         bar.sync_structure_context_from_presentation(0, 0, true, 0.35);
 
-        bar.update_for_selection(vec![UC_OBJECT_ID])
+        {
+
+
+            let __wm = game_client::gui::window_manager::WindowManagerOwner::new();
+
+
+            game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+
+
+                __wm.with_manager(|manager| {
+
+
+                    bar.update_for_selection(vec![UC_OBJECT_ID], manager, effects).unwrap();
+
+
+                });
+
+
+            });
+
+
+        }
             .expect("update_for_selection");
 
         let text = window_text("ControlBar.wnd:UnderConstructionDesc");
@@ -265,7 +286,21 @@ fn ocl_countdown_object_reveals_timer_window_with_ticking_seconds() {
         &[],
         false,
     );
-    bar.update_for_selection(vec![OCL_OBJECT_ID])
+    {
+
+        let __wm = game_client::gui::window_manager::WindowManagerOwner::new();
+
+        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+
+            __wm.with_manager(|manager| {
+
+                bar.update_for_selection(vec![OCL_OBJECT_ID], manager, effects).unwrap();
+
+            });
+
+        });
+
+    }
         .expect("update_for_selection");
 
     // Presentation-synced countdown: the window reveals with formatted time.
@@ -283,7 +318,21 @@ fn ocl_countdown_object_reveals_timer_window_with_ticking_seconds() {
 
     // The per-frame context update keeps ticking (registry-empty host path
     // no longer swallows the OCL context behind the early return).
-    bar.update_for_selection(vec![OCL_OBJECT_ID])
+    {
+
+        let __wm = game_client::gui::window_manager::WindowManagerOwner::new();
+
+        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+
+            __wm.with_manager(|manager| {
+
+                bar.update_for_selection(vec![OCL_OBJECT_ID], manager, effects).unwrap();
+
+            });
+
+        });
+
+    }
         .expect("update_for_selection");
     assert_eq!(
         window_text("ControlBar.wnd:OCLTimerStaticText").as_deref(),
@@ -297,7 +346,21 @@ fn ocl_countdown_object_reveals_timer_window_with_ticking_seconds() {
         Some("0:05"),
         "OCL timer text must tick with the changing second"
     );
-    bar.update_for_selection(vec![OCL_OBJECT_ID])
+    {
+
+        let __wm = game_client::gui::window_manager::WindowManagerOwner::new();
+
+        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+
+            __wm.with_manager(|manager| {
+
+                bar.update_for_selection(vec![OCL_OBJECT_ID], manager, effects).unwrap();
+
+            });
+
+        });
+
+    }
         .expect("update_for_selection");
     assert_eq!(
         window_text("ControlBar.wnd:OCLTimerStaticText").as_deref(),

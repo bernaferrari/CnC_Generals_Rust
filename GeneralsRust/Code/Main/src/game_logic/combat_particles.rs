@@ -2190,13 +2190,13 @@ mod tests {
         assert!(reg.get(explosion).expect("explosion").active);
 
         // frame - spawned_frame reaches the 2-frame MediumExplosion lifetime.
-        reg.sync_projectile_exhausts(7, &[]);
+        reg.sync_projectile_exhausts(7, &[], &mut ());
         reg.clear_frame_events();
         assert!(!reg.get(explosion).expect("explosion").active);
         // SmokePlume residual lives 600 frames — untouched at 7.
         assert!(reg.get(smoke).expect("smoke").active);
 
-        reg.sync_projectile_exhausts(605, &[]);
+        reg.sync_projectile_exhausts(605, &[], &mut ());
         reg.clear_frame_events();
         assert!(!reg.get(smoke).expect("smoke").active);
     }

@@ -365,6 +365,7 @@ fn height_particle_cleanup_observes_snap_after_rejected_body_and_only_attachment
                     "HeightCleanupAttachedWitness",
                     kind,
                     None,
+                    &mut (),
                 )
                 .unwrap(),
         );
@@ -378,6 +379,7 @@ fn height_particle_cleanup_observes_snap_after_rejected_body_and_only_attachment
                 peer,
                 Some(id),
                 "HeightCleanupExhaustWitness",
+                &mut (),
             )
             .unwrap(),
     );

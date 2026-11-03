@@ -805,14 +805,20 @@ mod tests {
             &mut self,
             layout_filename: &str,
         ) -> gamelogic::GameLogicResult<()> {
-            self.owner
-                .with_manager(|manager| manager.create_script_message_window(layout_filename));
+            game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+                self.owner.with_manager(|manager| {
+                    manager.create_script_message_window(layout_filename, effects)
+                });
+            });
             Ok(())
         }
 
         fn destroy_win_lose_window(&mut self) -> gamelogic::GameLogicResult<()> {
-            self.owner
-                .with_manager(|manager| manager.destroy_script_message_window());
+            game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+                self.owner.with_manager(|manager| {
+                    manager.destroy_script_message_window_with_effects(effects)
+                });
+            });
             Ok(())
         }
 

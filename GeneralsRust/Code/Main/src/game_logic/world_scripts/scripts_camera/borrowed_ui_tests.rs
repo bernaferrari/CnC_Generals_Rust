@@ -15,6 +15,7 @@ struct ReceivingUi {
     bar: ControlBar,
     callbacks: ControlBarCallbacks,
     parent: Rc<RefCell<GameWindow>>,
+    windows: WindowManager,
     delivered: Vec<bool>,
 }
 impl crate::game_logic::ScriptUiEffects for ReceivingUi {
@@ -29,25 +30,31 @@ impl crate::game_logic::ScriptUiEffects for ReceivingUi {
         >,
         game_ending: bool,
     ) {
-        if enabled {
-            self.callbacks.hide_control_bar_owned(
-                &mut self.bar,
-                camera,
-                Some(self.parent.clone()),
-                true,
-                true,
-            );
-        } else {
-            self.callbacks.show_control_bar_receiving(
-                &mut self.bar,
-                camera,
-                Some(self.parent.clone()),
-                replay,
-                false,
-                _upgrade_source,
-                game_ending,
-            );
-        }
+        let parent = self.parent.clone();
+        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            if enabled {
+                self.callbacks.hide_control_bar_owned(
+                    &mut self.bar,
+                    camera,
+                    Some(parent.clone()),
+                    true,
+                    true,
+                    &mut self.windows,
+                );
+            } else {
+                self.callbacks.show_control_bar_receiving(
+                    &mut self.bar,
+                    camera,
+                    Some(parent.clone()),
+                    replay,
+                    false,
+                    _upgrade_source,
+                    game_ending,
+                    &mut self.windows,
+                    effects,
+                );
+            }
+        });
         self.delivered.push(enabled);
     }
 }
@@ -91,12 +98,13 @@ fn authored_letterbox_updates_real_parent_before_next_action_and_subroutine_retu
     let (mut owner, _, _) = world(120.);
     let (peer, _, _) = world(320.);
     let mut windows = WindowManager::new();
-    let parent = windows.create_window(None, 0, 380, 640, 100).unwrap();
-    let foreign = windows.create_window(None, 0, 380, 640, 100).unwrap();
+    let parent = windows.test_create_window(None, 0, 380, 640, 100).unwrap();
+    let foreign = windows.test_create_window(None, 0, 380, 640, 100).unwrap();
     let mut ui = ReceivingUi {
         bar: ControlBar::new(),
         callbacks: ControlBarCallbacks::new(),
         parent: parent.clone(),
+        windows,
         delivered: Vec::new(),
     };
     let mut list = ScriptList::new();
@@ -154,11 +162,12 @@ fn authored_letterbox_updates_real_parent_before_next_action_and_subroutine_retu
 fn fixed_step_receives_ui_only_for_admitted_script_execution() {
     let (mut owner, _, _) = world(120.);
     let mut windows = WindowManager::new();
-    let parent = windows.create_window(None, 0, 380, 640, 100).unwrap();
+    let parent = windows.test_create_window(None, 0, 380, 640, 100).unwrap();
     let mut ui = ReceivingUi {
         bar: ControlBar::new(),
         callbacks: ControlBarCallbacks::new(),
         parent: parent.clone(),
+        windows,
         delivered: Vec::new(),
     };
     let mut list = ScriptList::new();
@@ -185,11 +194,12 @@ fn earlier_pending_visibility_precedes_borrowed_actions_and_is_not_replayed() {
     let (mut owner, _, _) = world(120.);
     let (peer, _, _) = world(320.);
     let mut windows = WindowManager::new();
-    let parent = windows.create_window(None, 0, 380, 640, 100).unwrap();
+    let parent = windows.test_create_window(None, 0, 380, 640, 100).unwrap();
     let mut ui = ReceivingUi {
         bar: ControlBar::new(),
         callbacks: ControlBarCallbacks::new(),
         parent: parent.clone(),
+        windows,
         delivered: Vec::new(),
     };
     owner
@@ -241,11 +251,12 @@ fn authored_letterbox_zoom_policy_changes_at_action_and_only_on_transition() {
     let (mut owner, _, _) = world(120.);
     let (peer, _, _) = world(320.);
     let mut windows = WindowManager::new();
-    let parent = windows.create_window(None, 0, 380, 640, 100).unwrap();
+    let parent = windows.test_create_window(None, 0, 380, 640, 100).unwrap();
     let mut ui = ReceivingUi {
         bar: ControlBar::new(),
         callbacks: ControlBarCallbacks::new(),
         parent,
+        windows,
         delivered: Vec::new(),
     };
     for (enabled, expected_limit) in [(true, false), (true, true), (false, true), (false, false)] {
