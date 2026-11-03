@@ -297,3 +297,8 @@ path = "Code/GameEngine/GameClient/src/gui/callbacks/keyboard_options_menu.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/KeyboardOptionsMenu.cpp"
 note = "KeyboardOptionsMenuState + residuals on WindowManagerOwner; removed process TLS/atomics; peels use owner or live-client loan."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/popup_communicator.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupCommunicator.cpp"
+note = "PopupCommunicatorState + residuals on WindowManagerOwner; removed process TLS/atomics; peels use owner or live-client loan."
+

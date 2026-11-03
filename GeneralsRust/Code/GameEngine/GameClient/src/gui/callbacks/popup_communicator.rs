@@ -7,24 +7,56 @@ use crate::gui::{
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct PopupCommunicatorState {
+pub(crate) struct PopupCommunicatorState {
     parent_id: Option<u32>,
     button_ok_id: Option<u32>,
     parent: Option<Rc<RefCell<GameWindow>>>,
     button_ok: Option<Rc<RefCell<GameWindow>>>,
+    residual_action: u8,
+    residual_visible: bool,
 }
 
-// THREAD: main thread only — the state owns `Rc` window handles (already
-// `!Send`); the cell replaces the lock-wrapped `Arc` around it.
+#[cfg(test)]
 thread_local! {
-    static POPUP_COMMUNICATOR_STATE: RefCell<PopupCommunicatorState> =
+    static TEST_POPUP_COMMUNICATOR: RefCell<PopupCommunicatorState> =
         RefCell::new(PopupCommunicatorState::default());
+}
+
+fn with_popup_communicator_mut<R>(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+    f: impl FnOnce(&mut PopupCommunicatorState) -> R,
+) -> R {
+    let mut f = Some(f);
+    if let Some(owner) = owner {
+        return owner.with_popup_communicator_mut(|state| f.take().expect("popcom")(state));
+    }
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_popup_communicator_mut(|state| f.take().expect("popcom")(state))
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_POPUP_COMMUNICATOR.with(|slot| f.take().expect("popcom")(&mut slot.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("popcom")(&mut PopupCommunicatorState::default())
+    }
+}
+
+fn with_popup_communicator_ref<R>(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+    f: impl FnOnce(&PopupCommunicatorState) -> R,
+) -> R {
+    with_popup_communicator_mut(owner, |state| f(state))
 }
 
 pub fn popup_communicator_init(
@@ -50,7 +82,7 @@ pub fn popup_communicator_init(
         .as_ref()
         .and_then(|parent| parent.borrow().find_child_by_id(button_ok_id as i32));
 
-    POPUP_COMMUNICATOR_STATE.with_borrow_mut(|state| {
+    with_popup_communicator_mut(effects.window_manager_owner, |state| {
         state.parent_id = Some(parent_id);
         state.button_ok_id = Some(button_ok_id);
         state.parent = parent;
@@ -85,8 +117,9 @@ pub fn popup_communicator_input(
         return WindowMsgHandled::Handled;
     }
 
-    let button_ok_id =
-        POPUP_COMMUNICATOR_STATE.with_borrow(|guard| guard.button_ok_id.unwrap_or(0));
+    let button_ok_id = with_popup_communicator_ref(effects.window_manager_owner, |guard| {
+        guard.button_ok_id.unwrap_or(0)
+    });
 
     (|manager: &mut crate::gui::window_manager::WindowManager| {
         if let Some(handle) = manager.get_window_by_id(window.get_id()) {
@@ -117,7 +150,7 @@ pub fn popup_communicator_system(
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
-            POPUP_COMMUNICATOR_STATE.with_borrow_mut(|guard| {
+            with_popup_communicator_mut(effects.window_manager_owner, |guard| {
                 let button_ok_id = guard.button_ok_id.unwrap_or(0);
 
                 if control_id == button_ok_id {
@@ -154,32 +187,28 @@ pub enum ResidualPopupCommunicatorAction {
     Esc = 3,
 }
 
-static RESIDUAL_POPCOM_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_POPCOM_VISIBLE: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-fn residual_popcom_action_store(action: ResidualPopupCommunicatorAction) {
-    RESIDUAL_POPCOM_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+fn residual_popcom_action_store(state: &mut PopupCommunicatorState, action: ResidualPopupCommunicatorAction) {
+    state.residual_action = action as u8;
 }
 
 /// Residual: last PopupCommunicator residual action.
 pub fn residual_popup_communicator_last_action() -> ResidualPopupCommunicatorAction {
-    match RESIDUAL_POPCOM_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+    with_popup_communicator_ref(None, |state| match state.residual_action {
         1 => ResidualPopupCommunicatorAction::Bind,
         2 => ResidualPopupCommunicatorAction::Ok,
         3 => ResidualPopupCommunicatorAction::Esc,
         _ => ResidualPopupCommunicatorAction::None,
-    }
+    })
 }
 
 /// Residual: PopupCommunicator visibility latch.
 pub fn residual_popup_communicator_is_visible() -> bool {
-    RESIDUAL_POPCOM_VISIBLE.load(std::sync::atomic::Ordering::Relaxed)
+    with_popup_communicator_ref(None, |state| state.residual_visible)
 }
 
 /// Residual: bind PopupCommunicator control IDs (no layout/modal).
 pub fn simulate_popup_communicator_bind_controls() -> bool {
-    POPUP_COMMUNICATOR_STATE.with_borrow_mut(|state| {
+    with_popup_communicator_mut(None, |state| {
         if state.parent_id.is_none() {
             state.parent_id = Some(NameKeyGenerator::name_to_key(
                 "PopupCommunicator.wnd:PopupCommunicator",
@@ -190,7 +219,7 @@ pub fn simulate_popup_communicator_bind_controls() -> bool {
                 "PopupCommunicator.wnd:ButtonOk",
             ));
         }
-        residual_popcom_action_store(ResidualPopupCommunicatorAction::Bind);
+        residual_popcom_action_store(state, ResidualPopupCommunicatorAction::Bind);
         true
     })
 }
@@ -198,23 +227,31 @@ pub fn simulate_popup_communicator_bind_controls() -> bool {
 /// Residual: show residual without modal/layout create.
 pub fn simulate_popup_communicator_show() -> bool {
     let _ = simulate_popup_communicator_bind_controls();
-    RESIDUAL_POPCOM_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
+    with_popup_communicator_mut(None, |state| {
+        state.residual_visible = true;
+    });
     residual_popup_communicator_is_visible()
 }
 
 /// Residual: fire ButtonOk without destroy_layout/unset_modal.
 pub fn simulate_popup_communicator_ok_button_gadget_selected() -> bool {
     let _ = simulate_popup_communicator_bind_controls();
-    RESIDUAL_POPCOM_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
-    residual_popcom_action_store(ResidualPopupCommunicatorAction::Ok);
+    with_popup_communicator_mut(None, |state| {
+        state.residual_visible = false;
+        residual_popcom_action_store(state, ResidualPopupCommunicatorAction::Ok);
+    });
     !residual_popup_communicator_is_visible()
 }
 
 /// Residual: ESC maps to Ok residual.
 pub fn simulate_popup_communicator_esc() -> bool {
-    residual_popcom_action_store(ResidualPopupCommunicatorAction::Esc);
+    with_popup_communicator_mut(None, |state| {
+        residual_popcom_action_store(state, ResidualPopupCommunicatorAction::Esc);
+    });
     simulate_popup_communicator_ok_button_gadget_selected();
-    residual_popcom_action_store(ResidualPopupCommunicatorAction::Esc);
+    with_popup_communicator_mut(None, |state| {
+        residual_popcom_action_store(state, ResidualPopupCommunicatorAction::Esc);
+    });
     !residual_popup_communicator_is_visible()
 }
 
