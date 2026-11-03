@@ -30,13 +30,27 @@ mod factory_native_command_button_tests;
 fn child(name: &str) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        matches!(
+        let is_child = matches!(
             crate::test_process::run_bounded(
                 name.strip_prefix("gamelogic::").unwrap_or(name),
                 "GENERALS_ENTER_CAPACITY_CHILD",
             ),
             crate::test_process::TestProcess::Child
-        )
+        );
+        if is_child && game_engine::common::common_services::try_common_services().is_none() {
+            // The isolated child owns one game session: bind its Common
+            // services for ThingFactory / INI admission (no thread fallback).
+            game_engine::common::common_services::install_common_services(Arc::new(
+                game_engine::common::common_services::CommonServices::new(),
+            ));
+        }
+        if is_child && crate::system::engine_stores::try_active_services().is_none() {
+            // Core owner: these fixtures query the native AI runtime.
+            crate::system::engine_stores::install_active(
+                crate::system::engine_stores::new_for_world(),
+            );
+        }
+        is_child
     }
     #[cfg(target_arch = "wasm32")]
     {
