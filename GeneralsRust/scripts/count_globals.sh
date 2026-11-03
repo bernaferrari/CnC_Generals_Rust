@@ -12,6 +12,7 @@ import os, re, sys, json, collections
 
 root = sys.argv[1]
 want_json = "--json" in sys.argv[1:]
+with_cfg_test = "--with-cfg-test" in sys.argv[1:]
 compare = None
 for i, a in enumerate(sys.argv):
     if a == "--compare" and i + 1 < len(sys.argv):
@@ -179,7 +180,7 @@ for label, rel in roots.items():
                     continue
                 if (
                     m.start() in test_body
-                    or item_has_cfg_test_attr(text, m.start())
+                    or (not with_cfg_test and item_has_cfg_test_attr(text, m.start()))
                 ):
                     continue
                 counts[label] += 1
@@ -198,8 +199,8 @@ for label, rel in roots.items():
                 if is_mut:
                     if (
                         m.start() in test_body
-                        or item_has_cfg_test_attr(text, m.start())
-                        or inside_cfg_test_thread_local(text, m.start())
+                        or (not with_cfg_test and item_has_cfg_test_attr(text, m.start()))
+                        or (not with_cfg_test and inside_cfg_test_thread_local(text, m.start()))
                     ):
                         continue
                     counts[label] += 1
@@ -208,7 +209,7 @@ for label, rel in roots.items():
 if want_json:
     print(json.dumps(dict(counts), indent=2, sort_keys=True))
 else:
-    print("Mutable process-wide statics (excl. tests/examples/benches):")
+    print("Mutable process-wide statics (" + ("incl. #[cfg(test)] in prod files" if with_cfg_test else "excl. tests/examples/benches") + "):")
     total = 0
     for k, v in counts.items():
         print(f"  {k}: {v}")
