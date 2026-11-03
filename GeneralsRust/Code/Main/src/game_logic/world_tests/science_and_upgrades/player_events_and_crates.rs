@@ -2948,3 +2948,40 @@ fn attack_move_picks_up_created_crate() {
     );
     assert_eq!(u.requested_victim_id, Some(cid));
 }
+
+/// C++ ExperienceTracker.cpp:65-78 `setMinVeterancyLevel`: no-op when already
+/// at or above the level (no XP seeding); on promotion XP is *assigned* the
+/// template minimum for the new level. Limits: standalone Object, no world tick.
+#[test]
+fn set_min_veterancy_level_matches_cpp_noop_and_assignment() {
+    use crate::game_logic::{Object, ObjectId, Team, ThingTemplate, VeterancyLevel};
+    let mut t = ThingTemplate::new("MinVetProbe");
+    t.veterancy_xp_thresholds = [40.0, 90.0, 170.0];
+    let thresholds = t.veterancy_xp_thresholds;
+    let mut o = Object::new(t, ObjectId(6200), Team::USA);
+    o.experience.level = VeterancyLevel::Veteran;
+    o.experience.current = 1.0;
+    let changed = o.set_min_veterancy_level(
+        VeterancyLevel::Veteran,
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
+    );
+    assert!(!changed);
+    assert_eq!(
+        o.experience.current, 1.0,
+        "C++ does not seed XP when level is unchanged"
+    );
+
+    o.experience.level = VeterancyLevel::Rookie;
+    o.experience.current = thresholds[2] + 500.0;
+    assert!(o.set_min_veterancy_level(
+        VeterancyLevel::Elite,
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        &mut crate::game_logic::VeterancyFeedback::standalone(),
+    ));
+    assert_eq!(o.experience.level, VeterancyLevel::Elite);
+    assert_eq!(
+        o.experience.current, thresholds[1],
+        "C++ assigns getExperienceRequired(newLevel)"
+    );
+}
