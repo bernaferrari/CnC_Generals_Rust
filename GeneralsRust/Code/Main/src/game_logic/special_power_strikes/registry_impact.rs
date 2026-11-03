@@ -353,6 +353,7 @@ impl HostSpecialPowerStrikeRegistry {
             u32,
             bool,
             ParticleManualDriveSettings,
+            ParticleSwathSettings,
         )> = None;
         if let Some(strike) = self.strikes.get_mut(&strike_id) {
             if strike.phase == HostStrikePhase::Queued {
@@ -637,6 +638,7 @@ impl HostSpecialPowerStrikeRegistry {
                             strike.impact_frame,
                             strike.manual_beam_hold,
                             strike.manual_drive_settings,
+                            strike.swath_settings,
                         ));
                     }
                 }
@@ -677,8 +679,17 @@ impl HostSpecialPowerStrikeRegistry {
                 spectre_tier,
             );
         }
-        if let Some((source, team, pos, impact_frame, manual_hold, manual_drive_settings)) = spawn_beam {
-            let beam_id = self.spawn_beam_field_with_manual_settings(
+        if let Some((
+            source,
+            team,
+            pos,
+            impact_frame,
+            manual_hold,
+            manual_drive_settings,
+            swath_settings,
+        )) = spawn_beam
+        {
+            let beam_id = self.spawn_beam_field_with_drive_and_swath(
                 source,
                 team,
                 pos,
@@ -686,6 +697,7 @@ impl HostSpecialPowerStrikeRegistry {
                 strike_id,
                 manual_hold,
                 manual_drive_settings,
+                swath_settings,
             );
             if let Some(strike) = self.strikes.get(&strike_id) {
                 if strike.scripted_waypoint_mode {

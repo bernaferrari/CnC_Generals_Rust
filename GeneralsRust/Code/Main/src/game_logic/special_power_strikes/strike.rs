@@ -22,6 +22,9 @@ pub struct HostSpecialPowerStrike {
     /// registry body; legacy/programmatic strikes use the previous Main values.
     #[serde(skip, default)]
     pub manual_drive_settings: ParticleManualDriveSettings,
+    /// Authored SwathOfDeathDistance/Amplitude from the source module.
+    #[serde(skip, default)]
+    pub swath_settings: ParticleSwathSettings,
     pub source_object: ObjectId,
     pub source_team: crate::game_logic::Team,
     pub target_position: Vec3,

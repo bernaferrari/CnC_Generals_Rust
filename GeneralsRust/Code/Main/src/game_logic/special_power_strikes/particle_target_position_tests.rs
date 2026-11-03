@@ -241,3 +241,49 @@ fn swath_retarget_uses_latest_live_frame_and_encoded_frame_is_not_replayed() {
         );
     }
 }
+
+#[test]
+fn authored_swath_settings_change_beam_epicenter() {
+    let terrain = terrain();
+    let random = game_engine::common::random_value::SessionRandom::default();
+    let birth = 10u32;
+    let building = Vec3::new(20., 17., 30.);
+    let click = Vec3::new(120., 91., 110.);
+
+    let mut retail = HostSpecialPowerStrikeRegistry::new();
+    retail.spawn_beam_field(ObjectId(1), Team::USA, click, birth, 0);
+    retail.beam_fields[0].bind_source_axis(building);
+    retail.advance_beam_targets(birth + 20, &terrain, &random);
+    let retail_pos = retail.beam_fields()[0].current_target_position;
+
+    let mut authored = HostSpecialPowerStrikeRegistry::new();
+    authored.spawn_beam_field_with_drive_and_swath(
+        ObjectId(1),
+        Team::USA,
+        click,
+        birth,
+        0,
+        false,
+        ParticleManualDriveSettings::default(),
+        ParticleSwathSettings {
+            swath_of_death_distance: 250.0,
+            swath_of_death_amplitude: 150.0,
+        },
+    );
+    authored.beam_fields[0].bind_source_axis(building);
+    authored.advance_beam_targets(birth + 20, &terrain, &random);
+    let authored_pos = authored.beam_fields()[0].current_target_position;
+
+    assert_ne!(
+        retail_pos, authored_pos,
+        "INI 250/150 swath must move the epicenter off the retail 200/50 residual"
+    );
+    assert_eq!(
+        authored.beam_fields()[0].swath_settings,
+        ParticleSwathSettings {
+            swath_of_death_distance: 250.0,
+            swath_of_death_amplitude: 150.0,
+        }
+    );
+}
+

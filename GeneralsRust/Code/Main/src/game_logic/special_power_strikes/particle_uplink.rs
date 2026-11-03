@@ -159,6 +159,23 @@ impl Default for ParticleManualDriveSettings {
     }
 }
 
+/// Authored SwathOfDeathDistance/Amplitude captured from the source
+/// ParticleUplinkCannonUpdate module when the beam is queued (hq-za4t6.1).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ParticleSwathSettings {
+    pub swath_of_death_distance: f32,
+    pub swath_of_death_amplitude: f32,
+}
+
+impl Default for ParticleSwathSettings {
+    fn default() -> Self {
+        Self {
+            swath_of_death_distance: PARTICLE_SWATH_OF_DEATH_DISTANCE,
+            swath_of_death_amplitude: PARTICLE_SWATH_OF_DEATH_AMPLITUDE,
+        }
+    }
+}
+
 impl ParticleManualDriveSettings {
     pub fn speed_per_frame(self, fast: bool) -> f32 {
         let speed = if fast {
