@@ -178,6 +178,12 @@ struct WindowManagerOwnerState {
     /// WOL login TOS browser (was process TLS).
     #[cfg(feature = "online_ui")]
     wol_login_tos_browser: RefCell<crate::w3d_web_browser::W3DWebBrowser>,
+    /// GameSpy overlay state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    gamespy_overlay_state: Rc<RefCell<crate::gamespy_overlay::GameSpyOverlayState>>,
+    /// GameSpy GameInfo residual (was process TLS).
+    #[cfg(feature = "online_ui")]
+    gamespy_game_info: Rc<RefCell<game_network::GameInfo>>,
 }
 
 /// Persistent owner for one native client's WND tree and its re-entry queues.
@@ -373,6 +379,12 @@ impl WindowManagerOwner {
                 )),
                 #[cfg(feature = "online_ui")]
                 wol_login_tos_browser: RefCell::new(crate::w3d_web_browser::W3DWebBrowser::new()),
+                #[cfg(feature = "online_ui")]
+                gamespy_overlay_state: Rc::new(RefCell::new(
+                    crate::gamespy_overlay::GameSpyOverlayState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                gamespy_game_info: Rc::new(RefCell::new(game_network::GameInfo::new())),
             }),
         }
     }
@@ -571,6 +583,19 @@ impl WindowManagerOwner {
         f: impl FnOnce(&mut crate::w3d_web_browser::W3DWebBrowser) -> R,
     ) -> R {
         f(&mut self.state.wol_login_tos_browser.borrow_mut())
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn gamespy_overlay_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gamespy_overlay::GameSpyOverlayState>> {
+        Rc::clone(&self.state.gamespy_overlay_state)
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn gamespy_game_info_handle(
+        &self,
+    ) -> Rc<RefCell<game_network::GameInfo>> {
+        Rc::clone(&self.state.gamespy_game_info)
     }
 
     pub(crate) fn keyboard_options_handle(

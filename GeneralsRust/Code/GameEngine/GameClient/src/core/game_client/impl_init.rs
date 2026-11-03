@@ -858,6 +858,15 @@ impl GameClient {
         &self.window_manager_owner
     }
 
+    pub(crate) fn drawable_manager(&self) -> &crate::drawable::DrawableManager {
+        &self.drawable_manager
+    }
+
+    pub(crate) fn drawable_manager_mut(&mut self) -> &mut crate::drawable::DrawableManager {
+        &mut self.drawable_manager
+    }
+
+
     /// Borrow this client's message pipeline for its synchronous producer/consumer operations.
     pub fn message_stream(&self) -> &crate::message_stream::message_stream::MessageStream {
         &self.message_stream
