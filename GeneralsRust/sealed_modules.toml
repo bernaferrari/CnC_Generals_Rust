@@ -489,3 +489,18 @@ note = "Instance state on WindowManagerOwner (online_ui); removed process TLS/On
 path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_ladder_screen.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLLadderScreen.cpp"
 note = "Instance state on WindowManagerOwner (online_ui); removed process TLS/OnceLocks; peels prefer owner/live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/drawable/drawable_manager.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Drawable/DrawableManager.cpp"
+note = "DrawableManager owned on GameClient; peels use live-client loan / cfg(test) TLS fallback (no process TLS store)."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gamespy_overlay.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameSpyOverlay.cpp"
+note = "GameSpyOverlayState on WindowManagerOwner (online_ui); removed process TLS; peels prefer owner/live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gamespy_game.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameSpyGame.cpp"
+note = "GameSpy GameInfo on WindowManagerOwner (online_ui); removed process TLS; peels prefer owner/live client; cfg(test) TLS fallback only."
