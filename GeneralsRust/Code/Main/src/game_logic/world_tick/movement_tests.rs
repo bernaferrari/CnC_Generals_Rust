@@ -856,31 +856,38 @@ fn path_extra_distance_unlatches_braking_before_the_raise() {
 #[test]
 fn explicit_goal_ignores_the_blocked_speed_cap() {
     let mut logic = GameLogic::new();
-    let mut tmpl = ThingTemplate::new("Truck");
-    tmpl.add_kind_of(KindOf::Vehicle);
-    let mut unit = Object::new(tmpl, ObjectId(9529), Team::USA);
-    unit.loco_appearance = LocomotorAppearance::WheelsFour;
-    unit.allow_invalid_position = true;
-    unit.locomotor_goal_type = LocoGoalType::PositionExplicit;
-    unit.is_blocked = true;
-    unit.num_frames_blocked = 5;
-    unit.cur_max_blocked_speed = 1.0;
-    unit.movement.max_speed = 40.0;
-    unit.movement.acceleration = 1.0e6;
-    unit.movement.velocity = Vec3::new(1.0, 0.0, 0.0);
-    unit.set_orientation(0.0);
-    unit.ground_height = 0.0;
-    unit.set_position(Vec3::ZERO);
-    unit.movement.target_position = Some(Vec3::new(40.0, 0.0, 0.0));
-    unit.set_status_moving(true);
-    logic.objects.insert(ObjectId(9529), unit);
-    logic.update_movement_for_test(&[ObjectId(9529)], 1.0 / 30.0);
-    let obj = logic.objects.get(&ObjectId(9529)).expect("truck");
-    let spd = obj.movement.velocity.length();
-    assert!(
-        spd > 10.0,
-        "an explicit goal must not stay at the blocked cap, spd={spd}"
-    );
+    logic.with_own_services_mut(|logic| {
+        let mut tmpl = ThingTemplate::new("Truck");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut unit = Object::new(tmpl, ObjectId(9529), Team::USA);
+        unit.loco_appearance = LocomotorAppearance::WheelsFour;
+        unit.allow_invalid_position = true;
+        bind_fixture_locomotor(&mut unit, "HumveeLocomotor");
+        unit.locomotor_goal_type = LocoGoalType::PositionExplicit;
+        unit.is_blocked = true;
+        unit.num_frames_blocked = 5;
+        unit.cur_max_blocked_speed = 1.0;
+        unit.movement.max_speed = 40.0;
+        unit.movement.acceleration = 1.0e6;
+        unit.movement.velocity = Vec3::new(1.0, 0.0, 0.0);
+        unit.set_orientation(0.0);
+        unit.ground_height = 0.0;
+        unit.set_position(Vec3::ZERO);
+        unit.movement.target_position = Some(Vec3::new(40.0, 0.0, 0.0));
+        unit.set_status_moving(true);
+        logic.objects.insert(ObjectId(9529), unit);
+        logic.update_movement_for_test(&[ObjectId(9529)], 1.0 / 30.0);
+        let obj = logic.objects.get(&ObjectId(9529)).expect("truck");
+        let spd = obj.movement.velocity.length();
+        assert!(
+            spd > 10.0,
+            "an explicit goal must not stay at the blocked cap, spd={spd}"
+        );
+        assert!(
+            obj.cur_max_blocked_speed > 1_000.0,
+            "end-of-doLocomotor must still clear the blocked cap"
+        );
+    });
 }
 
 #[test]
@@ -1987,26 +1994,30 @@ fn airborne_approach_request_drops_the_approach_flag() {
 #[test]
 fn blocked_speed_cap_resets_after_the_move() {
     let mut logic = GameLogic::new();
-    let mut tmpl = ThingTemplate::new("Truck");
-    tmpl.add_kind_of(KindOf::Vehicle);
-    let mut unit = Object::new(tmpl, ObjectId(9527), Team::USA);
-    unit.loco_appearance = LocomotorAppearance::WheelsFour;
-    unit.allow_invalid_position = true;
-    unit.cur_max_blocked_speed = 4.0;
-    unit.movement.max_speed = 40.0;
-    unit.ground_height = 0.0;
+    logic.with_own_services_mut(|logic| {
+        let mut tmpl = ThingTemplate::new("Truck");
+        tmpl.add_kind_of(KindOf::Vehicle);
+        let mut unit = Object::new(tmpl, ObjectId(9527), Team::USA);
+        unit.loco_appearance = LocomotorAppearance::WheelsFour;
+        unit.allow_invalid_position = true;
+        // C++ reset is inside `if (m_curLocomotor)`; bind a real set member.
+        bind_fixture_locomotor(&mut unit, "HumveeLocomotor");
+        unit.cur_max_blocked_speed = 4.0;
+        unit.movement.max_speed = 40.0;
+        unit.ground_height = 0.0;
 
-    unit.set_position(Vec3::ZERO);
-    unit.movement.target_position = Some(Vec3::new(40.0, 0.0, 0.0));
-    unit.set_status_moving(true);
-    logic.objects.insert(ObjectId(9527), unit);
-    logic.update_movement_for_test(&[ObjectId(9527)], 1.0 / 30.0);
-    let obj = logic.objects.get(&ObjectId(9527)).expect("truck");
-    assert!(
-        obj.cur_max_blocked_speed > 1_000.0,
-        "blocked speed cap must reset after the move, cap={}",
-        obj.cur_max_blocked_speed
-    );
+        unit.set_position(Vec3::ZERO);
+        unit.movement.target_position = Some(Vec3::new(40.0, 0.0, 0.0));
+        unit.set_status_moving(true);
+        logic.objects.insert(ObjectId(9527), unit);
+        logic.update_movement_for_test(&[ObjectId(9527)], 1.0 / 30.0);
+        let obj = logic.objects.get(&ObjectId(9527)).expect("truck");
+        assert!(
+            obj.cur_max_blocked_speed > 1_000.0,
+            "blocked speed cap must reset after the move, cap={}",
+            obj.cur_max_blocked_speed
+        );
+    });
 }
 
 #[test]
