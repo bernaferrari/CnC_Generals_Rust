@@ -359,6 +359,10 @@ path = "src/bin/window_test.rs"
 required-features = ["dev-tools"]
 
 [[bin]]
+name = "parallel_lone_eagle_gate"
+path = "src/bin/parallel_lone_eagle_gate.rs"
+
+[[bin]]
 name = "map_frame_gate"
 path = "src/bin/map_frame_gate.rs"
 
