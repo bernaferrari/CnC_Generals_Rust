@@ -2430,15 +2430,15 @@ pub fn draw_live_command_markers(
         return;
     }
     if std::env::var_os("GENERALS_RIGHTHUD_PROBE").is_some() {
-        static ONCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        if !ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
             for (screen, kind, elapsed) in &hints {
                 eprintln!(
                     "[RHUDPROBE] command marker type={kind:?} screen=({},{}) elapsed={elapsed}",
                     screen.x, screen.y
                 );
             }
-        }
+        });
     }
     let segments = 16;
     let tau = std::f32::consts::TAU;

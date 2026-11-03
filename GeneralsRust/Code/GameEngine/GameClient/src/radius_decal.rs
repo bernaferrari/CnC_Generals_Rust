@@ -13,10 +13,7 @@ use gamelogic::common::{
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::player::{Player, ThePlayerList};
 use glam::Vec3;
-use once_cell::sync::OnceCell;
-use parking_lot::{Mutex, RwLock};
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use parking_lot::Mutex;
 use std::sync::{Arc, RwLock as StdRwLock};
 
 fn real_to_int(value: Real) -> i32 {
@@ -275,55 +272,6 @@ impl ProjectedShadowManager {
     }
 }
 
-static PROJECTED_SHADOW_MANAGER: OnceCell<RwLock<ProjectedShadowManager>> = OnceCell::new();
-static LEFTOVER_DECAL_HANDLES: OnceCell<RwLock<HashMap<u64, ShadowHandle>>> = OnceCell::new();
-static LEFTOVER_DECAL_NEXT_ID: AtomicU64 = AtomicU64::new(1);
-
-fn leftover_decal_handles() -> &'static RwLock<HashMap<u64, ShadowHandle>> {
-    LEFTOVER_DECAL_HANDLES.get_or_init(|| RwLock::new(HashMap::new()))
-}
-
-fn leftover_add_decal(
-    texture: &str,
-    radius: f32,
-    x: f32,
-    y: f32,
-    z: f32,
-    color_argb: u32,
-    opacity: f32,
-    _shadow_type: u32,
-) -> Option<u64> {
-    let handle = enqueue_delivery_decal_argb(texture, radius, x, y, z, color_argb, opacity)?;
-    let id = LEFTOVER_DECAL_NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    leftover_decal_handles().write().insert(id, handle);
-    Some(id)
-}
-
-fn leftover_set_position(id: u64, x: f32, y: f32, z: f32) {
-    if let Some(handle) = leftover_decal_handles().read().get(&id) {
-        handle.set_position(x, y, z);
-    }
-}
-
-fn leftover_set_opacity(id: u64, opacity: f32) {
-    if let Some(handle) = leftover_decal_handles().read().get(&id) {
-        handle.set_opacity(real_to_int(opacity.clamp(0.0, 1.0) * 255.0));
-    }
-}
-
-fn leftover_set_color(id: u64, color_argb: u32) {
-    if let Some(handle) = leftover_decal_handles().read().get(&id) {
-        handle.set_color(color_argb);
-    }
-}
-
-fn leftover_release(id: u64) {
-    if let Some(handle) = leftover_decal_handles().write().remove(&id) {
-        handle.release();
-        get_projected_shadow_manager().write().cleanup();
-    }
-}
-
 fn ensure_leftover_projected_hooks() {
     let _ = gamelogic::common::register_projected_radius_decal_hooks(
         gamelogic::common::ProjectedRadiusDecalHooks {
@@ -336,9 +284,61 @@ fn ensure_leftover_projected_hooks() {
     );
 }
 
-pub fn get_projected_shadow_manager() -> &'static RwLock<ProjectedShadowManager> {
+fn leftover_add_decal(
+    texture: &str,
+    radius: f32,
+    x: f32,
+    y: f32,
+    z: f32,
+    color_argb: u32,
+    opacity: f32,
+    _shadow_type: u32,
+) -> Option<u64> {
     ensure_leftover_projected_hooks();
-    PROJECTED_SHADOW_MANAGER.get_or_init(|| RwLock::new(ProjectedShadowManager::new()))
+    crate::core::game_client::with_projected_decals_mut(|decals| {
+        decals.leftover_add(texture, radius, x, y, z, color_argb, opacity)
+    })
+    .flatten()
+}
+
+fn leftover_set_position(id: u64, x: f32, y: f32, z: f32) {
+    let _ = crate::core::game_client::with_projected_decals_mut(|decals| {
+        decals.leftover_set_position(id, x, y, z);
+    });
+}
+
+fn leftover_set_opacity(id: u64, opacity: f32) {
+    let _ = crate::core::game_client::with_projected_decals_mut(|decals| {
+        decals.leftover_set_opacity(id, opacity);
+    });
+}
+
+fn leftover_set_color(id: u64, color_argb: u32) {
+    let _ = crate::core::game_client::with_projected_decals_mut(|decals| {
+        decals.leftover_set_color(id, color_argb);
+    });
+}
+
+fn leftover_release(id: u64) {
+    let _ = crate::core::game_client::with_projected_decals_mut(|decals| {
+        decals.leftover_release(id);
+    });
+}
+
+/// Borrow the receiving client's projected-shadow manager mutably.
+pub fn with_projected_shadow_manager_mut<R>(
+    f: impl FnOnce(&mut ProjectedShadowManager) -> R,
+) -> Option<R> {
+    ensure_leftover_projected_hooks();
+    crate::core::game_client::with_projected_decals_mut(|decals| f(&mut decals.manager))
+}
+
+/// Borrow the receiving client's projected-shadow manager immutably.
+pub fn with_projected_shadow_manager<R>(
+    f: impl FnOnce(&ProjectedShadowManager) -> R,
+) -> Option<R> {
+    ensure_leftover_projected_hooks();
+    crate::core::game_client::with_projected_decals_mut(|decals| f(&decals.manager))
 }
 
 /// C++ `RadiusDecalTemplate::createRadiusDecal` (`RadiusDecal.cpp:53-66`):
@@ -372,16 +372,12 @@ pub fn enqueue_delivery_decal_argb(
         return None;
     }
     ensure_leftover_projected_hooks();
-    enqueue_delivery_decal_argb_with_owner(
-        &mut get_projected_shadow_manager().write(),
-        texture,
-        radius,
-        x,
-        y,
-        z,
-        color,
-        opacity,
-    )
+    with_projected_shadow_manager_mut(|manager| {
+        enqueue_delivery_decal_argb_with_owner(
+            manager, texture, radius, x, y, z, color, opacity,
+        )
+    })
+    .flatten()
 }
 
 /// Same original addDecal kernel with an explicitly borrowed resource owner.
@@ -560,9 +556,10 @@ impl RadiusDecalTemplate {
                 offset_y: 0.0,
             };
 
-            let decal = get_projected_shadow_manager()
-                .write()
-                .add_decal(&decal_info);
+            let decal = with_projected_shadow_manager_mut(|manager| {
+                manager.add_decal(&decal_info)
+            })
+            .flatten();
 
             if let Some(handle) = decal {
                 handle.set_angle(0.0);
@@ -1026,7 +1023,7 @@ mod tests {
             0.25,
         )
         .expect("enqueue");
-        let items = get_projected_shadow_manager().read().collect_render_items();
+        let items = with_projected_shadow_manager(|m| m.collect_render_items()).unwrap_or_default();
         assert!(
             items.iter().any(|it| {
                 (it.position.x - 4242.5).abs() < 0.01
@@ -1038,8 +1035,8 @@ mod tests {
             "forward_render collect_render_items must see delivery ring"
         );
         handle.release();
-        get_projected_shadow_manager().write().cleanup();
-        let items = get_projected_shadow_manager().read().collect_render_items();
+        let _ = with_projected_shadow_manager_mut(|m| m.cleanup());
+        let items = with_projected_shadow_manager(|m| m.collect_render_items()).unwrap_or_default();
         assert!(!items.iter().any(|it| {
             (it.position.x - 4242.5).abs() < 0.01 && (it.position.z - 4243.5).abs() < 0.01
         }));
@@ -1117,5 +1114,45 @@ mod receiving_radius_lifetime_tests {
             .try_clear_for_map_attempt(None)
             .unwrap();
         assert!(!peer_handle.0.lock().active);
+    }
+
+    #[test]
+    fn projected_decals_two_threads_do_not_share_manager_state() {
+        use std::sync::{Arc, Barrier};
+        let barrier = Arc::new(Barrier::new(2));
+        let mut handles = Vec::new();
+        for thread_idx in 0..2 {
+            let barrier = Arc::clone(&barrier);
+            handles.push(std::thread::spawn(move || {
+                crate::core::game_client::reset_test_projected_decals();
+                barrier.wait();
+                let texture = if thread_idx == 0 { "ThreadA" } else { "ThreadB" };
+                let handle = crate::radius_decal::enqueue_delivery_decal(
+                    texture,
+                    12.0,
+                    thread_idx as f32,
+                    0.0,
+                    0.0,
+                    [255, 0, 0],
+                    1.0,
+                )
+                .expect("enqueue on per-thread owner");
+                let items = crate::radius_decal::with_projected_shadow_manager(|m| {
+                    m.collect_render_items()
+                })
+                .unwrap_or_default();
+                assert_eq!(items.len(), 1, "thread {thread_idx} sees only its own decal");
+                assert!(
+                    items.iter().any(|item| item.texture_name.contains(texture)),
+                    "thread {thread_idx} missing {texture} in {:?}",
+                    items.iter().map(|i| i.texture_name.clone()).collect::<Vec<_>>()
+                );
+                handle.release();
+                let _ = crate::radius_decal::with_projected_shadow_manager_mut(|m| m.cleanup());
+            }));
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
     }
 }

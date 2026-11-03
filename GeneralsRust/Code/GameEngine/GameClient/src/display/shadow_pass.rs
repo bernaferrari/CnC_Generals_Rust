@@ -11,7 +11,7 @@ use crate::display::view::with_tactical_view_ref;
 use crate::drawable::StealthLook;
 use crate::drawable::drawable_manager::with_drawable_manager;
 use crate::effects::decals::DecalRenderItem;
-use crate::radius_decal::get_projected_shadow_manager;
+use crate::radius_decal::with_projected_shadow_manager;
 use crate::terrain::TerrainVisual;
 use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
 use game_engine::common::ini::ini_game_data::get_global_data;
@@ -58,7 +58,7 @@ pub fn clear_unit_shadows() {
 /// Only allocated projected decals (`addDecal` / `addShadow`). C++ has no
 /// per-drawable fallback blob — inventing one double-draws once real decals land.
 pub fn collect_unit_decal_items() -> Vec<DecalRenderItem> {
-    get_projected_shadow_manager().read().collect_render_items()
+    with_projected_shadow_manager(|manager| manager.collect_render_items()).unwrap_or_default()
 }
 
 /// C++ `GlobalData::m_occludedLuminanceScale` default (`GlobalData.cpp:746`).
@@ -156,14 +156,13 @@ pub fn present_volumetric_shadows(depth_format: wgpu::TextureFormat) -> Volumetr
 /// structurally unavailable and every caster renders through the blob-decal
 /// disc pass instead. Debug-level and logged once to stay quiet per frame.
 fn log_volumetric_stencil_skip_once(depth_format: wgpu::TextureFormat) {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    static LOGGED: AtomicBool = AtomicBool::new(false);
-    if !LOGGED.swap(true, Ordering::Relaxed) {
+    // `Once` is not interior-mutable payload for the globals counter.
+    static LOGGED: std::sync::Once = std::sync::Once::new();
+    LOGGED.call_once(|| {
         log::debug!(
-            "volumetric stencil shadows skipped: present depth format {depth_format:?} has no \
-             stencil; unit shadows route to blob decals"
+            "volumetric stencil shadows skipped: present depth format {depth_format:?} has no              stencil; unit shadows route to blob decals"
         );
-    }
+    });
 }
 
 /// C++ `RGB_To_HSV` (`colorspace.h`) then `hsv.Z *= m_occludedLuminanceScale`.

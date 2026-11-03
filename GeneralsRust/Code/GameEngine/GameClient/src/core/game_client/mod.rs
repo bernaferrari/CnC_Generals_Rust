@@ -148,6 +148,11 @@ use ww3d_core::w3d_io::{W3DChunk, W3DReader};
 include!("ids.rs");
 mod drawable_world;
 mod native_projected_resources;
+pub(crate) use native_projected_resources::{
+    NativeProjectedDecals, with_projected_decals_mut,
+};
+#[cfg(test)]
+pub(crate) use native_projected_resources::reset_test_projected_decals;
 pub use drawable_world::DrawableWorld as NativeDrawableWorld;
 include!("semantic_admission.rs");
 mod native_auxiliary;

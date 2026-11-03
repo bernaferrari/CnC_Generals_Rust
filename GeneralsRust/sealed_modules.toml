@@ -633,4 +633,4 @@ note = "Network progress map owned by NetworkBridgeHandle; process NETWORK_PROGR
 [[module]]
 path = "Code/GameEngine/GameClient/src/gui/font.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp"
-note = "FontLibrary on GameClient; get_font_library returns Arc via live client then cfg(test) TLS; process FONT_LIBRARY removed. Unicode alternate FONT LazyLock remains."
+note = "FontLibrary on GameClient; get_font_library returns Arc via live client then cfg(test) TLS; alternate unicode font OnceLock lives on DefaultFontData (no process FONT LazyLock)."

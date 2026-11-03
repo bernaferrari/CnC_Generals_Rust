@@ -273,6 +273,8 @@ pub struct DefaultFontData {
     metrics: FontMetrics,
     desc: FontDesc,
     font: Option<Arc<fontdue::Font>>,
+    /// C++ AlternateUnicodeFont — loaded once per font-data instance.
+    alternate_unicode: std::sync::OnceLock<Option<fontdue::Font>>,
 }
 
 impl DefaultFontData {
@@ -316,7 +318,14 @@ impl DefaultFontData {
             metrics,
             desc,
             font,
+            alternate_unicode: std::sync::OnceLock::new(),
         }
+    }
+
+    fn alternate_unicode_font(&self) -> Option<&fontdue::Font> {
+        self.alternate_unicode
+            .get_or_init(load_alternate_unicode_font)
+            .as_ref()
     }
 }
 impl FontData for DefaultFontData {
@@ -327,7 +336,7 @@ impl FontData for DefaultFontData {
     fn measure_text(&self, text: &str) -> i32 {
         if let Some(font) = self.font.as_deref() {
             let px = font_pixel_size(self.desc.size) as f32;
-            let alternate = alternate_unicode_font();
+            let alternate = self.alternate_unicode_font();
             let width = text
                 .chars()
                 .map(|ch| {
@@ -357,7 +366,7 @@ impl FontData for DefaultFontData {
     fn supports_char(&self, ch: char) -> bool {
         if let Some(font) = self.font.as_deref() {
             return font.lookup_glyph_index(ch) != 0
-                || alternate_unicode_font().is_some_and(|alt| alt.lookup_glyph_index(ch) != 0);
+                || self.alternate_unicode_font().is_some_and(|alt| alt.lookup_glyph_index(ch) != 0);
         }
         ch.is_ascii() || ch.is_ascii_graphic() || ch.is_whitespace()
     }
@@ -367,27 +376,24 @@ impl FontData for DefaultFontData {
 /// `FontCharsClass::AlternateUnicodeFont` concept: loaded from the
 /// language's `UnicodeFontName` (defaulting toward broad-coverage faces),
 /// same point size as the primary (W3DGameFont.cpp:73-88).
-fn alternate_unicode_font() -> Option<&'static fontdue::Font> {
-    static FONT: std::sync::LazyLock<Option<fontdue::Font>> = std::sync::LazyLock::new(|| {
-        let mut names: Vec<String> = Vec::new();
-        let __lang = crate::global_language::get_global_language_data();
-        if let Ok(language) = __lang.read() {
-            if !language.unicode_font_name.is_empty() {
-                names.push(language.unicode_font_name.clone());
-            }
+fn load_alternate_unicode_font() -> Option<fontdue::Font> {
+    let mut names: Vec<String> = Vec::new();
+    let __lang = crate::global_language::get_global_language_data();
+    if let Ok(language) = __lang.read() {
+        if !language.unicode_font_name.is_empty() {
+            names.push(language.unicode_font_name.clone());
         }
-        names.push("Arial Unicode MS".to_string());
-        names.push("DejaVuSans".to_string());
-        names.push("LiberationSans-Regular".to_string());
-        names.push("Arial".to_string());
-        for name in names {
-            if let Some(font) = load_fontdue_font(&FontDesc::new(&name, 12, false)) {
-                return Some(font);
-            }
+    }
+    names.push("Arial Unicode MS".to_string());
+    names.push("DejaVuSans".to_string());
+    names.push("LiberationSans-Regular".to_string());
+    names.push("Arial".to_string());
+    for name in names {
+        if let Some(font) = load_fontdue_font(&FontDesc::new(&name, 12, false)) {
+            return Some(font);
         }
-        None
-    });
-    FONT.as_ref()
+    }
+    None
 }
 
 /// Game font representation - device independent font object

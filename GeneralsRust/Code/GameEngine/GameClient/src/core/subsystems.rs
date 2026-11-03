@@ -2251,6 +2251,9 @@ fn translate_audio_event(event: &str) -> &str {
 pub struct TerrainVisualStub {
     registered_trees: HashMap<u32, TerrainTreeRegistration>,
     tree_buffer: W3DTreeBuffer,
+    /// Empty chunk manager for the stub TerrainVisual trait surface when no
+    /// live terrain system is published. Owned per stub, not process-wide.
+    empty_chunks: crate::terrain::chunk::ChunkManager,
 }
 
 impl TerrainVisualStub {
@@ -2387,9 +2390,7 @@ impl TerrainVisual for TerrainVisualStub {
     }
 
     fn chunk_manager(&self) -> &crate::terrain::chunk::ChunkManager {
-        static EMPTY: once_cell::sync::Lazy<crate::terrain::chunk::ChunkManager> =
-            once_cell::sync::Lazy::new(crate::terrain::chunk::ChunkManager::new);
-        &EMPTY
+        &self.empty_chunks
     }
 
     fn chunk_draw_count(&self) -> usize {
