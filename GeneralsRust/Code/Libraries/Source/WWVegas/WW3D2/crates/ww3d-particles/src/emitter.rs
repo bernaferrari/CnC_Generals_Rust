@@ -560,12 +560,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 impl ParticleEmitter {
     /// Get default remove on complete setting
-    pub fn default_remove_on_complete() -> bool {
-        crate::process_state::particles().default_remove_on_complete.load(Ordering::Relaxed)
+    pub fn default_remove_on_complete(runtime: &crate::process_state::ParticlesRuntime) -> bool {
+        runtime.default_remove_on_complete.load(Ordering::Relaxed)
     }
 
     /// Set default remove on complete setting
-    pub fn set_default_remove_on_complete(onoff: bool) {
-        crate::process_state::particles().default_remove_on_complete.store(onoff, Ordering::Relaxed);
+    pub fn set_default_remove_on_complete(runtime: &crate::process_state::ParticlesRuntime, onoff: bool) {
+        runtime.default_remove_on_complete.store(onoff, Ordering::Relaxed);
     }
 }
