@@ -26,8 +26,8 @@ impl RestoreInputs {
 impl Drop for RestoreInputs {
     fn drop(&mut self) {
         if let Some(store) = self.store.take() {
-            gamelogic::weapon::with_weapon_store_mut(|current| *current = store)
-                .expect("restore exact compatibility weapon store");
+            // Soft: unbound store during failure teardown must not double-panic.
+            let _ = gamelogic::weapon::with_weapon_store_mut(|current| *current = store);
         } else {
             let _ = gamelogic::weapon::shutdown_weapon_store();
         }

@@ -2958,11 +2958,13 @@ impl GameLogic {
         id: ObjectId,
         container_id: ObjectId,
     ) -> bool {
-        self.unit_command_exit_via_open_contain_with_effects(
-            id,
-            container_id,
-            &mut Default::default(),
-        )
+        self.with_own_services_mut(|this| {
+            this.unit_command_exit_via_open_contain_with_effects(
+                id,
+                container_id,
+                &mut Default::default(),
+            )
+        })
     }
 
     pub(crate) fn unit_command_exit_via_open_contain_with_effects(

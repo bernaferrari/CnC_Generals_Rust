@@ -1384,10 +1384,12 @@ impl GameLogic {
 
     /// C++ `AIRappelState::update`: descend at rappel rate, then kill-2 / addToContain.
     pub(crate) fn tick_rappel_into(&mut self, pid: ObjectId) {
-        self.tick_rappel_into_with_effects(
-            pid,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
+        self.with_own_services_mut(|this| {
+            this.tick_rappel_into_with_effects(
+                pid,
+                &mut crate::game_logic::ScriptPresentationEffects::default(),
+            )
+        })
     }
 
     pub(crate) fn tick_rappel_into_with_effects(

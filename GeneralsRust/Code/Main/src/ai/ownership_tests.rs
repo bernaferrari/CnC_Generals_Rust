@@ -7,7 +7,10 @@ impl Drop for RestorePlayerList {
     fn drop(&mut self) {
         *gamelogic::player::player_list()
             .write()
-            .unwrap_or_else(|error| error.into_inner()) = self.0.take().unwrap();
+            .unwrap_or_else(|error| error.into_inner()) = match self.0.take() {
+            Some(prev) => prev,
+            None => return,
+        };
     }
 }
 

@@ -107,8 +107,12 @@ impl ScienceStoreRestore {
 
 impl Drop for ScienceStoreRestore {
     fn drop(&mut self) {
-        *get_science_store_mut().expect("ScienceStore initialized") =
-            self.0.take().expect("saved ScienceStore");
+        let Some(prev) = self.0.take() else {
+            return;
+        };
+        if let Some(slot) = get_science_store_mut() {
+            *slot = prev;
+        }
     }
 }
 

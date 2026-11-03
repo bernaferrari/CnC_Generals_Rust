@@ -102,8 +102,10 @@ fn supply_source_queries_use_canonical_map_player_identity() {
     }
     impl Drop for PlayerListRestore {
         fn drop(&mut self) {
-            *player_list().write().expect("Core PlayerList") =
-                self.0.take().expect("saved Core PlayerList");
+            let Some(prev) = self.0.take() else {
+                return;
+            };
+            *player_list().write().unwrap_or_else(|e| e.into_inner()) = prev;
         }
     }
 
