@@ -2332,6 +2332,52 @@ fn fire_spread_tree_ignites_neighbor() {
 }
 
 #[test]
+fn effectively_dead_aflame_object_keeps_spreading_fire_like_cpp() {
+    // C++ GameLogic::update (GameLogic.cpp:3700-3725) calls every due sleepy
+    // update without an isEffectivelyDead check, and FireSpreadUpdate::update
+    // (FireSpreadUpdate.cpp:93-131) only tests OBJECT_STATUS_AFLAME. A burning
+    // object retained after death (e.g. SlowDeath) still spreads fire.
+    use crate::game_logic::host_fire_spread::TREE_SPREAD_TRY_RANGE;
+
+    let mut logic = GameLogic::new();
+    for name in ["DogwoodTreeA", "DogwoodTreeB"] {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.set_health(50.0);
+        logic.templates.insert(name.to_string(), tpl);
+    }
+    let a = logic
+        .create_object("DogwoodTreeA", Team::Neutral, Vec3::new(0.0, 0.0, 0.0))
+        .expect("a");
+    let b = logic
+        .create_object(
+            "DogwoodTreeB",
+            Team::Neutral,
+            Vec3::new(TREE_SPREAD_TRY_RANGE * 0.5, 0.0, 0.0),
+        )
+        .expect("b");
+    assert!(logic.ignite_object_fire_spread(
+        a,
+        &mut crate::game_logic::ScriptPresentationEffects::default()
+    ));
+    {
+        let o = logic.host_object_mut(a).unwrap();
+        o.status.effectively_dead = true;
+        if let Some(fs) = o.fire_spread.as_mut() {
+            fs.next_spread_frame = 0;
+        }
+    }
+    logic.set_current_frame(30);
+    logic.update_fire_spread();
+    assert!(
+        logic
+            .host_object(b)
+            .and_then(|o| o.fire_spread.as_ref().map(|f| f.is_aflame()))
+            .unwrap_or(false),
+        "dead-but-retained aflame source must still ignite its neighbor"
+    );
+}
+
+#[test]
 fn flammable_buildings_ignite_and_play_burning_loop() {
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::host_enum_table_residual::aflame_model_bit;

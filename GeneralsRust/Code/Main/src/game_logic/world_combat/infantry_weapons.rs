@@ -2413,10 +2413,12 @@ impl GameLogic {
         use crate::game_logic::host_fire_spread::fire_spread_center_3d_distance;
 
         let frame = self.frame as u32;
+        // C++ GameLogic::update runs due Flammable/FireSpread updates without
+        // an isEffectivelyDead check; only physically destroyed objects stop.
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
-            .filter(|(_, o)| o.is_alive() && o.has_fire_spread())
+            .filter(|(_, o)| !o.status.destroyed && o.has_fire_spread())
             .map(|(id, _)| *id)
             .collect();
         if ids.is_empty() {
