@@ -501,6 +501,7 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
             gamelogic::object::update::ai_update::dozer_ai_update::DozerTask::Build,
         );
     }
+    logic.frame = 11; // REPAIR must outrank same-frame BUILD for getMostRecentCommand
     let result = CommandExecutor::new(&mut logic, 0)
         .execute_command(command(
             0,
@@ -900,6 +901,16 @@ End
             "hq-gkpuk: new construct must write BUILD slot"
         );
         assert!(dz.dozer_tasks.requests[0].order_frame >= 12);
+    }
+    // Primary Idle → enter BUILD → Pick/Move. Two AI ticks match C++ machine.
+    for frame in [13u32, 14] {
+        logic.frame = frame;
+        logic
+            .update_ai(&[dozer], 1.0 / 30.0)
+            .expect("dozer primary/action ticks");
+    }
+    {
+        let dz = logic.host_object(dozer).expect("dz");
         assert_eq!(dz.target, Some(scaffold));
         // C++ DozerAIUpdate.cpp:499-507 — newTask BUILD walks to the dock
         // (AI_MOVE) and flips to Constructing only on arrival; a dozer placed
