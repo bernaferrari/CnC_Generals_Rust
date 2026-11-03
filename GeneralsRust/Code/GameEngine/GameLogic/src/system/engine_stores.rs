@@ -544,19 +544,20 @@ impl EngineStores {
 // Not an ambient fallback: active()/active_services() panic when unpublished.
 static PROCESS_LIFETIME: LazyLock<Arc<EngineStores>> =
     LazyLock::new(|| Arc::new(EngineStores::engine_defaults()));
+/// Published ambient owner (Core AI runtime or Main world services).
 #[derive(Clone)]
-enum PublishedOwner {
+pub enum PublishedOwner {
     Core(Arc<EngineStores>),
     Services(Arc<WorldServices>),
 }
 impl PublishedOwner {
-    fn services(&self) -> &Arc<WorldServices> {
+    pub fn services(&self) -> &Arc<WorldServices> {
         match self {
             Self::Core(core) => core.services(),
             Self::Services(services) => services,
         }
     }
-    fn same(&self, other: &Self) -> bool {
+    pub fn same(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Core(a), Self::Core(b)) => Arc::ptr_eq(a, b),
             (Self::Services(a), Self::Services(b)) => Arc::ptr_eq(a, b),
@@ -578,13 +579,53 @@ impl PublishedOwner {
         }
     }
 }
-thread_local! {
-    // Thread-local publication stack: parallel game instances never share an
-    // active owner across threads. Nested with_* / install_* push and pop here.
-    static SCOPED_ACTIVE: RefCell<Vec<PublishedOwner>> = const { RefCell::new(Vec::new()) };
+
+/// Per-thread publication stack storage. Production Main registers TLS hooks;
+/// GameLogic unit tests install a #[cfg(test)] backend on first use.
+pub struct AmbientStackHooks {
+    pub head: fn() -> Option<PublishedOwner>,
+    pub push: fn(PublishedOwner),
+    pub pop_if_head: fn(&PublishedOwner) -> bool,
+    pub retain_not: fn(&PublishedOwner),
+    pub prior_core_ai_data: fn() -> Option<Arc<RwLock<AIDataStore>>>,
+    pub depth: fn() -> usize,
 }
+
+static AMBIENT_HOOKS: OnceLock<AmbientStackHooks> = OnceLock::new();
+static AMBIENT_PRE_ENSURE: OnceLock<fn()> = OnceLock::new();
+
+/// Register the host thread-local ambient stack (call once from Main).
+pub fn register_ambient_stack_hooks(hooks: AmbientStackHooks) {
+    let _ = AMBIENT_HOOKS.set(hooks);
+}
+
+/// Optional host callback invoked once if ambient hooks are still unset.
+pub fn set_ambient_pre_ensure(f: fn()) {
+    let _ = AMBIENT_PRE_ENSURE.set(f);
+}
+
+fn ambient_hooks() -> &'static AmbientStackHooks {
+    if AMBIENT_HOOKS.get().is_none() {
+        if let Some(f) = AMBIENT_PRE_ENSURE.get() {
+            f();
+        }
+    }
+    if let Some(hooks) = AMBIENT_HOOKS.get() {
+        return hooks;
+    }
+    #[cfg(test)]
+    {
+        let _ = AMBIENT_HOOKS.set(test_ambient::hooks());
+        return AMBIENT_HOOKS.get().expect("test ambient hooks");
+    }
+    #[cfg(not(test))]
+    panic!(
+        "ambient stack hooks not registered — Main must call register_ambient_stack_hooks before GameLogic"
+    );
+}
+
 fn published_owner() -> Option<PublishedOwner> {
-    SCOPED_ACTIVE.with(|stack| stack.borrow().last().cloned())
+    (ambient_hooks().head)()
 }
 pub(crate) fn published_core_for_game_logic() -> Option<Arc<EngineStores>> {
     match published_owner() {
@@ -612,7 +653,7 @@ pub fn active_services() -> Arc<WorldServices> {
     )
 }
 fn is_published(owner: &PublishedOwner) -> bool {
-    SCOPED_ACTIVE.with(|stack| stack.borrow().last().is_some_and(|head| head.same(owner)))
+    (ambient_hooks().head)().is_some_and(|head| head.same(owner))
 }
 pub fn is_active(core: &Arc<EngineStores>) -> bool {
     is_published(&PublishedOwner::Core(Arc::clone(core)))
@@ -622,12 +663,9 @@ pub fn is_services_active(services: &Arc<WorldServices>) -> bool {
 }
 fn install(owner: PublishedOwner) -> Option<PublishedOwner> {
     owner.install_common();
-    SCOPED_ACTIVE.with(|stack| {
-        let mut active = stack.borrow_mut();
-        let prior = active.last().cloned();
-        active.push(owner);
-        prior
-    })
+    let prior = (ambient_hooks().head)();
+    (ambient_hooks().push)(owner);
+    prior
 }
 pub fn install_active(core: Arc<EngineStores>) -> Option<Arc<EngineStores>> {
     install(PublishedOwner::Core(core)).and_then(|owner| match owner {
@@ -639,16 +677,15 @@ pub fn install_services(services: Arc<WorldServices>) {
     let _ = install(PublishedOwner::Services(services));
 }
 fn uninstall(owner: &PublishedOwner) -> bool {
-    let (was_head, restored) = SCOPED_ACTIVE.with(|stack| {
-        let mut active = stack.borrow_mut();
-        if active.last().is_some_and(|head| head.same(owner)) {
-            active.pop();
-            (true, active.last().cloned())
-        } else {
-            active.retain(|entry| !entry.same(owner));
-            (false, None)
-        }
-    });
+    let hooks = ambient_hooks();
+    let was_head = (hooks.head)().is_some_and(|head| head.same(owner));
+    let restored = if was_head {
+        (hooks.pop_if_head)(owner);
+        (hooks.head)()
+    } else {
+        (hooks.retain_not)(owner);
+        None
+    };
     if was_head {
         owner.uninstall_common();
         if let Some(restored) = restored {
@@ -659,17 +696,7 @@ fn uninstall(owner: &PublishedOwner) -> bool {
             if matches!(owner, PublishedOwner::Core(_))
                 && matches!(restored, PublishedOwner::Services(_))
             {
-                let prior_data = SCOPED_ACTIVE.with(|stack| {
-                    stack
-                        .borrow()
-                        .iter()
-                        .rev()
-                        .find_map(|entry| match entry {
-                            PublishedOwner::Core(core) => Some(Arc::clone(core.ai_data())),
-                            PublishedOwner::Services(_) => None,
-                        })
-                });
-                if let Some(prior_data) = prior_data {
+                if let Some(prior_data) = (hooks.prior_core_ai_data)() {
                     ini_ai_data::install_ai_data_store(prior_data);
                 }
             }
@@ -708,12 +735,7 @@ fn with_owner<R>(owner: PublishedOwner, f: impl FnOnce() -> R) -> R {
     }
     impl Drop for RestoreScope {
         fn drop(&mut self) {
-            SCOPED_ACTIVE.with(|stack| {
-                let mut stack = stack.borrow_mut();
-                if stack.last().is_some_and(|head| head.same(&self.owner)) {
-                    stack.pop();
-                }
-            });
+            (ambient_hooks().pop_if_head)(&self.owner);
             if common_services::uninstall_common_services_if_current(self.owner.services().common()) {
                 if let Some(previous) = self.prior_common.take() {
                     common_services::install_common_services(previous);
@@ -754,7 +776,7 @@ fn with_owner<R>(owner: PublishedOwner, f: impl FnOnce() -> R) -> R {
     };
     let prior_common =
         common_services::install_common_services(Arc::clone(owner.services().common()));
-    SCOPED_ACTIVE.with(|stack| stack.borrow_mut().push(owner.clone()));
+    (ambient_hooks().push)(owner.clone());
     let _restore = RestoreScope {
         owner,
         prior_common,
@@ -810,11 +832,65 @@ pub(crate) fn replace_ai_for_world_boundary(bundle: &Arc<EngineStores>, next: AI
 
 #[cfg(test)]
 fn active_stack_depth() -> usize {
-    SCOPED_ACTIVE.with(|stack| stack.borrow().len())
+    (ambient_hooks().depth)()
+}
+
+#[cfg(test)]
+mod test_ambient {
+    use super::*;
+    use std::cell::RefCell;
+
+    thread_local! {
+        static SCOPED_ACTIVE: RefCell<Vec<PublishedOwner>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn head() -> Option<PublishedOwner> {
+        SCOPED_ACTIVE.with(|stack| stack.borrow().last().cloned())
+    }
+    fn push(owner: PublishedOwner) {
+        SCOPED_ACTIVE.with(|stack| stack.borrow_mut().push(owner));
+    }
+    fn pop_if_head(owner: &PublishedOwner) -> bool {
+        SCOPED_ACTIVE.with(|stack| {
+            let mut active = stack.borrow_mut();
+            if active.last().is_some_and(|head| head.same(owner)) {
+                active.pop();
+                true
+            } else {
+                false
+            }
+        })
+    }
+    fn retain_not(owner: &PublishedOwner) {
+        SCOPED_ACTIVE.with(|stack| stack.borrow_mut().retain(|entry| !entry.same(owner)));
+    }
+    fn prior_core_ai_data() -> Option<Arc<RwLock<AIDataStore>>> {
+        SCOPED_ACTIVE.with(|stack| {
+            stack.borrow().iter().rev().find_map(|entry| match entry {
+                PublishedOwner::Core(core) => Some(Arc::clone(core.ai_data())),
+                PublishedOwner::Services(_) => None,
+            })
+        })
+    }
+    fn depth() -> usize {
+        SCOPED_ACTIVE.with(|stack| stack.borrow().len())
+    }
+
+    pub(super) fn hooks() -> AmbientStackHooks {
+        AmbientStackHooks {
+            head,
+            push,
+            pop_if_head,
+            retain_not,
+            prior_core_ai_data,
+            depth,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
