@@ -8,15 +8,7 @@
 //! - `/GeneralsMD/Code/GameEngine/Include/Common/Money.h`
 
 use std::cell::RefCell;
-use std::collections::HashSet;
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-struct PendingIncomeBag {
-    value: std::sync::Mutex<HashSet<i32>>,
-}
-static PENDING_INCOME: std::sync::LazyLock<PendingIncomeBag> = std::sync::LazyLock::new(|| PendingIncomeBag {
-    value: std::sync::Mutex::new(HashSet::new()),
-});
 
 
 fn play_money_sound(player_index: i32, withdraw: bool) {
@@ -53,8 +45,9 @@ fn play_money_sound(player_index: i32, withdraw: bool) {
 }
 
 fn notify_income(player_index: i32) {
-    PENDING_INCOME
-        .value
+    let services = crate::common::common_services::common_services();
+    services
+        .pending_income
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .insert(player_index);
@@ -62,8 +55,9 @@ fn notify_income(player_index: i32) {
 
 /// Consume a pending C++ `recordIncome` mark for this player.
 pub fn take_pending_income(player_index: i32) -> bool {
-    PENDING_INCOME
-        .value
+    let services = crate::common::common_services::common_services();
+    services
+        .pending_income
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .remove(&player_index)
