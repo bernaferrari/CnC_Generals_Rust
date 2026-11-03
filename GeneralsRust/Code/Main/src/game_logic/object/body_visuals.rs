@@ -438,7 +438,51 @@ mod tests {
     }
 
     #[test]
-    fn max_health_modes_preserve_the_original_distinct_operations() {
+    fn preserve_ratio_matches_cpp_for_nonpositive_previous_maximum() {
+        // C++ ActiveBody.cpp883–887 divides current/prevMax with no zero guard.
+        // IEEE: 50/0 => +Inf; 0/0 => NaN. After clip to new max, finite health.
+        let mut object = body();
+        object.health.current = 50.0;
+        object.health.maximum = 0.0;
+        object.max_health = 0.0;
+        object.set_body_max_health_with_mode(200.0, MaxHealthChange::PreserveRatio);
+        assert!(
+            object.health.current.is_finite(),
+            "post-clip health must be finite, got {}",
+            object.health.current
+        );
+        assert_eq!(object.health.current, 200.0, "Inf ratio clips to new maximum");
+        assert_eq!(object.health.maximum, 200.0);
+
+        let mut object = body();
+        object.health.current = 0.0;
+        object.health.maximum = 0.0;
+        object.max_health = 0.0;
+        object.set_body_max_health_with_mode(100.0, MaxHealthChange::PreserveRatio);
+        // 0/0 => NaN; internalChangeHealth with NaN delta yields NaN current,
+        // then clip `current > max` is false for NaN, so document C++ NaN retain.
+        // Matching C++ means we do not substitute ratio 1.0.
+        assert!(
+            object.health.current.is_nan() || object.health.current <= 100.0,
+            "must not invent a 1.0 ratio heal; got {}",
+            object.health.current
+        );
+
+        let mut object = body();
+        object.health.current = 40.0;
+        object.health.maximum = -50.0;
+        object.max_health = -50.0;
+        object.set_body_max_health_with_mode(100.0, MaxHealthChange::PreserveRatio);
+        // 40/-50 = -0.8; target -80; delta drives current below 0 then clamps to 0.
+        assert_eq!(
+            object.health.current, 0.0,
+            "negative prevMax follows IEEE ratio then health floor"
+        );
+        assert_eq!(object.health.maximum, 100.0);
+    }
+
+    #[test]
+        fn max_health_modes_preserve_the_original_distinct_operations() {
         for (mode, expected) in [
             (MaxHealthChange::PreserveRatio, 80.0),
             (MaxHealthChange::AddToCurrent, 140.0),

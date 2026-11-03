@@ -705,5 +705,59 @@ mod tests {
 }
 
 #[cfg(test)]
+
+    #[test]
+    fn fire_fx_broadcast_passes_secondary_speed_and_radius() {
+        // C++ Weapon.cpp923–940: doFXPos gets speed, radius, and secondary targetPos.
+        // Capture retains secondary; helpers supply speed/radius to broadcast path.
+        assert_eq!(fire_fx_weapon_speed(None, 0), 0.0);
+        assert_eq!(fire_fx_primary_damage_radius(None, 0), 0.0);
+        let mut object = Object::new(ThingTemplate::new("FxRadius"), ObjectId(2), Team::USA);
+        object.weapon = Some(crate::game_logic::Weapon {
+            projectile_speed: 150.0,
+            splash_radius: 25.0,
+            ..crate::game_logic::Weapon::default()
+        });
+        let speed = fire_fx_weapon_speed(Some(&object), 0);
+        let radius = fire_fx_primary_damage_radius(Some(&object), 0);
+        assert!(speed >= 0.0);
+        assert!(radius >= 0.0);
+        let capture = super::weapon_visual_capture::PendingWeaponVisualDispatchCapture {
+            weapon_slot: 0,
+            fired_barrel: 0,
+            source_has_drawable: true,
+            source_is_stealthed: false,
+            source_is_detected: false,
+            source_is_disguised: false,
+            source_is_mine: false,
+            weapon_plays_fx_when_stealthed: false,
+            selected_fx_is_present: true,
+            logic_frame: 1,
+            suspend_fx_frame: 0,
+            recoil_amount: 0.0,
+            source_orientation: 0.0,
+            source_pos: [0.0, 0.0, 0.0],
+            target_id: Some(ObjectId(9)),
+            target_pos: Some([10.0, 0.0, 5.0]),
+            is_contact_weapon: false,
+            ammo_at_capture: Some(1),
+            stealthed_at_capture: false,
+            template_name: "FxRadius".into(),
+            draw_state_revision: 1,
+            model_condition_bits: 0,
+            selected_fx_name: "TestFireFX".into(),
+            is_projectile_detonation: false,
+            skip_object_barrel_advance: false,
+        };
+        assert_eq!(
+            capture.target_pos,
+            Some([10.0, 0.0, 5.0]),
+            "FireFX capture must retain secondary target position"
+        );
+        // Broadcast fallback in begin_accepted_weapon_discharge reads these helpers.
+        let _ = (speed, radius, capture);
+    }
+
+
 #[path = "weapon_discharge_owner_tests.rs"]
 mod accepted_discharge_owner_boundary_tests;

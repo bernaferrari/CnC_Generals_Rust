@@ -2354,6 +2354,14 @@ impl GameLogic {
                     unit.advance_weapon_barrel_after_shot(slot);
                 }
             }
+            // C++ Weapon.cpp2617–2669: ammo/timers after fireWeaponTemplate effects.
+            if let Some(unit) = self.objects.get_mut(&unit_id) {
+                unit.commit_deferred_weapon_fire_after_effects(
+                    &mut self.combat_system.fire_sound_loop_events,
+                    Some(&self.solo_weapon_bonus_set),
+                    Some(&self.logic_random),
+                );
+            }
             // max_shots_to_fire is decremented inside the accepted Object
             // shot (C++ Weapon::m_maxShotCount).
             AttackFireResult::Success

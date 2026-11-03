@@ -389,6 +389,18 @@ pub struct PendingSpecialPowerConstructionButton {
     pub options_bits: u32,
 }
 
+/// Frozen post-fire ammo/timer commit for C++ Weapon::privateFireWeapon ordering.
+#[derive(Debug, Clone)]
+pub(crate) struct PendingWeaponFireCommit {
+    pub slot: u8,
+    pub current_time: f32,
+    pub logic_frame: u32,
+    pub target_id: ObjectId,
+    pub possible_next_shot_frame: u32,
+    pub fire_weapon_name: Option<String>,
+    pub owned_rof: Option<[f32; 3]>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Object {
     /// Immutable classification policy; wire/clone admission is rebound explicitly.
@@ -1593,6 +1605,11 @@ pub struct Object {
     native_pose_revision: u64,
     #[serde(skip)]
     pub pending_weapon_visual_capture: Option<crate::game_logic::PendingWeaponVisualDispatchCapture>,
+
+    /// C++ Weapon.cpp2617–2669 ammo/timer commit deferred until after FireFX/FireOCL.
+    /// Set by GameLogic-owned prepare paths; applied after deliver_owned_weapon_shot.
+    #[serde(skip)]
+    pub(crate) pending_weapon_fire_commit: Option<PendingWeaponFireCommit>,
 
     /// Stored guard radius for pathing/AI persistence
     pub guard_radius: f32,

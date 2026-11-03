@@ -270,3 +270,92 @@ fn normal_encoded_save_restores_selected_passive_slot_and_delayed_damage_once() 
     );
     assert_eq!(health(&game), hp);
 }
+
+
+#[test]
+fn deferred_ammo_commit_matches_cpp_private_fire_order() {
+    // C++ Weapon.cpp2611–2669: fireWeaponTemplate runs before ammo/timer commit.
+    // GameLogic solo-set prepare must defer; commit_deferred applies afterward.
+    use crate::game_logic::host_attack_log::AttackEvents;
+    use crate::game_logic::host_fire_sound_loop_log::FireSoundLoopEvents;
+    use crate::main_services::{MainServices, with_main_services};
+    use game_engine::common::random_value::SessionRandom;
+    use gamelogic::weapon::WeaponBonusSet;
+    use std::sync::Arc;
+
+    let services = Arc::new(MainServices::new());
+    with_main_services(&services, || {
+    let mut source = Object::new(
+        {
+            let mut template = ThingTemplate::new("DeferredAmmoShooter");
+            template.add_kind_of(KindOf::Infantry);
+            template.add_kind_of(KindOf::Attackable);
+            template
+        },
+        SOURCE,
+        Team::USA,
+    );
+    source.secondary_weapon = Some(Weapon {
+        damage: 37.0,
+        range: 500.0,
+        last_fire_time: -10.0,
+        ammo: Some(2),
+        clip_size: 2,
+        projectile_speed: 9.0,
+        ..Weapon::default()
+    });
+    assert!(source.set_weapon_barrel_count_for_slot(1, 3));
+    let before = source.secondary_weapon.as_ref().unwrap().ammo;
+    let mut sound = FireSoundLoopEvents::default();
+    let mut attacks = AttackEvents::default();
+    let solo = WeaponBonusSet::new();
+    let random = SessionRandom::default();
+    let rates = [1.0f32; 3];
+    let (slot, _shot) = source
+        .prepare_passive_weapon_shot_with_operation_and_solo_set(
+            1,
+            TARGET,
+            0.0,
+            false,
+            false,
+            7,
+            MUZZLE,
+            &mut sound,
+            &mut attacks,
+            None,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+            7,
+            &mut Default::default(),
+            &solo,
+            1.0,
+            1.0,
+            rates,
+            &random,
+            None,
+        )
+        .expect("prepared deferred shot");
+    assert_eq!(slot, 1);
+    assert!(
+        source.pending_weapon_fire_commit.is_some(),
+        "solo-set prepare must defer C++ post-fire ammo commit"
+    );
+    assert_eq!(
+        source.secondary_weapon.as_ref().unwrap().ammo,
+        before,
+        "ammo stays pre-fire until commit_deferred"
+    );
+    assert_eq!(source.last_fire_frame, 0);
+    assert!(source.commit_deferred_weapon_fire_after_effects(
+        &mut sound,
+        Some(&solo),
+        Some(&random),
+    ));
+    assert_eq!(
+        source.secondary_weapon.as_ref().unwrap().ammo,
+        Some(1),
+        "commit decrements ammo once"
+    );
+    assert_eq!(source.last_fire_frame, 7);
+    assert!(source.pending_weapon_fire_commit.is_none());
+    });
+}
