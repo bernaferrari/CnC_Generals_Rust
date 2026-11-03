@@ -91,11 +91,16 @@ fn dual_tick_after_map_load_seeds_hud_selection_health() {
 
     #[cfg(feature = "game_client")]
     {
-        let mut bar = game_client::gui::control_bar::ControlBar::new();
-        post.apply_to_control_bar(&mut bar);
-        let (hp, _) = bar
-            .selection_panel_health()
-            .expect("ControlBar health from dual-tick presentation");
-        assert!((hp - 64.0).abs() < 0.01, "ControlBar HP {hp}");
+        let owner = game_client::gui::window_manager::WindowManagerOwner::new();
+        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.with_manager(|manager| {
+                let mut bar = game_client::gui::control_bar::ControlBar::new();
+                post.apply_to_control_bar(&mut bar, manager, effects);
+                let (hp, _) = bar
+                    .selection_panel_health()
+                    .expect("ControlBar health from dual-tick presentation");
+                assert!((hp - 64.0).abs() < 0.01, "ControlBar HP {hp}");
+            });
+        });
     }
 }

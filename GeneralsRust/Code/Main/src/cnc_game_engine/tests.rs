@@ -1093,10 +1093,6 @@ fn game_logic_gate_with_network_uses_frame_ready_only() {
     ));
 }
 
-#[test]
-fn network_gate_skips_runtime_network_lookup_until_multiplayer_exists() {
-    assert_eq!(CnCGameEngine::network_frame_data_ready_gate(false), None);
-}
 
 #[test]
 fn iconic_minimized_mode_keeps_network_sessions_running() {

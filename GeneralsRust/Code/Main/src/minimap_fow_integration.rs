@@ -53,12 +53,13 @@ impl MinimapFowIntegration {
 
     /// Create new minimap FOW integration
     pub fn new(
+        engine: ww3d_engine::SharedEngine,
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
         graphics_system: &crate::graphics::GraphicsSystem,
     ) -> Result<Self> {
         // Initialize render pipeline
-        let mut render_pipeline = RenderPipeline::initialize(graphics_system)?;
+        let mut render_pipeline = RenderPipeline::initialize(engine, graphics_system)?;
 
         // Set world bounds (example: 2048x2048 map)
         let world_bounds = (Vec3::new(0.0, 0.0, 0.0), Vec3::new(2048.0, 0.0, 2048.0));

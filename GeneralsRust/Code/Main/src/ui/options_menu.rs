@@ -1771,7 +1771,7 @@ mod receiving_terrain_lod_tests {
             .find(|button| button.action == ActionButton::Apply)
             .unwrap();
         let (x, y) = (button.position.0 + 1, button.position.1 + 1);
-        let event = receiver_a.with_window_event_effects(|effects| {
+        let event = receiver_a.with_window_event_effects(None, |effects| {
             a.handle_mouse_click_with_terrain_lod_and_effects(
                 x,
                 y,
@@ -1795,7 +1795,7 @@ mod receiving_terrain_lod_tests {
         );
         assert!(observed_b.is_empty());
         assert_eq!(b.snapshot_current_values(), before_b);
-        assert!(receiver_b.with_window_event_effects(|effects| {
+        assert!(receiver_b.with_window_event_effects(None, |effects| {
             b.handle_key_press_with_terrain_lod_and_effects(
                 KeyCode::Enter,
                 Some(&mut |value| {

@@ -34,7 +34,7 @@ fn another_world_boundary_cannot_consume_completed_body_damage() {
     // CPP ActiveBody changes HP before onDamage. At 40% health the default
     // yellow threshold selects Damaged, rather than the pristine pre-hit state.
     let (target, events) = owner.host_object_and_health_events_mut(id).unwrap();
-    assert!(!target.take_damage(60.0, events));
+    assert!(!target.take_damage(60.0, 0, events));
     assert_eq!(target.health.current, 40.0);
     assert_eq!(target.previous_health, 100.0);
     assert_eq!(

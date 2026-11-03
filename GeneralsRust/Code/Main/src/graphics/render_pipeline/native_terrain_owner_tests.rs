@@ -22,13 +22,13 @@ fn two_actual_pipeline_terrain_owners_accept_canonical_bytes_without_global_sele
         engine.lock().depth_format(),
     )
     .unwrap();
-    let mut a = RenderPipeline::initialize(&graphics).unwrap();
+    let mut a = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     assert!(
         a.native_terrain().is_none(),
         "pipeline construction is inert"
     );
     a.native_terrain = Some(visual(40));
-    let mut b = RenderPipeline::initialize(&graphics).unwrap();
+    let mut b = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     assert!(b.native_terrain().is_none());
     assert_eq!(a.native_terrain().unwrap().get_raw_map_height(1, 1), 40);
     b.native_terrain = Some(visual(80));

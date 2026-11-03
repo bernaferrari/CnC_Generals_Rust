@@ -135,8 +135,8 @@ fn failed_collection_discards_only_its_frame_work_before_retry() {
         engine.lock().depth_format(),
     )
     .unwrap();
-    let mut owner = RenderPipeline::initialize(&graphics).unwrap();
-    let mut peer = RenderPipeline::initialize(&graphics).unwrap();
+    let mut owner = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
+    let mut peer = RenderPipeline::initialize(engine.clone(), &graphics).unwrap();
     let mut world = generals_main::game_logic::GameLogic::new();
     let frame = std::rc::Rc::new(PresentationFrame::build_from_logic(&mut world, 0));
     owner.set_presentation_frame(Some(frame.clone()));

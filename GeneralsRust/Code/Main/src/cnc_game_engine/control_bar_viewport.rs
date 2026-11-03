@@ -868,8 +868,18 @@ mod receiving_observer_roster_tests {
         assert!(peer_changed.selectable().next().is_none());
         assert_eq!(bar.observer_target_owned(&roster), Some(2));
         game_client::gui::control_bar::control_bar_observer::set_observer_look_at_player(Some(999));
-        bar.update_owned_with_observers(std::time::Duration::from_millis(33), &roster)
-            .unwrap();
+        let wm_owner = game_client::gui::window_manager::WindowManagerOwner::new();
+        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            wm_owner.with_manager(|manager| {
+                bar.update_owned_with_observers(
+                    std::time::Duration::from_millis(33),
+                    &roster,
+                    manager,
+                    effects,
+                )
+                .unwrap();
+            });
+        });
         assert_eq!(bar.observer_target_owned(&roster), Some(2));
         assert_eq!(
             game_client::gui::control_bar::control_bar_observer::observer_look_at_player_index(),
