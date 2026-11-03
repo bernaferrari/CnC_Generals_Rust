@@ -18,7 +18,6 @@ use std::time::{Duration, Instant};
 
 use log::{debug, error, info, warn};
 use parking_lot::Mutex;
-use std::sync::OnceLock;
 
 use crate::common::audio::game_audio::{
     AudioAffect, AudioManager, initialize_global_audio_manager,
@@ -85,33 +84,28 @@ pub trait GameClientInterface: Send + Sync {
 type GameClientFactory =
     dyn Fn() -> SubsystemResult<Box<dyn GameClientInterface>> + Send + Sync + 'static;
 
-struct GameClientFactorySlot(OnceLock<Mutex<Option<Arc<GameClientFactory>>>>);
-impl std::ops::Deref for GameClientFactorySlot {
-    type Target = OnceLock<Mutex<Option<Arc<GameClientFactory>>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static GAME_CLIENT_FACTORY: GameClientFactorySlot = GameClientFactorySlot(OnceLock::new());
-
-fn game_client_factory_slot() -> &'static Mutex<Option<Arc<GameClientFactory>>> {
-    GAME_CLIENT_FACTORY.0.get_or_init(|| Mutex::new(None))
+fn game_client_factory_slot() -> parking_lot::MutexGuard<'static, Option<Arc<GameClientFactory>>> {
+    let services = crate::common::common_services::common_services();
+    let guard = services.system.game_client_factory.lock();
+    unsafe { std::mem::transmute(guard) }
 }
 
 /// Register a runtime factory that builds the concrete `GameClient` bridge.
 pub fn register_game_client_factory(
     factory: impl Fn() -> SubsystemResult<Box<dyn GameClientInterface>> + Send + Sync + 'static,
 ) {
-    let mut slot = game_client_factory_slot().lock();
+    let mut slot = game_client_factory_slot();
     *slot = Some(Arc::new(factory));
 }
 
 /// Clear the runtime game-client factory.
 pub fn clear_game_client_factory() {
-    let mut slot = game_client_factory_slot().lock();
+    let mut slot = game_client_factory_slot();
     *slot = None;
 }
 
 fn create_registered_game_client() -> Option<SubsystemResult<Box<dyn GameClientInterface>>> {
-    let factory = game_client_factory_slot().lock().clone()?;
+    let factory = game_client_factory_slot().clone()?;
     Some(factory())
 }
 
@@ -128,14 +122,17 @@ fn create_registered_game_client() -> Option<SubsystemResult<Box<dyn GameClientI
 
 type CommandListInitFn = dyn Fn() + Send + Sync + 'static;
 
-static COMMAND_LIST_INIT_FN: OnceLock<Option<Box<CommandListInitFn>>> = OnceLock::new();
-
 /// Register a closure that initialises the global CommandList.
 ///
 /// Call this *before* `GameEngine::init()`.  The closure typically touches
 /// `game_client::message_stream::command_list::THE_COMMAND_LIST`.
 pub fn register_command_list_init(init_fn: impl Fn() + Send + Sync + 'static) {
-    let _ = COMMAND_LIST_INIT_FN.set(Some(Box::new(init_fn)));
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .command_list_init
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(Box::new(init_fn));
 }
 
 /// Invoked by `GameEngine::init()` right after `NameKeyGenerator::init()`.
@@ -143,7 +140,13 @@ pub fn register_command_list_init(init_fn: impl Fn() + Send + Sync + 'static) {
 /// If no callback was registered (e.g. in unit tests without GameClient),
 /// this is a silent no-op — the lazy_static will auto-init on first access.
 pub fn init_command_list() {
-    if let Some(Some(init_fn)) = COMMAND_LIST_INIT_FN.get() {
+    let services = crate::common::common_services::common_services();
+    let slot = services
+        .system
+        .command_list_init
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if let Some(init_fn) = slot.as_ref() {
         init_fn();
     } else {
         debug!("No CommandList init callback registered — skipping explicit init");
@@ -153,25 +156,45 @@ pub fn init_command_list() {
 // C++ GameEngine::reset creates Menus/BlankWindow.wnd, unhides it, then
 // resetAll(), then destroys the layout. Client registers the overlay.
 type BlankWindowFn = dyn Fn() + Send + Sync + 'static;
-static SHOW_BLANK_WINDOW: OnceLock<Option<Box<BlankWindowFn>>> = OnceLock::new();
-static HIDE_BLANK_WINDOW: OnceLock<Option<Box<BlankWindowFn>>> = OnceLock::new();
-
 pub fn register_blank_window_overlay(
     show: impl Fn() + Send + Sync + 'static,
     hide: impl Fn() + Send + Sync + 'static,
 ) {
-    let _ = SHOW_BLANK_WINDOW.set(Some(Box::new(show)));
-    let _ = HIDE_BLANK_WINDOW.set(Some(Box::new(hide)));
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .show_blank_window
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(Box::new(show));
+    *services
+        .system
+        .hide_blank_window
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(Box::new(hide));
 }
 
 fn show_blank_window_overlay() {
-    if let Some(Some(show)) = SHOW_BLANK_WINDOW.get() {
+    let services = crate::common::common_services::common_services();
+    if let Some(show) = services
+        .system
+        .show_blank_window
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+    {
         show();
     }
 }
 
 fn hide_blank_window_overlay() {
-    if let Some(Some(hide)) = HIDE_BLANK_WINDOW.get() {
+    let services = crate::common::common_services::common_services();
+    if let Some(hide) = services
+        .system
+        .hide_blank_window
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+    {
         hide();
     }
 }
@@ -1537,32 +1560,27 @@ impl GameEngine {
     }
 }
 
-struct GameEngineInstanceSlot(OnceLock<Mutex<Option<Arc<Mutex<GameEngine>>>>>);
-impl std::ops::Deref for GameEngineInstanceSlot {
-    type Target = OnceLock<Mutex<Option<Arc<Mutex<GameEngine>>>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static GAME_ENGINE_INSTANCE: GameEngineInstanceSlot = GameEngineInstanceSlot(OnceLock::new());
-
-fn game_engine_slot() -> &'static Mutex<Option<Arc<Mutex<GameEngine>>>> {
-    GAME_ENGINE_INSTANCE.0.get_or_init(|| Mutex::new(None))
+fn game_engine_slot() -> parking_lot::MutexGuard<'static, Option<Arc<Mutex<GameEngine>>>> {
+    let services = crate::common::common_services::common_services();
+    let guard = services.system.game_engine_instance.lock();
+    unsafe { std::mem::transmute(guard) }
 }
 
 /// Get the global game engine instance.
 pub fn get_game_engine() -> Option<Arc<Mutex<GameEngine>>> {
-    game_engine_slot().lock().clone()
+    game_engine_slot().clone()
 }
 
 /// Install the global game engine instance.
 pub fn set_game_engine(engine: GameEngine) -> Arc<Mutex<GameEngine>> {
     let engine = Arc::new(Mutex::new(engine));
-    *game_engine_slot().lock() = Some(Arc::clone(&engine));
+    *game_engine_slot() = Some(Arc::clone(&engine));
     engine
 }
 
 /// Clear the global game engine instance.
 pub fn clear_game_engine() {
-    *game_engine_slot().lock() = None;
+    *game_engine_slot() = None;
 }
 
 /// Initialize (or retrieve) the global game engine instance.

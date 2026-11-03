@@ -12,7 +12,7 @@ use crate::message_stream::game_message::ICoord2D;
 
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::crc::Crc;
-use game_engine::common::global_data::GLOBAL_DATA;
+use game_engine::common::global_data::global_data_arc;
 use game_engine::common::ini::ini::{INI, INILoadType};
 use game_engine::common::ini::ini_map_cache::{
     Coord3D, MapMetaData, Region3D, UnicodeString, WinTimeStamp, get_map_cache, get_map_cache_mut,
@@ -104,7 +104,7 @@ impl MapCache {
         }
         self.load_standard_maps();
 
-        let build_map_cache = GLOBAL_DATA
+        let build_map_cache = global_data_arc()
             .read()
             .map(|data| data.writable.build_map_cache)
             .unwrap_or(false);
@@ -823,7 +823,7 @@ pub fn would_map_transfer(map_name: &str) -> bool {
 }
 
 fn build_user_map_dir() -> String {
-    let user_dir = GLOBAL_DATA
+    let user_dir = global_data_arc()
         .read()
         .map(|data| data.get_user_data_dir().to_string())
         .unwrap_or_default();
@@ -840,7 +840,7 @@ fn build_user_map_dir() -> String {
 }
 
 fn build_map_preview_dir() -> String {
-    let user_dir = GLOBAL_DATA
+    let user_dir = global_data_arc()
         .read()
         .map(|data| data.get_user_data_dir().to_string())
         .unwrap_or_default();

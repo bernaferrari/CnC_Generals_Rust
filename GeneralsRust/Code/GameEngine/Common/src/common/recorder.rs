@@ -2446,40 +2446,55 @@ fn arg_data_type_from_u8(value: u8) -> Result<GameMessageArgumentDataType, std::
     }
 }
 
-/// Global recorder instance
-struct GlobalRecorderSlot(OnceCell<Mutex<Recorder>>);
-impl std::ops::Deref for GlobalRecorderSlot {
-    type Target = OnceCell<Mutex<Recorder>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
+fn ensure_recorder_mutex() -> &'static Mutex<Recorder> {
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .recorder
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_none() {
+        log::info!("Recorder initialized");
+        *slot = Some(Mutex::new(Recorder::new()));
+    }
+    // Nested Mutex lives on CommonServices for the published instance lifetime.
+    let nested = slot.as_ref().expect("recorder");
+    unsafe { std::mem::transmute(nested) }
 }
-static GLOBAL_RECORDER: GlobalRecorderSlot = GlobalRecorderSlot(OnceCell::new());
 
-/// Initialize and obtain the global recorder instance
+/// Initialize and obtain the instance recorder
 /// Matches C++ TheRecorder and createRecorder() from Recorder.cpp:335-336, 1593-1595
 pub fn init_recorder() -> &'static Mutex<Recorder> {
-    GLOBAL_RECORDER.0.get_or_init(|| {
-        log::info!("Recorder initialized");
-        Mutex::new(Recorder::new())
-    })
+    ensure_recorder_mutex()
 }
 
-/// Get the global recorder (creates if needed)
+/// Get the instance recorder (creates if needed)
 pub fn get_recorder() -> &'static Mutex<Recorder> {
     init_recorder()
 }
 
-/// Execute a closure with mutable access to the global recorder
+/// Execute a closure with mutable access to the instance recorder
 pub fn with_recorder_mut<R>(f: impl FnOnce(&mut Recorder) -> R) -> Option<R> {
-    GLOBAL_RECORDER
-        .get()
-        .and_then(|recorder| recorder.lock().ok().map(|mut guard| f(&mut *guard)))
+    let services = crate::common::common_services::common_services();
+    let slot = services
+        .system
+        .recorder
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let recorder = slot.as_ref()?;
+    recorder.lock().ok().map(|mut guard| f(&mut *guard))
 }
 
-/// Execute a closure with shared access to the global recorder
+/// Execute a closure with shared access to the instance recorder
 pub fn with_recorder<R>(f: impl FnOnce(&Recorder) -> R) -> Option<R> {
-    GLOBAL_RECORDER
-        .get()
-        .and_then(|recorder| recorder.lock().ok().map(|guard| f(&*guard)))
+    let services = crate::common::common_services::common_services();
+    let slot = services
+        .system
+        .recorder
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let recorder = slot.as_ref()?;
+    recorder.lock().ok().map(|guard| f(&*guard))
 }
 
 #[cfg(test)]
