@@ -511,3 +511,42 @@ fn actual_direct_delete_retains_original_scalar_residual_but_lethal_body_clears_
         },
     );
 }
+
+/// C++ Object.cpp:4818-4826/4868-4876 gates only on ShroudClearingRange > 0
+/// and stores m_howFar = getVisionRange() verbatim; PartitionManager.cpp:4094-4096
+/// clamps only the derived cell radius. The stored stamp must keep authored
+/// zero/subunit vision instead of an Object-side `max(1.0)` radius (hq-v8bz6).
+#[test]
+fn receiving_threat_stamp_keeps_authored_zero_and_subunit_vision_radius() {
+    crate::game_logic::game_logic::pose_owner_tests::isolated_at(
+        module_path!(),
+        "receiving_threat_stamp_keeps_authored_zero_and_subunit_vision_radius",
+        || {
+            for vision in ["0", "0.5"] {
+                let source = format!(
+                    "Object {NAME}\nKindOf = VEHICLE\nVisionRange = {vision}\nShroudClearingRange = 80\nThreatValue = 13\nBody = ActiveBody BodyTag\nMaxHealth = 40\nInitialHealth = 40\nEnd\nEnd\n"
+                );
+                let content = crate::assets::ReceivingObjectContent::from_sources([(
+                    "receiving-threat-vision.ini".to_owned(),
+                    source,
+                )])
+                .unwrap();
+                let mut world = GameLogic::new();
+                world.admit_receiving_module_content(content).unwrap();
+                install_player(&mut world);
+                let id = world.create_object(NAME, Team::USA, Vec3::ZERO).unwrap();
+                let stamp = world
+                    .host_object(id)
+                    .unwrap()
+                    .partition_last_affect
+                    .expect("positive shroud clearing range still stamps");
+                let expected: f32 = vision.parse().unwrap();
+                assert_eq!(stamp.threat, 13);
+                assert_eq!(
+                    stamp.range, expected,
+                    "m_howFar is getVisionRange() verbatim for VisionRange={vision}"
+                );
+            }
+        },
+    );
+}
