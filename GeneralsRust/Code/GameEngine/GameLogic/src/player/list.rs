@@ -433,6 +433,9 @@ mod ownership_tests {
 
     #[test]
     fn parallel_worlds_keep_independent_player_lists() {
+        // List identity is owned on Arc<WorldServices>. Player::new still needs a
+        // published rank store; scope only that construction, then touch players()
+        // directly (no ambient for the independence check).
         let barrier = Arc::new(Barrier::new(2));
         let results = Arc::new(Mutex::new(Vec::new()));
         let mut handles = Vec::new();
@@ -441,22 +444,19 @@ mod ownership_tests {
             let results = Arc::clone(&results);
             handles.push(thread::spawn(move || {
                 let services = new_world_services();
-                with_world_services(&services, || {
-                    {
-                        let list_arc = player_list();
-                        let mut list = list_arc.write().unwrap();
-                        let player = crate::player::Player::new(seed);
-                        // Player::new sets index from arg
-                        list.add_player(Arc::new(std::sync::RwLock::new(player)));
-                    }
-                    barrier.wait();
-                    let list_arc = player_list();
-                    let list = list_arc.read().unwrap();
-                    let mine = list.get_player(seed).is_some();
-                    let other = list.get_player(1 - seed).is_some();
-                    results.lock().unwrap().push((seed, mine, other));
-                    barrier.wait();
-                });
+                let player = with_world_services(&services, || crate::player::Player::new(seed));
+                {
+                    let list_arc = Arc::clone(services.players());
+                    let mut list = list_arc.write().unwrap();
+                    list.add_player(Arc::new(std::sync::RwLock::new(player)));
+                }
+                barrier.wait();
+                let list_arc = Arc::clone(services.players());
+                let list = list_arc.read().unwrap();
+                let mine = list.get_player(seed).is_some();
+                let other = list.get_player(1 - seed).is_some();
+                results.lock().unwrap().push((seed, mine, other));
+                barrier.wait();
             }));
         }
         for h in handles {
@@ -470,7 +470,6 @@ mod ownership_tests {
 
     #[test]
     fn parallel_worlds_keep_independent_object_managers() {
-        use crate::object_manager::get_object_manager;
         let barrier = Arc::new(Barrier::new(2));
         let results = Arc::new(Mutex::new(Vec::new()));
         let mut handles = Vec::new();
@@ -479,15 +478,12 @@ mod ownership_tests {
             let results = Arc::clone(&results);
             handles.push(thread::spawn(move || {
                 let services = new_world_services();
-                with_world_services(&services, || {
-                    // ObjectManager::new starts empty; record Arc ptr identity per world.
-                    let a = get_object_manager();
-                    barrier.wait();
-                    let b = get_object_manager();
-                    let same = Arc::ptr_eq(&a, &b);
-                    results.lock().unwrap().push((seed, same, Arc::as_ptr(&a) as usize));
-                    barrier.wait();
-                });
+                let a = Arc::clone(services.objects());
+                barrier.wait();
+                let b = Arc::clone(services.objects());
+                let same = Arc::ptr_eq(&a, &b);
+                results.lock().unwrap().push((seed, same, Arc::as_ptr(&a) as usize));
+                barrier.wait();
             }));
         }
         for h in handles {

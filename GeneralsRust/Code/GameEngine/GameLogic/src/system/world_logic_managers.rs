@@ -74,13 +74,13 @@ impl Default for WorldLogicManagers {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::system::engine_stores::{new_world_services, with_world_services};
-    use crate::system::stealth_manager::get_stealth_manager;
+    use crate::system::engine_stores::new_world_services;
     use std::sync::{Arc, Barrier, Mutex};
     use std::thread;
 
     #[test]
     fn parallel_worlds_keep_independent_logic_managers() {
+        // Owned path: no TLS binder — touch logic_managers().stealth on each Arc.
         let barrier = Arc::new(Barrier::new(2));
         let results = Arc::new(Mutex::new(Vec::new()));
         let mut handles = Vec::new();
@@ -89,26 +89,17 @@ mod tests {
             let results = Arc::clone(&results);
             handles.push(thread::spawn(move || {
                 let services = new_world_services();
-                with_world_services(&services, || {
-                    barrier.wait();
-                    get_stealth_manager()
-                        .lock()
-                        .unwrap()
-                        .register_object(seed)
-                        .unwrap();
-                    barrier.wait();
-                    let ok = get_stealth_manager()
-                        .lock()
-                        .unwrap()
-                        .get_stealth_status(seed, 0)
-                        .is_ok();
-                    let other = get_stealth_manager()
-                        .lock()
-                        .unwrap()
-                        .get_stealth_status(if seed == 11 { 22 } else { 11 }, 0)
-                        .is_err();
-                    results.lock().unwrap().push((seed, ok, other));
-                });
+                let stealth = Arc::clone(&services.logic_managers().stealth);
+                barrier.wait();
+                stealth.lock().unwrap().register_object(seed).unwrap();
+                barrier.wait();
+                let ok = stealth.lock().unwrap().get_stealth_status(seed, 0).is_ok();
+                let other = stealth
+                    .lock()
+                    .unwrap()
+                    .get_stealth_status(if seed == 11 { 22 } else { 11 }, 0)
+                    .is_err();
+                results.lock().unwrap().push((seed, ok, other));
             }));
         }
         for h in handles {
