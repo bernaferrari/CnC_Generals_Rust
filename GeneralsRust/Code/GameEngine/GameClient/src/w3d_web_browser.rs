@@ -28,6 +28,8 @@ pub struct BrowserWindowRecord {
 pub struct W3DWebBrowser {
     active_windows: HashMap<String, BrowserWindowRecord>,
     dispatch_available: bool,
+    /// Native presented-page handles (was process PAGES LazyLock).
+    presented_pages: native_browser::PresentedPageMap,
 }
 
 impl Default for W3DWebBrowser {
@@ -41,6 +43,7 @@ impl W3DWebBrowser {
         Self {
             active_windows: HashMap::new(),
             dispatch_available: true,
+            presented_pages: native_browser::PresentedPageMap::default(),
         }
     }
 
@@ -69,8 +72,15 @@ impl W3DWebBrowser {
         let window_name = win.instance_data().decorated_name.clone();
         let (width, height) = win.get_size();
         let (x, y) = win.get_screen_position();
-        let presented =
-            native_browser::present_page(&window_name, url.url.as_str(), x, y, width, height);
+        let presented = native_browser::present_page(
+            &mut self.presented_pages,
+            &window_name,
+            url.url.as_str(),
+            x,
+            y,
+            width,
+            height,
+        );
 
         self.active_windows.insert(
             window_name.clone(),
@@ -92,7 +102,7 @@ impl W3DWebBrowser {
 
     pub fn close_browser_window(&mut self, win: &GameWindow) {
         let name = win.instance_data().decorated_name.clone();
-        native_browser::destroy_page(&name);
+        native_browser::destroy_page(&mut self.presented_pages, &name);
         self.active_windows.remove(name.as_str());
     }
 
@@ -111,18 +121,21 @@ impl W3DWebBrowser {
 
 mod native_browser {
     use std::collections::HashMap;
-    use std::sync::{LazyLock, Mutex};
 
+    #[derive(Debug, Clone, Default)]
+    pub struct PresentedPageMap {
+        pages: HashMap<String, PresentedPage>,
+    }
+
+    #[derive(Debug, Clone)]
     struct PresentedPage {
         url: String,
         #[cfg(target_os = "macos")]
         window: usize,
     }
 
-    static PAGES: LazyLock<Mutex<HashMap<String, PresentedPage>>> =
-        LazyLock::new(|| Mutex::new(HashMap::new()));
-
     pub fn present_page(
+        pages: &mut PresentedPageMap,
         window_name: &str,
         url: &str,
         x: i32,
@@ -133,7 +146,7 @@ mod native_browser {
         #[cfg(target_os = "macos")]
         {
             if let Some(handle) = present_wkwebview(url, x, y, width, height) {
-                PAGES.lock().unwrap_or_else(|e| e.into_inner()).insert(
+                pages.pages.insert(
                     window_name.to_string(),
                     PresentedPage {
                         url: url.to_string(),
@@ -146,7 +159,7 @@ mod native_browser {
         #[cfg(not(target_os = "macos"))]
         {
             let _ = (x, y, width, height);
-            PAGES.lock().unwrap_or_else(|e| e.into_inner()).insert(
+            pages.pages.insert(
                 window_name.to_string(),
                 PresentedPage {
                     url: url.to_string(),
@@ -158,12 +171,8 @@ mod native_browser {
         false
     }
 
-    pub fn destroy_page(window_name: &str) {
-        if let Some(page) = PAGES
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(window_name)
-        {
+    pub fn destroy_page(pages: &mut PresentedPageMap, window_name: &str) {
+        if let Some(page) = pages.pages.remove(window_name) {
             #[cfg(target_os = "macos")]
             destroy_wkwebview(page.window);
             let _ = page.url;

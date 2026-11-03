@@ -86,6 +86,7 @@ pub struct GameClient {
     mouse: Option<std::sync::Arc<std::sync::Mutex<crate::input::mouse::Mouse>>>,
     lan_setup: Option<std::sync::Arc<std::sync::Mutex<crate::gui::lan_setup::LanSetup>>>,
     skirmish_setup: Option<std::sync::Arc<std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>>>,
+    host_command_authority: Option<std::sync::Arc<dyn Fn(&[crate::message_stream::game_message::GameMessage]) + Send + Sync>>,
     fx_next_id: std::sync::atomic::AtomicU64,
     render_bridge_next_line_id: std::sync::atomic::AtomicU64,
     win_draw_image_commands: std::sync::atomic::AtomicUsize,

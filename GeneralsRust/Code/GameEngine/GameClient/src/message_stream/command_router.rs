@@ -18,26 +18,40 @@ use gamelogic::common::{
 use super::game_message::{
     Coord3D, GameMessage, GameMessageArgumentType, GameMessageType, IRegion2D,
 };
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 
 type HostCommandAuthority = dyn Fn(&[GameMessage]) + Send + Sync;
 
-static HOST_COMMAND_AUTHORITY: LazyLock<Mutex<Option<Arc<HostCommandAuthority>>>> =
-    LazyLock::new(|| Mutex::new(None));
-
-fn host_command_authority_slot() -> &'static Mutex<Option<Arc<HostCommandAuthority>>> {
-    &HOST_COMMAND_AUTHORITY
+#[cfg(test)]
+thread_local! {
+    static TEST_HOST_COMMAND_AUTHORITY: std::cell::RefCell<Option<Arc<HostCommandAuthority>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
-/// Register the live Main command authority sink.
+/// Register the live Main command authority sink on the live GameClient
+/// (or cfg(test) TLS fallback when no client is published).
 ///
 /// C++ `RecorderClass::updatePlayback` (Recorder.cpp:415) appends file
 /// commands to `TheCommandList`; `GameLogic::processCommandList` then
 /// executes them. Rust AuthorityOnly skips the crate queue, so playback
 /// must also feed Main.
 pub fn set_host_command_authority(sink: Option<Arc<HostCommandAuthority>>) {
-    if let Ok(mut slot) = host_command_authority_slot().lock() {
-        *slot = sink;
+    if crate::core::game_client::with_live_game_client_mut(|client| {
+        client.set_host_command_authority(sink.clone());
+    })
+    .is_some()
+    {
+        return;
+    }
+    #[cfg(test)]
+    {
+        TEST_HOST_COMMAND_AUTHORITY.with(|slot| {
+            *slot.borrow_mut() = sink;
+        });
+    }
+    #[cfg(not(test))]
+    {
+        let _ = sink;
     }
 }
 
@@ -45,8 +59,17 @@ fn deliver_to_host_command_authority(messages: &[GameMessage]) {
     if messages.is_empty() {
         return;
     }
-    if let Ok(slot) = host_command_authority_slot().lock() {
-        if let Some(host) = slot.as_ref() {
+    let host = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.host_command_authority()
+    })
+    .flatten();
+    if let Some(host) = host {
+        host(messages);
+        return;
+    }
+    #[cfg(test)]
+    {
+        if let Some(host) = TEST_HOST_COMMAND_AUTHORITY.with(|slot| slot.borrow().clone()) {
             host(messages);
         }
     }

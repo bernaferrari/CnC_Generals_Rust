@@ -492,6 +492,26 @@ impl GameClient {
             .clone()
     }
 
+
+    pub fn set_host_command_authority(
+        &mut self,
+        sink: Option<
+            std::sync::Arc<
+                dyn Fn(&[crate::message_stream::game_message::GameMessage]) + Send + Sync,
+            >,
+        >,
+    ) {
+        self.host_command_authority = sink;
+    }
+
+    pub fn host_command_authority(
+        &self,
+    ) -> Option<
+        std::sync::Arc<dyn Fn(&[crate::message_stream::game_message::GameMessage]) + Send + Sync>,
+    > {
+        self.host_command_authority.clone()
+    }
+
     pub fn next_fx_id(&self) -> u64 {
         self.fx_next_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)

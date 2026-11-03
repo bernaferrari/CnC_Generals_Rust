@@ -118,6 +118,7 @@ impl GameClient {
             mouse: None,
             lan_setup: None,
             skirmish_setup: None,
+            host_command_authority: None,
             fx_next_id: std::sync::atomic::AtomicU64::new(1),
             render_bridge_next_line_id: std::sync::atomic::AtomicU64::new(1),
             win_draw_image_commands: std::sync::atomic::AtomicUsize::new(0),
