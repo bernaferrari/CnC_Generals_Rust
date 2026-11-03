@@ -295,6 +295,8 @@ ALLOWED_TLS_EXCEPTIONS = {
         "CommonServices ACTIVE_STACK — scoped Arc bind for the game instance",
     "Code/Main/src/main_services.rs":
         "MainServices ACTIVE_STACK — scoped Arc bind for main/host services",
+    "Code/GameEngine/GameLogic/src/system/engine_stores.rs":
+        "WorldServices/EngineStores SCOPED_ACTIVE — scoped Arc bind for the game instance",
 }
 
 

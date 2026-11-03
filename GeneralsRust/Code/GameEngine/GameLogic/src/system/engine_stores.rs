@@ -124,6 +124,8 @@ pub struct WorldServices {
     unit_registry: std::sync::Arc<std::sync::RwLock<crate::object::unit::UnitRegistry>>,
     legacy_object_registry: std::sync::Arc<crate::ai::object_registry::LegacyObjectRegistryFacade>,
     locomotor_store: std::sync::Arc<crate::locomotor::LocomotorStore>,
+    /// Main world-services GameLogic slot (was process PROCESS_LIFETIME Core).
+    main_game_logic: OnceLock<&'static Mutex<crate::system::game_logic::GameLogic>>,
     control_bar_bridge: RwLock<Option<std::sync::Arc<crate::control_bar::ControlBarBridge>>>,
     damage_over_time_fields: Mutex<Vec<DamageOverTimeField>>,
     damage_over_time_next_id: AtomicU32,
@@ -199,6 +201,7 @@ impl WorldServices {
             unit_registry: crate::object::unit::new_unit_registry(),
             legacy_object_registry: crate::ai::object_registry::new_legacy_object_registry(),
             locomotor_store: crate::locomotor::new_locomotor_store(),
+            main_game_logic: OnceLock::new(),
             control_bar_bridge: RwLock::new(None),
             damage_over_time_fields: Mutex::new(Vec::new()),
             damage_over_time_next_id: AtomicU32::new(50000),
@@ -275,6 +278,7 @@ impl WorldServices {
             unit_registry: crate::object::unit::new_unit_registry(),
             legacy_object_registry: crate::ai::object_registry::new_legacy_object_registry(),
             locomotor_store: crate::locomotor::new_locomotor_store(),
+            main_game_logic: OnceLock::new(),
             control_bar_bridge: RwLock::new(None),
             damage_over_time_fields: Mutex::new(Vec::new()),
             damage_over_time_next_id: AtomicU32::new(50000),
@@ -433,6 +437,13 @@ impl WorldServices {
         &self,
     ) -> &std::sync::Arc<crate::locomotor::LocomotorStore> {
         &self.locomotor_store
+    }
+    pub(crate) fn game_logic_mutex(&self) -> &'static Mutex<crate::system::game_logic::GameLogic> {
+        *self.main_game_logic.get_or_init(|| {
+            Box::leak(Box::new(Mutex::new(
+                crate::system::game_logic::GameLogic::new(),
+            )))
+        })
     }
     pub(crate) fn control_bar_bridge(
         &self,
@@ -603,12 +614,6 @@ pub struct EngineStores {
     core_game_logic: OnceLock<&'static Mutex<crate::system::game_logic::GameLogic>>,
 }
 impl EngineStores {
-    /// Receiving owner used by the legacy Core `GameLogic` singleton.
-    /// This is a stable process runtime, never the currently published world.
-    pub(crate) fn process_lifetime() -> Arc<Self> {
-        Arc::clone(&PROCESS_LIFETIME)
-    }
-
     fn engine_defaults() -> Self {
         Self {
             upgrade_center: common_upgrade::process_lifetime_upgrade_center(),
@@ -663,11 +668,6 @@ impl EngineStores {
         self.services.client_visuals()
     }
 }
-// Only standalone Core access constructs this runtime. Main service snapshots
-// must never touch it, including indirectly through content/shroud helpers.
-// Not an ambient fallback: active()/active_services() panic when unpublished.
-static PROCESS_LIFETIME: LazyLock<Arc<EngineStores>> =
-    LazyLock::new(|| Arc::new(EngineStores::engine_defaults()));
 /// Published ambient owner (Core AI runtime or Main world services).
 #[derive(Clone)]
 pub enum PublishedOwner {
@@ -1268,12 +1268,6 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .snapshot_state();
-        let process_shroud_before = PROCESS_LIFETIME
-            .shroud()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .snapshot_state();
-
         // Capture the live bundle explicitly and take the live AI/shroud
         // contents out (fresh defaults stay behind as staging scratch).
         let live_bundle = active();
@@ -1325,15 +1319,7 @@ mod tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .snapshot_state();
         assert_eq!(shroud_before, shroud_after);
-        // ...and the engine-lifetime bundle is untouched (the pollution the
-        // audit found landed there because ambient resolution fell back to
-        // it after B's drop cleared the slot).
-        let process_shroud_after = PROCESS_LIFETIME
-            .shroud()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .snapshot_state();
-        assert_eq!(process_shroud_before, process_shroud_after);
+        // No process-lifetime bag remains to pollute; A alone is authoritative.
 
         assert!(uninstall_active_if_current(&a));
         assert_eq!(active_stack_depth(), 0);
@@ -1372,19 +1358,16 @@ mod tests {
     fn one_upgrade_center_per_bundle_shared_with_common() {
         let _serial = crate::test_sync::lock();
         assert_eq!(active_stack_depth(), 0);
-        // Engine-lifetime bundle == Common's engine-lifetime center.
-        assert!(Arc::ptr_eq(
-            PROCESS_LIFETIME.upgrade_center(),
-            &common_upgrade::process_lifetime_upgrade_center()
-        ));
-        // A world snapshots it under a fresh lock (same bits, own store).
+        // A world snapshots Common's process center under a fresh lock.
         let world = new_for_world();
         assert!(!Arc::ptr_eq(
             world.upgrade_center(),
-            PROCESS_LIFETIME.upgrade_center()
+            &common_upgrade::process_lifetime_upgrade_center()
         ));
-        // (Other tests may only add to the engine center after the snapshot.)
-        let engine = PROCESS_LIFETIME.upgrade_center().read().unwrap().clone();
+        let engine = common_upgrade::process_lifetime_upgrade_center()
+            .read()
+            .unwrap()
+            .clone();
         for template in world.upgrade_center().read().unwrap().get_all_upgrades() {
             let engine_template = engine.find_upgrade(template.get_name().as_str()).unwrap();
             assert_eq!(engine_template.get_mask(), template.get_mask());

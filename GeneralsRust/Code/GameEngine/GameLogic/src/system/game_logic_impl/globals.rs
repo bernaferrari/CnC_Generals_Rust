@@ -280,15 +280,19 @@ fn install_save_game_counter_integration() {
 static SAVE_GAME_COUNTER_HOOKS: OnceLock<()> = OnceLock::new();
 
 fn game_logic_mutex() -> &'static Mutex<GameLogic> {
-    // Prefer the published Core runtime; Main world-services boundaries keep
-    // using the process-lifetime Core slot for leftover TheGameLogic accessors.
-    let stores = match crate::system::engine_stores::published_core_for_game_logic() {
-        Some(core) => core,
-        None => crate::system::engine_stores::EngineStores::process_lifetime(),
+    // Published Core preferred; Main world-services use the per-world slot.
+    // No process-lifetime fallback bag.
+    let mutex = if let Some(core) =
+        crate::system::engine_stores::published_core_for_game_logic()
+    {
+        core.game_logic_mutex()
+    } else if let Some(services) = crate::system::engine_stores::try_active_services() {
+        services.game_logic_mutex()
+    } else {
+        panic!(
+            "GameLogic mutex requires with_active_stores / with_world_services (no process bag)"
+        );
     };
-    // Create the mutex before SAVE hooks so snapshot registration can borrow it
-    // without re-entering SAVE_GAME_COUNTER_HOOKS.
-    let mutex = stores.game_logic_mutex();
     SAVE_GAME_COUNTER_HOOKS.get_or_init(|| {
         install_save_game_counter_integration();
     });
