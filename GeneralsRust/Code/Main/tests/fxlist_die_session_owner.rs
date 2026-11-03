@@ -1,15 +1,15 @@
-use game_engine::common::ini::ini_fx_list::{FXList, FXNugget};
-use game_client::fx_list::with_fx_list_store_mut;
 use generals_main::game_logic::{GameLogic, Player, Team};
 use glam::Vec3;
 
 #[test]
 fn missing_session_death_fx_does_not_play_a_foreign_global_sound() {
-    let mut foreign = FXList::new("FX_ForeignDieSession".into());
-    foreign.add_nugget(FXNugget::Sound {
-        name: "ForeignDieSound".into(),
+    // Offer a same-named Sound list through the GameClient store accessor.
+    // C++ FXListDie.cpp:41-70 only invokes its authored list; an absent
+    // receiving list must never synthesize a sound from any other catalog.
+    game_client::fx_list::with_fx_list_store_mut(|s| {
+        s.apply_source("FXList FX_ForeignDieSession\n Sound\n Name = ForeignDieSound\n End\nEnd\n")
+            .expect("foreign global FX list");
     });
-    game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(foreign); });
 
     let mut world = GameLogic::new();
     world.add_player(Player::new(0, Team::USA, "Attacker", true));
