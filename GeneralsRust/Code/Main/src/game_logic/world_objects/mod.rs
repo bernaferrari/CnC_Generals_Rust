@@ -42,6 +42,8 @@ mod unit_ai_runtime_tests;
 
 #[cfg(test)]
 mod residual_repulsor_owner_tests;
+#[cfg(test)]
+mod residual_ondie_fx_order_tests;
 
 #[cfg(test)]
 mod bridge_body_callback_tests;
