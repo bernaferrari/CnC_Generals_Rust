@@ -242,7 +242,9 @@ fn selection_is_empty() -> bool {
 }
 
 fn selection_count() -> usize {
-    let Ok(list) = ThePlayerList().read() else {
+    let __arc_bind = ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         return 0;
     };
     let local_index = list.get_local_player_index();

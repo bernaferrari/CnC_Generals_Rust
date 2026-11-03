@@ -402,7 +402,8 @@ impl Player {
 
     /// Player state checks
     pub fn is_local_player(&self) -> Bool {
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return false;
         };
         list.get_local_player_index() == self.player_index

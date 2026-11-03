@@ -314,7 +314,8 @@ impl ScriptAction for PlayerGrantScienceAction {
             return Ok(ScriptResult::Success(None));
         }
 
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             let index = player as i32;
             if let Some(player_arc) = list.get_player(index) {
                 if let Ok(mut player_guard) = player_arc.write() {
@@ -372,8 +373,8 @@ impl ScriptAction for GiveSpecialPowerAction {
 
         let power_template =
             find_or_create_special_power_template(&AsciiString::from(power_name.as_str()));
-        let player_arc = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let player_arc = __player_list_arc.read()
             .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?
             .get_player(player as PlayerIndex)
             .cloned();

@@ -1601,7 +1601,8 @@ mod tests {
             player_guard.set_colors(player_color, night_color);
         }
         {
-            let mut list = ThePlayerList().write().expect("player list write");
+            let __player_list_arc = ThePlayerList();
+        let mut list = __player_list_arc.write().expect("player list write");
             list.clear();
             list.add_player(Arc::clone(&player));
             list.set_local_player_index(0);

@@ -388,16 +388,19 @@ fn init_single_player(effects: &mut WindowEventEffects<'_>) {
                 _ => CampaignDifficulty::Normal,
             });
         }
-    } else if let Ok(list) = ThePlayerList().read() {
-        if let Some(local_player) = list.get_local_player() {
-            if let Ok(player) = local_player.read() {
-                if let Some(manager) = effects.campaign_manager.as_deref_mut() {
-                    manager.set_rank_points(player.get_skill_points());
-                    manager.set_game_difficulty(match TheScriptEngine::get_global_difficulty() {
-                        0 => CampaignDifficulty::Easy,
-                        2 => CampaignDifficulty::Hard,
-                        _ => CampaignDifficulty::Normal,
-                    });
+    } else {
+        let __arc_bind = ThePlayerList();
+        if let Ok(list) = __arc_bind.read() {
+            if let Some(local_player) = list.get_local_player() {
+                if let Ok(player) = local_player.read() {
+                    if let Some(manager) = effects.campaign_manager.as_deref_mut() {
+                        manager.set_rank_points(player.get_skill_points());
+                        manager.set_game_difficulty(match TheScriptEngine::get_global_difficulty() {
+                            0 => CampaignDifficulty::Easy,
+                            2 => CampaignDifficulty::Hard,
+                            _ => CampaignDifficulty::Normal,
+                        });
+                    }
                 }
             }
         }
@@ -957,7 +960,9 @@ fn grab_multi_player_info(
         grab_multi_player_info_from_snapshot(state, receiving_manager, &players);
         return;
     }
-    let Ok(list) = ThePlayerList().read() else {
+    let __arc_bind = ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         return;
     };
 
@@ -1333,7 +1338,9 @@ fn grab_single_player_info(
         );
         return;
     }
-    let Ok(list) = ThePlayerList().read() else {
+    let __arc_bind = ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         return;
     };
     let Some(local_player_arc) = list.get_local_player() else {
@@ -1596,7 +1603,9 @@ fn leftover_players_are_allies(a: &Player, b: &Player) -> bool {
 }
 
 fn leftover_has_achieved_victory(local: &Player) -> bool {
-    let Ok(list) = ThePlayerList().read() else {
+    let __arc_bind = ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         return false;
     };
     for player_arc in list.iter() {
@@ -1613,7 +1622,9 @@ fn leftover_has_achieved_victory(local: &Player) -> bool {
 }
 
 fn leftover_single_alliance_remaining(local: &Player) -> bool {
-    let Ok(list) = ThePlayerList().read() else {
+    let __arc_bind = ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         return false;
     };
     let mut saw_local_alliance = false;

@@ -1060,7 +1060,8 @@ impl InGameUI {
         if object_id == 0 {
             return;
         }
-        if let Ok(mut manager) = get_selection_manager().write() {
+        let __arc_bind = get_selection_manager();
+if let Ok(mut manager) = __arc_bind.write() {
             for player_id in 0..MAX_PLAYER_COUNT as i32 {
                 if let Some(selection) = manager.get_player_selection(player_id) {
                     selection.select_objects(vec![object_id as ObjectID], SelectionType::Remove);

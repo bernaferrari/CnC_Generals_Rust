@@ -118,7 +118,8 @@ impl<'a> PlayerMoneyMut<'a> {
             None => {
                 // Temporary classic adapter: discover the roster once, before
                 // borrowing audio. Callers already holding it pass frozen facts.
-                let Ok(list) = player_list().read() else {
+                let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
                     return;
                 };
                 crate::helpers::capture_player_audio_locality(self.player, &list)

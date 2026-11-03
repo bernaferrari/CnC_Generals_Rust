@@ -38,13 +38,9 @@ pub struct HlodLiveChildCaptureRequest<'a> {
 pub type HlodLiveChildCaptureHook =
     Arc<dyn Fn(&HlodLiveChildCaptureRequest<'_>) -> Option<Vec<HlodLiveChildState>> + Send + Sync>;
 
-static CAPTURE_HOOK: Lazy<RwLock<Option<HlodLiveChildCaptureHook>>> =
-    Lazy::new(|| RwLock::new(None));
-static COMMITTED_LIVE_STATES: Lazy<Mutex<HashMap<ObjectID, Vec<HlodLiveChildState>>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-
 pub fn register_hlod_live_child_capture_hook(hook: Option<HlodLiveChildCaptureHook>) {
-    if let Ok(mut slot) = CAPTURE_HOOK.write() {
+    let services = crate::system::engine_stores::active_services();
+    if let Ok(mut slot) = services.hlod_live_child_capture_hook().write() {
         *slot = hook;
     }
 }
@@ -54,25 +50,31 @@ pub fn register_hlod_live_child_capture_hook(hook: Option<HlodLiveChildCaptureHo
 pub fn try_capture_hlod_live_child_states(
     request: &HlodLiveChildCaptureRequest<'_>,
 ) -> Option<Vec<HlodLiveChildState>> {
-    let hook = CAPTURE_HOOK.read().ok()?.clone()?;
+    let services = crate::system::engine_stores::active_services();
+    let hook = services.hlod_live_child_capture_hook().read().ok()?.clone()?;
     hook(request)
 }
 
 pub fn publish_hlod_live_child_states(object_id: ObjectID, states: Vec<HlodLiveChildState>) {
-    if let Ok(mut store) = COMMITTED_LIVE_STATES.lock() {
+    let services = crate::system::engine_stores::active_services();
+    if let Ok(mut store) = services.committed_live_states().lock() {
         store.insert(object_id, states);
     }
 }
 
 pub fn take_hlod_live_child_states(object_id: ObjectID) -> Option<Vec<HlodLiveChildState>> {
-    COMMITTED_LIVE_STATES
+    let services = crate::system::engine_stores::active_services();
+    services
+        .committed_live_states()
         .lock()
         .ok()
         .and_then(|mut store| store.remove(&object_id))
 }
 
 pub fn peek_hlod_live_child_states(object_id: ObjectID) -> Option<Vec<HlodLiveChildState>> {
-    COMMITTED_LIVE_STATES
+    let services = crate::system::engine_stores::active_services();
+    services
+        .committed_live_states()
         .lock()
         .ok()
         .and_then(|store| store.get(&object_id).cloned())

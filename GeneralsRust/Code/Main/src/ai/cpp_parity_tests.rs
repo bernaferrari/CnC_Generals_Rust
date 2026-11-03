@@ -62,7 +62,8 @@ fn ai_for_world(
 }
 
 fn clear_player_team_prototypes() {
-    if let Ok(mut list) = gamelogic::player::player_list().write() {
+    let __arc_bind = gamelogic::player::player_list();
+if let Ok(mut list) = __arc_bind.write() {
         list.clear();
     }
 }
@@ -3221,7 +3222,8 @@ fn skillset_selector_uses_chosen_ai_side_info_set() {
 #[test]
 fn do_upgrades_and_skills_skips_first_two_frames_like_cpp() {
     // C++ AIPlayer.cpp:2910-2912 — if (TheGameLogic->getFrame() < 2) return;
-    if let Ok(mut list) = gamelogic::player::player_list().write() {
+    let __arc_bind = gamelogic::player::player_list();
+if let Ok(mut list) = __arc_bind.write() {
         list.clear();
     }
     let mut logic = crate::game_logic::GameLogic::new();

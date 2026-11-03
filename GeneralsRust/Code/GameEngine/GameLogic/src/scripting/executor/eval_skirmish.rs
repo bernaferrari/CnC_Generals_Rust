@@ -35,7 +35,8 @@ impl ScriptConditionEvaluator<'_> {
             }
         }
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -45,9 +46,10 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(ScriptConditionResult::False);
         };
 
-        let Some(store) = get_special_power_store() else {
+        let Some(__sp_store_arc) = get_special_power_store() else {
             return Ok(ScriptConditionResult::False);
         };
+        let Ok(store) = __sp_store_arc.read() else { return Ok(ScriptConditionResult::False); };
         let Some(template) = store.find_special_power_template(&power_name) else {
             return Ok(ScriptConditionResult::False);
         };
@@ -114,7 +116,8 @@ impl ScriptConditionEvaluator<'_> {
             }
         }
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -186,7 +189,8 @@ impl ScriptConditionEvaluator<'_> {
             faction
         );
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -230,8 +234,8 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(ScriptConditionResult::False);
         }
 
-        let player_arc = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let player_arc = __player_list_arc.read()
             .ok()
             .and_then(|list| list.find_player_by_name(&player_name))
             .ok_or_else(|| ScriptError::PlayerNotFound(player_name.clone()))?;
@@ -365,8 +369,8 @@ impl ScriptConditionEvaluator<'_> {
             ScriptOwnerQuery::Unavailable => {}
         }
         let player_name = self.get_condition_string_param(condition, 0)?;
-        let leftover_player = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let leftover_player = __player_list_arc.read()
             .ok()
             .and_then(|list| list.find_player_by_name(&player_name));
 
@@ -575,8 +579,8 @@ impl ScriptConditionEvaluator<'_> {
             }
         }
 
-        let neutral_player = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let neutral_player = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_neutral_player())
             .ok_or_else(|| ScriptError::ExecutionFailed("Neutral player not found".to_string()))?;
@@ -717,8 +721,8 @@ impl ScriptConditionEvaluator<'_> {
             }
         }
 
-        let player_arc = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let player_arc = __player_list_arc.read()
             .ok()
             .and_then(|list| list.find_player_by_name(&player_name))
             .ok_or_else(|| ScriptError::PlayerNotFound(player_name.clone()))?;
@@ -791,8 +795,8 @@ impl ScriptConditionEvaluator<'_> {
             }
         }
 
-        let player_arc = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let player_arc = __player_list_arc.read()
             .ok()
             .and_then(|list| list.find_player_by_name(&player_name))
             .ok_or_else(|| ScriptError::PlayerNotFound(player_name.clone()))?;
@@ -897,7 +901,8 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(ScriptConditionResult::False);
         };
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1006,7 +1011,8 @@ impl ScriptConditionEvaluator<'_> {
             attacked_by_name
         );
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1039,7 +1045,8 @@ impl ScriptConditionEvaluator<'_> {
         let player_name = self.get_condition_string_param(condition, 0)?;
         let area_name = self.get_condition_string_param(condition, 1)?;
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         if players.find_player_by_name(&player_name).is_none() {
@@ -1086,7 +1093,8 @@ impl ScriptConditionEvaluator<'_> {
             }
         }
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1201,7 +1209,8 @@ impl ScriptConditionEvaluator<'_> {
         };
         drop(terrain);
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1354,7 +1363,8 @@ impl ScriptConditionEvaluator<'_> {
         };
         drop(terrain);
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1479,7 +1489,8 @@ pub(crate) fn leftover_command_button_ready_for_object(
 
     let player_id = obj.get_controlling_player_id()?;
     let player_arc = {
-        let list = player_list().read().ok()?;
+        let __player_list_arc = player_list();
+        let list = __player_list_arc.read().ok()?;
         list.get_player(player_id as i32).cloned()?
     };
     let player_guard = player_arc.read().ok()?;

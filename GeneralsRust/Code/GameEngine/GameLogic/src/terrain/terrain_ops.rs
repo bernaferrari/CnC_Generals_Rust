@@ -233,10 +233,12 @@ impl TerrainLogic {
         self.active_boundary = new_active_boundary;
 
         // C++ TheGhostObjectManager->releasePartitionData()
-        if let Ok(mut ghosts) = THE_GHOST_OBJECT_MANAGER.write() {
+        let __ghosts = the_ghost_object_manager();
+        if let Ok(mut ghosts) = __ghosts.write() {
             ghosts.release_partition_data();
         }
-        if let Ok(mut ghosts) = THE_W3D_GHOST_OBJECT_MANAGER.write() {
+        let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
+            if let Ok(mut ghosts) = __w3d_ghosts.write() {
             ghosts.release_partition_data();
         }
 
@@ -278,10 +280,12 @@ impl TerrainLogic {
         }
 
         // C++ TheGhostObjectManager->lockGhostObjects(TRUE)
-        if let Ok(mut ghosts) = THE_GHOST_OBJECT_MANAGER.write() {
+        let __ghosts = the_ghost_object_manager();
+        if let Ok(mut ghosts) = __ghosts.write() {
             ghosts.lock_ghost_objects(true);
         }
-        if let Ok(mut ghosts) = THE_W3D_GHOST_OBJECT_MANAGER.write() {
+        let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
+            if let Ok(mut ghosts) = __w3d_ghosts.write() {
             ghosts.set_lock_ghost_objects(true);
         }
 
@@ -309,11 +313,13 @@ impl TerrainLogic {
         }
 
         // C++ restorePartitionData + lockGhostObjects(FALSE)
-        if let Ok(mut ghosts) = THE_GHOST_OBJECT_MANAGER.write() {
+        let __ghosts = the_ghost_object_manager();
+        if let Ok(mut ghosts) = __ghosts.write() {
             ghosts.restore_partition_data();
             ghosts.lock_ghost_objects(false);
         }
-        if let Ok(mut ghosts) = THE_W3D_GHOST_OBJECT_MANAGER.write() {
+        let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
+            if let Ok(mut ghosts) = __w3d_ghosts.write() {
             ghosts.restore_partition_data();
             ghosts.set_lock_ghost_objects(false);
         }

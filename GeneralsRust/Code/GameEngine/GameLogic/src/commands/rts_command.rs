@@ -467,10 +467,12 @@ impl RtsCommandFactory {
         base_command.set_player_index(self.default_context.player_id);
 
         let power_id = get_special_power_store()
-            .and_then(|store| {
-                store
-                    .find_special_power_template(power_type.as_str())
-                    .map(|t| t.get_id())
+            .and_then(|store_arc| {
+                store_arc.read().ok().and_then(|store| {
+                    store
+                        .find_special_power_template(power_type.as_str())
+                        .map(|t| t.get_id())
+                })
             })
             .unwrap_or(0);
         let options = 0;

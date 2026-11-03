@@ -26,7 +26,8 @@ fn world(
             .ok_or_else(|| error("native Diplomacy requires its receiving world observations"));
     }
     // Only the separately retained StandaloneCore runtime uses this source.
-    let list = ThePlayerList()
+    let __pl = ThePlayerList();
+    let list = __pl
         .read()
         .map_err(|_| error("Core player list unavailable"))?;
     let mut players = HashMap::new();

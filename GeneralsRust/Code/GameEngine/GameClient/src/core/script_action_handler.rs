@@ -384,7 +384,8 @@ fn apply_cinematic_input_lock(
         return;
     }
     ui.deselect_all();
-    if let Ok(list) = player_list().read() {
+    let __arc_bind = player_list();
+if let Ok(list) = __arc_bind.read() {
         let local_index = list.get_local_player_index();
         if local_index != gamelogic::player::PLAYER_INDEX_INVALID {
             let selection_manager = get_selection_manager();
@@ -616,7 +617,9 @@ impl GameClientScriptActionHandler {
     }
 
     fn local_player_index() -> Option<u32> {
-        let players = player_list().read().ok()?;
+        let __arc_bind = player_list();
+
+        let players = __arc_bind.read().ok()?;
         let index = players.get_local_player_index();
         (index >= 0).then_some(index as u32)
     }

@@ -377,22 +377,19 @@ pub enum EvacDisposition {
 /// Live-host bridge for `NAMED_SET_EVAC_LEFT_OR_RIGHT`. Leftover contain is
 /// never the player path; campaign scripts write this map so host evac can
 /// honor EVAC_TO_LEFT / EVAC_TO_RIGHT.
-static NAMED_EVAC_DISPOSITION: std::sync::OnceLock<
-    std::sync::Mutex<std::collections::HashMap<String, u32>>,
-> = std::sync::OnceLock::new();
-
-fn named_evac_map() -> &'static std::sync::Mutex<std::collections::HashMap<String, u32>> {
-    NAMED_EVAC_DISPOSITION.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+fn named_evac_map() -> std::sync::Arc<crate::system::engine_stores::WorldServices> {
+    crate::system::engine_stores::active_services()
 }
 
 pub fn record_named_evac_disposition(name: &str, disposition: u32) {
-    if let Ok(mut map) = named_evac_map().lock() {
+    if let Ok(mut map) = named_evac_map().named_evac_disposition().lock() {
         map.insert(name.to_ascii_lowercase(), disposition);
     }
 }
 
 pub fn named_evac_disposition(name: &str) -> Option<u32> {
     named_evac_map()
+        .named_evac_disposition()
         .lock()
         .ok()?
         .get(&name.to_ascii_lowercase())
@@ -1411,8 +1408,8 @@ impl GarrisonContain {
                         occupant.test_status(ObjectStatusTypes::Detected)
                     })
                     .unwrap_or(false);
-                let local_player = ThePlayerList()
-                    .read()
+                let __player_list_arc = ThePlayerList();
+                    let local_player = __player_list_arc.read()
                     .ok()
                     .and_then(|list| list.get_local_player().cloned());
                 let apparent = local_player
@@ -3700,7 +3697,8 @@ mod tests {
     }
 
     pub(super) fn reset_players() {
-        let mut list = ThePlayerList().write().expect("player list write");
+        let __player_list_arc = ThePlayerList();
+        let mut list = __player_list_arc.write().expect("player list write");
         list.clear();
         list.add_player(Arc::new(RwLock::new(Player::new(0))));
     }

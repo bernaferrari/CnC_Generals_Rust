@@ -385,26 +385,29 @@ impl SpecialPowerStore {
     }
 }
 
-static SPECIAL_POWER_STORE: OnceLock<RwLock<SpecialPowerStore>> = OnceLock::new();
-
-fn special_power_store_cell() -> &'static RwLock<SpecialPowerStore> {
-    SPECIAL_POWER_STORE.get_or_init(|| RwLock::new(SpecialPowerStore::new()))
+pub fn get_special_power_store_arc() -> std::sync::Arc<RwLock<SpecialPowerStore>> {
+    std::sync::Arc::clone(crate::system::engine_stores::active_services().special_power_store())
 }
 
-pub fn get_special_power_store() -> Option<RwLockReadGuard<'static, SpecialPowerStore>> {
-    Some(
-        special_power_store_cell()
-            .read()
-            .expect("SpecialPowerStore poisoned"),
-    )
+pub fn get_special_power_store() -> Option<std::sync::Arc<RwLock<SpecialPowerStore>>> {
+    Some(get_special_power_store_arc())
 }
 
-pub fn get_special_power_store_mut() -> Option<RwLockWriteGuard<'static, SpecialPowerStore>> {
-    Some(
-        special_power_store_cell()
-            .write()
-            .expect("SpecialPowerStore poisoned"),
-    )
+pub fn get_special_power_store_mut() -> Option<std::sync::Arc<RwLock<SpecialPowerStore>>> {
+    Some(get_special_power_store_arc())
+}
+
+/// Lock the active world's special-power store for reading.
+pub fn with_special_power_store<R>(f: impl FnOnce(&SpecialPowerStore) -> R) -> Option<R> {
+    let arc = get_special_power_store_arc();
+    let guard = arc.read().ok()?;
+    Some(f(&*guard))
+}
+
+pub fn with_special_power_store_mut<R>(f: impl FnOnce(&mut SpecialPowerStore) -> R) -> Option<R> {
+    let arc = get_special_power_store_arc();
+    let mut guard = arc.write().ok()?;
+    Some(f(&mut *guard))
 }
 
 /// INI.cpp1330-1349 stores NULL for None or an unresolved definition in release.
@@ -423,7 +426,8 @@ pub(crate) fn special_power_template_from_ini(
 }
 
 pub fn find_or_create_special_power_template(name: &AsciiString) -> Arc<SpecialPowerTemplate> {
-    if let Some(store) = get_special_power_store() {
+    let store_arc = get_special_power_store_arc();
+    if let Ok(store) = store_arc.read() {
         if let Some(template) = store.find_special_power_template(name.as_str()) {
             return Arc::new(template.clone());
         }
@@ -435,15 +439,16 @@ pub fn find_or_create_special_power_template(name: &AsciiString) -> Arc<SpecialP
     if let Some(rts_template) = rts_store.find_template(name.as_str()) {
         let template = convert_from_rts_special_power(rts_template);
         drop(rts_store);
-        if let Some(mut store) = get_special_power_store_mut() {
+        if let Ok(mut store) = store_arc.write() {
             store.add_template(template.clone());
         }
         return Arc::new(template);
     }
     drop(rts_store);
 
-    let mut store =
-        get_special_power_store_mut().expect("SpecialPowerStore missing during template creation");
+    let mut store = store_arc
+        .write()
+        .expect("SpecialPowerStore missing during template creation");
     let id = store.get_next_id();
     let template = match get_ini_special_power_store()
         .and_then(|ini_store| ini_store.find_template(name).cloned())

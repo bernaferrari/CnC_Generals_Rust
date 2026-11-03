@@ -408,7 +408,9 @@ mod tests {
                 }
             }
             let old = {
-                let mut players = gamelogic::player::player_list().write().unwrap();
+                let __arc_bind = gamelogic::player::player_list();
+
+                let mut players = __arc_bind.write().unwrap();
                 std::mem::replace(&mut *players, gamelogic::player::PlayerList::new())
             };
             let _restore = RestorePlayers(old);
@@ -475,21 +477,26 @@ mod tests {
             struct RestorePlayers(gamelogic::player::PlayerList);
             impl Drop for RestorePlayers {
                 fn drop(&mut self) {
-                    if let Ok(mut list) = gamelogic::player::player_list().write() {
+                    let __arc_bind = gamelogic::player::player_list();
+if let Ok(mut list) = __arc_bind.write() {
                         *list =
                             std::mem::replace(&mut self.0, gamelogic::player::PlayerList::new());
                     }
                 }
             }
             let old = {
-                let mut list = gamelogic::player::player_list().write().unwrap();
+                let __arc_bind = gamelogic::player::player_list();
+
+                let mut list = __arc_bind.write().unwrap();
                 std::mem::replace(&mut *list, gamelogic::player::PlayerList::new())
             };
             let _restore = RestorePlayers(old);
             {
                 let mut player = gamelogic::player::Player::new(0);
                 player.get_money_mut().set_money(1250);
-                let mut list = gamelogic::player::player_list().write().unwrap();
+                let __arc_bind = gamelogic::player::player_list();
+
+                let mut list = __arc_bind.write().unwrap();
                 list.add_player(Arc::new(RwLock::new(player)));
                 list.set_local_player_index(0);
             }

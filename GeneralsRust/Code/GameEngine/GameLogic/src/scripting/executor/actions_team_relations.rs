@@ -271,7 +271,8 @@ impl ScriptActionDispatcher<'_> {
         } else {
             None
         };
-        let player_index = if let Ok(players) = player_list().read() {
+        let __player_list_arc = player_list();
+        let player_index = if let Ok(players) = __player_list_arc.read() {
             players
                 .find_player_by_name(&player_name)
                 .and_then(|player| player.read().ok().map(|player| player.get_player_index()))
@@ -304,7 +305,8 @@ impl ScriptActionDispatcher<'_> {
         } else {
             None
         };
-        let player_index = if let Ok(players) = player_list().read() {
+        let __player_list_arc = player_list();
+        let player_index = if let Ok(players) = __player_list_arc.read() {
             players
                 .find_player_by_name(&player_name)
                 .and_then(|player| player.read().ok().map(|player| player.get_player_index()))

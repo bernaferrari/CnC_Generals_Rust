@@ -76,7 +76,8 @@ struct RestorePlayerList {
 
 impl RestorePlayerList {
     fn with_player(player: Arc<RwLock<crate::player::Player>>) -> Self {
-        let mut list = crate::player::player_list().write().unwrap();
+        let __player_list_arc = crate::player::player_list();
+        let mut list = __player_list_arc.write().unwrap();
         let previous = Self {
             players: list.iter().cloned().collect(),
             local_player_index: list.get_local_player_index(),
@@ -90,8 +91,8 @@ impl RestorePlayerList {
 
 impl Drop for RestorePlayerList {
     fn drop(&mut self) {
-        let mut list = crate::player::player_list()
-            .write()
+        let __player_list_arc = crate::player::player_list();
+            let mut list = __player_list_arc.write()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         list.clear();
         for player in self.players.drain(..) {

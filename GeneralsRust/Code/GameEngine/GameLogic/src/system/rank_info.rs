@@ -15,37 +15,31 @@ use std::any::Any;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Duration;
 
-/// Global singleton mirroring `TheRankInfoStore`.
-static RANK_INFO_STORE: OnceCell<RwLock<RankInfoStore>> = OnceCell::new();
-
-pub fn the_rank_info_store() -> Option<RwLockReadGuard<'static, RankInfoStore>> {
+pub fn the_rank_info_store_arc() -> std::sync::Arc<RwLock<RankInfoStore>> {
     sync_rank_store_from_ini();
-    RANK_INFO_STORE
-        .get()
-        .map(|store| store.read().expect("RankInfoStore poisoned"))
+    std::sync::Arc::clone(crate::system::engine_stores::active_services().rank_info_store())
 }
 
-pub fn the_rank_info_store_mut() -> Option<RwLockWriteGuard<'static, RankInfoStore>> {
-    sync_rank_store_from_ini();
-    RANK_INFO_STORE
-        .get()
-        .map(|store| store.write().expect("RankInfoStore poisoned"))
+pub fn the_rank_info_store() -> Option<std::sync::Arc<std::sync::RwLock<RankInfoStore>>> {
+    Some(the_rank_info_store_arc())
+}
+
+pub fn the_rank_info_store_mut() -> Option<std::sync::Arc<std::sync::RwLock<RankInfoStore>>> {
+    Some(the_rank_info_store_arc())
 }
 
 pub fn init_global_rank_info_store() {
-    let _ = RANK_INFO_STORE.set(RwLock::new(RankInfoStore::default()));
     sync_rank_store_from_ini();
 }
 
 fn sync_rank_store_from_ini() {
-    init_global_rank_info_store_if_needed();
     let common = game_engine::common::ini::get_rank_info_store();
     if common.is_empty() {
         return;
     }
-    let Some(store) = RANK_INFO_STORE.get() else {
-        return;
-    };
+    let store = std::sync::Arc::clone(
+        crate::system::engine_stores::active_services().rank_info_store(),
+    );
     let Ok(mut dest) = store.write() else {
         return;
     };
@@ -67,9 +61,6 @@ fn sync_rank_store_from_ini() {
     }
 }
 
-fn init_global_rank_info_store_if_needed() {
-    let _ = RANK_INFO_STORE.set(RwLock::new(RankInfoStore::default()));
-}
 
 /// Rank descriptor exported by the subsystem.
 #[derive(Debug, Clone, PartialEq)]

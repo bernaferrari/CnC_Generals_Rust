@@ -52,7 +52,8 @@ fn mask_definitions() {
         2
     );
 
-    let mut players = ThePlayerList().write().unwrap();
+    let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
     players.clear();
     for id in [MASK_PLAYER_SOURCE, MASK_PLAYER_TARGET] {
         let player_index = i32::try_from(id).unwrap();

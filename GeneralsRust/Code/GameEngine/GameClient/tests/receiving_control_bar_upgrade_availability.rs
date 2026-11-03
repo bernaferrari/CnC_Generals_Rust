@@ -37,7 +37,9 @@ fn required_upgrade_is_resolved_from_the_receiving_bar() {
     )));
     OBJECT_REGISTRY.register_object(OBJECT_ID, &object);
     {
-        let mut players = gamelogic::player::player_list().write().unwrap();
+        let __arc_bind = gamelogic::player::player_list();
+
+        let mut players = __arc_bind.write().unwrap();
         *players = gamelogic::player::PlayerList::new();
         players.add_player(Arc::new(RwLock::new(gamelogic::player::Player::new(
             PLAYER_ID,

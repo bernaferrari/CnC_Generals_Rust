@@ -27,8 +27,8 @@ impl HostRuntimeGlobals {
         // deterministic order makes future extensions auditable.
         engine_stores::with_world_services(bundle, || {
             let players = {
-                let mut guard = player_list()
-                    .write()
+                let __player_list_arc = player_list();
+                    let mut guard = __player_list_arc.write()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 std::mem::replace(&mut *guard, PlayerList::new())
             };
@@ -66,8 +66,8 @@ impl HostRuntimeGlobals {
             } = self;
 
             let old_players = {
-                let mut guard = player_list()
-                    .write()
+                let __player_list_arc = player_list();
+                    let mut guard = __player_list_arc.write()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 std::mem::replace(&mut *guard, players)
             };

@@ -250,7 +250,8 @@ fn factory_enter_hostile_full_container_issues_attack_in_same_update() {
     }
     definitions();
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         for id in [0, 1] {
             let mut player = Player::new(id);
@@ -357,7 +358,8 @@ fn factory_enter_empty_hostile_target_does_not_attack() {
     }
     definitions();
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         for id in [0, 1] {
             let mut player = Player::new(id);
@@ -417,7 +419,8 @@ fn factory_enter_allied_occupied_target_does_not_attack() {
     }
     definitions();
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         for id in [0, 1] {
             let mut player = Player::new(id);
@@ -482,7 +485,8 @@ fn factory_enter_unarmed_hostile_occupied_target_does_not_attack() {
     }
     definitions();
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         for id in [0, 1] {
             let mut player = Player::new(id);
@@ -821,7 +825,8 @@ fn native_enter_terminal_sink_error_preserves_borrowed_machine_and_runtime() {
     }
     definitions();
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         for id in [0, 1] {
             let mut player = Player::new(id);
@@ -937,7 +942,8 @@ fn factory_enter_terminal_player_attack_honors_authored_command_filter() {
     }
     definitions();
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         for id in [0, 1] {
             let mut player = Player::new(id);
@@ -1048,7 +1054,8 @@ fn factory_enter_filter_uses_actual_owner_with_locked_same_id_foreign_unit() {
     }
     definitions();
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         for id in [0, 1] {
             let mut player = Player::new(id);
@@ -1187,7 +1194,8 @@ fn factory_enter_restored_hostile_occupancy_dispatches_in_same_update() {
     }
     definitions();
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         for id in [0, 1] {
             let mut player = Player::new(id);

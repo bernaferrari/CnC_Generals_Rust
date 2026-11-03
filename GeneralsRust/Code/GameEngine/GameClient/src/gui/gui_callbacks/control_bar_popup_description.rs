@@ -68,7 +68,9 @@ fn format_template(template: &str, values: &[String]) -> String {
 }
 
 fn resolve_local_player() -> Option<Arc<std::sync::RwLock<Player>>> {
-    let list = player_list().read().ok()?;
+    let __arc_bind = player_list();
+
+    let list = __arc_bind.read().ok()?;
     list.get_local_player().cloned()
 }
 
@@ -270,7 +272,9 @@ fn resolve_command_button_from_source(
 }
 
 fn leftover_first_selected_object_id() -> Option<u32> {
-    let list = player_list().read().ok()?;
+    let __arc_bind = player_list();
+
+    let list = __arc_bind.read().ok()?;
     let index = list.get_local_player_index();
     if index < 0 {
         return None;

@@ -1404,7 +1404,8 @@ fn buddy_control_system(
             let in_progress =
                 with_gamespy_game_info(|game| game.is_in_game() && game.is_game_in_progress());
             if in_progress {
-                if let Ok(list) = gamelogic::player::ThePlayerList().read() {
+                let __arc_bind = gamelogic::player::ThePlayerList();
+if let Ok(list) = __arc_bind.read() {
                     if let Some(player) = list.get_local_player() {
                         if let Ok(player) = player.read() {
                             if !player.is_player_active() {

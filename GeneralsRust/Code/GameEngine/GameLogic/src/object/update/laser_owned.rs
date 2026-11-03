@@ -302,8 +302,8 @@ impl LaserExecution for AmbientLaserExecution {
 }
 
 pub(super) fn object_observation(object: &Object) -> LaserObjectObservation {
-    let local = ThePlayerList()
-        .read()
+    let __player_list_arc = ThePlayerList();
+        let local = __player_list_arc.read()
         .ok()
         .map(|players| players.get_local_player_index())
         .unwrap_or(-1);

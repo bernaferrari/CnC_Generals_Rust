@@ -335,7 +335,9 @@ impl SelectionTranslator {
 
     /// C++ `Player::processCreateTeamGameMessage` leftover `m_squads` / Squad xfer.
     fn write_leftover_player_create_team(group: u8, object_ids: &[ObjectID]) {
-        let Ok(list) = player_list().read() else {
+        let __arc_bind = player_list();
+
+        let Ok(list) = __arc_bind.read() else {
             return;
         };
         let Some(player_arc) = list.get_local_player().cloned() else {
@@ -350,7 +352,9 @@ impl SelectionTranslator {
 
     /// C++ `Player::processSelectTeamGameMessage` / `processAddTeamGameMessage`.
     fn write_leftover_player_select_team(group: u8, add: bool) {
-        let Ok(list) = player_list().read() else {
+        let __arc_bind = player_list();
+
+        let Ok(list) = __arc_bind.read() else {
             return;
         };
         let Some(player_arc) = list.get_local_player().cloned() else {

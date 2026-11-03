@@ -134,7 +134,8 @@ impl ScriptConditionEvaluator<'_> {
             INVALID_ID
         };
         let player_index = {
-            let Ok(players) = player_list().read() else {
+            let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
                 return Ok(ScriptConditionResult::False);
             };
             let Some(player) = players.find_player_by_name(&player_name) else {

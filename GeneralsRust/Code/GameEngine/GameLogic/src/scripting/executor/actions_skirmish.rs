@@ -100,7 +100,8 @@ impl ScriptActionDispatcher<'_> {
             .with_engine_ref(|engine| engine.get_current_player_name())
             .flatten();
         if let Some(current_player_name) = current_player_name {
-            if let Ok(list) = player_list().read() {
+            let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 if let Some(player_arc) = list.find_player_by_name(&current_player_name) {
                     if let Ok(player_guard) = player_arc.read() {
                         let player_id = player_guard.get_player_index() as u32;
@@ -368,9 +369,10 @@ impl ScriptActionDispatcher<'_> {
         let enemy_player_index = enemy_guard.get_player_index();
 
         let (power_template, template_name, radius, is_sneak_attack) = {
-            let Some(store) = get_special_power_store() else {
+            let Some(__sp_store_arc) = get_special_power_store() else {
                 return Ok(ScriptActionResult::Success);
             };
+            let Ok(store) = __sp_store_arc.read() else { return Ok(ScriptActionResult::Success); };
             let Some(template) = store.find_special_power_template(&power_name) else {
                 return Ok(ScriptActionResult::Success);
             };
@@ -566,8 +568,8 @@ impl ScriptActionDispatcher<'_> {
                 ScriptError::ExecutionFailed("Skirmish team has no controlling player".to_string())
             })?;
 
-        let player_list_guard = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let player_list_guard = __player_list_arc.read()
             .map_err(|_| ScriptError::ExecutionFailed("Failed to lock player list".to_string()))?;
         let controlling_player = player_list_guard
             .get_player(controlling_player_id as i32)
@@ -957,7 +959,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if !player_name.is_empty() {
                 if let Some(player_arc) = list.find_player_by_name(&player_name) {
                     if let Ok(mut player_guard) = player_arc.write() {
@@ -994,7 +997,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if !player_name.is_empty() {
                 if let Some(player_arc) = list.find_player_by_name(&player_name) {
                     if let Ok(mut player_guard) = player_arc.write() {

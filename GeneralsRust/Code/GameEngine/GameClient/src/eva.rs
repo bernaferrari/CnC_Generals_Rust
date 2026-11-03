@@ -845,7 +845,9 @@ impl Eva {
         if let Some(sufficient) = host_power {
             return !sufficient;
         }
-        let Ok(list) = ThePlayerList().read() else {
+        let __arc_bind = ThePlayerList();
+
+        let Ok(list) = __arc_bind.read() else {
             return false;
         };
         let Some(local_player) = list.get_local_player().cloned() else {

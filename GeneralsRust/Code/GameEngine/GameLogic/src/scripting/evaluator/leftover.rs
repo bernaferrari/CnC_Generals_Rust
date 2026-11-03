@@ -69,7 +69,8 @@ impl ScriptEvaluator {
         let mask_bits = param.get_int() as u32;
         if param.get_parameter_type() == ParameterType::Side && mask_bits != 0 {
             let mask = PlayerMaskType::from_bits_truncate(mask_bits);
-            if let Ok(list) = player_list().read() {
+            let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 for player_arc in list.iter() {
                     let Ok(player_guard) = player_arc.read() else {
                         continue;

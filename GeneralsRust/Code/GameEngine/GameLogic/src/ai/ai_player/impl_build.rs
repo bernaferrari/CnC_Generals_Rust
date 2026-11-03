@@ -347,7 +347,8 @@ impl AIPlayer {
         let mut has_enemy = false;
         let enemy_index = if self.is_skirmish_ai_player() {
             let mut idx = None;
-            if let Ok(list) = player_list().read() {
+            let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 if let Some(me) = list.get_player(self.player_id as i32) {
                     if let Ok(mg) = me.read() {
                         idx = mg.get_current_enemy_player_index();

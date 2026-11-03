@@ -29,7 +29,8 @@ fn worker_definitions() {
     assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(
         "Object WorkerOwnerWorker\n KindOf = INFANTRY CAN_ATTACK HARVESTER DOZER\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = WorkerAIUpdate WorkerOwnerAI\n MaxBoxes = 1\n End\n Locomotor = SET_NORMAL WorkerOwnerGround\nEnd\nObject WorkerOwnerSupplyTruck\n KindOf = VEHICLE HARVESTER\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SupplyTruckAIUpdate WorkerOwnerAI\n MaxBoxes = 2\n End\n Locomotor = SET_NORMAL WorkerOwnerGround\nEnd\nObject WorkerOwnerTarget\n KindOf = STRUCTURE IMMOBILE\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
     ), 3);
-    let mut players = ThePlayerList().write().unwrap();
+    let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
     players.clear();
     for id in [0, 1] {
         let mut player = Player::new(id);

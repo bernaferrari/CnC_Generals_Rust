@@ -165,7 +165,8 @@ impl ScriptAction for PlayerDisableFactoriesAction {
         // Rust: player.disable_all_production()
 
         let object_ids = {
-            let Ok(list) = player_list().read() else {
+            let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
                 return Ok(ScriptResult::Success(None));
             };
             let index = player as i32;
@@ -239,7 +240,8 @@ impl ScriptAction for PlayerEnableFactoriesAction {
         // Rust: player.enable_all_production()
 
         let object_ids = {
-            let Ok(list) = player_list().read() else {
+            let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
                 return Ok(ScriptResult::Success(None));
             };
             let index = player as i32;
@@ -299,7 +301,8 @@ impl ScriptAction for PlayerBuildBaseDefenseAction {
 
         log::info!("Player {} building base defense '{}'", player, defense_type);
 
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return Ok(ScriptResult::Success(None));
         };
         let player_idx = player.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
@@ -361,7 +364,8 @@ impl ScriptAction for PlayerHuntAction {
 
         log::info!("Player {} AI hunting", player);
 
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             let index = player as i32;
             if let Some(player_arc) = list.get_player(index) {
                 if let Ok(mut player_guard) = player_arc.write() {
@@ -420,7 +424,8 @@ impl ScriptAction for PlayerGarrisonAllBuildingsAction {
         // 5. GarrisonContain handles actual containment
         // Rust: player.auto_garrison_all_buildings()
 
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             let index = player as i32;
             let Some(player_arc) = list.get_player(index) else {
                 log::warn!(
@@ -616,7 +621,8 @@ impl ScriptAction for PlayerEvacuateBuildingAction {
         // 3. Units return to player control
         // Rust: player.evacuate_all_garrisons()
 
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             let index = player as i32;
             let Some(player_arc) = list.get_player(index) else {
                 log::warn!("PlayerEvacuateBuildingAction: player {} not found", player);
@@ -706,7 +712,8 @@ impl ScriptAction for PlayerSetActiveAction {
         // 4. Used for players defeated or left in multiplayer
         // Rust: player.set_active(active)
 
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             let player_idx = player.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
             if let Some(player_arc) = list.get_player(player_idx) {
                 if let Ok(mut player_guard) = player_arc.write() {
@@ -758,7 +765,8 @@ impl ScriptAction for VictoryAction {
         log::info!("VICTORY - Mission completed successfully");
 
         TheVictoryConditions::set_local_allied_victory(true);
-        if let Ok(players) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(players) = __player_list_arc.read() {
             if let Some(local_player) = players.get_local_player() {
                 if let Ok(mut guard) = local_player.write() {
                     guard.set_defeated(false);
@@ -804,7 +812,8 @@ impl ScriptAction for DefeatAction {
         log::info!("DEFEAT - Mission failed");
 
         TheVictoryConditions::set_local_allied_victory(false);
-        if let Ok(players) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(players) = __player_list_arc.read() {
             if let Some(local_player) = players.get_local_player() {
                 if let Ok(mut guard) = local_player.write() {
                     guard.set_defeated(true);
@@ -874,8 +883,8 @@ impl ScriptAction for SetTeamAllianceAction {
         }
         let relationship = parse_script_relationship(&relation)?;
         let target_player_index = player2 as PlayerIndex;
-        let player_arc = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let player_arc = __player_list_arc.read()
             .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?
             .get_player(player1 as PlayerIndex)
             .cloned();

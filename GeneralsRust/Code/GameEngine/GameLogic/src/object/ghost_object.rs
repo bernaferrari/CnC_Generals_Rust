@@ -262,5 +262,6 @@ impl Snapshotable for GhostObjectManager {
     }
 }
 
-pub static THE_GHOST_OBJECT_MANAGER: Lazy<Arc<RwLock<GhostObjectManager>>> =
-    Lazy::new(|| Arc::new(RwLock::new(GhostObjectManager::new())));
+pub fn the_ghost_object_manager() -> Arc<RwLock<GhostObjectManager>> {
+    Arc::clone(crate::system::engine_stores::active_services().ghost_objects())
+}

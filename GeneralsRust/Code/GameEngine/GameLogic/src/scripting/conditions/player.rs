@@ -374,7 +374,8 @@ impl ScriptCondition for PlayersAlliedCondition {
         let player2 = crate::scripting::actions::get_int_param(parameters, "player2")?;
 
         log::debug!("Checking if players {} and {} are allied", player1, player2);
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return Ok(false);
         };
         let Some(p1) = list.get_player(player1 as i32) else {
@@ -426,7 +427,8 @@ impl ScriptCondition for PlayerHasTechnologyCondition {
             player,
             technology
         );
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return Ok(false);
         };
         let Some(player_arc) = list.get_player(player as i32) else {
@@ -476,7 +478,8 @@ impl ScriptCondition for PlayerHasUpgradeCondition {
         let upgrade = crate::scripting::actions::get_string_param(parameters, "upgrade")?;
 
         log::debug!("Checking if player {} has upgrade '{}'", player, upgrade);
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return Ok(false);
         };
         let Some(player_arc) = list.get_player(player as i32) else {
@@ -903,7 +906,8 @@ impl ScriptCondition for ResearchCompleteCondition {
             science_name
         );
 
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return Ok(false);
         };
         let Some(player_arc) = list.get_player(player as i32) else {

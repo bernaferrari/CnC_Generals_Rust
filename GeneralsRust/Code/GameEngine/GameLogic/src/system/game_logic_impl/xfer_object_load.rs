@@ -6,8 +6,8 @@ fn xfer_game_logic_objects_load(
     xfer: &mut dyn Xfer,
     object_count: UnsignedInt,
 ) -> Result<(), XferStatus> {
-    let default_team = player_list()
-        .read()
+    let __player_list_arc = player_list();
+        let default_team = __player_list_arc.read()
         .ok()
         .and_then(|list| list.get_neutral_player())
         .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()));

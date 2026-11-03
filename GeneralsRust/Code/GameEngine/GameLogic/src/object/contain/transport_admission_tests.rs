@@ -43,7 +43,8 @@ fn factory_transport_admission_returns_cpp_predicate_without_mutation() {
         5,
     );
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         players.add_player(Arc::new(RwLock::new(Player::new(0))));
         players.add_player(Arc::new(RwLock::new(Player::new(1))));

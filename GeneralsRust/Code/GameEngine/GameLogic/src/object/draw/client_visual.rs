@@ -92,9 +92,6 @@ pub fn leftover_default_shadow_texture(
 
 static TERRAIN_DECAL_CLIENT: OnceLock<Arc<dyn TerrainDecalClient>> = OnceLock::new();
 static TERRAIN_TRACK_CLIENT: OnceLock<Arc<dyn TerrainTrackClient>> = OnceLock::new();
-static TEXTURE_ASPECT_HOOK: RwLock<Option<fn(&str) -> Option<Real>>> = RwLock::new(None);
-static PRELOAD_ASSET_HOOK: RwLock<Option<fn(&str)>> = RwLock::new(None);
-static RECEIVES_DYNAMIC_LIGHTS_HOOK: RwLock<Option<fn(ObjectID, bool)>> = RwLock::new(None);
 
 pub fn register_terrain_decal_client(client: Arc<dyn TerrainDecalClient>) {
     let _ = TERRAIN_DECAL_CLIENT.set(client);
@@ -105,19 +102,40 @@ pub fn register_terrain_track_client(client: Arc<dyn TerrainTrackClient>) {
 }
 
 pub fn register_texture_aspect_hook(hook: fn(&str) -> Option<Real>) {
-    *TEXTURE_ASPECT_HOOK.write() = Some(hook);
+    let services = crate::system::engine_stores::active_services();
+    *services
+        .client_visuals()
+        .texture_aspect_hook
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(hook);
 }
 
 pub fn register_preload_asset_hook(hook: fn(&str)) {
-    *PRELOAD_ASSET_HOOK.write() = Some(hook);
+    let services = crate::system::engine_stores::active_services();
+    *services
+        .client_visuals()
+        .preload_asset_hook
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(hook);
 }
 pub fn register_receives_dynamic_lights_hook(hook: fn(ObjectID, bool)) {
-    *RECEIVES_DYNAMIC_LIGHTS_HOOK.write() = Some(hook);
+    let services = crate::system::engine_stores::active_services();
+    *services
+        .client_visuals()
+        .receives_dynamic_lights_hook
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(hook);
 }
 
 /// C++ `Drawable::setReceivesDynamicLights`.
 pub fn set_receives_dynamic_lights(object_id: ObjectID, receives: bool) {
-    if let Some(hook) = *RECEIVES_DYNAMIC_LIGHTS_HOOK.read() {
+    let services = crate::system::engine_stores::active_services();
+    if let Some(hook) = *services
+        .client_visuals()
+        .receives_dynamic_lights_hook
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+    {
         hook(object_id, receives);
     }
 }
@@ -131,14 +149,26 @@ pub fn terrain_track_client() -> Option<&'static Arc<dyn TerrainTrackClient>> {
 }
 
 pub fn texture_aspect_ratio(texture_name: &str) -> Option<Real> {
-    (*TEXTURE_ASPECT_HOOK.read()).and_then(|hook| hook(texture_name))
+    let services = crate::system::engine_stores::active_services();
+    (*services
+        .client_visuals()
+        .texture_aspect_hook
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()))
+    .and_then(|hook| hook(texture_name))
 }
 
 pub fn preload_draw_asset(name: &str) {
     if name.is_empty() {
         return;
     }
-    if let Some(hook) = *PRELOAD_ASSET_HOOK.read() {
+    let services = crate::system::engine_stores::active_services();
+    if let Some(hook) = *services
+        .client_visuals()
+        .preload_asset_hook
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+    {
         hook(name);
     }
 }

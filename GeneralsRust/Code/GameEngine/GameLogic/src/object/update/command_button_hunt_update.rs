@@ -554,9 +554,11 @@ impl CommandButtonHuntUpdate {
                     }
 
                     if let Some(template) = sp_template.as_ref() {
-                        if let Some(store) = get_special_power_store() {
-                            if !store.can_use_special_power(object.get_id(), template) {
-                                return HuntDecision::Skip;
+                        if let Some(store_arc) = get_special_power_store() {
+                            if let Ok(store) = store_arc.read() {
+                                if !store.can_use_special_power(object.get_id(), template) {
+                                    return HuntDecision::Skip;
+                                }
                             }
                         }
 

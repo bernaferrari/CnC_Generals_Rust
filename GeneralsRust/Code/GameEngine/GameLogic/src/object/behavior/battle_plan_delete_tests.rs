@@ -41,7 +41,8 @@ impl Army {
         let player = Arc::new(RwLock::new(Player::new(0)));
         let enemy_player = Arc::new(RwLock::new(Player::new(1)));
         {
-            let mut list = player_list().write().unwrap();
+            let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().unwrap();
             list.add_player(player.clone());
             list.add_player(enemy_player.clone());
         }

@@ -11,8 +11,8 @@ impl AIPlayer {
     /// structureTimer → readyToBuildStructure; buildDelay throttles processBaseBuilding
     /// to every `BUILD_DELAY_RECHECK_FRAMES` (2s), shortcut when structure completes.
     pub(super) fn do_base_building(&mut self) -> Result<(), AiError> {
-        let can_build_base = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let can_build_base = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_player(self.player_id as i32).cloned())
             .and_then(|p| p.read().ok().map(|g| g.get_can_build_base()))
@@ -411,8 +411,8 @@ impl AIPlayer {
     /// teamTimer → readyToBuildTeam; teamDelay throttles queueUnits + processTeamBuilding
     /// to every `TEAM_DELAY_RECHECK_FRAMES` (5s), shortcut when unit/building completes.
     pub(super) fn do_team_building(&mut self) -> Result<(), AiError> {
-        let can_build_units = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let can_build_units = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_player(self.player_id as i32).cloned())
             .and_then(|p| p.read().ok().map(|g| g.get_can_build_units()))

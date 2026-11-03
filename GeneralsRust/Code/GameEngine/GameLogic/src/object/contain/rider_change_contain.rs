@@ -539,7 +539,8 @@ mod tests {
     }
 
     fn reset_players() {
-        let mut list = ThePlayerList().write().expect("player list write");
+        let __player_list_arc = ThePlayerList();
+        let mut list = __player_list_arc.write().expect("player list write");
         list.clear();
         list.add_player(Arc::new(RwLock::new(Player::new(0))));
         list.set_local_player_index(0);
@@ -1671,8 +1672,8 @@ impl RiderChangeContain {
             return;
         };
 
-        let local_player_index = crate::player::ThePlayerList()
-            .read()
+        let __player_list_arc = crate::player::ThePlayerList();
+            let local_player_index = __player_list_arc.read()
             .ok()
             .map(|list| list.get_local_player_index())
             .unwrap_or(crate::player::PLAYER_INDEX_INVALID);

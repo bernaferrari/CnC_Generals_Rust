@@ -258,7 +258,8 @@ fn qualify_my_inner_perimeter_rewrites_to_player_start_index() {
     player.set_display_name("QualifyPerimeterPlayer");
     player.set_mp_start_index(2);
     {
-        let mut list = player_list().write().expect("player list");
+        let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().expect("player list");
         list.clear();
         list.add_player(Arc::new(RwLock::new(player)));
     }

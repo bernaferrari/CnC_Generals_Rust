@@ -1979,7 +1979,8 @@ mod tests {
             .ok()
             .map(|list| list.get_local_player_index())
             .unwrap_or(-1);
-        if let Ok(mut list) = gamelogic::player::player_list().write() {
+        let __arc_bind = gamelogic::player::player_list();
+if let Ok(mut list) = __arc_bind.write() {
             list.set_local_player_index(-1);
         }
         assert!(
@@ -1990,7 +1991,8 @@ mod tests {
             fx_local_player_index() < 0,
             "local player must be invalid for this gate"
         );
-        if let Ok(mut players) = gamelogic::player::player_list().write() {
+        let __arc_bind = gamelogic::player::player_list();
+if let Ok(mut players) = __arc_bind.write() {
             players.set_local_player_index(prev_player);
         }
     }
@@ -2354,7 +2356,8 @@ mod tests {
             *shroud = gamelogic::system::shroud_manager::ShroudManager::new();
             shroud.init_shroud_grid(500.0, 500.0);
         }
-        if let Ok(mut list) = gamelogic::player::player_list().write() {
+        let __arc_bind = gamelogic::player::player_list();
+if let Ok(mut list) = __arc_bind.write() {
             list.set_local_player_index(0);
         }
 
@@ -2394,7 +2397,8 @@ mod tests {
         );
         assert_eq!(fx.drain_display_light_pulses().len(), 1);
 
-        if let Ok(mut players) = gamelogic::player::player_list().write() {
+        let __arc_bind = gamelogic::player::player_list();
+if let Ok(mut players) = __arc_bind.write() {
             players.set_local_player_index(prev_player);
         }
         *gamelogic::system::shroud_manager::get_shroud_manager()

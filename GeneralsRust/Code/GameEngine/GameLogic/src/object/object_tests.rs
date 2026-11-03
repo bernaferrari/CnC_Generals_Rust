@@ -1184,23 +1184,28 @@ mod tests {
     #[test]
     fn object_special_power_dispatch_uses_store_gate_for_non_forced_calls() {
         let _guard = test_state_lock();
-        crate::object::special_power_template::get_special_power_store_mut()
-            .expect("special power store")
-            .reset();
+        {
+            let arc = crate::object::special_power_template::get_special_power_store_arc();
+            arc.write().expect("special power store").reset();
+        }
 
         let obj = Object::new_test(77_001, 100.0);
         assert!(obj.can_dispatch_special_power("MissingPower", true));
         assert!(!obj.can_dispatch_special_power("MissingPower", false));
 
-        crate::object::special_power_template::get_special_power_store_mut()
-            .expect("special power store")
-            .add_template(SpecialPowerTemplate::new("NeedsModule".to_string(), 77));
+        {
+            let arc = crate::object::special_power_template::get_special_power_store_arc();
+            arc.write()
+                .expect("special power store")
+                .add_template(SpecialPowerTemplate::new("NeedsModule".to_string(), 77));
+        }
 
         assert!(!obj.can_dispatch_special_power("NeedsModule", false));
 
-        crate::object::special_power_template::get_special_power_store_mut()
-            .expect("special power store")
-            .reset();
+        {
+            let arc = crate::object::special_power_template::get_special_power_store_arc();
+            arc.write().expect("special power store").reset();
+        }
     }
 
     #[test]
@@ -1694,7 +1699,8 @@ mod tests {
 
         let player = Arc::new(RwLock::new(Player::new(0)));
         {
-            let mut list = player_list().write().unwrap();
+            let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().unwrap();
             list.add_player(Arc::clone(&player));
             list.set_local_player_index(0);
         }
@@ -1767,7 +1773,8 @@ mod tests {
 
         let player = Arc::new(RwLock::new(Player::new(0)));
         {
-            let mut list = player_list().write().unwrap();
+            let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().unwrap();
             list.add_player(Arc::clone(&player));
             list.set_local_player_index(0);
         }
@@ -1806,7 +1813,8 @@ mod tests {
 
         let player = Arc::new(RwLock::new(Player::new(0)));
         {
-            let mut list = player_list().write().unwrap();
+            let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().unwrap();
             list.add_player(Arc::clone(&player));
             list.set_local_player_index(0);
         }

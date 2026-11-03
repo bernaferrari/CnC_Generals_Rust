@@ -1634,7 +1634,8 @@ fn leftover_buildable_hidden(
 }
 
 fn leftover_player_is_computer(player_id: u32) -> bool {
-    let Some(list) = logic_player_list().read().ok() else {
+    let list_arc = logic_player_list();
+    let Some(list) = list_arc.read().ok() else {
         return false;
     };
     let Some(arc) = list.get_player(player_id as PlayerIndex).cloned() else {

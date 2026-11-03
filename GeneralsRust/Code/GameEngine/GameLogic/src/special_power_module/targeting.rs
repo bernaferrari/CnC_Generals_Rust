@@ -208,8 +208,8 @@ impl TargetValidator {
                 | SpecialPowerFlags::AFFECTS_ENEMY
                 | SpecialPowerFlags::AFFECTS_NEUTRAL,
         ) {
-            let local_player = crate::player::player_list()
-                .read()
+            let __player_list_arc = crate::player::player_list();
+                let local_player = __player_list_arc.read()
                 .ok()
                 .and_then(|list| list.get_local_player().cloned());
             if let Some(local_player) = local_player {

@@ -55,7 +55,8 @@ fn dual_world_registry_unavailable() -> bool {
 const YELLOW_DAMAGE_PERCENT: f32 = 0.25;
 
 fn record_neutral_vehicle_sniped() {
-    let Ok(list) = player_list().read() else {
+    let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
         return;
     };
     let Some(neutral) = list.get_neutral_player() else {

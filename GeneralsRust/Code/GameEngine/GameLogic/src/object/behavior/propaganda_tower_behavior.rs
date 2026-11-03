@@ -316,8 +316,8 @@ impl PropagandaTowerBehavior {
             return false;
         }
 
-        let local_player = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let local_player = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_local_player().cloned());
         let controlling_player = tower.get_controlling_player();
@@ -598,8 +598,8 @@ impl BehaviorModuleInterface for PropagandaTowerBehavior {
         _old_owner: Option<&Arc<RwLock<Player>>>,
         new_owner: Option<&Arc<RwLock<Player>>>,
     ) {
-        let neutral_player = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let neutral_player = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_neutral_player());
         let is_neutral = match (&new_owner, &neutral_player) {

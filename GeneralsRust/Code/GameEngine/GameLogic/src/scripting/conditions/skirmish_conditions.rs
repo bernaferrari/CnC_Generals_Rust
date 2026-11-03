@@ -41,7 +41,8 @@ where
     let Some(partition) = ThePartitionManager::get() else {
         return false;
     };
-    let Ok(players) = player_list().read() else {
+    let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
         return false;
     };
     let player_index = player.get_player_index();
@@ -112,7 +113,8 @@ fn is_player_recently_under_attack(player: &crate::player::Player, window_frames
         return true;
     }
 
-    let Ok(players) = player_list().read() else {
+    let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
         return false;
     };
     for (index, player_arc) in players.iter().enumerate() {
@@ -207,9 +209,10 @@ impl ScriptCondition for SkirmishSpecialPowerReadyCondition {
             .read()
             .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
 
-        let Some(store) = get_special_power_store() else {
+        let Some(__sp_store_arc) = get_special_power_store() else {
             return Ok(false);
         };
+        let Ok(store) = __sp_store_arc.read() else { return Ok(false); };
         let Some(template) = store.find_special_power_template(power_name.as_str()) else {
             return Ok(false);
         };
@@ -267,9 +270,10 @@ impl ScriptCondition for SkirmishSpecialPowerReadyFromNamedCondition {
             .read()
             .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
 
-        let Some(store) = get_special_power_store() else {
+        let Some(__sp_store_arc) = get_special_power_store() else {
             return Ok(false);
         };
+        let Ok(store) = __sp_store_arc.read() else { return Ok(false); };
         let Some(template) = store.find_special_power_template(power_name.as_str()) else {
             return Ok(false);
         };

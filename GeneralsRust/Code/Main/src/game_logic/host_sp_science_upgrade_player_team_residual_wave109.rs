@@ -959,7 +959,9 @@ pub fn sync_host_science_to_crate_player(player_id: u32, science_name: &str) -> 
     if science == game_engine::common::rts::SCIENCE_INVALID {
         return false;
     }
-    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+    let __arc_bind = gamelogic::player::ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         return false;
     };
     let player_arc = list
@@ -978,7 +980,9 @@ pub fn sync_host_science_to_crate_player(player_id: u32, science_name: &str) -> 
 
 /// Mirror host SPP onto crate Player so ControlBar remaining-points matches.
 pub fn sync_host_spp_to_crate_player(player_id: u32, spp: i32) -> bool {
-    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+    let __arc_bind = gamelogic::player::ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         return false;
     };
     let player_arc = list
@@ -1011,7 +1015,9 @@ pub fn leftover_science_hidden_or_disabled(player_id: u32, science_name: &str) -
     if science == game_engine::common::rts::SCIENCE_INVALID {
         return false;
     }
-    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+    let __arc_bind = gamelogic::player::ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         return false;
     };
     let Some(player_arc) = list
