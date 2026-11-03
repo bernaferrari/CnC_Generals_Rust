@@ -429,7 +429,7 @@ impl GameLogic {
         });
 
         // Pull fresh radar updates from GameLogic (typed) and turn them into HUD/radar pings.
-        for update in radar_notifier::drain() {
+        for update in radar_notifier::drain_on(&self.world_services) {
             let pos_world = Vec3::new(update.position.0, 0.0, update.position.1);
             match update.event_type {
                 RadarEventType::BaseAttacked => {

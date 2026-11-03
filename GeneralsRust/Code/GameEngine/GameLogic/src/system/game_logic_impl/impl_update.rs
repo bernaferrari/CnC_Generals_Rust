@@ -607,7 +607,11 @@ impl GameLogic {
     /// client/UI layers can trigger minimap and EVA feedback.
     fn process_radar_updates(&mut self) {
         for update in self.radar_updates.drain(..) {
-            radar_notifier::push(&update);
+            // Prefer the driving EngineStores/WorldServices (hq-spb88j): never
+            // require a whole-operation with_world_services publish to fan out.
+            if let Some(owner) = self.pathfinding_owner.as_ref() {
+                radar_notifier::push_on(owner.services(), &update);
+            }
             self.event_queue.push(GameEvent::RadarUpdate {
                 player_id: update.player_id,
                 position: update.position,
