@@ -931,6 +931,16 @@ pub async fn run_cnc_game(
                             return Ok(());
                         }
                         next_redraw_at = now + STARTUP_POLL_INTERVAL;
+                    } else if matches!(
+                        engine.startup_load_state,
+                        super::StartupLoadState::InProgress { .. }
+                    ) {
+                        // macOS often stops delivering AboutToWait after
+                        // WM_KILLFOCUS; keep polling the startup worker so
+                        // gpui/bench hosts leave Loading assets.
+                        drive_frame(engine, current_window, &mut runtime_host_bridge, false)?;
+                        next_redraw_at = now + STARTUP_POLL_INTERVAL;
+                        current_window.request_redraw();
                     } else if runtime_window_suspended {
                         if should_keep_logic_running_while_iconic(
                             // Prefer presentation game_mode residual when installed.
