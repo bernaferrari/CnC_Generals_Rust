@@ -114,11 +114,17 @@ impl Team {
     }
 
     fn object_did_enter(object_id: ObjectID, trigger: &PolygonTrigger) -> bool {
-        Self::object_did_enter_in_registry(OBJECT_REGISTRY, object_id, trigger)
+        Self::object_did_enter_in_registry(
+            crate::system::engine_stores::active_services()
+                .object_registry()
+                .as_ref(),
+            object_id,
+            trigger,
+        )
     }
 
     fn object_did_enter_in_registry(
-        registry: crate::object::registry::ObjectRegistryGlobal,
+        registry: &crate::object::registry::ObjectRegistry,
         object_id: ObjectID,
         trigger: &PolygonTrigger,
     ) -> bool {
@@ -128,11 +134,17 @@ impl Team {
     }
 
     fn object_did_exit(object_id: ObjectID, trigger: &PolygonTrigger) -> bool {
-        Self::object_did_exit_in_registry(OBJECT_REGISTRY, object_id, trigger)
+        Self::object_did_exit_in_registry(
+            crate::system::engine_stores::active_services()
+                .object_registry()
+                .as_ref(),
+            object_id,
+            trigger,
+        )
     }
 
     fn object_did_exit_in_registry(
-        registry: crate::object::registry::ObjectRegistryGlobal,
+        registry: &crate::object::registry::ObjectRegistry,
         object_id: ObjectID,
         trigger: &PolygonTrigger,
     ) -> bool {

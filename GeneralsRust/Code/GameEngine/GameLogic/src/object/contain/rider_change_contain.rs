@@ -1949,10 +1949,11 @@ impl Snapshotable for RiderChangeContain {
 
 impl ContainModuleInterface for RiderChangeContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
             return self.is_valid_container_for(&*obj_guard, true);
-        });
-        false
+            })
+            .unwrap_or(false)
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
