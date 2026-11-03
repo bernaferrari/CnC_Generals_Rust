@@ -1,32 +1,25 @@
 //! Lightweight radar update fan-out.
 //!
-//! GameLogic pushes radar updates onto the active world's queue; UI/network
-//! layers drain them later without reaching into the `GameLogic` instance.
-//! Matches the C++ "game logic produces, client consumes" model without a
-//! process-wide queue.
+//! GameLogic pushes radar updates onto a world's queue; UI/network layers drain
+//! them later without reaching into the `GameLogic` instance. Matches the C++
+//! "game logic produces, client consumes" model without a process-wide queue.
 
 use super::game_logic::RadarUpdate;
-use crate::system::engine_stores::active_services;
+use crate::system::engine_stores::{active_services, WorldServices};
+use std::sync::Arc;
 
-/// Push a radar update for later consumption by the client/HUD.
-///
-/// C++ `Object::attemptDamage` calls `TheRadar->tryUnderAttackEvent(this)`
-/// directly (Object.cpp:1854); the engine damage path does the same through
-/// `TheRadar::try_under_attack_event_for_object`, so the under-attack ping and
-/// its per-kind message/audio/EVA fire there, gated on the throttled event
-/// actually being created (Radar.cpp:1155-1224). This queue stays for the
-/// remaining typed radar updates (beacons, unit created/destroyed, ...).
-pub fn push(update: &RadarUpdate) {
-    active_services()
+/// Push a radar update onto `services` for later client/HUD consumption.
+pub fn push_on(services: &Arc<WorldServices>, update: &RadarUpdate) {
+    services
         .radar_updates()
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .push_back(update.clone());
 }
 
-/// Drain all pending radar updates for the active world.
-pub fn drain() -> Vec<RadarUpdate> {
-    active_services()
+/// Drain all pending radar updates from `services`.
+pub fn drain_on(services: &Arc<WorldServices>) -> Vec<RadarUpdate> {
+    services
         .radar_updates()
         .lock()
         .unwrap_or_else(|p| p.into_inner())
@@ -34,10 +27,20 @@ pub fn drain() -> Vec<RadarUpdate> {
         .collect()
 }
 
+/// Push a radar update for the currently published world (legacy free-fn bridge).
+pub fn push(update: &RadarUpdate) {
+    push_on(&active_services(), update);
+}
+
+/// Drain pending radar updates for the currently published world.
+pub fn drain() -> Vec<RadarUpdate> {
+    drain_on(&active_services())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::system::engine_stores::{new_world_services, with_world_services};
+    use crate::system::engine_stores::new_world_services;
     use crate::system::game_logic::{RadarEventType, RadarUpdate};
     use std::sync::{Arc, Barrier, Mutex};
     use std::thread;
@@ -52,6 +55,8 @@ mod tests {
 
     #[test]
     fn parallel_worlds_keep_independent_radar_queues() {
+        // Owned path: no with_world_services / TLS binder — each thread holds
+        // its Arc<WorldServices> and calls push_on/drain_on directly.
         let barrier = Arc::new(Barrier::new(2));
         let results = Arc::new(Mutex::new(Vec::new()));
         let mut handles = Vec::new();
@@ -60,13 +65,11 @@ mod tests {
             let results = Arc::clone(&results);
             handles.push(thread::spawn(move || {
                 let services = new_world_services();
-                with_world_services(&services, || {
-                    barrier.wait();
-                    push(&sample(seed));
-                    barrier.wait();
-                    let drained = drain();
-                    results.lock().unwrap().push((seed, drained));
-                });
+                barrier.wait();
+                push_on(&services, &sample(seed));
+                barrier.wait();
+                let drained = drain_on(&services);
+                results.lock().unwrap().push((seed, drained));
             }));
         }
         for h in handles {
