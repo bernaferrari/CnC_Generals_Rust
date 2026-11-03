@@ -1380,6 +1380,9 @@ impl Object {
             incoming,
             previous,
         );
+        // Weapon.cpp sets m_sourcePlayerMask before projectile→launcher rewrite.
+        // Refresh every impact so Object.cpp radar gating never re-reads sourceID.
+        self.last_damage_source_player_mask = context.source_player_mask();
     }
 
     fn stamp_last_damage_cpp_with_observations(

@@ -10,6 +10,8 @@ mod camera_admission;
 mod camera_player_defaults;
 mod camera_player_input;
 mod eva_camera;
+#[cfg(test)]
+mod projectile_radar_mask_tests;
 mod helix_radar;
 pub(crate) use helix_radar::StickyBombInitPosition;
 mod instant_build_completion;

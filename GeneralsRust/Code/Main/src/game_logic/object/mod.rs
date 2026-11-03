@@ -2855,6 +2855,10 @@ pub struct Object {
     /// Set when damage is applied with a known attacker id.
     #[serde(default)]
     pub last_damage_source: Option<ObjectId>,
+    /// C++ DamageInfoInput::m_sourcePlayerMask captured at impact. For
+    /// projectile radius hits this is the projectile controller mask and must
+    /// stay independent of a later launcher rewrite of last_damage_source.
+    pub last_damage_source_player_mask: u32,
     /// C++ ActiveBody::m_lastDamageCleared; does not erase last DamageInfo.
     #[serde(default)]
     pub(crate) last_damage_cleared: bool,

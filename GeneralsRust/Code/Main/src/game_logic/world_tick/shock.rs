@@ -722,6 +722,11 @@ impl GameLogic {
                     weapon_name,
                     damage_type,
                     native_rule.as_deref(),
+                )
+                .with_source_player_mask(
+                    attacker_owner
+                        .map(|pid| 1u32 << pid.min(31))
+                        .unwrap_or(0),
                 );
                 // C++ Weapon::dealDamageInternal completes each attemptDamage:
                 // body callbacks -> scoreTheKill -> onDie -> fresh-source FX.
@@ -1015,6 +1020,11 @@ impl GameLogic {
                     weapon_name,
                     damage_type,
                     native_rule.as_deref(),
+                )
+                .with_source_player_mask(
+                    attacker_owner
+                        .map(|pid| 1u32 << pid.min(31))
+                        .unwrap_or(0),
                 );
                 // C++ Weapon::dealDamageInternal completes each attemptDamage:
                 // body callbacks -> scoreTheKill -> onDie -> fresh-source FX.

@@ -47,6 +47,8 @@ impl LastDamageSourceObservation {
 pub(crate) struct DamageHitContext<'a> {
     source: Option<HostDamageFxVictim>,
     status: Option<ObjectStatusTypes>,
+    /// C++ DamageInfoInput::m_sourcePlayerMask for this impact.
+    source_player_mask: u32,
     // C++ DamageInfoInput::m_kill: an input to this one body operation.
     kill: bool,
     // Object::attemptHealing bypasses attemptDamage admission, not Body math.
@@ -72,6 +74,7 @@ impl<'a> DamageHitContext<'a> {
             healing_entry: false,
             owned_hive_body: false,
             shock_wave_force: None,
+            source_player_mask: 0,
             neutral_player_id: None,
             incoming_history: LastDamageSourceObservation::observe(source),
             previous_history: LastDamageSourceObservation::default(),
@@ -145,6 +148,15 @@ impl<'a> DamageHitContext<'a> {
     pub(crate) fn with_shock_wave_force(mut self, force: Option<glam::Vec3>) -> Self {
         self.shock_wave_force = force;
         self
+    }
+
+    pub(crate) fn with_source_player_mask(mut self, mask: u32) -> Self {
+        self.source_player_mask = mask;
+        self
+    }
+
+    pub(crate) fn source_player_mask(&self) -> u32 {
+        self.source_player_mask
     }
 
     pub(crate) fn shock_wave_force(&self) -> Option<glam::Vec3> {

@@ -1865,11 +1865,17 @@ impl GameLogic {
             damage_type,
             death_type,
             radius_weapon_name,
+            shooter_owner_player_id,
             ..
         } = event
         else {
             return;
         };
+        // Weapon.cpp:1434 — mask from the live source (projectile controller
+        // for moving detonations) before sourceID may become the launcher.
+        let source_player_mask = shooter_owner_player_id
+            .map(|pid| 1u32 << pid.min(31))
+            .unwrap_or(0);
         let (radius_damage_angle, damage_at_self) = if radius_weapon_name.is_empty() {
             (std::f32::consts::PI, false)
         } else if let Some(definitions) = &self.weapon_definitions {
@@ -1914,7 +1920,8 @@ impl GameLogic {
             let result = if damage > 0.0 {
                 let context =
                     DamageHitContext::new(self.objects.get(shooter_id), None, *damage_type)
-                        .with_shock_wave_force(shock);
+                        .with_shock_wave_force(shock)
+                        .with_source_player_mask(source_player_mask);
                 self.apply_owned_damage_with_effects(
                     victim_id,
                     damage,

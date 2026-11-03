@@ -362,12 +362,20 @@ impl GameLogic {
             return false;
         }
         // C++ !BitTest(sourcePlayerMask, victim controller mask).
+        // Prefer the captured impact mask (projectile controller) over a
+        // rewritten last_damage_source owner (launcher after Weapon.cpp:1457).
         let victim_owner = self.player_owner_for_host_object(obj);
-        if let Some(src_id) = obj.last_damage_source {
-            if let Some(src) = self.objects.get(&src_id) {
-                if victim_owner.is_some() && self.player_owner_for_host_object(src) == victim_owner
-                {
+        if let Some(victim_pid) = victim_owner {
+            let victim_mask = 1u32 << victim_pid.min(31);
+            if obj.last_damage_source_player_mask != 0 {
+                if (obj.last_damage_source_player_mask & victim_mask) != 0 {
                     return false;
+                }
+            } else if let Some(src_id) = obj.last_damage_source {
+                if let Some(src) = self.objects.get(&src_id) {
+                    if self.player_owner_for_host_object(src) == Some(victim_pid) {
+                        return false;
+                    }
                 }
             }
         }

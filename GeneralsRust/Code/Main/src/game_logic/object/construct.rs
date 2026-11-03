@@ -1149,6 +1149,7 @@ impl Object {
             ai_attitude: 0, // HostAiAttitude::Normal
             repulsor_until_frame: 0,
             last_damage_source: None,
+            last_damage_source_player_mask: 0,
             last_damage_cleared: false,
             last_damage_timestamp: None,
             last_healing_timestamp: None,
@@ -2104,6 +2105,7 @@ impl Object {
             ai_attitude: 0, // HostAiAttitude::Normal
             repulsor_until_frame: 0,
             last_damage_source: None,
+            last_damage_source_player_mask: 0,
             last_damage_cleared: false,
             last_damage_timestamp: None,
             last_healing_timestamp: None,
