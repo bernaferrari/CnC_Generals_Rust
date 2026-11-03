@@ -93,8 +93,13 @@ fn safe_query_does_not_inherit_another_movers_footprint() {
         "the receiving peer resolves its own mover"
     );
     let builder = generals_main::save_load::SnapshotBuilder::new();
-    let snapshot = builder.create_world_snapshot(&world).unwrap();
-    builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
+    let services = gamelogic::system::engine_stores::new_world_services();
+    let snapshot = gamelogic::system::engine_stores::with_world_services(&services, || {
+        builder.create_world_snapshot(&world).unwrap()
+    });
+    gamelogic::system::engine_stores::with_world_services(&services, || {
+        builder.restore_from_snapshot(&snapshot, &mut peer).unwrap();
+    });
     seed(&peer, &mut peer_finder, peer_large, &ground);
     assert_eq!(
         flee(&peer, &mut peer_finder, peer_small, &ground),
@@ -389,7 +394,10 @@ fn safe_wrapper_observes_controller_changes_between_same_frame_queries() {
         "computer can leave human extent"
     );
     let builder = generals_main::save_load::SnapshotBuilder::new();
-    let snapshot = builder.create_world_snapshot(&world).unwrap();
+    let services = gamelogic::system::engine_stores::new_world_services();
+    let snapshot = gamelogic::system::engine_stores::with_world_services(&services, || {
+        builder.create_world_snapshot(&world).unwrap()
+    });
     let (mut peer, _, peer_mover) = make_world();
     assert_eq!(mover, peer_mover);
     peer.get_player_mut(0).unwrap().is_human = false;
@@ -406,9 +414,9 @@ fn safe_wrapper_observes_controller_changes_between_same_frame_queries() {
         query(&mut peer_finder, &peer).is_some(),
         "same-ID peer keeps its own computer controller"
     );
-    builder
-        .restore_from_snapshot(&snapshot, &mut world)
-        .unwrap();
+    gamelogic::system::engine_stores::with_world_services(&services, || {
+        builder.restore_from_snapshot(&snapshot, &mut world).unwrap();
+    });
     assert!(
         query(&mut finder, &world).is_some(),
         "restoration is visible without another frame"

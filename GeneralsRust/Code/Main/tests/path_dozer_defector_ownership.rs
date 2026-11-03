@@ -53,6 +53,9 @@ fn crosses_wall(world: &GameLogic, finder: &mut PathfindingSystem, mover: Object
 
 #[test]
 fn dozer_obstacle_relationship_uses_current_defector_objects_per_world() {
+    // GameLogic::new uninstalls WorldServices; transfer/snapshot need a bind.
+    let services = gamelogic::system::engine_stores::new_world_services();
+    gamelogic::system::engine_stores::with_world_services(&services, || {
     let (mut world, mut finder, mover, wall) = world_and_finder();
     let (mut peer, mut peer_finder, peer_mover, peer_wall) = world_and_finder();
     assert_eq!((mover, wall), (peer_mover, peer_wall));
@@ -121,4 +124,5 @@ fn dozer_obstacle_relationship_uses_current_defector_objects_per_world() {
         !crosses_wall(&world, &mut finder, mover),
         "a stale obstacle ID cannot grant the dozer exception"
     );
+    });
 }
