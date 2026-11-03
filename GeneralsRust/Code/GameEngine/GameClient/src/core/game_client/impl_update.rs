@@ -2684,6 +2684,48 @@ impl GameClient {
         if !self.should_activate_shell_after_startup() {
             return Ok(());
         }
+        // Standalone/Core update and unit tests call with None; admit authored
+        // GlobalData shell-map settings (same as init_display_subsystems) and
+        // synthesize MenuWorldFacts from ambient GameLogic so request_shell_map
+        // can queue NewGame the way C++ Shell::showShellMap does.
+        // Refresh when the caller omitted MenuWorldFacts so flipped test/global
+        // shell_map_on bits are visible (C++ rereads TheGlobalData each show).
+        if !self.menu_host.shell_map_is_configured() || menu_world.is_none() {
+            if let Some(global) = get_global_data() {
+                let definitions = global.read();
+                self.menu_host.configure_shell_map(
+                    crate::gui::campaign_launch_host_bridge::ShellMapSettings {
+                        initial_file: definitions.initial_file.clone(),
+                        enabled: definitions.shell_map_on,
+                        map: definitions.shell_map_name.clone(),
+                    },
+                );
+            }
+        }
+        let menu_world = Some(menu_world.unwrap_or_else(|| {
+            // C++ GameLogic::isInGame(): any mode other than GAME_NONE.
+            let (in_game, in_shell_game, game_mode, logic_frame) =
+                if let Ok(logic) = gamelogic::system::game_logic::get_game_logic().lock() {
+                    let mode = logic.get_game_mode();
+                    (
+                        mode != gamelogic::system::game_logic::GAME_NONE,
+                        mode == gamelogic::system::game_logic::GAME_SHELL,
+                        mode,
+                        logic.get_frame(),
+                    )
+                } else {
+                    (false, false, gamelogic::system::game_logic::GAME_NONE, 0)
+                };
+            crate::gui::campaign_launch_host_bridge::MenuWorldFacts {
+                script_engine_available: false,
+                chat: None,
+                game_mode,
+                client_frame: self.frame,
+                logic_frame,
+                in_game,
+                in_shell_game,
+            }
+        }));
         self.with_receiving_shell(menu_world, |shell, effects| {
             let needs_screen = shell.get_screen_count() == 0 && !shell.is_shell_map_on();
             if needs_screen || !shell.is_shell_active() {

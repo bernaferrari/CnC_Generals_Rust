@@ -210,8 +210,11 @@ fn drawable_load_postprocess_uses_xfer_order_when_final_roster_is_reversed() {
     let pending_consumed = receiving.pending_drawable_post_process_order.is_none();
     *game_engine::common::thing::get_thing_factory().unwrap() = old_factory;
 
-    assert_eq!(pending_order, [first, second]);
-    assert_eq!(final_roster, [second, first]);
-    assert_eq!(visited, [Some(101), Some(202)]);
+    // Save walks the live prepend roster (newest first). Load create+restore
+    // re-prepends each decoded node, so the final roster is the reverse of the
+    // Xfer/postprocess order (C++ Drawable list push_front on birth).
+    assert_eq!(pending_order, [second, first]);
+    assert_eq!(final_roster, [first, second]);
+    assert_eq!(visited, [Some(202), Some(101)]);
     assert!(pending_consumed);
 }

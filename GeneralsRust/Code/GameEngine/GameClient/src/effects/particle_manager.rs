@@ -454,9 +454,15 @@ impl ParticleSystemManager {
             std::path::PathBuf::from("Data/INI/ParticleSystem.ini"),
             std::path::PathBuf::from("windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
             std::path::PathBuf::from("../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+            std::path::PathBuf::from("../../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+            std::path::PathBuf::from("../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+            std::path::PathBuf::from("../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
         ];
         if let Ok(root) = std::env::var("GENERALS_ASSETS_DIR") {
-            candidates.push(std::path::PathBuf::from(root).join("Data/INI/ParticleSystem.ini"));
+            let root = std::path::PathBuf::from(root);
+            candidates.push(root.join("Data/INI/ParticleSystem.ini"));
+            // Retail install env often lacks loose INI; sibling extracted BIG does.
+            candidates.push(root.join("../extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"));
         }
         let mut last_error = None;
         for path in candidates {

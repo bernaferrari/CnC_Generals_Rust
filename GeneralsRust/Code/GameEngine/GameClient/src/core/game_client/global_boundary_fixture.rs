@@ -5,22 +5,50 @@
 use std::path::{Path, PathBuf};
 #[cfg(not(target_arch = "wasm32"))]
 fn ensure_retail_assets_env() {
-    if std::env::var_os("GENERALS_ASSETS_DIR").is_some()
-        || std::env::var_os("GENERALS_RETAIL_DIR").is_some()
-    {
-        return;
+    // Prefer a root that actually has loose ParticleSystem.ini (extracted BIG).
+    // A pre-set GENERALS_ASSETS_DIR pointing at a retail install without INI is
+    // not sufficient for particle/FX admission tests.
+    let particle_rel = Path::new("Data/INI/ParticleSystem.ini");
+    if let Ok(root) = std::env::var("GENERALS_ASSETS_DIR") {
+        if Path::new(&root).join(particle_rel).is_file() {
+            return;
+        }
     }
     let candidates = [
+        PathBuf::from("windows_game/extracted_big_files_v2/INIZH"),
+        PathBuf::from("../windows_game/extracted_big_files_v2/INIZH"),
+        PathBuf::from("../../windows_game/extracted_big_files_v2/INIZH"),
+        PathBuf::from("../../../windows_game/extracted_big_files_v2/INIZH"),
+        PathBuf::from("../../../../windows_game/extracted_big_files_v2/INIZH"),
+        PathBuf::from(
+            "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/windows_game/extracted_big_files_v2/INIZH",
+        ),
         PathBuf::from("windows_game/Command & Conquer Generals Zero Hour"),
         PathBuf::from("../windows_game/Command & Conquer Generals Zero Hour"),
         PathBuf::from("../../windows_game/Command & Conquer Generals Zero Hour"),
+        PathBuf::from("../../../../windows_game/Command & Conquer Generals Zero Hour"),
         PathBuf::from(
             "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/windows_game/Command & Conquer Generals Zero Hour",
         ),
     ];
-    for path in candidates {
-        if path.is_dir() {
+    for path in &candidates {
+        if path.join(particle_rel).is_file() || path.is_dir() {
+            // Prefer the first candidate that carries ParticleSystem.ini; else
+            // keep searching for a dir that does before falling back.
+            if !path.join(particle_rel).is_file() {
+                continue;
+            }
             // SAFETY: test-only env seed before child spawn / ambient host.
+            unsafe {
+                std::env::set_var("GENERALS_ASSETS_DIR", &path);
+                std::env::set_var("GENERALS_RETAIL_DIR", &path);
+            }
+            return;
+        }
+    }
+    // Last resort: any existing retail/install dir for non-particle probes.
+    for path in &candidates {
+        if path.is_dir() {
             unsafe {
                 std::env::set_var("GENERALS_ASSETS_DIR", &path);
                 std::env::set_var("GENERALS_RETAIL_DIR", &path);
@@ -42,14 +70,29 @@ fn retail_particle_ini_available() -> bool {
             return true;
         }
     }
-    // Extracted BIG layout used by local checkouts.
+    // Extracted BIG layout used by local checkouts. Cargo --lib cwd is the
+    // GameClient package dir, so walk up to GeneralsRust/windows_game as well.
     for path in [
         Path::new("windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
         Path::new("../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+        Path::new("../../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+        Path::new("../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+        Path::new("../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
         Path::new("/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
     ] {
         if path.is_file() {
             return true;
+        }
+    }
+    if let Ok(root) = std::env::var("GENERALS_ASSETS_DIR") {
+        let root = Path::new(&root);
+        for candidate in [
+            root.join("../extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+            root.join("../../extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+        ] {
+            if candidate.is_file() {
+                return true;
+            }
         }
     }
     false
@@ -85,12 +128,18 @@ pub(crate) fn run_in_private_child(module: &str, name: &str) -> bool {
     }
     ensure_retail_assets_env();
     let parent_cwd = std::env::current_dir().expect("parent cwd");
-    let mut child = std::process::Command::new(std::env::current_exe().expect("test executable"))
+    let mut child_cmd = std::process::Command::new(std::env::current_exe().expect("test executable"));
+    child_cmd
         .args(["--exact", &exact, "--test-threads=1", "--nocapture"])
         .env(MARKER, &exact)
         .current_dir(&parent_cwd)
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    if let Ok(assets) = std::env::var("GENERALS_ASSETS_DIR") {
+        child_cmd.env("GENERALS_ASSETS_DIR", &assets);
+        child_cmd.env("GENERALS_RETAIL_DIR", &assets);
+    }
+    let mut child = child_cmd
         .spawn()
         .expect("isolated compatibility test child");
     // Each reader owns its pipe; output cannot fill a pipe and look like a

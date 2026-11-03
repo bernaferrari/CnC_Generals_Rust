@@ -105,12 +105,23 @@ impl ShellHandle {
     }
 
     pub fn set_shell_active(&mut self, active: bool) {
-        if let Some(owner) = self.owner() {
+        let Some(owner) = self.owner() else {
+            log::warn!("Shell activation has no receiving WindowManagerOwner; ignored");
+            return;
+        };
+        // Prefer an immediate write when the Shell loan is free. Queueing alone
+        // left is_shell_active() reading the pre-queue value (default true), so
+        // tests/host that clear activity before a presentation prefix saw a stale
+        // active shell (C++ Shell::showShell/hideShell mutate in place).
+        if owner
+            .with_shell_mut(|shell| {
+                shell.set_shell_active(active);
+            })
+            .is_none()
+        {
             owner.queue_shell_operation_with_effects(move |shell, _effects| {
                 shell.set_shell_active(active)
             });
-        } else {
-            log::warn!("Shell activation has no receiving WindowManagerOwner; ignored");
         }
     }
 

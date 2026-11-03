@@ -1750,11 +1750,13 @@ impl GameClient {
         let display = &mut self.script_display;
         let videos = &mut self.window_videos;
         let ime = &mut self.ime;
-        let ui = self.subsystem_manager.in_game_ui.as_mut().ok_or_else(|| {
-            GameClientError::SubsystemError(
-                "message translation requires receiving InGameUI".into(),
-            )
-        })?;
+        // C++ TheInGameUI is always present for message translation. Presentation
+        // shell tests and partial init mark `initialized` without full subsystem
+        // init; admit a default owner rather than failing the pump.
+        let ui = self
+            .subsystem_manager
+            .in_game_ui
+            .get_or_insert_with(crate::core::subsystems::InGameUISubsystem::default);
         let mut mouse = self.subsystem_manager.input_mouse.as_mut();
         let mut dispatch = |request,
                             emitted: &mut Vec<GameMessage>,

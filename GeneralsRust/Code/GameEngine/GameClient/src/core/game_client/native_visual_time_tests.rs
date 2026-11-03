@@ -373,8 +373,16 @@ fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() 
     peer.drawables
         .admit_native_drawable(id, Box::new(peer_selected));
     crate::display::view::with_tactical_view(|view| view.set_position(&Point3::new(10., 20., 0.)));
+    // Tracking is owned per receiving InGameUI (not the throwaway with_receiving_ui).
+    for client in [&mut owner, &mut peer, &mut empty] {
+        let mut tracking_ui = crate::core::subsystems::InGameUISubsystem::default();
+        tracking_ui.set_camera_tracking_drawable(true);
+        client.set_in_game_ui_subsystem(tracking_ui);
+    }
     ui.set_camera_tracking_drawable(true);
-    assert!(ui.is_camera_tracking_drawable());
+    assert!(owner
+        .in_game_ui_subsystem()
+        .is_some_and(|ui| ui.is_camera_tracking_drawable()));
     let position = || {
         crate::display::view::with_tactical_view_ref(|view| {
             let p = view.position();
@@ -396,18 +404,22 @@ fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() 
             before,
             "native prefix must not follow foreign Core drawable selection"
         );
-        assert!(
-            ui.is_camera_tracking_drawable(),
-            "native empty peer must not clear foreign tracking"
-        );
     }
+    assert!(
+        owner
+            .in_game_ui_subsystem()
+            .is_some_and(|ui| ui.is_camera_tracking_drawable()),
+        "native empty peer must not clear foreign tracking"
+    );
     owner.update_camera_tracking_drawable();
     assert_ne!(
         position(),
         before,
         "retained standalone adapter still follows installed selection"
     );
-    assert!(ui.is_camera_tracking_drawable());
+    assert!(owner
+        .in_game_ui_subsystem()
+        .is_some_and(|ui| ui.is_camera_tracking_drawable()));
     let owner_position = position();
     peer.update_camera_tracking_drawable();
     assert_ne!(
@@ -415,10 +427,14 @@ fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() 
         owner_position,
         "same ID resolves the standalone receiving Client's drawable"
     );
-    assert!(ui.is_camera_tracking_drawable());
+    assert!(peer
+        .in_game_ui_subsystem()
+        .is_some_and(|ui| ui.is_camera_tracking_drawable()));
     empty.update_camera_tracking_drawable();
     assert!(
-        !ui.is_camera_tracking_drawable(),
+        empty
+            .in_game_ui_subsystem()
+            .is_some_and(|ui| !ui.is_camera_tracking_drawable()),
         "standalone empty selection retains original clear"
     );
         });
@@ -536,19 +552,28 @@ fn native_presentation_prefix_does_not_reactivate_hidden_shell_or_replace_match(
         assert_eq!(global.read().pending_file, "receiving-match.map");
     }
     // Explicit Menu admission remains available; do not suppress valid Shell starts.
+    a.message_stream_mut().clear_messages();
     a.ensure_shell_visible(None).unwrap();
-    let stream = THE_MESSAGE_STREAM.read().unwrap();
-    assert_eq!(
-        stream
-            .get_messages()
-            .iter()
-            .filter(|message| matches!(
+    let new_games: Vec<_> = a
+        .message_stream()
+        .get_messages()
+        .iter()
+        .filter(|message| {
+            matches!(
                 message.get_type(),
                 crate::message_stream::GameMessageType::NewGame
-            ))
-            .count(),
-        1
+            )
+        })
+        .collect();
+    assert_eq!(new_games.len(), 1);
+    assert_eq!(
+        new_games[0]
+            .shell_map_launch()
+            .map(|launch| launch.map.as_str()),
+        Some("Maps\\ShellMap\\ShellMap.map"),
+        "shell map path rides on owned NewGame, not writable GlobalData"
     );
     assert!(a.window_manager_owner().shell_handle().is_shell_active());
-    assert_eq!(global.read().pending_file, "Maps\\ShellMap\\ShellMap.map");
+    // Peer match pending_file must stay untouched (message carries the map).
+    assert_eq!(global.read().pending_file, "receiving-match.map");
 }
