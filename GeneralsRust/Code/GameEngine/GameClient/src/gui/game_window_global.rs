@@ -835,7 +835,7 @@ impl WindowManager {
     pub fn win_font_height(&self, font: &GameFont) -> i32 {
         // C++ winFontHeight returns GameFont::height — the glyph atlas cell
         // (Get_Char_Height, W3DGameFont.cpp:71), not the point size.
-        super::font::get_font_library()
+        super::font::get_font_library().lock().unwrap_or_else(|e| e.into_inner())
             .get_font(&font.to_font_desc())
             .map(|resolved| resolved.height)
             .unwrap_or_else(|_| super::font::font_pixel_size(font.size))
@@ -859,7 +859,7 @@ impl WindowManager {
     /// Find a font by name.
     pub fn win_find_font(&self, font_name: &str, point_size: i32, bold: bool) -> Option<GameFont> {
         let desc = FontDesc::new(font_name, point_size, bold);
-        if get_font_library().get_font(&desc).is_ok() {
+        if get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&desc).is_ok() {
             Some(GameFont {
                 name: font_name.to_string(),
                 size: point_size,
@@ -905,7 +905,7 @@ mod overlay_tests {
 fn create_display_string(font: &GameFont, text: &str, max_width: i32) -> DisplayStringHandle {
     let mut manager = DisplayStringManager::new();
     let mut display = manager.new_display_string();
-    if let Ok(font_ref) = get_font_library().get_font(&font.to_font_desc()) {
+    if let Ok(font_ref) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&font.to_font_desc()) {
         display.borrow_mut().set_font(font_ref);
     }
     display.borrow_mut().set_text(text.to_string());

@@ -152,7 +152,7 @@ impl CreditsManager {
             self.position_font = global.credits_position_font.clone();
             self.normal_font = global.credits_normal_font.clone();
         }
-        if let Ok(font) = get_font_library().get_font(&self.normal_font) {
+        if let Ok(font) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&self.normal_font) {
             self.normal_font_height = font.height;
         }
         Ok(())
@@ -444,8 +444,8 @@ impl CreditsManager {
                 line.color = title_color;
                 if !line.text.is_empty() {
                     let mut display = display_strings.new_display_string();
-                    let font = get_font_library().get_font(title_font).unwrap_or_else(|_| {
-                        get_font_library()
+                    let font = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(title_font).unwrap_or_else(|_| {
+                        get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                             .get_font(normal_font)
                             .expect("Font library not initialized")
                     });
@@ -462,10 +462,10 @@ impl CreditsManager {
                 line.color = position_color;
                 if !line.text.is_empty() {
                     let mut display = display_strings.new_display_string();
-                    let font = get_font_library()
+                    let font = get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                         .get_font(position_font)
                         .unwrap_or_else(|_| {
-                            get_font_library()
+                            get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                                 .get_font(normal_font)
                                 .expect("Font library not initialized")
                         });
@@ -482,7 +482,7 @@ impl CreditsManager {
                 line.color = normal_color;
                 if !line.text.is_empty() {
                     let mut display = display_strings.new_display_string();
-                    let font = get_font_library()
+                    let font = get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                         .get_font(normal_font)
                         .expect("Font library not initialized");
                     display.borrow_mut().set_font(font);
@@ -498,7 +498,7 @@ impl CreditsManager {
                 line.color = normal_color;
                 if !line.text.is_empty() {
                     let mut display = display_strings.new_display_string();
-                    let font = get_font_library()
+                    let font = get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                         .get_font(normal_font)
                         .expect("Font library not initialized");
                     display.borrow_mut().set_font(font);
@@ -511,7 +511,7 @@ impl CreditsManager {
                 }
                 if line.use_second && !line.second_text.is_empty() {
                     let mut display = display_strings.new_display_string();
-                    let font = get_font_library()
+                    let font = get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                         .get_font(normal_font)
                         .expect("Font library not initialized");
                     display.borrow_mut().set_font(font);

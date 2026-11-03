@@ -74,7 +74,7 @@ pub fn ime_candidate_text_area_draw(
     });
 
     let font_desc = window.get_font().map(|font| font.to_font_desc());
-    let font = font_desc.and_then(|desc| get_font_library().get_font(&desc).ok());
+    let font = font_desc.and_then(|desc| get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&desc).ok());
     let Some(font) = font else {
         return;
     };

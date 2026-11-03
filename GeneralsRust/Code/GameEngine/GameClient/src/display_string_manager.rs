@@ -51,7 +51,7 @@ fn draw_group_font() -> Option<std::sync::Arc<crate::gui::font::GameFont>> {
         .read()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let desc = FontDesc::new(&info.font_name, info.font_size, info.font_is_bold);
-    get_font_library().get_font(&desc).ok()
+    get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&desc).ok()
 }
 
 pub fn init_display_string_manager() -> Result<(), Box<dyn std::error::Error>> {

@@ -22,7 +22,7 @@ pub fn w3d_clock_draw(
     crate::gui::game_window::default_draw_callback(window, inst_data, draw_context);
 
     let datestr = Local::now().format("%H:%M:%S").to_string();
-    let font = get_font_library()
+    let font = get_font_library().lock().unwrap_or_else(|e| e.into_inner())
         .get_font(&FontDesc::new("Arial", 16, false))
         .ok();
     let text_width = font

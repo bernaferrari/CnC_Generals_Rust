@@ -77,7 +77,7 @@ impl GameWindow {
                 .font
                 .as_ref()
                 .map(|font| {
-                    crate::gui::font::get_font_library()
+                    crate::gui::font::get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                         .get_font(&font.to_font_desc())
                         .map(|resolved| resolved.height)
                         .unwrap_or_else(|_| crate::gui::font::font_pixel_size(font.size))

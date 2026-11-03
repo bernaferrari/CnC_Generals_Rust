@@ -184,7 +184,7 @@ pub fn in_game_popup_message_init(
             .borrow()
             .get_font()
             .map(|font| font.to_font_desc())
-            .and_then(|font| crate::gui::get_font_library().get_font(&font).ok())
+            .and_then(|font| crate::gui::get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&font).ok())
         {
             display.set_font(font);
         }
