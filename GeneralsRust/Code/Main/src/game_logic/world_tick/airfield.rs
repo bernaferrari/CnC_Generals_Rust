@@ -1154,9 +1154,6 @@ impl GameLogic {
             .is_some_and(|slots| slots.iter().any(|slot| *slot == Some(jet_id)))
     }
 
-    fn jet_is_above_terrain(jet: &Object) -> bool {
-        jet.status.airborne_target || jet.get_position().y > 5.0
-    }
 
     fn sync_airfield_hangar_doors(&mut self, airfield_id: ObjectId) {
         // C++ reserveSpace/releaseSpace/purgeDead: setHoldDoorOpen(ppi->m_door)
@@ -1318,8 +1315,12 @@ impl GameLogic {
             if jet.status.effectively_dead {
                 continue;
             }
-            let takeoff_or_landing = self.jet_holds_airfield_runway(airfield_id, jet_id);
-            if Self::jet_is_above_terrain(jet) && !takeoff_or_landing {
+            // hq-yb52u / C++ ParkingPlaceBehavior.cpp:575-610 — same eligibility as
+            // killAllParkedUnits: Object::isAboveTerrain + JetAI takeoff/landing
+            // flags. Runway reservation alone is not takeoff/landing.
+            let takeoff_or_landing =
+                jet.jet_ai.takeoff_in_progress || jet.jet_ai.landing_in_progress;
+            if jet.is_above_terrain() && !takeoff_or_landing {
                 if jet.owner_player_id != new_owner {
                     release.push(jet_id);
                 }

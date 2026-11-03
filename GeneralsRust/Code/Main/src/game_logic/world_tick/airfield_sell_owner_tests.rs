@@ -592,3 +592,48 @@ fn airfield_producer_receipt_accepts_queued_dead_but_rejects_equal_id_peer_birth
         .insert(rack, peer.host_object(peer_rack).unwrap().clone());
     assert!(!world.airfield_producer_is_current(rack, &birth));
 }
+
+#[test]
+fn defect_parked_units_uses_height_above_ground_and_jet_ai_flags() {
+    // hq-yb52u / C++ ParkingPlaceBehavior.cpp:575-610 — same height + JetAI
+    // takeoff/landing contract as killAllParkedUnits. Runway reservation alone
+    // is not takeoff/landing and must release rather than defect when airborne.
+    for (label, ground, height, takeoff, landing, runway, should_defect) in [
+        ("raised_ground", 12.0, 12.0, false, false, false, true),
+        ("low_airborne", 0.0, 3.0, false, false, false, false),
+        ("airborne_takeoff", 0.0, 20.0, true, false, false, true),
+        ("airborne_landing", 0.0, 20.0, false, true, false, true),
+        ("runway_only", 0.0, 20.0, false, false, true, false),
+    ] {
+        let (mut world, rack) = owner();
+        world.with_own_services_mut(|world| {
+            world.add_player(Player::new(1, Team::China, "ParkingCapturer", true));
+            let destination = world.host_default_team_id(1).expect("capturer team");
+            let id = aircraft(world, INSTANT, ground, height);
+            assert_eq!(world.reserve_airfield_parking_space(rack, id), Some(0));
+            {
+                let object = world.host_object_mut(id).unwrap();
+                object.jet_ai.takeoff_in_progress = takeoff;
+                object.jet_ai.landing_in_progress = landing;
+                assert_eq!(object.is_above_terrain(), height > ground, "{label}");
+                assert_eq!(object.owner_player_id, Some(0), "{label}");
+            }
+            if runway {
+                assert_eq!(world.reserve_airfield_runway(rack, id), Some(0));
+            }
+            world
+                .defect_parked_units_owned(rack, destination, 30)
+                .expect(label);
+            let object = world.host_object(id).unwrap();
+            if should_defect {
+                assert_eq!(object.owner_player_id, Some(1), "{label} must defect");
+            } else {
+                assert_eq!(object.owner_player_id, Some(0), "{label} must not defect");
+                assert!(
+                    !world.airfield_has_reserved_space(rack, id),
+                    "{label} releases parking when airborne without takeoff/landing"
+                );
+            }
+        });
+    }
+}
