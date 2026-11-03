@@ -892,7 +892,7 @@ mod receiving_lod_tests {
             );
             assert_eq!(
                 ww3d_renderer_3d::rendering::texture_quality::texture_reduction(
-                    live_renderer_3d().as_deref().unwrap_or(&__r3d),
+                    super::live_renderer_3d().as_deref().unwrap_or(&__r3d),
                 ),
                 value as u32
             );
