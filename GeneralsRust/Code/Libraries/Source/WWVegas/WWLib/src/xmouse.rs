@@ -30,16 +30,14 @@ pub trait Mouse: Send + Sync {
     fn convert_coordinate(&self, x: &mut i32, y: &mut i32);
 }
 
-pub fn set_mouse_cursor(cursor: Option<Arc<dyn Mouse>>) {
-    let lock = crate::process_state::mouse_slot();
-    *lock.lock().unwrap() = cursor;
+pub fn set_mouse_cursor(runtime: &crate::process_state::WwLibRuntime, cursor: Option<Arc<dyn Mouse>>) {
+    *runtime.mouse.lock().unwrap() = cursor;
 }
 
-pub fn with_mouse_cursor<F, R>(f: F) -> Option<R>
+pub fn with_mouse_cursor<F, R>(runtime: &crate::process_state::WwLibRuntime, f: F) -> Option<R>
 where
     F: FnOnce(&dyn Mouse) -> R,
 {
-    let lock = crate::process_state::mouse_slot();
-    let guard = lock.lock().unwrap();
+    let guard = runtime.mouse.lock().unwrap();
     guard.as_ref().map(|cursor| f(cursor.as_ref()))
 }
