@@ -254,14 +254,8 @@ fn parse_triggered_by(
     data: &mut SubObjectsUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    for token in tokens.iter().skip_while(|t| **t == "=") {
-        if !token.is_empty() {
-            data.upgrade_mux_data
-                .activation_upgrade_names
-                .push(AsciiString::from(*token));
-        }
-    }
-    Ok(())
+    // C++ UpgradeMuxData TriggeredBy uses parseAsciiStringVector (replace).
+    data.upgrade_mux_data.parse_triggered_by_tokens(tokens)
 }
 
 fn parse_conflicts_with(
@@ -269,14 +263,7 @@ fn parse_conflicts_with(
     data: &mut SubObjectsUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    for token in tokens.iter().skip_while(|t| **t == "=") {
-        if !token.is_empty() {
-            data.upgrade_mux_data
-                .conflicting_upgrade_names
-                .push(AsciiString::from(*token));
-        }
-    }
-    Ok(())
+    data.upgrade_mux_data.parse_conflicts_with_tokens(tokens)
 }
 
 fn parse_removes_upgrades(
@@ -284,14 +271,7 @@ fn parse_removes_upgrades(
     data: &mut SubObjectsUpgradeModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    for token in tokens.iter().skip_while(|t| **t == "=") {
-        if !token.is_empty() {
-            data.upgrade_mux_data
-                .removal_upgrade_names
-                .push(AsciiString::from(*token));
-        }
-    }
-    Ok(())
+    data.upgrade_mux_data.parse_removes_upgrades_tokens(tokens)
 }
 
 fn parse_requires_all_triggers(
