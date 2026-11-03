@@ -625,9 +625,26 @@ pub async fn run_cnc_game(
                                 }
                                 *services = Some(application_services);
                                 *engine = Some(new_engine);
-                                // Startup worker can block on ApplyFpsLimit replies;
-                                // keep Polling so AboutToWait drains the channel after
-                                // macOS focus-loss stops WaitUntil wakes.
+                                // Drain the startup worker on this thread. After
+                                // WM_KILLFOCUS, macOS may stop waking AboutToWait,
+                                // leaving ApplyFpsLimit / Prepared forever unread.
+                                if let Some(eng) = engine.as_mut() {
+                                    let drain_deadline =
+                                        Instant::now() + Duration::from_secs(180);
+                                    while matches!(
+                                        eng.startup_load_state,
+                                        super::StartupLoadState::InProgress { .. }
+                                    ) && Instant::now() < drain_deadline
+                                    {
+                                        if let Err(err) = eng.update_startup_loading() {
+                                            warn!(
+                                                "startup load drain failed during engine install: {err}"
+                                            );
+                                            break;
+                                        }
+                                        std::thread::sleep(STARTUP_POLL_INTERVAL);
+                                    }
+                                }
                                 if matches!(
                                     engine
                                         .as_ref()
