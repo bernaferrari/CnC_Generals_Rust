@@ -2511,9 +2511,17 @@ mod tests {
     fn terrain_visual_xfer_applies_height_map_bytes_on_load() {
         crate::test_support::ensure_ambient_host();
         // C++ W3DTerrainVisual::xfer v>=2 (W3DTerrainVisual.cpp:1231-1247)
-        // writes i32 len + raw logic height bytes and applies them on load.
+        // writes i32 len + raw logic height bytes and applies them on load
+        // into the already-admitted WorldHeightMap buffer (min(len,xferLen)).
         if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
             terrain.reset();
+            let mut map = gamelogic::system::map_loader::MapData::new();
+            map.width = 2;
+            map.height = 2;
+            map.heightmap = vec![0u8; 4];
+            terrain
+                .try_load_map_geometry(map)
+                .expect("admit receiving height grid before Client height xfer");
         }
         let path = std::env::temp_dir().join(format!(
             "terrain_visual_xfer_heights_{}_{}.bin",
@@ -2894,7 +2902,8 @@ mod tests {
         assert_eq!(msgs[0].original_color, 0xFFFF_FFFF);
         assert_eq!(msgs[0].creation_frame, frame);
         assert_eq!(msgs[1].text, "second");
-        assert_eq!(msgs[1].original_color, 0xFFB4_B4B4);
+        // Retail InGameUI.ini MessageColor2 = 180,180,255 (not ctor gray 180,180,180).
+        assert_eq!(msgs[1].original_color, 0xFFB4_B4FF);
         assert_eq!(msgs[1].creation_frame, frame);
 
         // Age 400 at timeout 0 → alpha 0 (messages.rs message_older_than_cpp_fade_is_removed).
