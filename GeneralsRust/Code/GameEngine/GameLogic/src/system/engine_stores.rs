@@ -13,6 +13,7 @@ use crate::system::game_logic::RadarUpdate;
 use crate::system::shroud_manager::ShroudManager;
 use crate::system::world_logic_managers::WorldLogicManagers;
 use crate::upgrade::center::UpgradeCenter;
+use game_engine::common::common_services::{self, CommonServices};
 use game_engine::common::ini::ini_ai_data::{self, AIDataStore};
 use game_engine::common::system::upgrade as common_upgrade;
 use std::cell::RefCell;
@@ -97,6 +98,8 @@ pub struct WorldServices {
     /// Host-script request drains for this world (formerly process TLS).
     host_script_requests: crate::scripting::executor::HostScriptRequestQueues,
     session_flags: SessionLogicFlags,
+    /// Per-world Common TheXxx bag (RNG, ThingFactory, CRC flags).
+    common: Arc<CommonServices>,
     logic_managers: WorldLogicManagers,
     players: Arc<RwLock<crate::player::PlayerList>>,
     objects: Arc<RwLock<crate::object_manager::ObjectManager>>,
@@ -155,6 +158,7 @@ impl WorldServices {
             radar_updates: Mutex::new(VecDeque::new()),
             host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
             session_flags: SessionLogicFlags::default(),
+            common: Arc::new(CommonServices::new()),
             logic_managers: WorldLogicManagers::default(),
             players: Arc::new(RwLock::new(crate::player::PlayerList::new())),
             objects: Arc::new(RwLock::new(crate::object_manager::ObjectManager::new())),
@@ -214,6 +218,7 @@ impl WorldServices {
             radar_updates: Mutex::new(VecDeque::new()),
             host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
             session_flags: SessionLogicFlags::default(),
+            common: Arc::new(CommonServices::new()),
             logic_managers: WorldLogicManagers::default(),
             players: Arc::new(RwLock::new(crate::player::PlayerList::new())),
             objects: Arc::new(RwLock::new(crate::object_manager::ObjectManager::new())),
@@ -279,6 +284,9 @@ impl WorldServices {
     }
     pub fn session_flags(&self) -> &SessionLogicFlags {
         &self.session_flags
+    }
+    pub fn common(&self) -> &Arc<CommonServices> {
+        &self.common
     }
     pub(crate) fn logic_managers(&self) -> &WorldLogicManagers {
         &self.logic_managers
@@ -555,12 +563,14 @@ impl PublishedOwner {
         }
     }
     fn install_common(&self) {
+        let _ = common_services::install_common_services(Arc::clone(self.services().common()));
         if let Self::Core(core) = self {
             common_upgrade::install_upgrade_center(Arc::clone(core.upgrade_center()));
             ini_ai_data::install_ai_data_store(Arc::clone(core.ai_data()));
         }
     }
     fn uninstall_common(&self) {
+        let _ = common_services::uninstall_common_services_if_current(self.services().common());
         if let Self::Core(core) = self {
             common_upgrade::uninstall_upgrade_center_if_current(core.upgrade_center());
             ini_ai_data::uninstall_ai_data_store_if_current(core.ai_data());
@@ -686,6 +696,7 @@ pub(crate) fn restore_active(
 fn with_owner<R>(owner: PublishedOwner, f: impl FnOnce() -> R) -> R {
     struct RestoreScope {
         owner: PublishedOwner,
+        prior_common: Option<Arc<CommonServices>>,
         prior_upgrade: Option<Arc<RwLock<UpgradeCenter>>>,
         prior_ai_data: Option<Arc<RwLock<AIDataStore>>>,
     }
@@ -697,6 +708,11 @@ fn with_owner<R>(owner: PublishedOwner, f: impl FnOnce() -> R) -> R {
                     stack.pop();
                 }
             });
+            if common_services::uninstall_common_services_if_current(self.owner.services().common()) {
+                if let Some(previous) = self.prior_common.take() {
+                    common_services::install_common_services(previous);
+                }
+            }
             if let PublishedOwner::Core(core) = &self.owner {
                 let upgrade = core.upgrade_center();
                 if Arc::ptr_eq(&common_upgrade::get_upgrade_center(), upgrade) {
@@ -730,9 +746,12 @@ fn with_owner<R>(owner: PublishedOwner, f: impl FnOnce() -> R) -> R {
         }
         PublishedOwner::Services(_) => None,
     };
+    let prior_common =
+        common_services::install_common_services(Arc::clone(owner.services().common()));
     SCOPED_ACTIVE.with(|stack| stack.borrow_mut().push(owner.clone()));
     let _restore = RestoreScope {
         owner,
+        prior_common,
         prior_upgrade,
         prior_ai_data,
     };

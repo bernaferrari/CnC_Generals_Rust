@@ -1,13 +1,14 @@
 //! Owned Common engine-context services (C++ TheXxx singletons on TheGameEngine).
 //!
-//! Dense Common modules hang mutable TheXxx state off [`CommonServices`]. GameEngine
-//! (and tests) own an `Arc<CommonServices>` and publish it for free-function bridges
-//! via [`with_common_services`]. The active pointer is **thread-local** so two game
-//! instances on two threads never share RNG / ThingFactory / CRC flags.
+//! Dense Common modules hang mutable TheXxx state off [`CommonServices`]. Each game
+//! instance owns an `Arc<CommonServices>` (on `WorldServices` / the host) and publishes
+//! it for free-function bridges via [`with_common_services`] or
+//! [`install_common_services`]. Publication is thread-local so two instances on two
+//! threads never share RNG / ThingFactory / CRC flags.
 //!
-//! There is no process-wide shared `CommonServices`. An unscoped thread gets a
-//! private per-thread fallback Arc (legacy single-threaded call sites) that is
-//! never visible to other threads.
+//! There is no process-wide bag and no per-thread fallback Arc: unscoped
+//! [`common_services`] panics. Ownership lives on the instance; TLS only binds the
+//! currently published owner for legacy free functions.
 
 use crate::common::random_value::{RandomState, SessionRandom};
 use crate::common::thing::thing_factory::ThingFactory;
@@ -154,50 +155,65 @@ impl CommonServices {
 }
 
 thread_local! {
-    /// Nested `with_common_services` installs for this thread only.
+    /// Nested `with_common_services` / `install_common_services` binds for this thread.
     static ACTIVE_STACK: RefCell<Vec<Arc<CommonServices>>> = const { RefCell::new(Vec::new()) };
-    /// Private per-thread fallback — never shared across threads.
-    static THREAD_FALLBACK: RefCell<Option<Arc<CommonServices>>> = const { RefCell::new(None) };
 }
 
-/// Active CommonServices for this thread: scoped install, else private fallback.
+/// Active CommonServices for this thread. Panics if nothing is published.
 pub fn common_services() -> Arc<CommonServices> {
     ACTIVE_STACK.with(|stack| {
-        if let Some(top) = stack.borrow().last() {
-            return Arc::clone(top);
+        stack
+            .borrow()
+            .last()
+            .cloned()
+            .expect("CommonServices requires with_common_services / install_common_services (no thread fallback)")
+    })
+}
+
+/// Push `services` as the active bind; returns the previous head if any.
+pub fn install_common_services(services: Arc<CommonServices>) -> Option<Arc<CommonServices>> {
+    ACTIVE_STACK.with(|stack| {
+        let mut active = stack.borrow_mut();
+        let prior = active.last().cloned();
+        active.push(services);
+        prior
+    })
+}
+
+/// Pop only if `services` is the current head.
+pub fn uninstall_common_services_if_current(services: &Arc<CommonServices>) -> bool {
+    ACTIVE_STACK.with(|stack| {
+        let mut active = stack.borrow_mut();
+        if active.last().is_some_and(|head| Arc::ptr_eq(head, services)) {
+            active.pop();
+            true
+        } else {
+            false
         }
-        THREAD_FALLBACK.with(|cell| {
-            let mut slot = cell.borrow_mut();
-            if slot.is_none() {
-                *slot = Some(Arc::new(CommonServices::default()));
-            }
-            Arc::clone(slot.as_ref().unwrap())
-        })
     })
 }
 
 /// Publish `services` for the duration of `f` on **this thread** (nested restore).
 pub fn with_common_services<R>(services: &Arc<CommonServices>, f: impl FnOnce() -> R) -> R {
-    ACTIVE_STACK.with(|stack| {
-        stack.borrow_mut().push(Arc::clone(services));
-    });
-    struct Pop;
+    let _prior = install_common_services(Arc::clone(services));
+    struct Pop {
+        services: Arc<CommonServices>,
+        prior: Option<Arc<CommonServices>>,
+    }
     impl Drop for Pop {
         fn drop(&mut self) {
-            ACTIVE_STACK.with(|stack| {
-                stack.borrow_mut().pop();
-            });
+            if uninstall_common_services_if_current(&self.services) {
+                if let Some(prior) = self.prior.take() {
+                    install_common_services(prior);
+                }
+            }
         }
     }
-    let _pop = Pop;
+    let _pop = Pop {
+        services: Arc::clone(services),
+        prior: _prior,
+    };
     f()
-}
-
-/// Reset this thread's private fallback (tests). Does not touch other threads.
-pub fn reset_thread_common_services_fallback() {
-    THREAD_FALLBACK.with(|cell| {
-        *cell.borrow_mut() = None;
-    });
 }
 
 #[cfg(test)]
@@ -257,30 +273,11 @@ mod independence_tests {
     }
 
     #[test]
-    fn unscoped_threads_get_private_fallbacks_not_a_shared_process_bag() {
-        let barrier = StdArc::new(Barrier::new(2));
-        let bar1 = StdArc::clone(&barrier);
-        let bar2 = StdArc::clone(&barrier);
-        let t1 = thread::spawn(move || {
-            reset_thread_common_services_fallback();
-            common_services().random.init_with_seed(41);
-            bar1.wait();
-            assert_eq!(
-                common_services().random.logic_base_seed.load(Ordering::SeqCst),
-                41,
-                "peer thread must not overwrite this thread's fallback"
-            );
-        });
-        let t2 = thread::spawn(move || {
-            reset_thread_common_services_fallback();
-            common_services().random.init_with_seed(42);
-            bar2.wait();
-            assert_eq!(
-                common_services().random.logic_base_seed.load(Ordering::SeqCst),
-                42
-            );
-        });
-        t1.join().unwrap();
-        t2.join().unwrap();
+    fn unscoped_common_services_panics_without_fallback_bag() {
+        let exploded = std::panic::catch_unwind(|| {
+            let _ = common_services();
+        })
+        .is_err();
+        assert!(exploded, "unscoped common_services must not mint a TLS bag");
     }
 }

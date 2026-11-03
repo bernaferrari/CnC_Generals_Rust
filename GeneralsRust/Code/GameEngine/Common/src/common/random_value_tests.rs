@@ -5,6 +5,27 @@ use std::thread;
 
 static RNG_TEST_LOCK: Mutex<()> = Mutex::new(());
 
+struct RngTestGuard {
+    _lock: parking_lot::MutexGuard<'static, ()>,
+    services: std::sync::Arc<crate::common::common_services::CommonServices>,
+}
+
+impl RngTestGuard {
+    fn new() -> Self {
+        let _lock = RNG_TEST_LOCK.lock();
+        let services = std::sync::Arc::new(crate::common::common_services::CommonServices::new());
+        crate::common::common_services::install_common_services(std::sync::Arc::clone(&services));
+        Self { _lock, services }
+    }
+}
+
+impl Drop for RngTestGuard {
+    fn drop(&mut self) {
+        crate::common::common_services::uninstall_common_services_if_current(&self.services);
+    }
+}
+
+
 #[test]
 fn random_variable_getters_match_set_range() {
     let mut var = GameLogicRandomVariable::new();
@@ -16,14 +37,14 @@ fn random_variable_getters_match_set_range() {
 
 #[test]
 fn test_random_initialization() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     init_random_with_seed(12345);
     assert_eq!(get_game_logic_random_seed(), 12345);
 }
 
 #[test]
 fn test_random_range() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     init_random_with_seed(12345);
     let val = get_game_logic_random_value(10, 20);
     assert!(val >= 10 && val <= 20);
@@ -31,7 +52,7 @@ fn test_random_range() {
 
 #[test]
 fn test_random_real_range() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     init_random_with_seed(12345);
     let val = get_game_logic_random_value_real(1.0, 2.0);
     assert!(val >= 1.0 && val <= 2.0);
@@ -39,6 +60,8 @@ fn test_random_real_range() {
 
 #[test]
 fn test_random_variable() {
+    let _guard = RngTestGuard::new();
+    init_random_with_seed(12345);
     let mut var = GameLogicRandomVariable::new();
     var.set_range(5.0, 15.0, DistributionType::Uniform);
 
@@ -57,7 +80,7 @@ fn test_constant_random_variable() {
 
 #[test]
 fn constant_logic_random_variable_with_mismatched_range_falls_through_to_uniform() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     init_random_with_seed(12345);
     let mut var = GameLogicRandomVariable::new();
     var.set_range(5.0, 15.0, DistributionType::Constant);
@@ -70,7 +93,7 @@ fn constant_logic_random_variable_with_mismatched_range_falls_through_to_uniform
 
 #[test]
 fn constant_client_random_variable_with_mismatched_range_falls_through_to_uniform() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     init_random_with_seed(54321);
     let mut var = GameClientRandomVariable::new();
     var.set_range(5.0, 15.0, DistributionType::Constant);
@@ -117,7 +140,7 @@ fn unsupported_client_distributions_return_zero_without_panic() {
 
 #[test]
 fn test_rng_successful_lock_acquisition() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify normal lock acquisition works without panic
     init_random_with_seed(99999);
     let seed = get_game_logic_random_seed();
@@ -126,7 +149,7 @@ fn test_rng_successful_lock_acquisition() {
 
 #[test]
 fn test_rng_logic_value_multiple_calls() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify repeated RNG calls don't panic
     init_random_with_seed(54321);
     for _ in 0..100 {
@@ -138,7 +161,7 @@ fn test_rng_logic_value_multiple_calls() {
 
 #[test]
 fn test_rng_client_value_multiple_calls() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify client RNG repeated calls don't panic
     init_random_with_seed(54321);
     for _ in 0..100 {
@@ -150,7 +173,7 @@ fn test_rng_client_value_multiple_calls() {
 
 #[test]
 fn test_rng_audio_value_multiple_calls() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify audio RNG repeated calls don't panic
     init_random_with_seed(54321);
     for _ in 0..100 {
@@ -162,7 +185,7 @@ fn test_rng_audio_value_multiple_calls() {
 
 #[test]
 fn test_rng_real_value_range_inclusive_high() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify range calculation includes high value (hi - lo + 1)
     init_random_with_seed(11111);
     let mut found_high = false;
@@ -178,7 +201,7 @@ fn test_rng_real_value_range_inclusive_high() {
 
 #[test]
 fn test_rng_range_inclusive_boundaries() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify both low and high boundaries are inclusive
     init_random_with_seed(22222);
     let mut found_low = false;
@@ -201,7 +224,7 @@ fn test_rng_range_inclusive_boundaries() {
 
 #[test]
 fn test_rng_stream_separation_logic_vs_client() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify logic and client streams are separate
     init_random_with_seed(33333);
     let logic_val = get_game_logic_random_value(1, 1000);
@@ -219,7 +242,7 @@ fn test_rng_stream_separation_logic_vs_client() {
 
 #[test]
 fn test_rng_stream_separation_logic_vs_audio() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify logic and audio streams are separate
     init_random_with_seed(44444);
     let logic_val = get_game_logic_random_value(1, 1000);
@@ -235,7 +258,7 @@ fn test_rng_stream_separation_logic_vs_audio() {
 
 #[test]
 fn test_rng_real_value_logic_range() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify real value stays in range [lo, hi)
     init_random_with_seed(55555);
     for _ in 0..100 {
@@ -250,7 +273,7 @@ fn test_rng_real_value_logic_range() {
 
 #[test]
 fn test_rng_real_value_client_range() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify client real value stays in range
     init_random_with_seed(55555);
     for _ in 0..100 {
@@ -265,7 +288,7 @@ fn test_rng_real_value_client_range() {
 
 #[test]
 fn test_rng_real_value_audio_range() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify audio real value stays in range
     init_random_with_seed(55555);
     for _ in 0..100 {
@@ -280,7 +303,7 @@ fn test_rng_real_value_audio_range() {
 
 #[test]
 fn test_rng_zero_range_returns_high() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify zero range (lo == hi) returns the high value
     init_random_with_seed(66666);
     assert_eq!(get_game_logic_random_value(42, 42), 42);
@@ -291,7 +314,7 @@ fn test_rng_zero_range_returns_high() {
 #[test]
 fn test_rng_deterministic_with_same_seed() {
     // Verify same seed produces same sequence
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     init_random_with_seed(77777);
     let val1 = get_game_logic_random_value(1, 1000);
 
@@ -303,7 +326,7 @@ fn test_rng_deterministic_with_same_seed() {
 
 #[test]
 fn test_rng_different_seeds_different_values() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify different seeds produce different values (probabilistic test)
     init_random_with_seed(11111);
     let val1 = get_game_logic_random_value(1, 1000000);
@@ -320,13 +343,16 @@ fn test_rng_different_seeds_different_values() {
 
 #[test]
 fn test_rng_multithreaded_access() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify RNG can be safely accessed from multiple threads
     init_random_with_seed(88888);
+    let shared = crate::common::common_services::common_services();
 
     let mut handles = vec![];
     for _ in 0..10 {
-        let handle = thread::spawn(|| {
+        let services = std::sync::Arc::clone(&shared);
+        let handle = thread::spawn(move || {
+            let _prior = crate::common::common_services::install_common_services(services);
             for _ in 0..100 {
                 let _val = get_game_logic_random_value(1, 100);
             }
@@ -343,7 +369,7 @@ fn test_rng_multithreaded_access() {
 
 #[test]
 fn test_rng_seed_crc_computation() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify CRC computation doesn't panic
     init_random_with_seed(99999);
     let crc = get_game_logic_random_seed_crc();
@@ -353,7 +379,7 @@ fn test_rng_seed_crc_computation() {
 
 #[test]
 fn test_rng_init_game_logic_random() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify game logic random re-initialization works
     init_game_logic_random(123);
     #[cfg(not(feature = "deterministic"))]
@@ -372,7 +398,7 @@ fn test_rng_init_game_logic_random() {
 
 #[test]
 fn test_rng_cpp_seed_values_match() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify the requested base seed remains observable.
     init_random_with_seed(0);
     // After initialization with seed 0, verify the seed was set correctly
@@ -382,7 +408,7 @@ fn test_rng_cpp_seed_values_match() {
 
 #[test]
 fn test_rng_cpp_sequence_seed_1() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Test with seed 1: get first few random values
     init_random_with_seed(1);
     let v1 = get_game_logic_random_value(0, u32::MAX as i32);
@@ -411,7 +437,7 @@ fn test_rng_cpp_sequence_seed_1() {
 #[test]
 fn test_rng_cpp_sequence_seed_12345() {
     // Test with seed 12345: classic test seed
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     init_random_with_seed(12345);
     let values: Vec<i32> = (0..10)
         .map(|_| get_game_logic_random_value(1, 100))
@@ -441,7 +467,7 @@ fn test_rng_cpp_sequence_seed_12345() {
 
 #[test]
 fn test_rng_cpp_large_range() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Test with large range (1 to 1,000,000)
     init_random_with_seed(99999);
     let values: Vec<i32> = (0..10)
@@ -460,7 +486,7 @@ fn test_rng_cpp_large_range() {
 
 #[test]
 fn test_rng_cpp_negative_range() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Test with negative ranges
     init_random_with_seed(54321);
     let values: Vec<i32> = (0..10)
@@ -479,7 +505,7 @@ fn test_rng_cpp_negative_range() {
 
 #[test]
 fn test_rng_cpp_mixed_range() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Test with range crossing zero
     init_random_with_seed(77777);
     let values: Vec<i32> = (0..10)
@@ -498,7 +524,7 @@ fn test_rng_cpp_mixed_range() {
 
 #[test]
 fn test_rng_cpp_single_value_range() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Test edge case: range of single value
     init_random_with_seed(111);
     for i in 0..10 {
@@ -513,7 +539,7 @@ fn test_rng_cpp_single_value_range() {
 
 #[test]
 fn test_rng_cpp_real_value_sequence() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Test real-valued sequence reproducibility
     init_random_with_seed(22222);
     let values: Vec<f32> = (0..10)
@@ -535,7 +561,7 @@ fn test_rng_cpp_real_value_sequence() {
 
 #[test]
 fn test_rng_cpp_real_range_bounds() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify real values stay within bounds
     init_random_with_seed(33333);
     for _ in 0..100 {
@@ -550,7 +576,7 @@ fn test_rng_cpp_real_range_bounds() {
 
 #[test]
 fn test_rng_cpp_client_vs_logic_independence() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify client and logic streams advance independently
     init_random_with_seed(44444);
     let logic_val = get_game_logic_random_value(1, 1000);
@@ -572,7 +598,7 @@ fn test_rng_cpp_client_vs_logic_independence() {
 
 #[test]
 fn test_rng_cpp_audio_independence() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify audio stream is independent
     init_random_with_seed(55555);
     let audio1 = get_game_audio_random_value(1, 1000);
@@ -593,7 +619,7 @@ fn test_rng_cpp_audio_independence() {
 
 #[test]
 fn test_rng_cpp_very_large_seed() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Test with very large seed value
     init_random_with_seed(0xFFFFFFFF);
     let v1 = get_game_logic_random_value(1, 100);
@@ -606,7 +632,7 @@ fn test_rng_cpp_very_large_seed() {
 
 #[test]
 fn test_rng_cpp_zero_seed_special() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Zero seed might be special (common in C++ implementations)
     init_random_with_seed(0);
     let v1 = get_game_logic_random_value(1, 100);
@@ -619,7 +645,7 @@ fn test_rng_cpp_zero_seed_special() {
 
 #[test]
 fn test_rng_cpp_boundary_value_low() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Test that low boundary is achievable (inclusive)
     init_random_with_seed(66666);
     let mut found_min = false;
@@ -638,7 +664,7 @@ fn test_rng_cpp_boundary_value_low() {
 
 #[test]
 fn test_rng_cpp_boundary_value_high() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Test that high boundary is achievable (inclusive)
     init_random_with_seed(77788);
     let mut found_max = false;
@@ -657,7 +683,7 @@ fn test_rng_cpp_boundary_value_high() {
 
 #[test]
 fn test_rng_cpp_distribution_uniformity() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Basic sanity check: values should be roughly uniformly distributed
     init_random_with_seed(88899);
     let mut histogram = [0; 10];
@@ -678,7 +704,7 @@ fn test_rng_cpp_distribution_uniformity() {
 
 #[test]
 fn test_rng_cpp_sequential_independence() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify that sequences with adjacent seeds are different
     init_random_with_seed(1000);
     let seq1: Vec<_> = (0..20)
@@ -700,7 +726,7 @@ fn test_rng_cpp_sequential_independence() {
 
 #[test]
 fn test_rng_cpp_long_sequence() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify algorithm stability over long sequences
     init_random_with_seed(12321);
     let mut last_val = get_game_logic_random_value(0, 1000000);
@@ -723,7 +749,7 @@ fn test_rng_cpp_long_sequence() {
 
 #[test]
 fn test_rng_cpp_no_period_collapse() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify RNG doesn't collapse to fixed point or small period
     init_random_with_seed(54321);
     let v1 = get_game_logic_random_value(1, 1000000);
@@ -741,7 +767,7 @@ fn test_rng_cpp_no_period_collapse() {
 
 #[test]
 fn test_rng_cpp_all_streams_independent() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Test that all three streams are truly independent
     init_random_with_seed(99988);
 
@@ -758,7 +784,7 @@ fn test_rng_cpp_all_streams_independent() {
 
 #[test]
 fn test_rng_cpp_delta_calculation_inclusive() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     // Verify the critical delta calculation: delta = hi - lo + 1 (inclusive)
     // This is THE most important compatibility aspect
     init_random_with_seed(11223);
@@ -802,7 +828,7 @@ fn stepped_once(words: [u32; 6]) -> ([u32; 6], u32) {
 fn logic_rng_zero_to_i32_max_does_not_panic_and_matches_cpp_wrap() {
     // C++ RandomValue.cpp:189: delta = i32::MAX - 0 + 1 wraps to 0x80000000;
     // :196 value = (draw % 0x80000000) as Int + 0. Exactly one draw consumed.
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     init_random_with_seed(0xDEAD_BEEF);
     let before = get_game_logic_random_seed_state();
     let (expected_state, draw) = stepped_once(before);
@@ -818,7 +844,7 @@ fn logic_rng_zero_to_i32_max_does_not_panic_and_matches_cpp_wrap() {
 fn logic_rng_delta_zero_returns_hi_without_consuming_a_draw() {
     // delta == hi - lo + 1 == 0 iff hi == lo - 1 (mod 2^32).
     // C++ RandomValue.cpp:193-194 returns hi before randomValue() is called.
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     init_random_with_seed(7);
     let before = get_game_logic_random_seed_state();
 
@@ -831,7 +857,7 @@ fn logic_rng_delta_zero_returns_hi_without_consuming_a_draw() {
 fn logic_rng_single_value_range_returns_lo_and_consumes_one_draw() {
     // lo == hi gives delta == 1 (NOT 0): C++ RandomValue.cpp:196 consumes a
     // draw, draw % 1 == 0, returns lo.
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     init_random_with_seed(7);
     let before = get_game_logic_random_seed_state();
 
@@ -843,7 +869,7 @@ fn logic_rng_single_value_range_returns_lo_and_consumes_one_draw() {
 fn logic_rng_reversed_bounds_match_cpp_unsigned_mod_wrap() {
     // (5, 3): delta = 3 - 5 + 1 = -1 -> UnsignedInt 0xFFFFFFFF (C++ :189).
     // draw % 0xFFFFFFFF == draw, reinterpreted as Int, + 5 with MSVC wrap.
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     init_random_with_seed(0x00C0FFEE);
     let before = get_game_logic_random_seed_state();
     let (expected_state, draw) = stepped_once(before);
@@ -859,7 +885,7 @@ fn logic_rng_final_addition_wraps_like_msvc_x86() {
     // When draw % 3 == 2 the C++ final `+ lo` overflows Int and wraps on
     // MSVC x86 to i32::MIN. Search a seed that hits the wrap branch so the
     // boundary is exercised deterministically.
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     let mut seed = 0u32;
     let draw = loop {
         let mut probe = RandomState::default();
@@ -889,7 +915,7 @@ fn client_and_audio_rng_survive_boundary_ranges() {
     // streams expose no seed-state getter, so draw counts are asserted via
     // observable values: init_random_with_seed seeds all three streams
     // identically, so the next normal draw must equal the replayed draw.
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     init_random_with_seed(0xABCD);
     let mut replay = RandomState::default();
     replay.seed_random(0xABCD);
@@ -916,6 +942,7 @@ fn client_and_audio_rng_survive_boundary_ranges() {
 
 #[test]
 fn scoped_logic_rng_owner_isolates_two_instances() {
+    let _guard = RngTestGuard::new();
     // Two differently seeded driving instances must keep independent RNG
     // states: interleaved scopes draw each instance's own standalone
     // Rust sequence. The original singleton no longer chooses the driving
@@ -965,7 +992,7 @@ fn scoped_logic_rng_owner_isolates_two_instances() {
 
 #[test]
 fn scoped_logic_rng_owner_scope_end_returns_to_global_fallback() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     init_random_with_seed(0x5EED_00AA);
     let mut replay = RandomState::default();
     replay.seed_random(0x5EED_00AA);
@@ -991,6 +1018,7 @@ fn scoped_logic_rng_owner_scope_end_returns_to_global_fallback() {
 
 #[test]
 fn nested_logic_rng_owner_scopes_restore_the_outer_owner() {
+    let _guard = RngTestGuard::new();
     let mut outer = RandomState::default();
     outer.seed_random(0x0D0D_0001);
     let mut inner = RandomState::default();
@@ -1022,7 +1050,7 @@ fn nested_logic_rng_owner_scopes_restore_the_outer_owner() {
 
 #[test]
 fn init_reseeds_only_global_fallback_while_owner_is_published() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     init_random_with_seed(0x5EED_00BB);
     let mut owner = RandomState::default();
     owner.seed_random(1);
@@ -1054,7 +1082,7 @@ fn init_reseeds_only_global_fallback_while_owner_is_published() {
 
 #[test]
 fn raw_seed_state_accessors_honor_the_scoped_owner() {
-    let _guard = RNG_TEST_LOCK.lock();
+    let _guard = RngTestGuard::new();
     let words = [1u32, 2, 3, 4, 5, 6];
     let mut owner = RandomState::default();
     owner.seed_random(9);

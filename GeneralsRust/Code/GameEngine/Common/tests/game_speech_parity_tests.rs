@@ -1,3 +1,11 @@
+use game_engine::common::common_services::{with_common_services, CommonServices};
+use std::sync::Arc;
+
+fn with_test_common<R>(f: impl FnOnce() -> R) -> R {
+    let s = Arc::new(CommonServices::new());
+    with_common_services(&s, f)
+}
+
 use game_engine::common::audio::game_speech::{Speaker, Speech, SpeechInfo, SpeechManager};
 use game_engine::common::random_value::init_random_with_seed;
 use std::sync::{Mutex, OnceLock};
@@ -9,6 +17,7 @@ fn random_state_lock() -> &'static Mutex<()> {
 
 #[test]
 fn speech_filename_selection_uses_game_client_random_seed() {
+    with_test_common(|| {
     let _guard = random_state_lock()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -42,10 +51,12 @@ fn speech_filename_selection_uses_game_client_random_seed() {
         ),
         "unexpected generated speech path: {first}"
     );
+    });
 }
 
 #[test]
 fn localized_speech_filename_matches_cpp_path_shape() {
+    with_test_common(|| {
     let _guard = random_state_lock()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -64,10 +75,12 @@ fn localized_speech_filename_matches_cpp_path_shape() {
         manager.get_filename_for_play(speech),
         "data\\audio\\sounds\\english\\Eva_LowPower.wav"
     );
+    });
 }
 
 #[test]
 fn speech_from_info_resets_internal_play_count() {
+    with_test_common(|| {
     let mut info = SpeechInfo::new();
     info.dialog_event = "ResetPlayCount".to_string();
     info.internal_play_count = 12;
@@ -75,10 +88,12 @@ fn speech_from_info_resets_internal_play_count() {
     let speech = Speech::from_speech_info(&info);
 
     assert_eq!(speech.info.internal_play_count, 0);
+    });
 }
 
 #[test]
 fn next_playback_filename_uses_cpp_path_and_game_client_random_start() {
+    with_test_common(|| {
     let _guard = random_state_lock()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
@@ -110,10 +125,12 @@ fn next_playback_filename_uses_cpp_path_and_game_client_random_start() {
         ),
         "unexpected generated playback path: {first}"
     );
+    });
 }
 
 #[test]
 fn next_playback_filename_uses_first_dialog_for_sequential_speech() {
+    with_test_common(|| {
     let mut info = SpeechInfo::new();
     info.dialog_event = "SequentialSpeech".to_string();
     info.dialog_files = vec!["SpeechA".to_string(), "SpeechB".to_string()];
@@ -126,10 +143,12 @@ fn next_playback_filename_uses_first_dialog_for_sequential_speech() {
         "Data\\Audio\\Sounds\\SpeechA.wav"
     );
     assert_eq!(speech.info.internal_play_count, 1);
+    });
 }
 
 #[test]
 fn speaker_start_records_cpp_playback_filename() {
+    with_test_common(|| {
     let info = SpeechInfo {
         dialog_event: "SpeakerPlayback".to_string(),
         dialog_files: vec!["SpeechA".to_string()],
@@ -155,4 +174,5 @@ fn speaker_start_records_cpp_playback_filename() {
             .map(|speech| speech.info.internal_play_count),
         Some(1)
     );
+    });
 }
