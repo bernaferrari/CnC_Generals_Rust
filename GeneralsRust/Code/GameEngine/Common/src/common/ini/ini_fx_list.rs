@@ -5,7 +5,7 @@
 //! Matches C++ FXList.h and FXList.cpp
 
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ascii_string::AsciiString;
 use crate::common::game_common::ObjectShroudStatus;
@@ -88,60 +88,44 @@ pub trait FxListObjRuntime: Send + Sync {
     }
 }
 
-struct FxListObjRuntimeSlot(RwLock<Option<Arc<dyn FxListObjRuntime>>>);
-impl std::ops::Deref for FxListObjRuntimeSlot {
-    type Target = RwLock<Option<Arc<dyn FxListObjRuntime>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static FX_LIST_OBJ_RUNTIME: LazyLock<FxListObjRuntimeSlot> =
-    LazyLock::new(|| FxListObjRuntimeSlot(RwLock::new(None)));
-struct DispatchedFxNuggetsSlot(Mutex<Vec<DispatchedFxNugget>>);
-impl std::ops::Deref for DispatchedFxNuggetsSlot {
-    type Target = Mutex<Vec<DispatchedFxNugget>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static DISPATCHED_FX_NUGGETS: LazyLock<DispatchedFxNuggetsSlot> =
-    LazyLock::new(|| DispatchedFxNuggetsSlot(Mutex::new(Vec::new())));
-
-fn fx_list_obj_runtime_slot() -> &'static RwLock<Option<Arc<dyn FxListObjRuntime>>> {
-    &FX_LIST_OBJ_RUNTIME.0
-}
-
 /// Register the live `FXList::doFXObj` runner (C++ DamageFX.cpp:73).
 pub fn register_fx_list_obj_runtime(runtime: Arc<dyn FxListObjRuntime>) {
-    if let Ok(mut slot) = fx_list_obj_runtime_slot().write() {
+    let services = crate::common::common_services::common_services();
+    if let Ok(mut slot) = services.system.fx_list_obj_runtime.write() {
         *slot = Some(runtime);
     }
 }
 
 pub fn clear_fx_list_obj_runtime() {
-    if let Ok(mut slot) = fx_list_obj_runtime_slot().write() {
+    let services = crate::common::common_services::common_services();
+    if let Ok(mut slot) = services.system.fx_list_obj_runtime.write() {
         *slot = None;
     }
 }
 
 pub fn fx_list_obj_runtime() -> Option<Arc<dyn FxListObjRuntime>> {
-    fx_list_obj_runtime_slot()
+    let services = crate::common::common_services::common_services();
+    services
+        .system
+        .fx_list_obj_runtime
         .read()
         .ok()
         .and_then(|slot| slot.clone())
 }
 
-fn dispatched_fx_nuggets() -> &'static Mutex<Vec<DispatchedFxNugget>> {
-    &DISPATCHED_FX_NUGGETS.0
-}
-
 pub fn record_dispatched_fx_nugget(nugget: DispatchedFxNugget) {
-    if let Ok(mut log) = dispatched_fx_nuggets().lock() {
+    let services = crate::common::common_services::common_services();
+    if let Ok(mut log) = services.system.dispatched_fx_nuggets.lock() {
         log.push(nugget);
     }
 }
 
 pub fn take_dispatched_fx_nuggets() -> Vec<DispatchedFxNugget> {
-    dispatched_fx_nuggets()
-        .lock()
-        .map(|mut log| std::mem::take(&mut *log))
-        .unwrap_or_default()
+    let services = crate::common::common_services::common_services();
+    match services.system.dispatched_fx_nuggets.lock() {
+        Ok(mut log) => std::mem::take(&mut *log),
+        Err(poisoned) => std::mem::take(&mut *poisoned.into_inner()),
+    }
 }
 
 /// C++ `FXList.cpp:796` — skip FX when primary is fogged/shrouded.

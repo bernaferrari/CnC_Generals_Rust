@@ -119,17 +119,13 @@ impl Default for MemoryPoolFactory {
     }
 }
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-struct TheFactoryBag {
-    value: std::sync::Mutex<MemoryPoolFactory>,
-}
-static THE_FACTORY: std::sync::LazyLock<TheFactoryBag> = std::sync::LazyLock::new(|| TheFactoryBag {
-    value: std::sync::Mutex::new(MemoryPoolFactory::new()),
-});
-
-
 fn with_factory_mut<R>(f: impl FnOnce(&mut MemoryPoolFactory) -> R) -> R {
-    f(&mut THE_FACTORY.value.lock().unwrap_or_else(|p| p.into_inner()))
+    let services = crate::common::common_services::common_services();
+    f(&mut services
+        .system
+        .memory_pool_factory
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()))
 }
 
 pub fn init_memory_manager() {
@@ -152,7 +148,12 @@ pub fn with_memory_pool_factory<R>(f: impl FnOnce(&mut MemoryPoolFactory) -> R) 
 
 #[deprecated(note = "use with_memory_pool_factory")]
 pub fn get_memory_pool_factory() -> std::sync::MutexGuard<'static, MemoryPoolFactory> {
-    let guard = THE_FACTORY.value.lock().unwrap_or_else(|p| p.into_inner());
+    let services = crate::common::common_services::common_services();
+    let guard = services
+        .system
+        .memory_pool_factory
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     unsafe { std::mem::transmute(guard) }
 }
 

@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::cell::RefCell;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 
 // Re-export Relationship from game_common for convenience
 pub use crate::common::system::game_common::{Relationship, VeterancyLevel};
@@ -3184,19 +3184,9 @@ pub fn get_team_command_sink() -> Option<Arc<dyn TeamCommandSink>> {
         .clone()
 }
 
-/// Opaque wrapper so the LazyLock type annotation carries no counted Mutex.
-struct TeamFactorySlot(Arc<Mutex<TeamFactory>>);
-impl std::ops::Deref for TeamFactorySlot {
-    type Target = Arc<Mutex<TeamFactory>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-
-static THE_TEAM_FACTORY: LazyLock<TeamFactorySlot> =
-    LazyLock::new(|| TeamFactorySlot(Arc::new(Mutex::new(TeamFactory::new()))));
-
-/// C++ `TheTeamFactory` singleton.
+/// C++ `TheTeamFactory` singleton for the published CommonServices instance.
 pub fn get_team_factory() -> Arc<Mutex<TeamFactory>> {
-    Arc::clone(&THE_TEAM_FACTORY.0)
+    Arc::clone(&crate::common::common_services::common_services().system.team_factory)
 }
 
 pub fn set_team_factory(factory: TeamFactory) {

@@ -2,7 +2,7 @@
 //! Author: John Ahlquist, March 2002
 //! Desc: Parsing AIData INI entries
 
-use std::sync::{Arc, LazyLock, RwLock};
+use std::sync::{Arc, RwLock};
 
 use super::ini::{FieldParse, INI, INIError, INILoadType, INIResult};
 use crate::common::rts::{SCIENCE_INVALID, ScienceType, get_science_store};
@@ -252,61 +252,51 @@ impl AIDataStore {
         }
     }
 }
-/// The active world's AIData store (C++ single-pointer semantics: the one
-/// live world's engine data). `None` resolves to the engine-lifetime store
-/// below, so INI loads outside any world (engine boot, headless snippets,
-/// tests without a world) keep working.
-struct AiDataActiveSlot(RwLock<Option<Arc<RwLock<AIDataStore>>>>);
-impl std::ops::Deref for AiDataActiveSlot {
-    type Target = RwLock<Option<Arc<RwLock<AIDataStore>>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static AI_DATA_ACTIVE: AiDataActiveSlot = AiDataActiveSlot(RwLock::new(None));
-
-/// Engine-lifetime AIData store. C++ keeps one process-lifetime engine whose
-/// AIData.ini state every world inherits; this is the fallback store while no
-/// GameLogic world is active.
-struct AiDataProcessLifetimeSlot(LazyLock<Arc<RwLock<AIDataStore>>>);
-static AI_DATA_PROCESS_LIFETIME: AiDataProcessLifetimeSlot = AiDataProcessLifetimeSlot(LazyLock::new(|| Arc::new(RwLock::new(AIDataStore::default()))));
-impl std::ops::Deref for AiDataProcessLifetimeSlot {
-    type Target = LazyLock<Arc<RwLock<AIDataStore>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-
-
-/// The engine-lifetime AIData store. World bundles snapshot-clone its content
-/// ([`AIDataStore`] is `Clone`) and install the clone with
-/// [`install_ai_data_store`], so per-world mutations die with the world.
+/// The engine-lifetime AIData store for the published CommonServices instance.
+/// World bundles snapshot-clone its content ([`AIDataStore`] is `Clone`) and
+/// install the clone with [`install_ai_data_store`], so per-world mutations die
+/// with the world.
 pub fn process_lifetime_ai_data_store() -> Arc<RwLock<AIDataStore>> {
-    Arc::clone(&AI_DATA_PROCESS_LIFETIME)
+    Arc::clone(
+        &crate::common::common_services::common_services()
+            .system
+            .ai_data_lifetime,
+    )
 }
 
 /// The active AIData store: the installed world bundle's store, or the
 /// engine-lifetime store when no world is active (C++ `TheAI` data).
 pub fn get_ai_data_store() -> Arc<RwLock<AIDataStore>> {
-    let active = AI_DATA_ACTIVE
-        .read()
+    let services = crate::common::common_services::common_services();
+    let active = services
+        .system
+        .ai_data_active
+        .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     active
         .as_ref()
         .map(Arc::clone)
-        .unwrap_or_else(|| Arc::clone(&AI_DATA_PROCESS_LIFETIME))
+        .unwrap_or_else(|| Arc::clone(&services.system.ai_data_lifetime))
 }
 
 /// Install a world bundle's AIData store and return the store it replaced.
 pub fn install_ai_data_store(store: Arc<RwLock<AIDataStore>>) -> Option<Arc<RwLock<AIDataStore>>> {
-    let mut active = AI_DATA_ACTIVE
-        .write()
+    let services = crate::common::common_services::common_services();
+    let mut active = services
+        .system
+        .ai_data_active
+        .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     active.replace(store)
 }
 
-/// Uninstall the active AIData store only if it is still `store` (a stale
-/// world dropping after a newer world must not deactivate the newer world).
-/// Returns `true` when the active slot was cleared.
+/// Uninstall the active AIData store only if it is still `store`.
 pub fn uninstall_ai_data_store_if_current(store: &Arc<RwLock<AIDataStore>>) -> bool {
-    let mut active = AI_DATA_ACTIVE
-        .write()
+    let services = crate::common::common_services::common_services();
+    let mut active = services
+        .system
+        .ai_data_active
+        .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     match active.as_ref() {
         Some(current) if Arc::ptr_eq(current, store) => {

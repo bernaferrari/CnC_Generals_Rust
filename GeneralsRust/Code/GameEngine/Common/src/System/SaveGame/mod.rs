@@ -22,12 +22,6 @@ pub use campaign_xfer::{
 };
 pub use game_state_map::{GameStateMap, PORTABLE_MAPS, PORTABLE_SAVE, PORTABLE_USER_MAPS};
 
-struct TheGameStateSlot(OnceLock<Mutex<GameState>>);
-impl std::ops::Deref for TheGameStateSlot {
-    type Target = OnceLock<Mutex<GameState>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static THE_GAME_STATE: TheGameStateSlot = TheGameStateSlot(OnceLock::new());
 type ObjectIdCounterGetter = Arc<dyn Fn() -> ObjectID + Send + Sync>;
 type ObjectIdCounterSetter = Arc<dyn Fn(ObjectID) + Send + Sync>;
 type DrawableIdCounterGetter = Arc<dyn Fn() -> DrawableID + Send + Sync>;
@@ -94,7 +88,7 @@ fn save_load_hooks() -> &'static Mutex<SaveLoadLifecycleHooks> {
     SAVE_LOAD_LIFECYCLE_HOOKS.0.get_or_init(|| Mutex::new(SaveLoadLifecycleHooks::default()))
 }
 
-fn default_save_directory() -> PathBuf {
+pub(crate) fn default_save_directory() -> PathBuf {
     let user_dir = get_global_data()
         .map(|data| data.read().get_path_user_data().to_string())
         .unwrap_or_default();
@@ -111,17 +105,22 @@ fn default_save_directory() -> PathBuf {
 }
 
 pub fn get_game_state() -> std::sync::MutexGuard<'static, GameState> {
-    let lock = THE_GAME_STATE.0.get_or_init(|| {
-        let mut state = GameState::new(default_save_directory());
-        state.init();
-        Mutex::new(state)
-    });
-    lock.lock().expect("TheGameState mutex poisoned")
+    let services = crate::common::common_services::common_services();
+    let guard = services
+        .system
+        .game_state
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    unsafe { std::mem::transmute(guard) }
 }
 
 pub fn init_game_state(save_directory: PathBuf) {
-    let lock = THE_GAME_STATE.0.get_or_init(|| Mutex::new(GameState::new(save_directory.clone())));
-    let mut state = lock.lock().expect("TheGameState mutex poisoned");
+    let services = crate::common::common_services::common_services();
+    let mut state = services
+        .system
+        .game_state
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     state.reset_for_init(save_directory);
     state.init();
 }

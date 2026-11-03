@@ -2527,18 +2527,15 @@ impl Default for RadarSystem {
     }
 }
 
-/// Global radar system singleton
-struct RadarSystemSlot(RwLock<Option<Arc<RwLock<RadarSystem>>>>);
-impl std::ops::Deref for RadarSystemSlot {
-    type Target = RwLock<Option<Arc<RwLock<RadarSystem>>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static RADAR_SYSTEM: RadarSystemSlot = RadarSystemSlot(RwLock::new(None));
-
-/// Get global radar system
+/// Get instance radar system (C++ `TheRadar`).
 pub fn get_radar_system() -> Arc<RwLock<RadarSystem>> {
+    let services = crate::common::common_services::common_services();
     let created = {
-        let mut guard = RADAR_SYSTEM.0.write().unwrap();
+        let mut guard = services
+            .system
+            .radar_system
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         if guard.is_none() {
             *guard = Some(Arc::new(RwLock::new(RadarSystem::new())));
             true
@@ -2549,6 +2546,12 @@ pub fn get_radar_system() -> Arc<RwLock<RadarSystem>> {
     if created {
         snapshot::ensure_the_radar_snapshot_block();
     }
-    let guard = RADAR_SYSTEM.0.read().unwrap();
-    guard.as_ref().unwrap().clone()
+    services
+        .system
+        .radar_system
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+        .expect("radar_system")
+        .clone()
 }

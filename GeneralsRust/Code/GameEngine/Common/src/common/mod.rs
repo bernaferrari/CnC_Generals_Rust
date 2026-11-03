@@ -15,6 +15,7 @@ pub mod command_line;
 pub mod crc;
 pub mod common_services;
 pub mod ini_stores;
+pub mod system_stores;
 pub mod crc_debug;
 pub mod damage_fx;
 pub mod dict;

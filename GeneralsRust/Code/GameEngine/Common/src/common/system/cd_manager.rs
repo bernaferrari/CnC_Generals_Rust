@@ -13,8 +13,7 @@
 //! Created: 11/26/01 TR
 //! Rust conversion: 2025
 
-use std::ops::Deref;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, Mutex};
 
 use crate::common::ascii_string::AsciiString;
 
@@ -232,28 +231,24 @@ impl CDManagerInterface for CDManager {
     }
 }
 
-/// Opaque process-wide CD manager slot (C++ `TheCDManager` engine lifetime).
-struct CdManagerSlot(LazyLock<Mutex<Option<Arc<Mutex<Box<dyn CDManagerInterface + Send>>>>>>);
-impl Deref for CdManagerSlot {
-    type Target = Mutex<Option<Arc<Mutex<Box<dyn CDManagerInterface + Send>>>>>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-static CD_MANAGER: CdManagerSlot = CdManagerSlot(LazyLock::new(|| Mutex::new(None)));
-
-/// Initialize the global CD manager
+/// Initialize the CD manager for the published CommonServices instance.
 pub fn init_cd_manager() {
     let mut manager = Box::new(CDManager::new());
     let _ = manager.init();
     let wrapped: Arc<Mutex<Box<dyn CDManagerInterface + Send>>> = Arc::new(Mutex::new(manager));
-    let mut slot = CD_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-    *slot = Some(wrapped);
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .cd_manager
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(wrapped);
 }
 
-/// Get reference to the global CD manager
+/// Get reference to the instance CD manager.
 pub fn get_cd_manager() -> Option<Arc<Mutex<Box<dyn CDManagerInterface + Send>>>> {
-    CD_MANAGER
+    crate::common::common_services::common_services()
+        .system
+        .cd_manager
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone()
