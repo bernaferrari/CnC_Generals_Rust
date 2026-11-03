@@ -197,9 +197,16 @@ impl HostSpecialPowerStrikeRegistry {
             if !field.is_due_tick(current_frame) {
                 continue;
             }
+            // FireWeaponUpdate.cpp:83 forceFireWeapon(getObject(), …) — the
+            // NukeRadiationFieldWeapon Object is the damage source, not the
+            // original launcher that armed the residual field.
+            let damage_source = field.object_id.unwrap_or(field.source_object);
             let mut hits = Vec::new();
             for &(id, pos, _team, alive) in object_positions {
-                if !alive || id == field.source_object {
+                if !alive || id == damage_source || id == field.source_object {
+                    continue;
+                }
+                if field.object_id == Some(id) {
                     continue;
                 }
                 let dist = horizontal_distance(pos, field.position);
@@ -213,7 +220,7 @@ impl HostSpecialPowerStrikeRegistry {
             }
             plans.push(HostRadiationTickPlan {
                 field_id: field.id,
-                source_object: field.source_object,
+                source_object: damage_source,
                 source_team: field.source_team,
                 position: field.position,
                 hits,

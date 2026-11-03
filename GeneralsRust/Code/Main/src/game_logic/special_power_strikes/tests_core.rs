@@ -1393,6 +1393,59 @@ fn nuclear_missile_impact_spawns_radiation_and_ticks_damage() {
 }
 
 #[test]
+fn radiation_tick_uses_bound_field_object_as_damage_source() {
+    // FireWeaponUpdate.cpp:83 — forceFireWeapon(getObject(), getObject()->getPosition()).
+    // Damage attribution, radius, and tick identity belong to the residual
+    // NukeRadiationFieldWeapon Object once ThingFactory has bound it.
+    let mut reg = HostSpecialPowerStrikeRegistry::new();
+    let strike = reg.queue(
+        HostSuperweaponKind::NuclearMissile,
+        ObjectId(1),
+        Team::China,
+        Vec3::new(100.0, 0.0, 100.0),
+        0,
+    );
+    let objects = vec![
+        (ObjectId(1), Vec3::ZERO, Team::China, true),
+        (ObjectId(2), Vec3::new(100.0, 0.0, 100.0), Team::USA, true),
+    ];
+    let _ = reg.plan_due_impacts(180, &objects);
+    reg.record_impact_complete(strike, 0.0, 0, 0);
+    let field_id = reg.radiation_fields()[0].id;
+    let field_obj = ObjectId(99);
+    assert!(reg.bind_radiation_object(field_id, field_obj));
+    // Advance to the next due tick after the spawn-frame plan was deferred.
+    reg.record_radiation_tick_complete(field_id, 0.0, 0, 0, 180);
+    let next = reg.radiation_fields()[0].next_tick_frame;
+    let objects = vec![
+        (ObjectId(1), Vec3::ZERO, Team::China, true),
+        (field_obj, Vec3::new(100.0, 0.0, 100.0), Team::China, true),
+        (ObjectId(2), Vec3::new(100.0, 0.0, 100.0), Team::USA, true),
+    ];
+    let plans = reg.plan_due_radiation_ticks(next, &objects);
+    assert_eq!(plans.len(), 1);
+    assert_eq!(
+        plans[0].source_object, field_obj,
+        "bound field Object is the ForceFireWeapon source"
+    );
+    assert!(
+        plans[0]
+            .hits
+            .iter()
+            .all(|h| h.target_id != field_obj && h.target_id != ObjectId(1)),
+        "field object and original launcher are not self-splash victims"
+    );
+    assert!(
+        plans[0]
+            .hits
+            .iter()
+            .any(|h| h.target_id == ObjectId(2)
+                && (h.damage - NUKE_RADIATION_DAMAGE_PER_TICK).abs() < 0.01),
+        "radius tick still damages living victims from the field pose"
+    );
+}
+
+#[test]
 fn queue_and_complete_daisy_cutter_damage_plan() {
     let mut reg = HostSpecialPowerStrikeRegistry::new();
     let id = reg.queue(
