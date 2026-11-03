@@ -43,18 +43,18 @@ pub struct ShadowPassState {
 }
 
 fn with_shadow_pass_state<R>(f: impl FnOnce(&mut ShadowPassState) -> R) -> R {
-    if crate::core::game_client::live_game_client_frame().is_some() {
-        return crate::core::game_client::with_live_game_client_mut(|client| {
-            f(&mut client.shadow_pass)
-        })
-        .expect("live client frame implies registered client");
-    }
     #[cfg(test)]
     {
         return TEST_SHADOW_PASS.with(|slot| f(&mut slot.borrow_mut()));
     }
     #[cfg(not(test))]
     {
+        if crate::core::game_client::live_game_client_frame().is_some() {
+            return crate::core::game_client::with_live_game_client_mut(|client| {
+                f(&mut client.shadow_pass)
+            })
+            .expect("live client frame implies registered client");
+        }
         let mut ephemeral = ShadowPassState::default();
         f(&mut ephemeral)
     }
