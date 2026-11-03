@@ -1847,6 +1847,30 @@ fn jet_slow_death_begins_for_raptor() {
 }
 
 #[test]
+fn jet_grounded_and_deck_death_destroys_same_frame_without_delay() {
+    // C++ JetSlowDeathBehavior::onDie: ground/deck -> FXOnGroundDeath, OCL,
+    // destroyObject immediately (no slow-death timer), then clear deck offset.
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    for (y, deck) in [(0.0_f32, false), (80.0, true)] {
+        let mut t = ThingTemplate::new("AmericaJetRaptor");
+        t.set_health(200.0);
+        t.add_kind_of(KindOf::Aircraft);
+        let mut o = Object::new(t, ObjectId(3), Team::USA);
+        o.health.current = 0.0;
+        o.set_position(glam::Vec3::new(0.0, y, 0.0));
+        o.status.deck_height_offset = deck;
+        let start =
+            o.begin_jet_slow_death(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
+        assert!(!start.defer_destruction, "deck={deck}: destroy is not deferred");
+        assert!(!start.enter_idle);
+        let j = o.jet_slow_death.as_mut().unwrap();
+        assert!(j.started_on_ground && j.done && !j.is_active());
+        assert!(j.tick(0, 0.0).2, "any later tick reports destroy at once");
+        assert!(!o.status.deck_height_offset, "onDie clears DECK_HEIGHT_OFFSET");
+    }
+}
+
+#[test]
 fn helicopter_slow_death_begins() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut t = ThingTemplate::new("AmericaComanche");
