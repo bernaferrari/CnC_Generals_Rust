@@ -2086,3 +2086,54 @@ fn pathfind_cluster_move_away_uses_resolved_bridge_layer() {
         "yield dest must stay resolved on the deck, not fall to impassable ground"
     );
 }
+
+/// Cluster proof for hq-bmxm81 (+ even-footprint half-cell shift used by move-away):
+/// C++ AIPathfind.cpp:10199-10231 shifts start index X by one cell for even diameters.
+#[test]
+fn pathfind_cluster_move_away_even_footprint_start_shift() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let cell = 10.0;
+    let (radius, center_in_cell) = PathfindingGrid::radius_and_center(8.0, cell);
+    assert_eq!(radius, 1);
+    assert!(
+        !center_in_cell,
+        "8wu radius snaps to even 2-cell diameter (centerInCell false)"
+    );
+
+    let mut sys = PathfindingSystem::new(200.0, 200.0);
+    let from = Vec3::new(55.0, 0.0, 55.0);
+    let physical = sys.grid.world_to_grid(from);
+    let mut shifted = from;
+    shifted.x += cell * 0.5;
+    shifted.x += cell * 0.5; // matches get_move_away_from_path
+    let start_index = sys.grid.world_to_grid(shifted);
+    assert_ne!(
+        physical.x, start_index.x,
+        "even footprint must move the search index by a full cell in X"
+    );
+
+    let mut objects = HostObjectStore::new();
+    let mut tmpl = ThingTemplate::new("EvenCrusader");
+    tmpl.add_kind_of(KindOf::Vehicle);
+    let mut unit = Object::new(tmpl, ObjectId(1), Team::USA);
+    unit.set_position(from);
+    unit.selection_radius = 8.0;
+    unit.owner_player_id = Some(0);
+    objects.admit(unit.id, unit);
+    let avoided = vec![
+        Vec3::new(10.0, 0.0, 55.0),
+        from,
+        Vec3::new(150.0, 0.0, 55.0),
+    ];
+    let path = sys
+        .get_move_away_from_path(
+            &avoided,
+            None,
+            &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+            objects.read(),
+            ObjectId(1),
+            ObjectId(1),
+        )
+        .expect("even-footprint move-away must still yield");
+    assert!(path.len() >= 2);
+}
