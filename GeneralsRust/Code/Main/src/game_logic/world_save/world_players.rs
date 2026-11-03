@@ -109,6 +109,7 @@ impl GameLogic {
         ) -> Result<(), String>,
     {
         let sync_started = Instant::now();
+        let mut stage_started = Instant::now();
         report_progress(
             &mut self.session_view.audio_random,
             self.queued_audio_events.policy(),
@@ -131,10 +132,12 @@ impl GameLogic {
             }
         };
         log::info!(
-            "Fast legacy runtime sync heightmap parsed for '{}' in {:.2}s",
+            "Fast legacy runtime sync heightmap parsed for '{}' in {:.2}s (stage={:.2}s)",
             map_path.display(),
-            sync_started.elapsed().as_secs_f32()
+            sync_started.elapsed().as_secs_f32(),
+            stage_started.elapsed().as_secs_f32()
         );
+        stage_started = Instant::now();
         report_progress(
             &mut self.session_view.audio_random,
             self.queued_audio_events.policy(),
@@ -155,12 +158,14 @@ impl GameLogic {
                 }
             };
         log::info!(
-            "Fast legacy runtime sync waypoints parsed for '{}' (count={}, links={}) in {:.2}s",
+            "Fast legacy runtime sync waypoints parsed for '{}' (count={}, links={}) in {:.2}s (stage={:.2}s)",
             map_path.display(),
             waypoints.len(),
             waypoint_links.len(),
-            sync_started.elapsed().as_secs_f32()
+            sync_started.elapsed().as_secs_f32(),
+            stage_started.elapsed().as_secs_f32()
         );
+        stage_started = Instant::now();
         report_progress(
             &mut self.session_view.audio_random,
             self.queued_audio_events.policy(),
@@ -294,12 +299,14 @@ impl GameLogic {
             }
         };
         log::info!(
-            "Fast legacy runtime sync sides parsed for '{}' (sides={}, teams={}) in {:.2}s",
+            "Fast legacy runtime sync sides parsed for '{}' (sides={}, teams={}) in {:.2}s (stage={:.2}s)",
             map_path.display(),
             sides_data.side_dicts.len(),
             sides_data.team_dicts.len(),
-            sync_started.elapsed().as_secs_f32()
+            sync_started.elapsed().as_secs_f32(),
+            stage_started.elapsed().as_secs_f32()
         );
+        stage_started = Instant::now();
         report_progress(
             &mut self.session_view.audio_random,
             self.queued_audio_events.policy(),
@@ -409,10 +416,12 @@ impl GameLogic {
             &script_lists,
         );
         log::info!(
-            "Fast legacy runtime sync sides write finished for '{}' in {:.2}s",
+            "Fast legacy runtime sync sides write finished for '{}' in {:.2}s (stage={:.2}s)",
             map_path.display(),
-            sync_started.elapsed().as_secs_f32()
+            sync_started.elapsed().as_secs_f32(),
+            stage_started.elapsed().as_secs_f32()
         );
+        stage_started = Instant::now();
         if !self.uses_lobby_side_foundation() {
             if let Err(error) = self.admit_direct_map_players_from_prepared_sides() {
                 log::error!("Receiving authored Player admission failed: {error}");
