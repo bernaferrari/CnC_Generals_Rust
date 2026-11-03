@@ -16,6 +16,7 @@ use crate::common::rts::player::PlayerObjectWorld;
 use crate::common::rts::academy_stats::AcademyTemplateContextProvider;
 use crate::common::rts::action_manager::ObjectDataProvider;
 use crate::common::rts::team::TeamCommandSink;
+use crate::common::system::build_assistant::BuildAssistantBackend;
 use crate::common::system::geometry::Coord3D;
 use crate::common::time::SimulationClock;
 use std::cell::RefCell;
@@ -116,6 +117,8 @@ pub struct CommonServices {
     pub team_home_waypoint_resolver: Mutex<Option<fn(&str) -> Option<Coord3D>>>,
     /// Team command sink (was process TEAM_COMMAND_SINK_SLOT).
     pub team_command_sink: Mutex<Option<Arc<dyn TeamCommandSink>>>,
+    /// BuildAssistant backend bridge (was process BUILD_ASSISTANT_BACKEND).
+    pub build_assistant_backend: Mutex<Option<Arc<dyn BuildAssistantBackend>>>,
 }
 
 impl Default for CommonServices {
@@ -132,6 +135,7 @@ impl Default for CommonServices {
             object_data_provider: Mutex::new(None),
             team_home_waypoint_resolver: Mutex::new(None),
             team_command_sink: Mutex::new(None),
+            build_assistant_backend: Mutex::new(None),
         }
     }
 }

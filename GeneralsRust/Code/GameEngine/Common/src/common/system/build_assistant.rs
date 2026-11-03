@@ -152,25 +152,29 @@ pub struct SellObjectSnapshot {
     pub player_index: u32,
 }
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-struct BuildAssistantBackendSlot {
-    backend: std::sync::Mutex<Option<Arc<dyn BuildAssistantBackend>>>,
-}
-static BUILD_ASSISTANT_BACKEND: std::sync::LazyLock<BuildAssistantBackendSlot> =
-    std::sync::LazyLock::new(|| BuildAssistantBackendSlot {
-        backend: std::sync::Mutex::new(None),
-    });
-
 pub fn set_build_assistant_backend(backend: Arc<dyn BuildAssistantBackend>) {
-    *BUILD_ASSISTANT_BACKEND.backend.lock().unwrap_or_else(|p| p.into_inner()) = Some(backend);
+    let services = crate::common::common_services::common_services();
+    *services
+        .build_assistant_backend
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(backend);
 }
 
 pub fn clear_build_assistant_backend() {
-    *BUILD_ASSISTANT_BACKEND.backend.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    let services = crate::common::common_services::common_services();
+    *services
+        .build_assistant_backend
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = None;
 }
 
 fn get_build_assistant_backend() -> Option<Arc<dyn BuildAssistantBackend>> {
-    BUILD_ASSISTANT_BACKEND.backend.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    let services = crate::common::common_services::common_services();
+    services
+        .build_assistant_backend
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 /// Object ID type
