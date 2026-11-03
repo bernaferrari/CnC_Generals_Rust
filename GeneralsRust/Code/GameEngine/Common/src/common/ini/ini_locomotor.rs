@@ -553,7 +553,12 @@ impl Default for LocomotorStore {
 }
 
 /// Global locomotor store
-static LOCOMOTOR_STORE: OnceCell<RwLock<LocomotorStore>> = OnceCell::new();
+struct LocomotorStoreSlot(OnceCell<RwLock<LocomotorStore>>);
+impl std::ops::Deref for LocomotorStoreSlot {
+    type Target = OnceCell<RwLock<LocomotorStore>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static LOCOMOTOR_STORE: LocomotorStoreSlot = LocomotorStoreSlot(OnceCell::new());
 
 /// Get the global locomotor store
 pub fn get_locomotor_store() -> RwLockReadGuard<'static, LocomotorStore> {

@@ -35,7 +35,12 @@ impl DebugHandlers {
 }
 
 fn handlers() -> &'static Mutex<DebugHandlers> {
-    static HANDLERS: OnceCell<Mutex<DebugHandlers>> = OnceCell::new();
+    struct HandlersSlot(OnceCell<Mutex<DebugHandlers>>);
+    impl std::ops::Deref for HandlersSlot {
+        type Target = OnceCell<Mutex<DebugHandlers>>;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static HANDLERS: HandlersSlot = HandlersSlot(OnceCell::new());
     HANDLERS.get_or_init(|| Mutex::new(DebugHandlers::new()))
 }
 

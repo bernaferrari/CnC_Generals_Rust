@@ -416,7 +416,12 @@ impl SaveLoadManager {
 use std::sync::{Arc, Mutex, OnceLock};
 
 // THREAD: process-wide save directory owner, shared with the save/load UI.
-static SAVE_LOAD_MANAGER: OnceLock<Arc<Mutex<SaveLoadManager>>> = OnceLock::new();
+struct SaveLoadManagerSlot(OnceLock<Arc<Mutex<SaveLoadManager>>>);
+impl std::ops::Deref for SaveLoadManagerSlot {
+    type Target = OnceLock<Arc<Mutex<SaveLoadManager>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static SAVE_LOAD_MANAGER: SaveLoadManagerSlot = SaveLoadManagerSlot(OnceLock::new());
 
 /// Initialize the global save/load system
 pub fn init_save_load_system() -> SaveLoadResult<()> {

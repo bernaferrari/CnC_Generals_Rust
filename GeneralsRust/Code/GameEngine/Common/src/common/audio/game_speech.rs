@@ -31,10 +31,15 @@ const BASE_DLG_DIR: &str = "data\\audio\\sounds";
 const BASE_DLG_EXT: &str = "wav";
 const NUM_DLG_PRIORITIES: usize = 5;
 
-static SPEECH_REGISTRY: OnceLock<RwLock<HashMap<String, Speech>>> = OnceLock::new();
+struct SpeechRegistrySlot(OnceLock<RwLock<HashMap<String, Speech>>>);
+impl std::ops::Deref for SpeechRegistrySlot {
+    type Target = OnceLock<RwLock<HashMap<String, Speech>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static SPEECH_REGISTRY: SpeechRegistrySlot = SpeechRegistrySlot(OnceLock::new());
 
 fn speech_registry() -> &'static RwLock<HashMap<String, Speech>> {
-    SPEECH_REGISTRY.get_or_init(|| RwLock::new(HashMap::new()))
+    SPEECH_REGISTRY.0.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 /// Information about a line of speech/dialog

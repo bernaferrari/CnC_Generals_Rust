@@ -895,30 +895,33 @@ fn extract_list(
         .unwrap_or_default()
 }
 
-thread_local! {
-    /// C++ kept the dazzle manager as a plain file static on the game thread.
-    static DAZZLE_MANAGER_SLOT: RefCell<Option<DazzleManager>> = const { RefCell::new(None) };
+struct DazzleManagerSlotBag {
+    dazzle_manager_slot: std::sync::Mutex<Option<DazzleManager>>,
 }
+static DAZZLE_MANAGER_SLOT_TLS_BAG: std::sync::LazyLock<DazzleManagerSlotBag> = std::sync::LazyLock::new(|| DazzleManagerSlotBag {
+        dazzle_manager_slot: std::sync::Mutex::new(None),
+});
+
 
 fn with_dazzle_manager_mut<R, F>(f: F) -> Option<R>
 where
     F: FnOnce(&mut DazzleManager) -> R,
 {
-    DAZZLE_MANAGER_SLOT.with_borrow_mut(|slot| {
+    { let mut slot = DAZZLE_MANAGER_SLOT_TLS_BAG.dazzle_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); 
         let manager = slot.as_mut()?;
         Some(f(manager))
-    })
+     }
 }
 
 /// Initialize dazzle system
 pub fn init_dazzle_system(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
-    DAZZLE_MANAGER_SLOT.with_borrow_mut(|slot| *slot = Some(DazzleManager::new(device, queue)));
+    { let mut slot = DAZZLE_MANAGER_SLOT_TLS_BAG.dazzle_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); *slot = Some(DazzleManager::new(device, queue)) };
     Ok(())
 }
 
 /// Shutdown dazzle system
 pub fn shutdown_dazzle_system() {
-    DAZZLE_MANAGER_SLOT.with_borrow_mut(|slot| *slot = None);
+    { let mut slot = DAZZLE_MANAGER_SLOT_TLS_BAG.dazzle_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); *slot = None };
 }
 
 /// Quick dazzle creation function

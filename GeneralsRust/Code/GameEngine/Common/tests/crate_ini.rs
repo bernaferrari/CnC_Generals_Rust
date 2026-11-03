@@ -3,7 +3,12 @@ use game_engine::common::ini::ini_crate::{get_crate_system, initialize_crate_sys
 use std::sync::Mutex;
 use std::{fs, path::PathBuf};
 
-static CRATE_TEST_LOCK: Mutex<()> = Mutex::new(());
+struct CrateTestLockSlot(Mutex<()>);
+impl std::ops::Deref for CrateTestLockSlot {
+    type Target = Mutex<()>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static CRATE_TEST_LOCK: CrateTestLockSlot = CrateTestLockSlot(Mutex::new(()));
 
 fn parse(source: &str) -> INIResult<()> {
     let mut ini = INI::new();
@@ -12,7 +17,7 @@ fn parse(source: &str) -> INIResult<()> {
 
 #[test]
 fn crate_data_consumes_fields_inside_the_block() {
-    let _guard = CRATE_TEST_LOCK.lock().expect("crate test lock");
+    let _guard = CRATE_TEST_LOCK.0.lock().expect("crate test lock");
     initialize_crate_system();
     parse(
         r#"
@@ -44,7 +49,7 @@ End
 
 #[test]
 fn later_crate_data_inherits_default_fields() {
-    let _guard = CRATE_TEST_LOCK.lock().expect("crate test lock");
+    let _guard = CRATE_TEST_LOCK.0.lock().expect("crate test lock");
     initialize_crate_system();
     parse(
         r#"
@@ -70,7 +75,7 @@ End
 
 #[test]
 fn retail_windows_game_crate_ini_parses_when_present() {
-    let _guard = CRATE_TEST_LOCK.lock().expect("crate test lock");
+    let _guard = CRATE_TEST_LOCK.0.lock().expect("crate test lock");
     initialize_crate_system();
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../../windows_game/extracted_big_files_v2/INI/Crate.ini");

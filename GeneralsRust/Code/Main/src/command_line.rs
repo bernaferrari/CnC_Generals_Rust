@@ -697,8 +697,12 @@ impl CommandLineArgs {
 }
 
 /// Global command line arguments
-static COMMAND_LINE_ARGS: std::sync::LazyLock<std::sync::Mutex<Option<CommandLineArgs>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+struct CommandLineArgsSlot(std::sync::LazyLock<std::sync::Mutex<Option<CommandLineArgs>>>);
+impl std::ops::Deref for CommandLineArgsSlot {
+    type Target = std::sync::LazyLock<std::sync::Mutex<Option<CommandLineArgs>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static COMMAND_LINE_ARGS: CommandLineArgsSlot = CommandLineArgsSlot(std::sync::LazyLock::new(|| std::sync::Mutex::new(None)));
 
 /// Initialize command line parsing system
 pub fn initialize_command_line() -> Result<CommandLineArgs> {

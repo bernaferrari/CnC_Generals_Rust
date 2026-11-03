@@ -298,7 +298,12 @@ impl Anim2DCollection {
     }
 }
 
-static ANIM2D_COLLECTION: OnceCell<Arc<RwLock<Anim2DCollection>>> = OnceCell::new();
+struct Anim2DCollectionSlot(OnceCell<Arc<RwLock<Anim2DCollection>>>);
+impl std::ops::Deref for Anim2DCollectionSlot {
+    type Target = OnceCell<Arc<RwLock<Anim2DCollection>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static ANIM2D_COLLECTION: Anim2DCollectionSlot = Anim2DCollectionSlot(OnceCell::new());
 
 pub fn ensure_anim2d_collection() -> Arc<RwLock<Anim2DCollection>> {
     ANIM2D_COLLECTION
@@ -312,7 +317,7 @@ pub fn initialize_anim2d_collection() {
 }
 
 pub fn get_anim2d_collection() -> Option<Arc<RwLock<Anim2DCollection>>> {
-    ANIM2D_COLLECTION.get().cloned()
+    ANIM2D_COLLECTION.0.get().cloned()
 }
 
 pub fn parse_anim2d_definition(ini: &mut INI) -> INIResult<()> {

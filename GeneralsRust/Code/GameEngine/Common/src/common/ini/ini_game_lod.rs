@@ -590,7 +590,12 @@ impl GameLODManager {
 // ============================================================================
 
 /// Global Game LOD Manager instance
-static GAME_LOD_MANAGER: OnceCell<RwLock<GameLODManager>> = OnceCell::new();
+struct GameLodManagerSlot(OnceCell<RwLock<GameLODManager>>);
+impl std::ops::Deref for GameLodManagerSlot {
+    type Target = OnceCell<RwLock<GameLODManager>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static GAME_LOD_MANAGER: GameLodManagerSlot = GameLodManagerSlot(OnceCell::new());
 
 /// Get the global Game LOD Manager (read access)
 pub fn get_game_lod_manager() -> RwLockReadGuard<'static, GameLODManager> {
@@ -610,9 +615,9 @@ pub fn get_game_lod_manager_mut() -> RwLockWriteGuard<'static, GameLODManager> {
 
 /// Initialize the global Game LOD Manager
 pub fn init_game_lod_manager() {
-    if GAME_LOD_MANAGER.get().is_none() {
-        let _ = GAME_LOD_MANAGER.set(RwLock::new(GameLODManager::new()));
-    } else if let Some(manager) = GAME_LOD_MANAGER.get() {
+    if GAME_LOD_MANAGER.0.get().is_none() {
+        let _ = GAME_LOD_MANAGER.0.set(RwLock::new(GameLODManager::new()));
+    } else if let Some(manager) = GAME_LOD_MANAGER.0.get() {
         if let Ok(mut guard) = manager.write() {
             guard.init();
         }

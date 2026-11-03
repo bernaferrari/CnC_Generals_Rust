@@ -145,7 +145,12 @@ impl LocalizationManager {
 }
 
 // THREAD: read from any thread that formats a string; only the shell mutates.
-static GLOBAL_LOCALIZATION: OnceLock<Arc<RwLock<LocalizationManager>>> = OnceLock::new();
+struct GlobalLocalizationSlot(OnceLock<Arc<RwLock<LocalizationManager>>>);
+impl std::ops::Deref for GlobalLocalizationSlot {
+    type Target = OnceLock<Arc<RwLock<LocalizationManager>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static GLOBAL_LOCALIZATION: GlobalLocalizationSlot = GlobalLocalizationSlot(OnceLock::new());
 
 fn manager() -> Arc<RwLock<LocalizationManager>> {
     GLOBAL_LOCALIZATION

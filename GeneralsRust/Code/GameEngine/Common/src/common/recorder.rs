@@ -2447,12 +2447,17 @@ fn arg_data_type_from_u8(value: u8) -> Result<GameMessageArgumentDataType, std::
 }
 
 /// Global recorder instance
-static GLOBAL_RECORDER: OnceCell<Mutex<Recorder>> = OnceCell::new();
+struct GlobalRecorderSlot(OnceCell<Mutex<Recorder>>);
+impl std::ops::Deref for GlobalRecorderSlot {
+    type Target = OnceCell<Mutex<Recorder>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static GLOBAL_RECORDER: GlobalRecorderSlot = GlobalRecorderSlot(OnceCell::new());
 
 /// Initialize and obtain the global recorder instance
 /// Matches C++ TheRecorder and createRecorder() from Recorder.cpp:335-336, 1593-1595
 pub fn init_recorder() -> &'static Mutex<Recorder> {
-    GLOBAL_RECORDER.get_or_init(|| {
+    GLOBAL_RECORDER.0.get_or_init(|| {
         log::info!("Recorder initialized");
         Mutex::new(Recorder::new())
     })

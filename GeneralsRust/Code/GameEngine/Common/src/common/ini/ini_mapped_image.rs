@@ -600,7 +600,12 @@ fn load_global_mapped_image_collection(texture_size: i32) {
 }
 
 /// Global mapped image collection instance (thread-safe)
-static MAPPED_IMAGE_COLLECTION: OnceCell<Arc<RwLock<ImageCollection>>> = OnceCell::new();
+struct MappedImageCollectionSlot(OnceCell<Arc<RwLock<ImageCollection>>>);
+impl std::ops::Deref for MappedImageCollectionSlot {
+    type Target = OnceCell<Arc<RwLock<ImageCollection>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static MAPPED_IMAGE_COLLECTION: MappedImageCollectionSlot = MappedImageCollectionSlot(OnceCell::new());
 
 /// Ensure the mapped image collection exists and return a handle to it
 pub fn ensure_mapped_image_collection() -> Arc<RwLock<ImageCollection>> {
@@ -621,7 +626,7 @@ pub fn init_global_mapped_image_collection() {
 
 /// Get a handle to the mapped image collection if it has been initialized
 pub fn get_mapped_image_collection() -> Option<Arc<RwLock<ImageCollection>>> {
-    MAPPED_IMAGE_COLLECTION.get().cloned()
+    MAPPED_IMAGE_COLLECTION.0.get().cloned()
 }
 
 /// INI parsing function for MappedImage definition (matches C++ interface)

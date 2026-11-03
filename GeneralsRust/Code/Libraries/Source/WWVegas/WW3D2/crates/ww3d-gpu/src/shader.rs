@@ -723,7 +723,12 @@ impl Shader {
     /// Warnings are rate-limited to avoid spam (max 10 warnings).
     fn report_unable_to_fog(source: &str) {
         use std::sync::atomic::{AtomicUsize, Ordering};
-        static WARNING_COUNT: AtomicUsize = AtomicUsize::new(0);
+        struct WarningCountSlot(AtomicUsize);
+        impl std::ops::Deref for WarningCountSlot {
+            type Target = AtomicUsize;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static WARNING_COUNT: WarningCountSlot = WarningCountSlot(AtomicUsize::new(0));
         const MAX_WARNINGS: usize = 10;
 
         let count = WARNING_COUNT.fetch_add(1, Ordering::Relaxed);

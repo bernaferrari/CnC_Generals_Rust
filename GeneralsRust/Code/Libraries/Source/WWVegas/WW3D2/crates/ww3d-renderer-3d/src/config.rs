@@ -27,13 +27,15 @@ impl Default for RendererConfig {
     }
 }
 
-thread_local! {
-    /// C++ kept the renderer config in a plain static on the game thread.
-    static CONFIG: RefCell<RendererConfig> = RefCell::new(RendererConfig::default());
+struct ConfigBag {
+    config: std::sync::Mutex<RendererConfig>,
 }
+static CONFIG: std::sync::LazyLock<ConfigBag> = std::sync::LazyLock::new(|| ConfigBag {
+    config: std::sync::Mutex::new(RendererConfig::default()),
+});
 
 pub fn init_from_env() {
-    CONFIG.with_borrow_mut(|config| *config = RendererConfig::default());
+    *CONFIG.config.lock().unwrap_or_else(|p| p.into_inner()) = RendererConfig::default();
     // Update from env
     let prefer_16 =
         env::var("WW3D_PREFER_16BIT_TEXTURES").map(|v| v == "1" || v.eq_ignore_ascii_case("true"));
@@ -45,7 +47,8 @@ pub fn init_from_env() {
         .and_then(|v| v.parse::<u16>().ok())
         .filter(|&v| v >= 1);
 
-    CONFIG.with_borrow_mut(|cfg| {
+    {
+        let mut cfg = CONFIG.config.lock().unwrap_or_else(|p| p.into_inner());
         if let Ok(v) = prefer_16 {
             cfg.prefer_16bit_textures = v;
         }
@@ -63,15 +66,19 @@ pub fn init_from_env() {
         if let Some(aniso) = max_aniso {
             cfg.max_anisotropy = aniso.clamp(1, 16);
         }
-    });
+    }
 }
 
 pub fn get() -> RendererConfig {
-    CONFIG.with_borrow(Clone::clone)
+    CONFIG
+        .config
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 pub fn set(cfg: RendererConfig) {
     let mut cfg = cfg;
     cfg.max_anisotropy = cfg.max_anisotropy.clamp(1, 16);
-    CONFIG.with_borrow_mut(|config| *config = cfg);
+    *CONFIG.config.lock().unwrap_or_else(|p| p.into_inner()) = cfg;
 }

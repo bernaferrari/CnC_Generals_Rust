@@ -297,14 +297,20 @@ impl CrcDebugBuffer {
 }
 
 #[cfg(feature = "debug_crc")]
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static CRC_DEBUG_STATE: RefCell<CrcDebugState> = RefCell::new(CrcDebugState::new());
+struct CrcDebugBag {
+    state: std::sync::Mutex<CrcDebugState>,
 }
 
 #[cfg(feature = "debug_crc")]
+static CRC_DEBUG_BAG: std::sync::LazyLock<CrcDebugBag> =
+    std::sync::LazyLock::new(|| CrcDebugBag {
+        state: std::sync::Mutex::new(CrcDebugState::new()),
+    });
+
+#[cfg(feature = "debug_crc")]
 fn with_crc_state<R>(f: impl FnOnce(&CrcDebugState) -> R) -> R {
-    CRC_DEBUG_STATE.with_borrow(f)
+    let guard = CRC_DEBUG_BAG.state.lock().unwrap_or_else(|p| p.into_inner());
+    f(&guard)
 }
 
 #[cfg(feature = "debug_crc")]
@@ -986,18 +992,7 @@ macro_rules! dump_real_named {
     };
 }
 
-/// Global debug flags for builds without the debug_crc feature
-#[cfg(not(feature = "debug_crc"))]
-#[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
-pub static DEBUG_IGNORE_SYNC_ERRORS: AtomicBool = AtomicBool::new(false);
-
-/// Network and replay CRC intervals used when debug CRC support is disabled
-#[cfg(not(feature = "debug_crc"))]
-#[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
-pub static NET_CRC_INTERVAL: AtomicI32 = AtomicI32::new(1);
-#[cfg(not(feature = "debug_crc"))]
-#[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
-pub static REPLAY_CRC_INTERVAL: AtomicI32 = AtomicI32::new(100);
+/// CRC runtime flags live on [`crate::common::common_services::CommonServices::crc_flags`].
 
 #[cfg(feature = "debug_crc")]
 pub fn set_debug_ignore_sync_errors(enabled: bool) {
@@ -1011,7 +1006,10 @@ pub fn set_debug_ignore_sync_errors(enabled: bool) {
 #[cfg(not(feature = "debug_crc"))]
 #[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
 pub fn set_debug_ignore_sync_errors(enabled: bool) {
-    DEBUG_IGNORE_SYNC_ERRORS.store(enabled, Ordering::Relaxed);
+    crate::common::common_services::common_services()
+        .crc_flags
+        .debug_ignore_sync_errors
+        .store(enabled, Ordering::Relaxed);
 }
 
 #[cfg(feature = "debug_crc")]
@@ -1022,7 +1020,10 @@ pub fn debug_ignore_sync_errors() -> bool {
 #[cfg(not(feature = "debug_crc"))]
 #[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
 pub fn debug_ignore_sync_errors() -> bool {
-    DEBUG_IGNORE_SYNC_ERRORS.load(Ordering::Relaxed)
+    crate::common::common_services::common_services()
+        .crc_flags
+        .debug_ignore_sync_errors
+        .load(Ordering::Relaxed)
 }
 
 #[cfg(feature = "debug_crc")]
@@ -1037,7 +1038,10 @@ pub fn set_net_crc_interval(interval: i32) {
 #[cfg(not(feature = "debug_crc"))]
 #[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
 pub fn set_net_crc_interval(interval: i32) {
-    NET_CRC_INTERVAL.store(interval, Ordering::Relaxed);
+    crate::common::common_services::common_services()
+        .crc_flags
+        .net_crc_interval
+        .store(interval, Ordering::Relaxed);
 }
 
 #[cfg(feature = "debug_crc")]
@@ -1048,7 +1052,10 @@ pub fn net_crc_interval() -> i32 {
 #[cfg(not(feature = "debug_crc"))]
 #[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
 pub fn net_crc_interval() -> i32 {
-    NET_CRC_INTERVAL.load(Ordering::Relaxed)
+    crate::common::common_services::common_services()
+        .crc_flags
+        .net_crc_interval
+        .load(Ordering::Relaxed)
 }
 
 #[cfg(feature = "debug_crc")]
@@ -1063,7 +1070,10 @@ pub fn set_replay_crc_interval(interval: i32) {
 #[cfg(not(feature = "debug_crc"))]
 #[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
 pub fn set_replay_crc_interval(interval: i32) {
-    REPLAY_CRC_INTERVAL.store(interval, Ordering::Relaxed);
+    crate::common::common_services::common_services()
+        .crc_flags
+        .replay_crc_interval
+        .store(interval, Ordering::Relaxed);
 }
 
 #[cfg(feature = "debug_crc")]
@@ -1074,5 +1084,8 @@ pub fn replay_crc_interval() -> i32 {
 #[cfg(not(feature = "debug_crc"))]
 #[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
 pub fn replay_crc_interval() -> i32 {
-    REPLAY_CRC_INTERVAL.load(Ordering::Relaxed)
+    crate::common::common_services::common_services()
+        .crc_flags
+        .replay_crc_interval
+        .load(Ordering::Relaxed)
 }

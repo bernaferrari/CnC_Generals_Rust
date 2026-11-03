@@ -8,18 +8,22 @@ pub struct HostDestroyEvent {
     pub id: ObjectId,
 }
 
-thread_local! {
-    static LOG: RefCell<Vec<HostDestroyEvent>> = RefCell::new(Vec::new());
+struct HostDestroyLogLogBag {
+    value: std::sync::Mutex<Vec<HostDestroyEvent>>,
 }
+static LOG: std::sync::LazyLock<HostDestroyLogLogBag> = std::sync::LazyLock::new(|| HostDestroyLogLogBag {
+    value: std::sync::Mutex::new(Vec::new()),
+});
+
 
 pub fn record(id: ObjectId) {
-    LOG.with(|log| log.borrow_mut().push(HostDestroyEvent { id }));
+    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); log.push(HostDestroyEvent { id }) };
 }
 
 pub fn drain() -> Vec<HostDestroyEvent> {
-    LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
+    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); std::mem::take(&mut log) }
 }
 
 pub fn clear() {
-    LOG.with(|log| log.borrow_mut().clear());
+    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); log.clear() };
 }

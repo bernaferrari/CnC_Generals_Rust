@@ -364,36 +364,38 @@ impl Clone for ThumbnailManagerClass {
     }
 }
 
-thread_local! {
-    /// C++ kept the thumbnail manager as a plain singleton on the game thread.
-    static THUMBNAIL_MANAGER: RefCell<ThumbnailManagerClass> =
-        RefCell::new(ThumbnailManagerClass::new());
+struct ThumbnailManagerBag {
+    thumbnail_manager: std::sync::Mutex<ThumbnailManagerClass>,
 }
+static THUMBNAIL_MANAGER_TLS_BAG: std::sync::LazyLock<ThumbnailManagerBag> = std::sync::LazyLock::new(|| ThumbnailManagerBag {
+        thumbnail_manager: std::sync::Mutex::new(ThumbnailManagerClass::new()),
+});
+
 
 /// Initialise the global thumbnail manager. Subsequent calls refresh the internal state instead of
 /// allocating an additional singleton, keeping legacy entry points working with safe Rust semantics.
 pub fn init_global_thumbnail_manager() {
-    THUMBNAIL_MANAGER.with(|manager| {
-        let mut manager = manager.borrow_mut();
+    { let mut manager = THUMBNAIL_MANAGER_TLS_BAG.thumbnail_manager.lock().unwrap_or_else(|p| p.into_inner()); 
+        let mut manager = manager;
         // Refresh rather than replace so cached thumbnails survive re-init.
         let refreshed = ThumbnailManagerClass {
             thumbnails: manager.thumbnails.clone(),
             create_thumbnail_if_not_found: manager.create_thumbnail_if_not_found,
         };
         *manager = refreshed;
-    });
+     };
 }
 
 /// Run `f` with mutable access to the global thumbnail manager.
 pub fn with_global_thumbnail_manager<R>(f: impl FnOnce(&mut ThumbnailManagerClass) -> R) -> R {
-    THUMBNAIL_MANAGER.with(|manager| f(&mut manager.borrow_mut()))
+    { let mut manager = THUMBNAIL_MANAGER_TLS_BAG.thumbnail_manager.lock().unwrap_or_else(|p| p.into_inner()); f(&mut manager) }
 }
 
 /// Clear the global thumbnail manager’s contents without tearing down the singleton. This avoids
 /// `static mut` lifetime issues while still providing the semantic “shutdown” hook expected by the
 /// legacy API.
 pub fn shutdown_global_thumbnail_manager() {
-    THUMBNAIL_MANAGER.with_borrow_mut(|manager| manager.clear());
+    { let mut manager = THUMBNAIL_MANAGER_TLS_BAG.thumbnail_manager.lock().unwrap_or_else(|p| p.into_inner()); manager.clear() };
 }
 
 /// Create hash name from thumbnail name

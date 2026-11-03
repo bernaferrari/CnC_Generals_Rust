@@ -12,7 +12,12 @@ use super::*;
 /// Thread-safe debug ID counter for mesh objects
 /// C++ Reference: Original code used static mut for mesh_debug_id assignment
 /// Rust Implementation: Uses AtomicU32 with SeqCst ordering for thread safety
-static MESH_DEBUG_ID_COUNT: AtomicU32 = AtomicU32::new(0);
+struct MeshDebugIdCountSlot(AtomicU32);
+impl std::ops::Deref for MeshDebugIdCountSlot {
+    type Target = AtomicU32;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static MESH_DEBUG_ID_COUNT: MeshDebugIdCountSlot = MeshDebugIdCountSlot(AtomicU32::new(0));
 
 impl Default for MeshClass {
     fn default() -> Self {

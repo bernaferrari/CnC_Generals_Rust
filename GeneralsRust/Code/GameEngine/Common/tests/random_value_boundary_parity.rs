@@ -18,11 +18,16 @@ use game_engine::common::random_value::{
 use std::sync::Mutex;
 
 /// The three RNG streams are process-global; serialize every test.
-static RNG_LOCK: Mutex<()> = Mutex::new(());
+struct RngLockSlot(Mutex<()>);
+impl std::ops::Deref for RngLockSlot {
+    type Target = Mutex<()>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static RNG_LOCK: RngLockSlot = RngLockSlot(Mutex::new(()));
 
 #[test]
 fn max_range_does_not_panic_and_replays_deterministically() {
-    let _guard = RNG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = RNG_LOCK.0.lock().unwrap_or_else(|e| e.into_inner());
     // (0, i32::MAX): delta wraps to 0x80000000 (C++ RandomValue.cpp:189).
     // Checked-arithmetic builds must not panic, and the same seed must
     // reproduce the exact value (one draw consumed per call, C++ :196).
@@ -35,7 +40,7 @@ fn max_range_does_not_panic_and_replays_deterministically() {
 
 #[test]
 fn delta_zero_range_returns_hi_without_consuming_a_draw() {
-    let _guard = RNG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = RNG_LOCK.0.lock().unwrap_or_else(|e| e.into_inner());
     // (5, 4): hi - lo + 1 == 0 mod 2^32 => C++ :193-194 returns hi (4)
     // BEFORE the randomValue() call — the stream state must be untouched.
     init_game_logic_random(0x5EED_0002);
@@ -55,7 +60,7 @@ fn delta_zero_range_returns_hi_without_consuming_a_draw() {
 
 #[test]
 fn equal_bounds_return_lo_and_consume_exactly_one_draw() {
-    let _guard = RNG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = RNG_LOCK.0.lock().unwrap_or_else(|e| e.into_inner());
     // (10, 10): delta == 1 (C++ :196, NOT the delta==0 branch) — one draw.
     init_game_logic_random(0x5EED_0004);
     let before = get_game_logic_random_seed_state();
@@ -69,7 +74,7 @@ fn equal_bounds_return_lo_and_consume_exactly_one_draw() {
 
 #[test]
 fn wrapped_results_stay_inside_the_msvc_delta_domain() {
-    let _guard = RNG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = RNG_LOCK.0.lock().unwrap_or_else(|e| e.into_inner());
     // For every non-delta==0 pair the result satisfies
     // (result - lo) as u32 < delta, with delta computed in wrapped arithmetic
     // and stored as UnsignedInt (C++ RandomValue.cpp:189-196). Includes the
@@ -103,7 +108,7 @@ fn wrapped_results_stay_inside_the_msvc_delta_domain() {
 
 #[test]
 fn client_and_audio_streams_mirror_the_logic_boundary() {
-    let _guard = RNG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = RNG_LOCK.0.lock().unwrap_or_else(|e| e.into_inner());
     // All three streams share the C++ body (RandomValue.cpp:217/:223 client,
     // :240/:246 audio) — the wrapped boundary must behave identically and
     // deterministically on each. init_random_with_seed reseeds ALL streams;

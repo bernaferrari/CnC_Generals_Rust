@@ -434,13 +434,18 @@ impl Default for VideoPlayer {
 }
 
 /// Global video player instance
-static VIDEO_PLAYER: OnceCell<Arc<Mutex<VideoPlayer>>> = OnceCell::new();
+struct VideoPlayerSlot(OnceCell<Arc<Mutex<VideoPlayer>>>);
+impl std::ops::Deref for VideoPlayerSlot {
+    type Target = OnceCell<Arc<Mutex<VideoPlayer>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static VIDEO_PLAYER: VideoPlayerSlot = VideoPlayerSlot(OnceCell::new());
 
 /// Initialize the global video player
 pub fn initialize_video_player() {
-    if VIDEO_PLAYER.get().is_none() {
-        let _ = VIDEO_PLAYER.set(Arc::new(Mutex::new(VideoPlayer::new())));
-    } else if let Some(player) = VIDEO_PLAYER.get() {
+    if VIDEO_PLAYER.0.get().is_none() {
+        let _ = VIDEO_PLAYER.0.set(Arc::new(Mutex::new(VideoPlayer::new())));
+    } else if let Some(player) = VIDEO_PLAYER.0.get() {
         if let Ok(mut guard) = player.lock() {
             *guard = VideoPlayer::new();
         }

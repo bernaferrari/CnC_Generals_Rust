@@ -439,7 +439,12 @@ impl Default for TerrainTypes {
 }
 
 /// Global terrain types registry (thread-safe)
-static TERRAIN_TYPES: OnceCell<Arc<RwLock<TerrainTypes>>> = OnceCell::new();
+struct TerrainTypesSlot(OnceCell<Arc<RwLock<TerrainTypes>>>);
+impl std::ops::Deref for TerrainTypesSlot {
+    type Target = OnceCell<Arc<RwLock<TerrainTypes>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static TERRAIN_TYPES: TerrainTypesSlot = TerrainTypesSlot(OnceCell::new());
 
 /// Ensure the terrain registry exists and return a handle to it
 pub fn initialize_terrain_types() -> Arc<RwLock<TerrainTypes>> {
@@ -450,7 +455,7 @@ pub fn initialize_terrain_types() -> Arc<RwLock<TerrainTypes>> {
 
 /// Get the terrain registry if it has already been initialized
 pub fn get_terrain_types() -> Option<Arc<RwLock<TerrainTypes>>> {
-    TERRAIN_TYPES.get().cloned()
+    TERRAIN_TYPES.0.get().cloned()
 }
 
 /// Parse a boolean value from string

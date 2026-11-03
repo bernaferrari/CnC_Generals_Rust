@@ -1030,7 +1030,12 @@ mod tests {
 
     #[test]
     fn evaluate_marks_receiving_player_defeated_without_mutating_foreign_list() {
-        static PLAYER_LIST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        struct PlayerListLockSlot(std::sync::Mutex<()>);
+        impl std::ops::Deref for PlayerListLockSlot {
+            type Target = std::sync::Mutex<()>;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static PLAYER_LIST_LOCK: PlayerListLockSlot = PlayerListLockSlot(std::sync::Mutex::new(()));
         let _lock = PLAYER_LIST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         {
             let mut list = gamelogic::player::ThePlayerList()

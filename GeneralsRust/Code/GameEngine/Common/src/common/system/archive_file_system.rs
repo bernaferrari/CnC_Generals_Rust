@@ -222,13 +222,18 @@ impl ArchiveFileSystem {
 }
 
 /// Global archive file system instance (mirrors the original singleton pattern).
-static ARCHIVE_FILE_SYSTEM: OnceCell<Mutex<ArchiveFileSystem>> = OnceCell::new();
+struct ArchiveFileSystemSlot(OnceCell<Mutex<ArchiveFileSystem>>);
+impl std::ops::Deref for ArchiveFileSystemSlot {
+    type Target = OnceCell<Mutex<ArchiveFileSystem>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static ARCHIVE_FILE_SYSTEM: ArchiveFileSystemSlot = ArchiveFileSystemSlot(OnceCell::new());
 
 /// Initialize the global archive file system singleton.
 pub fn init_archive_file_system() {
-    if ARCHIVE_FILE_SYSTEM.get().is_none() {
-        let _ = ARCHIVE_FILE_SYSTEM.set(Mutex::new(ArchiveFileSystem::new()));
-    } else if let Some(cell) = ARCHIVE_FILE_SYSTEM.get() {
+    if ARCHIVE_FILE_SYSTEM.0.get().is_none() {
+        let _ = ARCHIVE_FILE_SYSTEM.0.set(Mutex::new(ArchiveFileSystem::new()));
+    } else if let Some(cell) = ARCHIVE_FILE_SYSTEM.0.get() {
         if let Ok(mut guard) = cell.lock() {
             *guard = ArchiveFileSystem::new();
         }

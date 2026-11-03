@@ -395,10 +395,15 @@ fn parse_starting_money_default(
 }
 
 /// Global multiplayer settings instance (would be managed by a global state manager in practice)
-static MULTIPLAYER_SETTINGS: OnceCell<RwLock<MultiplayerSettings>> = OnceCell::new();
+struct MultiplayerSettingsSlot(OnceCell<RwLock<MultiplayerSettings>>);
+impl std::ops::Deref for MultiplayerSettingsSlot {
+    type Target = OnceCell<RwLock<MultiplayerSettings>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static MULTIPLAYER_SETTINGS: MultiplayerSettingsSlot = MultiplayerSettingsSlot(OnceCell::new());
 
 fn multiplayer_settings_cell() -> &'static RwLock<MultiplayerSettings> {
-    MULTIPLAYER_SETTINGS.get_or_init(|| RwLock::new(MultiplayerSettings::new()))
+    MULTIPLAYER_SETTINGS.0.get_or_init(|| RwLock::new(MultiplayerSettings::new()))
 }
 
 fn multiplayer_settings_mut() -> RwLockWriteGuard<'static, MultiplayerSettings> {

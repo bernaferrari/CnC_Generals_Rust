@@ -187,11 +187,16 @@ impl OnlineChatColors {
 // ============================================================================
 
 /// Global online chat colors instance
-static ONLINE_CHAT_COLORS: OnceCell<RwLock<OnlineChatColors>> = OnceCell::new();
+struct OnlineChatColorsSlot(OnceCell<RwLock<OnlineChatColors>>);
+impl std::ops::Deref for OnlineChatColorsSlot {
+    type Target = OnceCell<RwLock<OnlineChatColors>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static ONLINE_CHAT_COLORS: OnlineChatColorsSlot = OnlineChatColorsSlot(OnceCell::new());
 
 /// Get or initialize the global OnlineChatColors
 fn online_chat_colors_cell() -> &'static RwLock<OnlineChatColors> {
-    ONLINE_CHAT_COLORS.get_or_init(|| RwLock::new(OnlineChatColors::new()))
+    ONLINE_CHAT_COLORS.0.get_or_init(|| RwLock::new(OnlineChatColors::new()))
 }
 
 /// Get read access to the global OnlineChatColors

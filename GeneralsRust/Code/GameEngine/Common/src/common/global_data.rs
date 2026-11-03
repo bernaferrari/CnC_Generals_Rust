@@ -2259,7 +2259,12 @@ impl Snapshotable for GlobalData {
 }
 
 /// Global singleton mirroring `TheGlobalData` in the C++ codebase.
-pub static GLOBAL_DATA: Lazy<RwLock<GlobalData>> = Lazy::new(|| RwLock::new(GlobalData::default()));
+pub struct GlobalDataSlot(Lazy<RwLock<GlobalData>>);
+impl std::ops::Deref for GlobalDataSlot {
+    type Target = Lazy<RwLock<GlobalData>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+pub static GLOBAL_DATA: GlobalDataSlot = GlobalDataSlot(Lazy::new(|| RwLock::new(GlobalData::default())));
 
 /// Error type for global data access
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2351,8 +2356,13 @@ pub mod access {
 /// All such tests must hold this lock so parallel suites cannot clobber
 /// sell percentages and other shared knobs mid-assertion.
 pub fn test_isolation_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    struct LockSlot(OnceLock<Mutex<()>>);
+    impl std::ops::Deref for LockSlot {
+        type Target = OnceLock<Mutex<()>>;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static LOCK: LockSlot = LockSlot(OnceLock::new());
+    LOCK.0.get_or_init(|| Mutex::new(()))
 }
 
 /// Run `f` while holding [`test_isolation_lock`], restoring GlobalData afterward.

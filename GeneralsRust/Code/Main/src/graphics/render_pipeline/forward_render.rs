@@ -947,7 +947,12 @@ impl ForwardPass {
         projection_matrix: &Mat4,
         camera_position: Vec3,
     ) {
-        static PROBE_FRAME_COUNTER: AtomicUsize = AtomicUsize::new(0);
+        struct ProbeFrameCounterSlot(AtomicUsize);
+        impl std::ops::Deref for ProbeFrameCounterSlot {
+            type Target = AtomicUsize;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static PROBE_FRAME_COUNTER: ProbeFrameCounterSlot = ProbeFrameCounterSlot(AtomicUsize::new(0));
         let frame = PROBE_FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
         if !frame.is_multiple_of(120) {
             return;
@@ -1029,7 +1034,12 @@ impl ForwardPass {
     }
 
     pub(super) fn log_material_probe(render_items: &[RenderItem]) {
-        static MATERIAL_PROBE_FRAME_COUNTER: AtomicUsize = AtomicUsize::new(0);
+        struct MaterialProbeFrameCounterSlot(AtomicUsize);
+        impl std::ops::Deref for MaterialProbeFrameCounterSlot {
+            type Target = AtomicUsize;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static MATERIAL_PROBE_FRAME_COUNTER: MaterialProbeFrameCounterSlot = MaterialProbeFrameCounterSlot(AtomicUsize::new(0));
         let frame = MATERIAL_PROBE_FRAME_COUNTER.fetch_add(1, Ordering::Relaxed);
         if !frame.is_multiple_of(120) {
             return;

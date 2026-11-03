@@ -155,7 +155,12 @@ impl Default for ParsedCrateSystem {
 // ---------------------------------------------------------------------------
 
 /// Global parsed crate system (Common-layer singleton).
-static CRATE_SYSTEM: OnceCell<Arc<RwLock<ParsedCrateSystem>>> = OnceCell::new();
+struct CrateSystemSlot(OnceCell<Arc<RwLock<ParsedCrateSystem>>>);
+impl std::ops::Deref for CrateSystemSlot {
+    type Target = OnceCell<Arc<RwLock<ParsedCrateSystem>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static CRATE_SYSTEM: CrateSystemSlot = CrateSystemSlot(OnceCell::new());
 
 /// Ensure the crate system exists.
 pub fn ensure_crate_system() -> Arc<RwLock<ParsedCrateSystem>> {
@@ -172,7 +177,7 @@ pub fn initialize_crate_system() {
 
 /// Get a handle to the crate system if initialized.
 pub fn get_crate_system() -> Option<Arc<RwLock<ParsedCrateSystem>>> {
-    CRATE_SYSTEM.get().cloned()
+    CRATE_SYSTEM.0.get().cloned()
 }
 
 // ---------------------------------------------------------------------------

@@ -59,16 +59,46 @@ unsafe impl Send for PendingCommand {}
 // `!Sync` default is unreachable.
 unsafe impl Sync for PendingCommand {}
 
-static FRAME_ACTIVE: AtomicBool = AtomicBool::new(false);
+struct FrameActiveSlot(AtomicBool);
+impl std::ops::Deref for FrameActiveSlot {
+    type Target = AtomicBool;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static FRAME_ACTIVE: FrameActiveSlot = FrameActiveSlot(AtomicBool::new(false));
 // THREAD: render-record call sites vs. the `submit_owned_frame` drain on the
 // game thread. A mutex (not thread-local) is required here: dropping queued
 // wgpu encoders from a thread-local destructor would run after wgpu's own TLS
 // has been destroyed at thread exit.
-static PENDING: Mutex<Vec<PendingCommand>> = Mutex::new(Vec::new());
-static LAST_FRAME_SUBMIT_COUNT: AtomicU64 = AtomicU64::new(0);
-static LAST_OUT_OF_FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
-static TOTAL_OWNED_SUBMITS: AtomicU64 = AtomicU64::new(0);
-static FRAME_INDEX_AT_SUBMIT: AtomicU64 = AtomicU64::new(0);
+struct PendingSlot(Mutex<Vec<PendingCommand>>);
+impl std::ops::Deref for PendingSlot {
+    type Target = Mutex<Vec<PendingCommand>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static PENDING: PendingSlot = PendingSlot(Mutex::new(Vec::new()));
+struct LastFrameSubmitCountSlot(AtomicU64);
+impl std::ops::Deref for LastFrameSubmitCountSlot {
+    type Target = AtomicU64;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static LAST_FRAME_SUBMIT_COUNT: LastFrameSubmitCountSlot = LastFrameSubmitCountSlot(AtomicU64::new(0));
+struct LastOutOfFrameCountSlot(AtomicU64);
+impl std::ops::Deref for LastOutOfFrameCountSlot {
+    type Target = AtomicU64;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static LAST_OUT_OF_FRAME_COUNT: LastOutOfFrameCountSlot = LastOutOfFrameCountSlot(AtomicU64::new(0));
+struct TotalOwnedSubmitsSlot(AtomicU64);
+impl std::ops::Deref for TotalOwnedSubmitsSlot {
+    type Target = AtomicU64;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static TOTAL_OWNED_SUBMITS: TotalOwnedSubmitsSlot = TotalOwnedSubmitsSlot(AtomicU64::new(0));
+struct FrameIndexAtSubmitSlot(AtomicU64);
+impl std::ops::Deref for FrameIndexAtSubmitSlot {
+    type Target = AtomicU64;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static FRAME_INDEX_AT_SUBMIT: FrameIndexAtSubmitSlot = FrameIndexAtSubmitSlot(AtomicU64::new(0));
 
 fn submit_debug_enabled() -> bool {
     match std::env::var(SUBMIT_DEBUG_ENV) {

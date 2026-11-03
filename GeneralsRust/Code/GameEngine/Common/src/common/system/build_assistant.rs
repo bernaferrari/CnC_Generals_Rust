@@ -153,20 +153,24 @@ pub struct SellObjectSnapshot {
 }
 
 // THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static BACKEND: RefCell<Option<Arc<dyn BuildAssistantBackend>>> = const { RefCell::new(None) };
+struct BuildAssistantBackendSlot {
+    backend: std::sync::Mutex<Option<Arc<dyn BuildAssistantBackend>>>,
 }
+static BUILD_ASSISTANT_BACKEND: std::sync::LazyLock<BuildAssistantBackendSlot> =
+    std::sync::LazyLock::new(|| BuildAssistantBackendSlot {
+        backend: std::sync::Mutex::new(None),
+    });
 
 pub fn set_build_assistant_backend(backend: Arc<dyn BuildAssistantBackend>) {
-    BACKEND.with_borrow_mut(|backend_slot| *backend_slot = Some(backend));
+    *BUILD_ASSISTANT_BACKEND.backend.lock().unwrap_or_else(|p| p.into_inner()) = Some(backend);
 }
 
 pub fn clear_build_assistant_backend() {
-    BACKEND.with_borrow_mut(|backend_slot| *backend_slot = None);
+    *BUILD_ASSISTANT_BACKEND.backend.lock().unwrap_or_else(|p| p.into_inner()) = None;
 }
 
 fn get_build_assistant_backend() -> Option<Arc<dyn BuildAssistantBackend>> {
-    BACKEND.with_borrow(|backend_slot| backend_slot.clone())
+    BUILD_ASSISTANT_BACKEND.backend.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 /// Object ID type
@@ -848,13 +852,18 @@ impl BuildAssistant {
 }
 
 /// Global build assistant instance
-static BUILD_ASSISTANT: OnceCell<Mutex<BuildAssistant>> = OnceCell::new();
+struct BuildAssistantSlot(OnceCell<Mutex<BuildAssistant>>);
+impl std::ops::Deref for BuildAssistantSlot {
+    type Target = OnceCell<Mutex<BuildAssistant>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static BUILD_ASSISTANT: BuildAssistantSlot = BuildAssistantSlot(OnceCell::new());
 
 /// Initialize the global build assistant
 pub fn init_build_assistant() {
-    if BUILD_ASSISTANT.get().is_none() {
-        let _ = BUILD_ASSISTANT.set(Mutex::new(BuildAssistant::new()));
-    } else if let Some(cell) = BUILD_ASSISTANT.get() {
+    if BUILD_ASSISTANT.0.get().is_none() {
+        let _ = BUILD_ASSISTANT.0.set(Mutex::new(BuildAssistant::new()));
+    } else if let Some(cell) = BUILD_ASSISTANT.0.get() {
         if let Ok(mut guard) = cell.lock() {
             *guard = BuildAssistant::new();
         }

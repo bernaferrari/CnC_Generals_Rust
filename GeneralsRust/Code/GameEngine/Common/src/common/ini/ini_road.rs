@@ -733,7 +733,12 @@ impl Default for TerrainRoadCollection {
 }
 
 /// Global terrain road collection
-static TERRAIN_ROAD_COLLECTION: OnceCell<RwLock<TerrainRoadCollection>> = OnceCell::new();
+struct TerrainRoadCollectionSlot(OnceCell<RwLock<TerrainRoadCollection>>);
+impl std::ops::Deref for TerrainRoadCollectionSlot {
+    type Target = OnceCell<RwLock<TerrainRoadCollection>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static TERRAIN_ROAD_COLLECTION: TerrainRoadCollectionSlot = TerrainRoadCollectionSlot(OnceCell::new());
 
 /// Get the global terrain road collection
 pub fn get_terrain_roads() -> RwLockReadGuard<'static, TerrainRoadCollection> {

@@ -7,7 +7,12 @@ use crate::common::ini::{FieldParse, INI, INIError, INIResult, ini};
 use std::sync::{OnceLock, RwLock};
 
 /// In-game UI settings singleton
-static INGAME_UI_SETTINGS: OnceLock<RwLock<InGameUISettings>> = OnceLock::new();
+struct IngameUiSettingsSlot(OnceLock<RwLock<InGameUISettings>>);
+impl std::ops::Deref for IngameUiSettingsSlot {
+    type Target = OnceLock<RwLock<InGameUISettings>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static INGAME_UI_SETTINGS: IngameUiSettingsSlot = IngameUiSettingsSlot(OnceLock::new());
 
 /// 2D integer coordinate
 pub use crate::common::system::geometry::ICoord2D;
@@ -834,18 +839,18 @@ fn parse_move_rmb_scroll_anchor(
 
 /// Initialize the InGameUI settings singleton
 pub fn init_in_game_ui_settings() {
-    INGAME_UI_SETTINGS.get_or_init(|| RwLock::new(InGameUISettings::default()));
+    INGAME_UI_SETTINGS.0.get_or_init(|| RwLock::new(InGameUISettings::default()));
 }
 
 /// Get a read reference to the InGameUI settings
 pub fn get_in_game_ui_settings() -> Option<std::sync::RwLockReadGuard<'static, InGameUISettings>> {
-    INGAME_UI_SETTINGS.get()?.read().ok()
+    INGAME_UI_SETTINGS.0.get()?.read().ok()
 }
 
 /// Get a write reference to the InGameUI settings
 pub fn get_in_game_ui_settings_mut()
 -> Option<std::sync::RwLockWriteGuard<'static, InGameUISettings>> {
-    INGAME_UI_SETTINGS.get()?.write().ok()
+    INGAME_UI_SETTINGS.0.get()?.write().ok()
 }
 
 /// Parse the InGameUI definition block

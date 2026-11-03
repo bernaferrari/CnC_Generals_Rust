@@ -1388,7 +1388,12 @@ impl RenderPipeline {
             resolve_mesh_for_model_key,
         };
 
-        static STARTUP_MODEL_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
+        struct StartupModelTraceCountSlot(AtomicUsize);
+        impl std::ops::Deref for StartupModelTraceCountSlot {
+            type Target = AtomicUsize;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static STARTUP_MODEL_TRACE_COUNT: StartupModelTraceCountSlot = StartupModelTraceCountSlot(AtomicUsize::new(0));
         let trace_this_attempt = !allow_sync_model_loads
             && STARTUP_MODEL_TRACE_COUNT
                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {

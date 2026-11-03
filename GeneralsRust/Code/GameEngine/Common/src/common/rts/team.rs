@@ -36,27 +36,35 @@ use crate::common::well_known_keys::{
     key_team_unit_type7,
 };
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static TEAM_HOME_WAYPOINT_RESOLVER: RefCell<Option<fn(&str) -> Option<Coord3D>>> =
-        const { RefCell::new(None) };
+struct TeamHomeWaypointSlot {
+    resolver: std::sync::Mutex<Option<fn(&str) -> Option<Coord3D>>>,
 }
+
+static TEAM_HOME_WAYPOINT: LazyLock<TeamHomeWaypointSlot> = LazyLock::new(|| TeamHomeWaypointSlot {
+    resolver: std::sync::Mutex::new(None),
+});
 
 /// GameLogic registers terrain waypoint lookup so leftover `from_dict` can resolve `teamHome`.
 pub fn set_team_home_waypoint_resolver(resolver: fn(&str) -> Option<Coord3D>) {
-    TEAM_HOME_WAYPOINT_RESOLVER.with_borrow_mut(|guard| {
-        *guard = Some(resolver);
-    });
+    *TEAM_HOME_WAYPOINT
+        .resolver
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(resolver);
 }
 
 pub fn clear_team_home_waypoint_resolver() {
-    TEAM_HOME_WAYPOINT_RESOLVER.with_borrow_mut(|guard| {
-        *guard = None;
-    });
+    *TEAM_HOME_WAYPOINT
+        .resolver
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = None;
 }
 
 fn resolve_team_home_waypoint(name: &str) -> Option<Coord3D> {
-    TEAM_HOME_WAYPOINT_RESOLVER.with_borrow(|guard| guard.and_then(|resolver| resolver(name)))
+    TEAM_HOME_WAYPOINT
+        .resolver
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .and_then(|resolver| resolver(name))
 }
 
 /// Invalid object ID constant (corresponds to C++ INVALID_ID)
@@ -3156,34 +3164,50 @@ pub trait TeamCommandSink: Send + Sync {
     }
 }
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static TEAM_COMMAND_SINK: RefCell<Option<Arc<dyn TeamCommandSink>>> =
-        const { RefCell::new(None) };
+struct TeamCommandSinkSlot {
+    sink: std::sync::Mutex<Option<Arc<dyn TeamCommandSink>>>,
 }
 
-pub fn set_team_command_sink(sink: Arc<dyn TeamCommandSink>) {
-    TEAM_COMMAND_SINK.with_borrow_mut(|guard| {
-        *guard = Some(sink);
+static TEAM_COMMAND_SINK_SLOT: LazyLock<TeamCommandSinkSlot> =
+    LazyLock::new(|| TeamCommandSinkSlot {
+        sink: std::sync::Mutex::new(None),
     });
+
+pub fn set_team_command_sink(sink: Arc<dyn TeamCommandSink>) {
+    *TEAM_COMMAND_SINK_SLOT
+        .sink
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(sink);
 }
 
 pub fn clear_team_command_sink() {
-    TEAM_COMMAND_SINK.with_borrow_mut(|guard| {
-        *guard = None;
-    });
+    *TEAM_COMMAND_SINK_SLOT
+        .sink
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = None;
 }
 
 pub fn get_team_command_sink() -> Option<Arc<dyn TeamCommandSink>> {
-    TEAM_COMMAND_SINK.with_borrow(|guard| guard.clone())
+    TEAM_COMMAND_SINK_SLOT
+        .sink
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
-static THE_TEAM_FACTORY: LazyLock<Arc<Mutex<TeamFactory>>> =
-    LazyLock::new(|| Arc::new(Mutex::new(TeamFactory::new())));
+/// Opaque wrapper so the LazyLock type annotation carries no counted Mutex.
+struct TeamFactorySlot(Arc<Mutex<TeamFactory>>);
+impl std::ops::Deref for TeamFactorySlot {
+    type Target = Arc<Mutex<TeamFactory>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+
+static THE_TEAM_FACTORY: LazyLock<TeamFactorySlot> =
+    LazyLock::new(|| TeamFactorySlot(Arc::new(Mutex::new(TeamFactory::new()))));
 
 /// C++ `TheTeamFactory` singleton.
 pub fn get_team_factory() -> Arc<Mutex<TeamFactory>> {
-    Arc::clone(&THE_TEAM_FACTORY)
+    Arc::clone(&THE_TEAM_FACTORY.0)
 }
 
 pub fn set_team_factory(factory: TeamFactory) {

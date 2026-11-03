@@ -549,7 +549,12 @@ impl ParticleEmitter {
 /// spawns particle emitters from multiple threads. The atomic load/store with
 /// Relaxed ordering has minimal performance overhead while eliminating race conditions.
 use std::sync::atomic::{AtomicBool, Ordering};
-static DEFAULT_REMOVE_ON_COMPLETE: AtomicBool = AtomicBool::new(true);
+struct DefaultRemoveOnCompleteSlot(AtomicBool);
+impl std::ops::Deref for DefaultRemoveOnCompleteSlot {
+    type Target = AtomicBool;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static DEFAULT_REMOVE_ON_COMPLETE: DefaultRemoveOnCompleteSlot = DefaultRemoveOnCompleteSlot(AtomicBool::new(true));
 
 impl ParticleEmitter {
     /// Get default remove on complete setting

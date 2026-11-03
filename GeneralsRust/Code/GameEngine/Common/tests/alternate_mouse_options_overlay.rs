@@ -9,7 +9,12 @@ use game_engine::common::ini::ini::{INI, INIResult};
 use game_engine::common::ini::ini_game_data::{GlobalData, ensure_global_data};
 use std::sync::Mutex;
 
-static GLOBAL_DATA_TEST_LOCK: Mutex<()> = Mutex::new(());
+struct GlobalDataTestLockSlot(Mutex<()>);
+impl std::ops::Deref for GlobalDataTestLockSlot {
+    type Target = Mutex<()>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static GLOBAL_DATA_TEST_LOCK: GlobalDataTestLockSlot = GlobalDataTestLockSlot(Mutex::new(()));
 
 fn parse(source: &str) -> INIResult<()> {
     let mut ini = INI::new();
@@ -18,7 +23,7 @@ fn parse(source: &str) -> INIResult<()> {
 
 #[test]
 fn startup_game_data_load_overlays_options_ini_alternate_mouse_to_both_global_residences() {
-    let _guard = GLOBAL_DATA_TEST_LOCK.lock().expect("global data test lock");
+    let _guard = GLOBAL_DATA_TEST_LOCK.0.lock().expect("global data test lock");
     let ini_global = ensure_global_data();
     let previous_ini = ini_global.read().clone();
     let previous_runtime = runtime_global_data::read().clone();
@@ -61,7 +66,7 @@ fn startup_game_data_load_overlays_options_ini_alternate_mouse_to_both_global_re
 
 #[test]
 fn startup_game_data_load_overlays_scroll_retaliation_double_click_gamma() {
-    let _guard = GLOBAL_DATA_TEST_LOCK.lock().expect("global data test lock");
+    let _guard = GLOBAL_DATA_TEST_LOCK.0.lock().expect("global data test lock");
     let ini_global = ensure_global_data();
     let previous_ini = ini_global.read().clone();
     let previous_runtime = runtime_global_data::read().clone();
@@ -116,7 +121,7 @@ fn startup_game_data_load_overlays_scroll_retaliation_double_click_gamma() {
 
 #[test]
 fn startup_missing_scroll_factor_uses_keyboard_default_not_gamedata() {
-    let _guard = GLOBAL_DATA_TEST_LOCK.lock().expect("global data test lock");
+    let _guard = GLOBAL_DATA_TEST_LOCK.0.lock().expect("global data test lock");
     let ini_global = ensure_global_data();
     let previous_ini = ini_global.read().clone();
     let previous_runtime = runtime_global_data::read().clone();

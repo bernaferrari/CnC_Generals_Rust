@@ -35,7 +35,12 @@ impl GlobalArgs {
 
 /// Get the global argument storage instance.
 fn global_args() -> &'static Mutex<GlobalArgs> {
-    static INSTANCE: OnceLock<Mutex<GlobalArgs>> = OnceLock::new();
+    struct InstanceSlot(OnceLock<Mutex<GlobalArgs>>);
+    impl std::ops::Deref for InstanceSlot {
+        type Target = OnceLock<Mutex<GlobalArgs>>;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static INSTANCE: InstanceSlot = InstanceSlot(OnceLock::new());
     INSTANCE.get_or_init(|| Mutex::new(GlobalArgs::new()))
 }
 

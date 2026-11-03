@@ -416,8 +416,12 @@ impl Drop for ScopedTimer {
 }
 
 /// Global debug system instance
-static DEBUG_SYSTEM: std::sync::LazyLock<std::sync::Mutex<Option<Arc<DebugSystem>>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+struct DebugSystemSlot(std::sync::LazyLock<std::sync::Mutex<Option<Arc<DebugSystem>>>>);
+impl std::ops::Deref for DebugSystemSlot {
+    type Target = std::sync::LazyLock<std::sync::Mutex<Option<Arc<DebugSystem>>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static DEBUG_SYSTEM: DebugSystemSlot = DebugSystemSlot(std::sync::LazyLock::new(|| std::sync::Mutex::new(None)));
 
 /// Initialize the global debug system
 pub fn initialize_debug_system(config: Option<DebugConfig>) -> Result<Arc<DebugSystem>> {

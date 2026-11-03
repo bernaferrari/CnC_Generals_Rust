@@ -730,7 +730,12 @@ pub const FIELD_PARSE_TABLE: &[FieldParse<AudioSettings>] = &[
 ];
 
 /// Global AudioSettings instance (thread-safe)
-static AUDIO_SETTINGS: OnceCell<Arc<RwLock<AudioSettings>>> = OnceCell::new();
+struct AudioSettingsSlot(OnceCell<Arc<RwLock<AudioSettings>>>);
+impl std::ops::Deref for AudioSettingsSlot {
+    type Target = OnceCell<Arc<RwLock<AudioSettings>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static AUDIO_SETTINGS: AudioSettingsSlot = AudioSettingsSlot(OnceCell::new());
 
 /// Ensure the audio settings exist and return a handle to it
 pub fn ensure_audio_settings() -> Arc<RwLock<AudioSettings>> {
@@ -747,17 +752,17 @@ pub fn init_global_audio_settings() {
 
 /// Get a handle to the global audio settings if initialized
 pub fn get_audio_settings() -> Option<Arc<RwLock<AudioSettings>>> {
-    AUDIO_SETTINGS.get().cloned()
+    AUDIO_SETTINGS.0.get().cloned()
 }
 
 /// Get a read guard to the global audio settings
 pub fn get_audio_settings_read() -> Option<parking_lot::RwLockReadGuard<'static, AudioSettings>> {
-    AUDIO_SETTINGS.get().map(|arc| arc.read())
+    AUDIO_SETTINGS.0.get().map(|arc| arc.read())
 }
 
 /// Get a write guard to the global audio settings
 pub fn get_audio_settings_write() -> Option<parking_lot::RwLockWriteGuard<'static, AudioSettings>> {
-    AUDIO_SETTINGS.get().map(|arc| arc.write())
+    AUDIO_SETTINGS.0.get().map(|arc| arc.write())
 }
 
 /// INI parsing function for AudioSettings definition (matches C++ INI::parseAudioSettingsDefinition)

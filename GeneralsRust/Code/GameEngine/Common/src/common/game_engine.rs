@@ -85,10 +85,15 @@ pub trait GameClientInterface: Send + Sync {
 type GameClientFactory =
     dyn Fn() -> SubsystemResult<Box<dyn GameClientInterface>> + Send + Sync + 'static;
 
-static GAME_CLIENT_FACTORY: OnceLock<Mutex<Option<Arc<GameClientFactory>>>> = OnceLock::new();
+struct GameClientFactorySlot(OnceLock<Mutex<Option<Arc<GameClientFactory>>>>);
+impl std::ops::Deref for GameClientFactorySlot {
+    type Target = OnceLock<Mutex<Option<Arc<GameClientFactory>>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static GAME_CLIENT_FACTORY: GameClientFactorySlot = GameClientFactorySlot(OnceLock::new());
 
 fn game_client_factory_slot() -> &'static Mutex<Option<Arc<GameClientFactory>>> {
-    GAME_CLIENT_FACTORY.get_or_init(|| Mutex::new(None))
+    GAME_CLIENT_FACTORY.0.get_or_init(|| Mutex::new(None))
 }
 
 /// Register a runtime factory that builds the concrete `GameClient` bridge.
@@ -665,7 +670,7 @@ impl GameEngine {
         }
 
         if let Some(cd_manager) = get_cd_manager() {
-            cd_manager.borrow_mut().update();
+            cd_manager.lock().unwrap_or_else(|e| e.into_inner()).update();
         }
 
         // C++ GameEngine.cpp:749 — network-present gates on isFrameDataReady only;
@@ -1532,10 +1537,15 @@ impl GameEngine {
     }
 }
 
-static GAME_ENGINE_INSTANCE: OnceLock<Mutex<Option<Arc<Mutex<GameEngine>>>>> = OnceLock::new();
+struct GameEngineInstanceSlot(OnceLock<Mutex<Option<Arc<Mutex<GameEngine>>>>>);
+impl std::ops::Deref for GameEngineInstanceSlot {
+    type Target = OnceLock<Mutex<Option<Arc<Mutex<GameEngine>>>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static GAME_ENGINE_INSTANCE: GameEngineInstanceSlot = GameEngineInstanceSlot(OnceLock::new());
 
 fn game_engine_slot() -> &'static Mutex<Option<Arc<Mutex<GameEngine>>>> {
-    GAME_ENGINE_INSTANCE.get_or_init(|| Mutex::new(None))
+    GAME_ENGINE_INSTANCE.0.get_or_init(|| Mutex::new(None))
 }
 
 /// Get the global game engine instance.

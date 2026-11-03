@@ -270,40 +270,50 @@ impl MouseSettings {
 // ============================================================================
 
 /// Global mouse settings singleton
-static MOUSE_SETTINGS: OnceCell<RwLock<MouseSettings>> = OnceCell::new();
+struct MouseSettingsSlot(OnceCell<RwLock<MouseSettings>>);
+impl std::ops::Deref for MouseSettingsSlot {
+    type Target = OnceCell<RwLock<MouseSettings>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static MOUSE_SETTINGS: MouseSettingsSlot = MouseSettingsSlot(OnceCell::new());
 
 /// Global cursor info collection
-static CURSOR_INFO_MAP: OnceCell<RwLock<HashMap<String, CursorInfo>>> = OnceCell::new();
+struct CursorInfoMapSlot(OnceCell<RwLock<HashMap<String, CursorInfo>>>);
+impl std::ops::Deref for CursorInfoMapSlot {
+    type Target = OnceCell<RwLock<HashMap<String, CursorInfo>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static CURSOR_INFO_MAP: CursorInfoMapSlot = CursorInfoMapSlot(OnceCell::new());
 
 /// Initialize the global mouse settings
 pub fn init_global_mouse_settings() {
-    let _ = MOUSE_SETTINGS.get_or_init(|| RwLock::new(MouseSettings::new()));
-    let _ = CURSOR_INFO_MAP.get_or_init(|| RwLock::new(HashMap::new()));
+    let _ = MOUSE_SETTINGS.0.get_or_init(|| RwLock::new(MouseSettings::new()));
+    let _ = CURSOR_INFO_MAP.0.get_or_init(|| RwLock::new(HashMap::new()));
 }
 
 /// Get a read reference to the global mouse settings
 pub fn get_mouse_settings() -> Option<parking_lot::RwLockReadGuard<'static, MouseSettings>> {
-    MOUSE_SETTINGS.get().map(|lock| lock.read())
+    MOUSE_SETTINGS.0.get().map(|lock| lock.read())
 }
 
 /// Get a write reference to the global mouse settings
 pub fn get_mouse_settings_mut() -> Option<parking_lot::RwLockWriteGuard<'static, MouseSettings>> {
-    MOUSE_SETTINGS.get().map(|lock| lock.write())
+    MOUSE_SETTINGS.0.get().map(|lock| lock.write())
 }
 
 /// Get cursor info by name
 pub fn get_cursor_info(
     name: &str,
 ) -> Option<parking_lot::RwLockReadGuard<'static, HashMap<String, CursorInfo>>> {
-    let guard = CURSOR_INFO_MAP.get()?.read();
+    let guard = CURSOR_INFO_MAP.0.get()?.read();
     // Return the guard directly - caller can look up the cursor
     drop(guard);
-    CURSOR_INFO_MAP.get().map(|lock| lock.read())
+    CURSOR_INFO_MAP.0.get().map(|lock| lock.read())
 }
 
 /// Add or update cursor info
 pub fn add_cursor_info(name: String, info: CursorInfo) {
-    if let Some(map) = CURSOR_INFO_MAP.get() {
+    if let Some(map) = CURSOR_INFO_MAP.0.get() {
         map.write().insert(name, info);
     }
 }

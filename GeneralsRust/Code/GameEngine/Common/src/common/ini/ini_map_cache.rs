@@ -650,7 +650,12 @@ pub fn quoted_printable_to_unicode_string(input: &str) -> UnicodeString {
 }
 
 /// Global map cache instance
-static MAP_CACHE: OnceCell<RwLock<MapCache>> = OnceCell::new();
+struct MapCacheSlot(OnceCell<RwLock<MapCache>>);
+impl std::ops::Deref for MapCacheSlot {
+    type Target = OnceCell<RwLock<MapCache>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static MAP_CACHE: MapCacheSlot = MapCacheSlot(OnceCell::new());
 type GameTextProvider = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 static GAME_TEXT_PROVIDER: OnceCell<GameTextProvider> = OnceCell::new();
 
@@ -666,8 +671,8 @@ fn lookup_game_text(tag: &str) -> Option<String> {
 
 /// Initialize the global map cache
 pub fn init_global_map_cache() {
-    if MAP_CACHE.get().is_none() {
-        let _ = MAP_CACHE.set(RwLock::new(MapCache::new()));
+    if MAP_CACHE.0.get().is_none() {
+        let _ = MAP_CACHE.0.set(RwLock::new(MapCache::new()));
     }
 }
 
@@ -1005,7 +1010,12 @@ mod tests {
     }
 
     const SINK_CALLBACK_FIXTURE: &str = "sinkcallbackvisible.map";
-    static SINK_CALLBACK_CACHE: OnceCell<RwLock<MapCache>> = OnceCell::new();
+    struct SinkCallbackCacheSlot(OnceCell<RwLock<MapCache>>);
+    impl std::ops::Deref for SinkCallbackCacheSlot {
+        type Target = OnceCell<RwLock<MapCache>>;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static SINK_CALLBACK_CACHE: SinkCallbackCacheSlot = SinkCallbackCacheSlot(OnceCell::new());
 
     #[test]
     fn borrowed_sink_commits_each_map_before_next_block_callback() {
@@ -1035,7 +1045,7 @@ mod tests {
             "MapCacheSinkLockProbe",
             inspect_cache_before_unrelated_block,
         );
-        let target = SINK_CALLBACK_CACHE.get_or_init(|| RwLock::new(MapCache::new()));
+        let target = SINK_CALLBACK_CACHE.0.get_or_init(|| RwLock::new(MapCache::new()));
         target.write().expect("test cache").clear();
         let mut sink = |filename, metadata| {
             target

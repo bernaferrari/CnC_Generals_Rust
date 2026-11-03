@@ -116,7 +116,12 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     }
 
     fn move_camera(&self, x: f32, y: f32, z: f32) -> GameLogicResult<()> {
-        static DEBUG_CAMERA_MOVE_LOGS: AtomicUsize = AtomicUsize::new(0);
+        struct DebugCameraMoveLogsSlot(AtomicUsize);
+        impl std::ops::Deref for DebugCameraMoveLogsSlot {
+            type Target = AtomicUsize;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static DEBUG_CAMERA_MOVE_LOGS: DebugCameraMoveLogsSlot = DebugCameraMoveLogsSlot(AtomicUsize::new(0));
         let position = camera_coord3d_to_world(x, y, z);
         if DEBUG_CAMERA_MOVE_LOGS.fetch_add(1, Ordering::Relaxed) < 16 {
             eprintln!(

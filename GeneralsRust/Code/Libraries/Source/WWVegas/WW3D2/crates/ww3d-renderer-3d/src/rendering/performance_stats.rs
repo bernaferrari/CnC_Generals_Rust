@@ -624,28 +624,31 @@ impl PerformanceSummary {
     }
 }
 
-thread_local! {
-    /// C++ kept the debug statistics singleton as a plain static on the game thread.
-    static STATISTICS: RefCell<Option<DebugStatistics>> = const { RefCell::new(None) };
+struct StatisticsBag {
+    statistics: std::sync::Mutex<Option<DebugStatistics>>,
 }
+static STATISTICS_TLS_BAG: std::sync::LazyLock<StatisticsBag> = std::sync::LazyLock::new(|| StatisticsBag {
+        statistics: std::sync::Mutex::new(None),
+});
+
 
 /// Run `f` with mutable access to the global statistics, if initialized.
 pub fn with_statistics<R>(f: impl FnOnce(&mut DebugStatistics) -> R) -> Option<R> {
-    STATISTICS.with_borrow_mut(|stats| {
+    { let mut stats = STATISTICS_TLS_BAG.statistics.lock().unwrap_or_else(|p| p.into_inner()); 
         let stats = stats.as_mut()?;
         Some(f(stats))
-    })
+     }
 }
 
 /// Initialize global statistics
 pub fn init_statistics() -> Result<()> {
-    STATISTICS.with_borrow_mut(|slot| *slot = Some(DebugStatistics::new()));
+    { let mut slot = STATISTICS_TLS_BAG.statistics.lock().unwrap_or_else(|p| p.into_inner()); *slot = Some(DebugStatistics::new()) };
     Ok(())
 }
 
 /// Shutdown global statistics
 pub fn shutdown_statistics() {
-    STATISTICS.with_borrow_mut(|slot| *slot = None);
+    { let mut slot = STATISTICS_TLS_BAG.statistics.lock().unwrap_or_else(|p| p.into_inner()); *slot = None };
 }
 
 /// Quick statistics functions

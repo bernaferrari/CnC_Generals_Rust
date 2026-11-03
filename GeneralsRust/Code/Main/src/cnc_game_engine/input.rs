@@ -1945,9 +1945,10 @@ impl CnCGameEngine {
             }
         }
         self.apply_live_draw_dynamic_lod();
-        static RENDER_CALL_COUNT: std::sync::atomic::AtomicU32 =
-            std::sync::atomic::AtomicU32::new(0);
-        let render_call = RENDER_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        struct RenderCallCountSlot(std::sync::atomic::AtomicU32);
+        static RENDER_CALL_COUNT: RenderCallCountSlot =
+            RenderCallCountSlot(std::sync::atomic::AtomicU32::new(0));
+        let render_call = RENDER_CALL_COUNT.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if render_call < 30 || render_call.is_multiple_of(300) {
             info!(
                 "render() called #{}, state={:?}",

@@ -871,7 +871,12 @@ pub struct ArchiveStatistics {
 }
 
 /// Global archive file system instance - thread-safe version
-static ARCHIVE_SYSTEM: OnceLock<Arc<Mutex<ArchiveFileSystem>>> = OnceLock::new();
+struct ArchiveSystemSlot(OnceLock<Arc<Mutex<ArchiveFileSystem>>>);
+impl std::ops::Deref for ArchiveSystemSlot {
+    type Target = OnceLock<Arc<Mutex<ArchiveFileSystem>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static ARCHIVE_SYSTEM: ArchiveSystemSlot = ArchiveSystemSlot(OnceLock::new());
 
 /// Initialize the global archive file system
 pub async fn init_archive_file_system() -> Result<()> {

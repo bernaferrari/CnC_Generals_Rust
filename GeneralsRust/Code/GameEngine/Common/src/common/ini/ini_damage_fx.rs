@@ -76,7 +76,12 @@ pub const FX_LIST_AT_BONE_POS_MAX_BONE_POINTS: usize = 40;
 pub type FxBonePosQuery =
     fn(object_id: u32, bone_name: &str, start: i32, max_bones: usize) -> Vec<([f32; 3], [f32; 16])>;
 
-static FX_BONE_POS_RUNTIME: OnceCell<RwLock<Option<FxBonePosQuery>>> = OnceCell::new();
+struct FxBonePosRuntimeSlot(OnceCell<RwLock<Option<FxBonePosQuery>>>);
+impl std::ops::Deref for FxBonePosRuntimeSlot {
+    type Target = OnceCell<RwLock<Option<FxBonePosQuery>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static FX_BONE_POS_RUNTIME: FxBonePosRuntimeSlot = FxBonePosRuntimeSlot(OnceCell::new());
 
 /// Register the live client bone-point query (C++ FXList.cpp:711-728).
 pub fn register_fx_bone_pos_runtime(query: FxBonePosQuery) {
@@ -814,7 +819,7 @@ impl DamageFXStore {
     pub fn parse_damage_fx_definition(ini: &mut INI) -> Result<(), String> {
         let (name, damage_fx) = Self::parse_entry(ini)?;
 
-        if DAMAGE_FX_STORE.get().is_none() {
+        if DAMAGE_FX_STORE.0.get().is_none() {
             init_global_damage_fx_store();
         }
 
@@ -827,16 +832,21 @@ impl DamageFXStore {
 }
 
 /// Global DamageFXStore instance, initialized via `init_global_damage_fx_store`.
-static DAMAGE_FX_STORE: OnceCell<RwLock<DamageFXStore>> = OnceCell::new();
+struct DamageFxStoreSlot(OnceCell<RwLock<DamageFXStore>>);
+impl std::ops::Deref for DamageFxStoreSlot {
+    type Target = OnceCell<RwLock<DamageFXStore>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static DAMAGE_FX_STORE: DamageFxStoreSlot = DamageFxStoreSlot(OnceCell::new());
 
 /// Initialize the global damage FX store
 pub fn init_global_damage_fx_store() {
-    if DAMAGE_FX_STORE.get().is_none() {
+    if DAMAGE_FX_STORE.0.get().is_none() {
         let store = DamageFXStore::new();
-        let _ = DAMAGE_FX_STORE.set(RwLock::new(store));
+        let _ = DAMAGE_FX_STORE.0.set(RwLock::new(store));
     }
 
-    if let Some(store) = DAMAGE_FX_STORE.get() {
+    if let Some(store) = DAMAGE_FX_STORE.0.get() {
         if let Ok(mut guard) = store.write() {
             guard.init();
         }

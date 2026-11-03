@@ -228,17 +228,27 @@ impl UpgradeCenter {
 /// so Upgrade.ini loads outside any world (engine boot, headless snippets,
 /// tests without a world) keep working. GameLogic's EngineStores is the only
 /// writer: it points this slot at the head world bundle's center.
-static UPGRADE_CENTER_ACTIVE: RwLock<Option<Arc<RwLock<UpgradeCenter>>>> = RwLock::new(None);
+struct UpgradeCenterActiveSlot(RwLock<Option<Arc<RwLock<UpgradeCenter>>>>);
+impl std::ops::Deref for UpgradeCenterActiveSlot {
+    type Target = RwLock<Option<Arc<RwLock<UpgradeCenter>>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static UPGRADE_CENTER_ACTIVE: UpgradeCenterActiveSlot = UpgradeCenterActiveSlot(RwLock::new(None));
 
 /// Engine-lifetime UpgradeCenter (C++ `TheUpgradeCenter` created by
 /// `GameEngine::init`, GameEngine.cpp:468). Every world snapshot-clones it.
-static UPGRADE_CENTER_PROCESS_LIFETIME: LazyLock<Arc<RwLock<UpgradeCenter>>> =
-    LazyLock::new(|| {
+struct UpgradeCenterProcessLifetimeSlot(LazyLock<Arc<RwLock<UpgradeCenter>>>);
+impl std::ops::Deref for UpgradeCenterProcessLifetimeSlot {
+    type Target = LazyLock<Arc<RwLock<UpgradeCenter>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static UPGRADE_CENTER_PROCESS_LIFETIME: UpgradeCenterProcessLifetimeSlot =
+    UpgradeCenterProcessLifetimeSlot(LazyLock::new(|| {
         let mut center = UpgradeCenter::new();
         // C++ UpgradeCenter::init runs before Upgrade.ini is parsed.
         center.init();
         Arc::new(RwLock::new(center))
-    });
+    }));
 
 /// The engine-lifetime UpgradeCenter.
 pub fn process_lifetime_upgrade_center() -> Arc<RwLock<UpgradeCenter>> {

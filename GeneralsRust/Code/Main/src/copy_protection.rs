@@ -25,10 +25,20 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Development mode flag - when true, all copy protection is bypassed
-static DEVELOPMENT_MODE: AtomicBool = AtomicBool::new(true);
+struct DevelopmentModeSlot(AtomicBool);
+impl std::ops::Deref for DevelopmentModeSlot {
+    type Target = AtomicBool;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static DEVELOPMENT_MODE: DevelopmentModeSlot = DevelopmentModeSlot(AtomicBool::new(true));
 
 /// Copy protection enabled flag - can be configured at runtime
-static COPY_PROTECTION_ENABLED: AtomicBool = AtomicBool::new(false);
+struct CopyProtectionEnabledSlot(AtomicBool);
+impl std::ops::Deref for CopyProtectionEnabledSlot {
+    type Target = AtomicBool;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static COPY_PROTECTION_ENABLED: CopyProtectionEnabledSlot = CopyProtectionEnabledSlot(AtomicBool::new(false));
 
 /// Launcher communication timeout in seconds
 const _LAUNCHER_TIMEOUT_SECONDS: u64 = 30;
@@ -683,7 +693,12 @@ impl CopyProtection {
 }
 
 /// Global copy protection instance
-static COPY_PROTECTION: OnceLock<Arc<Mutex<CopyProtection>>> = OnceLock::new();
+struct CopyProtectionSlot(OnceLock<Arc<Mutex<CopyProtection>>>);
+impl std::ops::Deref for CopyProtectionSlot {
+    type Target = OnceLock<Arc<Mutex<CopyProtection>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static COPY_PROTECTION: CopyProtectionSlot = CopyProtectionSlot(OnceLock::new());
 
 /// Cloneable handle for accessing the copy protection subsystem safely.
 #[derive(Clone)]

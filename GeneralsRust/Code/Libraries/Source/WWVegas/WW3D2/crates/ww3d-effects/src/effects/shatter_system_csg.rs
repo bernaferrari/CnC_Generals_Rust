@@ -884,16 +884,19 @@ impl ShatterSystem {
     }
 }
 
-thread_local! {
-    /// C++ kept the CSG shatter system as a plain file static on the game thread.
-    static SHATTER_SYSTEM: RefCell<Option<ShatterSystem>> = const { RefCell::new(None) };
+struct ShatterSystemBag {
+    shatter_system: std::sync::Mutex<Option<ShatterSystem>>,
 }
+static SHATTER_SYSTEM_TLS_BAG: std::sync::LazyLock<ShatterSystemBag> = std::sync::LazyLock::new(|| ShatterSystemBag {
+        shatter_system: std::sync::Mutex::new(None),
+});
+
 
 fn shatter_system_slot<R>(f: impl FnOnce(&mut ShatterSystem) -> R) -> Option<R> {
-    SHATTER_SYSTEM.with_borrow_mut(|slot| {
+    { let mut slot = SHATTER_SYSTEM_TLS_BAG.shatter_system.lock().unwrap_or_else(|p| p.into_inner()); 
         let system = slot.as_mut()?;
         Some(f(system))
-    })
+     }
 }
 
 pub fn with_shatter_system<R>(f: impl FnOnce(&mut ShatterSystem) -> R) -> Option<R> {
@@ -901,21 +904,21 @@ pub fn with_shatter_system<R>(f: impl FnOnce(&mut ShatterSystem) -> R) -> Option
 }
 
 pub fn init_shatter_system() {
-    SHATTER_SYSTEM.with_borrow_mut(|slot| {
+    { let mut slot = SHATTER_SYSTEM_TLS_BAG.shatter_system.lock().unwrap_or_else(|p| p.into_inner()); 
         let needs_init = slot.is_none();
         let system = slot.get_or_insert_with(ShatterSystem::new);
         if needs_init {
             system.init();
         }
-    });
+     };
 }
 
 pub fn shutdown_shatter_system() {
-    SHATTER_SYSTEM.with_borrow_mut(|slot| {
+    { let mut slot = SHATTER_SYSTEM_TLS_BAG.shatter_system.lock().unwrap_or_else(|p| p.into_inner()); 
         if let Some(system) = slot.as_mut() {
             system.release_fragments();
         }
-    });
+     };
 }
 
 #[cfg(test)]

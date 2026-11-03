@@ -250,7 +250,12 @@ impl ReplayPendingState {
     }
 }
 
-static BRIDGES_INSTALLED: AtomicBool = AtomicBool::new(false);
+struct BridgesInstalledSlot(AtomicBool);
+impl std::ops::Deref for BridgesInstalledSlot {
+    type Target = AtomicBool;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static BRIDGES_INSTALLED: BridgesInstalledSlot = BridgesInstalledSlot(AtomicBool::new(false));
 
 /// C++ `GameLogic.cpp` / `MessageStream.h` game-mode integers.
 fn game_mode_to_new_game_code(mode: GameMode) -> i32 {

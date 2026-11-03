@@ -353,7 +353,12 @@ impl Default for ScienceStore {
 }
 
 /// Global science store
-static SCIENCE_STORE: OnceCell<RwLock<ScienceStore>> = OnceCell::new();
+struct ScienceStoreSlot(OnceCell<RwLock<ScienceStore>>);
+impl std::ops::Deref for ScienceStoreSlot {
+    type Target = OnceCell<RwLock<ScienceStore>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static SCIENCE_STORE: ScienceStoreSlot = ScienceStoreSlot(OnceCell::new());
 
 /// Get the global science store
 pub fn get_science_store() -> RwLockReadGuard<'static, ScienceStore> {

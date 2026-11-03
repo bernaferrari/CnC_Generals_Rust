@@ -72,13 +72,23 @@ pub trait FxListObjRuntime: Send + Sync {
     }
 }
 
-static FX_LIST_OBJ_RUNTIME: LazyLock<RwLock<Option<Arc<dyn FxListObjRuntime>>>> =
-    LazyLock::new(|| RwLock::new(None));
-static DISPATCHED_FX_NUGGETS: LazyLock<Mutex<Vec<DispatchedFxNugget>>> =
-    LazyLock::new(|| Mutex::new(Vec::new()));
+struct FxListObjRuntimeSlot(RwLock<Option<Arc<dyn FxListObjRuntime>>>);
+impl std::ops::Deref for FxListObjRuntimeSlot {
+    type Target = RwLock<Option<Arc<dyn FxListObjRuntime>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static FX_LIST_OBJ_RUNTIME: LazyLock<FxListObjRuntimeSlot> =
+    LazyLock::new(|| FxListObjRuntimeSlot(RwLock::new(None)));
+struct DispatchedFxNuggetsSlot(Mutex<Vec<DispatchedFxNugget>>);
+impl std::ops::Deref for DispatchedFxNuggetsSlot {
+    type Target = Mutex<Vec<DispatchedFxNugget>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static DISPATCHED_FX_NUGGETS: LazyLock<DispatchedFxNuggetsSlot> =
+    LazyLock::new(|| DispatchedFxNuggetsSlot(Mutex::new(Vec::new())));
 
 fn fx_list_obj_runtime_slot() -> &'static RwLock<Option<Arc<dyn FxListObjRuntime>>> {
-    &FX_LIST_OBJ_RUNTIME
+    &FX_LIST_OBJ_RUNTIME.0
 }
 
 /// Register the live `FXList::doFXObj` runner (C++ DamageFX.cpp:73).
@@ -102,7 +112,7 @@ pub fn fx_list_obj_runtime() -> Option<Arc<dyn FxListObjRuntime>> {
 }
 
 fn dispatched_fx_nuggets() -> &'static Mutex<Vec<DispatchedFxNugget>> {
-    &DISPATCHED_FX_NUGGETS
+    &DISPATCHED_FX_NUGGETS.0
 }
 
 pub fn record_dispatched_fx_nugget(nugget: DispatchedFxNugget) {
@@ -174,7 +184,12 @@ impl Default for FXListStore {
     }
 }
 
-static FX_LIST_STORE: OnceCell<RwLock<FXListStore>> = OnceCell::new();
+struct FxListStoreSlot(OnceCell<RwLock<FXListStore>>);
+impl std::ops::Deref for FxListStoreSlot {
+    type Target = OnceCell<RwLock<FXListStore>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static FX_LIST_STORE: FxListStoreSlot = FxListStoreSlot(OnceCell::new());
 
 pub fn get_fx_list_store() -> RwLockReadGuard<'static, FXListStore> {
     FX_LIST_STORE

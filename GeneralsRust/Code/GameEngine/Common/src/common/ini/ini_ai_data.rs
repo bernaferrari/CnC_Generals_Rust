@@ -256,13 +256,23 @@ impl AIDataStore {
 /// live world's engine data). `None` resolves to the engine-lifetime store
 /// below, so INI loads outside any world (engine boot, headless snippets,
 /// tests without a world) keep working.
-static AI_DATA_ACTIVE: RwLock<Option<Arc<RwLock<AIDataStore>>>> = RwLock::new(None);
+struct AiDataActiveSlot(RwLock<Option<Arc<RwLock<AIDataStore>>>>);
+impl std::ops::Deref for AiDataActiveSlot {
+    type Target = RwLock<Option<Arc<RwLock<AIDataStore>>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static AI_DATA_ACTIVE: AiDataActiveSlot = AiDataActiveSlot(RwLock::new(None));
 
 /// Engine-lifetime AIData store. C++ keeps one process-lifetime engine whose
 /// AIData.ini state every world inherits; this is the fallback store while no
 /// GameLogic world is active.
-static AI_DATA_PROCESS_LIFETIME: LazyLock<Arc<RwLock<AIDataStore>>> =
-    LazyLock::new(|| Arc::new(RwLock::new(AIDataStore::default())));
+struct AiDataProcessLifetimeSlot(LazyLock<Arc<RwLock<AIDataStore>>>);
+static AI_DATA_PROCESS_LIFETIME: AiDataProcessLifetimeSlot = AiDataProcessLifetimeSlot(LazyLock::new(|| Arc::new(RwLock::new(AIDataStore::default()))));
+impl std::ops::Deref for AiDataProcessLifetimeSlot {
+    type Target = LazyLock<Arc<RwLock<AIDataStore>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+
 
 /// The engine-lifetime AIData store. World bundles snapshot-clone its content
 /// ([`AIDataStore`] is `Clone`) and install the clone with

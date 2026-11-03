@@ -503,7 +503,12 @@ impl Default for CreditsManager {
 }
 
 /// Global credits manager instance
-static CREDITS_MANAGER: OnceCell<RwLock<CreditsManager>> = OnceCell::new();
+struct CreditsManagerSlot(OnceCell<RwLock<CreditsManager>>);
+impl std::ops::Deref for CreditsManagerSlot {
+    type Target = OnceCell<RwLock<CreditsManager>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static CREDITS_MANAGER: CreditsManagerSlot = CreditsManagerSlot(OnceCell::new());
 
 /// Get the global credits manager (read access)
 pub fn get_credits_manager() -> RwLockReadGuard<'static, CreditsManager> {
@@ -523,9 +528,9 @@ pub fn get_credits_manager_mut() -> RwLockWriteGuard<'static, CreditsManager> {
 
 /// Initialize the global credits manager
 pub fn init_credits_manager() {
-    if CREDITS_MANAGER.get().is_none() {
-        let _ = CREDITS_MANAGER.set(RwLock::new(CreditsManager::new()));
-    } else if let Some(manager) = CREDITS_MANAGER.get() {
+    if CREDITS_MANAGER.0.get().is_none() {
+        let _ = CREDITS_MANAGER.0.set(RwLock::new(CreditsManager::new()));
+    } else if let Some(manager) = CREDITS_MANAGER.0.get() {
         if let Ok(mut guard) = manager.write() {
             *guard = CreditsManager::new();
         }

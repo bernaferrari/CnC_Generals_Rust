@@ -337,10 +337,15 @@ impl Default for WebBrowser {
 }
 
 /// Global web browser instance
-static WEB_BROWSER: OnceCell<RwLock<WebBrowser>> = OnceCell::new();
+struct WebBrowserSlot(OnceCell<RwLock<WebBrowser>>);
+impl std::ops::Deref for WebBrowserSlot {
+    type Target = OnceCell<RwLock<WebBrowser>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static WEB_BROWSER: WebBrowserSlot = WebBrowserSlot(OnceCell::new());
 
 fn web_browser_cell() -> &'static RwLock<WebBrowser> {
-    WEB_BROWSER.get_or_init(|| RwLock::new(WebBrowser::new()))
+    WEB_BROWSER.0.get_or_init(|| RwLock::new(WebBrowser::new()))
 }
 
 fn web_browser_mut() -> RwLockWriteGuard<'static, WebBrowser> {

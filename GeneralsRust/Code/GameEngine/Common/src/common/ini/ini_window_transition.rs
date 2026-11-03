@@ -191,7 +191,12 @@ impl WindowTransitionStore {
 }
 
 /// Global window transition store singleton
-static WINDOW_TRANSITION_STORE: OnceLock<RwLock<WindowTransitionStore>> = OnceLock::new();
+struct WindowTransitionStoreSlot(OnceLock<RwLock<WindowTransitionStore>>);
+impl std::ops::Deref for WindowTransitionStoreSlot {
+    type Target = OnceLock<RwLock<WindowTransitionStore>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static WINDOW_TRANSITION_STORE: WindowTransitionStoreSlot = WindowTransitionStoreSlot(OnceLock::new());
 
 /// Get the window transition store (read guard)
 pub fn get_window_transition_store() -> std::sync::RwLockReadGuard<'static, WindowTransitionStore> {
@@ -212,7 +217,7 @@ pub fn get_window_transition_store_mut()
 
 /// Initialize the window transition store
 pub fn init_window_transition_store() {
-    let _ = WINDOW_TRANSITION_STORE.get_or_init(|| RwLock::new(WindowTransitionStore::new()));
+    let _ = WINDOW_TRANSITION_STORE.0.get_or_init(|| RwLock::new(WindowTransitionStore::new()));
 }
 
 /// Parse bool value from string

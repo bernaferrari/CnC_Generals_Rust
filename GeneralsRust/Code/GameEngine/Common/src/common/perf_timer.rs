@@ -323,15 +323,20 @@ impl PerfGatherRegistry {
 }
 
 #[cfg(feature = "perf_timers")]
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static PERF_GATHER_REGISTRY: RefCell<PerfGatherRegistry> =
-        RefCell::new(PerfGatherRegistry::default());
+struct PerfGatherRegistryBag {
+    value: std::sync::Mutex<PerfGatherRegistry>,
 }
 
 #[cfg(feature = "perf_timers")]
+static PERF_GATHER_REGISTRY: std::sync::LazyLock<PerfGatherRegistryBag> =
+    std::sync::LazyLock::new(|| PerfGatherRegistryBag {
+        value: std::sync::Mutex::new(PerfGatherRegistry::default()),
+    });
+
+
+#[cfg(feature = "perf_timers")]
 fn with_perf_registry<R>(f: impl FnOnce(&PerfGatherRegistry) -> R) -> R {
-    PERF_GATHER_REGISTRY.with_borrow(f)
+    f(&PERF_GATHER_REGISTRY.value.lock().unwrap_or_else(|p| p.into_inner()))
 }
 
 #[cfg(feature = "perf_timers")]

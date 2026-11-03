@@ -554,10 +554,15 @@ impl Default for ControlBar {
 }
 
 /// Global control bar instance (simulating TheControlBar)
-static CONTROL_BAR: OnceCell<RwLock<ControlBar>> = OnceCell::new();
+struct ControlBarSlot(OnceCell<RwLock<ControlBar>>);
+impl std::ops::Deref for ControlBarSlot {
+    type Target = OnceCell<RwLock<ControlBar>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static CONTROL_BAR: ControlBarSlot = ControlBarSlot(OnceCell::new());
 
 fn control_bar_cell() -> &'static RwLock<ControlBar> {
-    CONTROL_BAR.get_or_init(|| RwLock::new(ControlBar::new()))
+    CONTROL_BAR.0.get_or_init(|| RwLock::new(ControlBar::new()))
 }
 
 fn control_bar_read() -> RwLockReadGuard<'static, ControlBar> {

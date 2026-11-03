@@ -180,8 +180,12 @@ fn parse_weapon_set_key(key: &str) -> Option<(usize, &str)> {
 /// Object-definition helper bridge for parsing and lookup.
 pub struct ThingFactory;
 
-static OBJECT_DEFINITION_REGISTRY: Lazy<RwLock<HashMap<String, ObjectDefinition>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
+struct ObjectDefinitionRegistrySlot(Lazy<RwLock<HashMap<String, ObjectDefinition>>>);
+impl std::ops::Deref for ObjectDefinitionRegistrySlot {
+    type Target = Lazy<RwLock<HashMap<String, ObjectDefinition>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static OBJECT_DEFINITION_REGISTRY: ObjectDefinitionRegistrySlot = ObjectDefinitionRegistrySlot(Lazy::new(|| RwLock::new(HashMap::new())));
 
 fn with_runtime_factory<F, T>(operation: F) -> ObjectParseResult<T>
 where

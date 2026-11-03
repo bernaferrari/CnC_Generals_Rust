@@ -13,6 +13,7 @@ pub mod thing;
 pub mod bit_flags;
 pub mod command_line;
 pub mod crc;
+pub mod common_services;
 pub mod crc_debug;
 pub mod damage_fx;
 pub mod dict;

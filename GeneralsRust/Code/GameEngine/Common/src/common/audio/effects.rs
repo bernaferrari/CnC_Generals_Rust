@@ -764,9 +764,14 @@ impl SoundEffectManager {
     ) -> Result<AudioHandle, Box<dyn std::error::Error>> {
         use std::sync::atomic::{AtomicU32, Ordering};
 
-        static NEXT_HANDLE: AtomicU32 = AtomicU32::new(10000);
+        struct NextHandleSlot(AtomicU32);
+        impl std::ops::Deref for NextHandleSlot {
+            type Target = AtomicU32;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static NEXT_HANDLE: NextHandleSlot = NextHandleSlot(AtomicU32::new(10000));
 
-        let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
+        let handle = NEXT_HANDLE.0.fetch_add(1, Ordering::Relaxed);
 
         #[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
         {

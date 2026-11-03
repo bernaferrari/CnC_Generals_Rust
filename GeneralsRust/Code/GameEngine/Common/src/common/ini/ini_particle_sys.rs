@@ -415,7 +415,12 @@ impl Default for ParticleSystemManager {
 }
 
 /// Global particle system manager instance (thread-safe)
-static PARTICLE_SYSTEM_MANAGER: OnceCell<Arc<RwLock<ParticleSystemManager>>> = OnceCell::new();
+struct ParticleSystemManagerSlot(OnceCell<Arc<RwLock<ParticleSystemManager>>>);
+impl std::ops::Deref for ParticleSystemManagerSlot {
+    type Target = OnceCell<Arc<RwLock<ParticleSystemManager>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static PARTICLE_SYSTEM_MANAGER: ParticleSystemManagerSlot = ParticleSystemManagerSlot(OnceCell::new());
 
 /// Ensure the particle system manager exists and return a handle to it
 pub fn ensure_particle_system_manager() -> Arc<RwLock<ParticleSystemManager>> {
@@ -431,7 +436,7 @@ pub fn initialize_particle_system_manager() {
 
 /// Get a handle to the global particle system manager if initialized
 pub fn get_particle_system_manager() -> Option<Arc<RwLock<ParticleSystemManager>>> {
-    PARTICLE_SYSTEM_MANAGER.get().cloned()
+    PARTICLE_SYSTEM_MANAGER.0.get().cloned()
 }
 
 /// Parse a boolean value from string

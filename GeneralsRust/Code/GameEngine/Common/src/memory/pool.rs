@@ -7,7 +7,7 @@
 //! is a free-list pool of plain statics that only ever runs on the owning
 //! subsystem's thread; its `FastCriticalSectionClass` is defensive spinlock
 //! coding, not a real cross-thread boundary. This port is single-owner:
-//! the allocator sits behind a `RefCell`, which enforces the same
+//! the allocator sits behind a `Mutex`, which enforces the same
 //! single-thread discipline dynamically (panic on re-entrant misuse)
 //! instead of paying for a lock.
 
@@ -16,7 +16,7 @@ use super::config::{PoolConfig, PoolConfigBuilder};
 use super::generation::GenerationalIndex;
 use super::handle::{PoolAccessError, PoolHandle};
 use super::stats::PoolStats;
-use std::cell::RefCell;
+use std::sync::Mutex;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -29,14 +29,14 @@ use std::time::{Duration, Instant};
 ///
 /// The pool is `Send` (when `T: Send`) but deliberately not `Sync`: like the
 /// C++ pool it belongs to one thread. Concurrent access from several threads
-/// is not supported and will panic on a `RefCell` double-borrow rather than
+/// is not supported and will poison/block on a `Mutex` rather than
 /// race.
 pub struct ObjectPool<T> {
     /// The underlying allocator (single-owner; see module docs).
     /// THREAD: not a cross-thread boundary — no game system touches this
     /// pool from another thread (verified: callers are this module, the
     /// registry below, and the demo/tests, all single-threaded).
-    allocator: RefCell<PoolAllocator<T>>,
+    allocator: Mutex<PoolAllocator<T>>,
     /// Statistics tracking.
     stats: PoolStats,
     /// Configuration.
@@ -55,7 +55,7 @@ impl<T> ObjectPool<T> {
         let allocator = PoolAllocator::new(config.clone())?;
 
         let pool = Arc::new(Self {
-            allocator: RefCell::new(allocator),
+            allocator: Mutex::new(allocator),
             stats: PoolStats::new(name),
             config,
             #[cfg(debug_assertions)]
@@ -63,8 +63,8 @@ impl<T> ObjectPool<T> {
         });
 
         // Initialize stats with initial capacity
-        let capacity = pool.allocator.borrow().capacity();
-        let bytes = pool.allocator.borrow().memory_usage();
+        let capacity = pool.allocator.lock().unwrap_or_else(|e| e.into_inner()).capacity();
+        let bytes = pool.allocator.lock().unwrap_or_else(|e| e.into_inner()).memory_usage();
         pool.stats.record_growth(capacity, bytes);
 
         Ok(pool)
@@ -74,7 +74,7 @@ impl<T> ObjectPool<T> {
     pub fn alloc(self: &Arc<Self>, value: T) -> Result<PoolHandle<T>, String> {
         let start = Instant::now();
 
-        let mut allocator = self.allocator.borrow_mut();
+        let mut allocator = self.allocator.lock().unwrap_or_else(|e| e.into_inner());
         let index = allocator.alloc(value)?;
 
         let generation = allocator
@@ -98,7 +98,7 @@ impl<T> ObjectPool<T> {
     pub(crate) fn remove(&self, index: GenerationalIndex) -> Result<T, PoolAccessError> {
         let start = Instant::now();
 
-        let mut allocator = self.allocator.borrow_mut();
+        let mut allocator = self.allocator.lock().unwrap_or_else(|e| e.into_inner());
 
         // Check generation
         let current_gen = allocator
@@ -145,7 +145,7 @@ impl<T> ObjectPool<T> {
     where
         F: FnOnce(&T) -> R,
     {
-        let allocator = self.allocator.borrow();
+        let allocator = self.allocator.lock().unwrap_or_else(|e| e.into_inner());
 
         // Check generation
         let current_gen = allocator
@@ -167,7 +167,7 @@ impl<T> ObjectPool<T> {
     where
         F: FnOnce(&mut T) -> R,
     {
-        let mut allocator = self.allocator.borrow_mut();
+        let mut allocator = self.allocator.lock().unwrap_or_else(|e| e.into_inner());
 
         // Check generation
         let current_gen = allocator
@@ -188,7 +188,7 @@ impl<T> ObjectPool<T> {
 
     /// Check if an index is valid.
     pub fn is_valid(&self, index: GenerationalIndex) -> bool {
-        let allocator = self.allocator.borrow();
+        let allocator = self.allocator.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(current_gen) = allocator.generation(index.index()) {
             current_gen == index.generation()
         } else {
@@ -198,7 +198,7 @@ impl<T> ObjectPool<T> {
 
     /// Get the number of allocated objects.
     pub fn len(&self) -> usize {
-        self.allocator.borrow().len()
+        self.allocator.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
     /// Check if the pool is empty.
@@ -208,12 +208,12 @@ impl<T> ObjectPool<T> {
 
     /// Get the total capacity.
     pub fn capacity(&self) -> usize {
-        self.allocator.borrow().capacity()
+        self.allocator.lock().unwrap_or_else(|e| e.into_inner()).capacity()
     }
 
     /// Get memory usage in bytes.
     pub fn memory_usage(&self) -> usize {
-        self.allocator.borrow().memory_usage()
+        self.allocator.lock().unwrap_or_else(|e| e.into_inner()).memory_usage()
     }
 
     /// Get pool statistics.
@@ -230,7 +230,7 @@ impl<T> ObjectPool<T> {
     pub fn clear(&self) {
         let start = Instant::now();
         let cleared = {
-            let mut allocator = self.allocator.borrow_mut();
+            let mut allocator = self.allocator.lock().unwrap_or_else(|e| e.into_inner());
             allocator.clear()
         };
 
@@ -262,7 +262,7 @@ impl<T> ObjectPool<T> {
     ///
     /// References C++ mempool.h:154-169 (destructor logic)
     pub fn shrink_to_fit(&self) {
-        let mut allocator = self.allocator.borrow_mut();
+        let mut allocator = self.allocator.lock().unwrap_or_else(|e| e.into_inner());
 
         // Don't shrink below initial capacity (C++ always keeps blocks until destruction)
         let min_capacity = self.config.initial_capacity;
@@ -312,7 +312,7 @@ impl<T> ObjectPool<T> {
     ///
     /// References C++ mempool.h:231-260 (allocation and block linking)
     pub fn reserve(&self, additional: usize) -> Result<(), String> {
-        let mut allocator = self.allocator.borrow_mut();
+        let mut allocator = self.allocator.lock().unwrap_or_else(|e| e.into_inner());
 
         // Calculate how much free capacity we currently have
         let current_capacity = allocator.capacity();
@@ -483,7 +483,7 @@ impl PoolFactory {
 pub struct DebugTracker {
     /// Map from allocation index to allocation metadata.
     /// THREAD: same single-owner discipline as the pool itself — one thread.
-    allocations: RefCell<std::collections::HashMap<u32, AllocationInfo>>,
+    allocations: Mutex<std::collections::HashMap<u32, AllocationInfo>>,
     /// Pool name for error messages.
     pool_name: String,
 }
@@ -505,7 +505,7 @@ impl DebugTracker {
     /// Create a new debug tracker.
     pub fn new(pool_name: String) -> Self {
         Self {
-            allocations: RefCell::new(std::collections::HashMap::new()),
+            allocations: Mutex::new(std::collections::HashMap::new()),
             pool_name,
         }
     }
@@ -519,12 +519,12 @@ impl DebugTracker {
             type_name: std::any::type_name::<T>(),
         };
 
-        self.allocations.borrow_mut().insert(index, info);
+        self.allocations.lock().unwrap_or_else(|e| e.into_inner()).insert(index, info);
     }
 
     /// Record a deallocation.
     pub fn track_dealloc(&self, index: u32) {
-        self.allocations.borrow_mut().remove(&index);
+        self.allocations.lock().unwrap_or_else(|e| e.into_inner()).remove(&index);
     }
 
     /// Check for memory leaks.
@@ -534,7 +534,7 @@ impl DebugTracker {
     ///
     /// References C++ mempool.h:158
     pub fn check_leaks(&self) -> Vec<LeakInfo> {
-        let allocations = self.allocations.borrow();
+        let allocations = self.allocations.lock().unwrap_or_else(|e| e.into_inner());
         let mut leaks = Vec::new();
 
         for (&index, info) in allocations.iter() {
@@ -552,12 +552,12 @@ impl DebugTracker {
 
     /// Get the number of tracked allocations.
     pub fn active_count(&self) -> usize {
-        self.allocations.borrow().len()
+        self.allocations.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
     /// Clear all tracked allocations.
     pub fn clear(&self) {
-        self.allocations.borrow_mut().clear();
+        self.allocations.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     /// Print a leak report to stderr.
@@ -658,7 +658,7 @@ mod tests {
 
     #[test]
     fn object_pool_auto_traits_follow_allocator_value_bounds() {
-        // The pool is single-owner (RefCell) matching the C++ thread model:
+        // The pool is process-shared (Mutex) for multi-instance safety:
         // Send when T: Send, deliberately never Sync.
         fn assert_send<T: Send>() {}
 

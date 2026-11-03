@@ -621,7 +621,12 @@ impl Default for EvaEventStore {
 }
 
 /// Global EVA event store instance
-static EVA_EVENT_STORE: OnceCell<RwLock<EvaEventStore>> = OnceCell::new();
+struct EvaEventStoreSlot(OnceCell<RwLock<EvaEventStore>>);
+impl std::ops::Deref for EvaEventStoreSlot {
+    type Target = OnceCell<RwLock<EvaEventStore>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static EVA_EVENT_STORE: EvaEventStoreSlot = EvaEventStoreSlot(OnceCell::new());
 
 /// Get the global EVA event store (read access)
 pub fn get_eva_event_store() -> RwLockReadGuard<'static, EvaEventStore> {
@@ -641,9 +646,9 @@ pub fn get_eva_event_store_mut() -> RwLockWriteGuard<'static, EvaEventStore> {
 
 /// Initialize the global EVA event store
 pub fn init_eva_event_store() {
-    if EVA_EVENT_STORE.get().is_none() {
-        let _ = EVA_EVENT_STORE.set(RwLock::new(EvaEventStore::new()));
-    } else if let Some(store) = EVA_EVENT_STORE.get() {
+    if EVA_EVENT_STORE.0.get().is_none() {
+        let _ = EVA_EVENT_STORE.0.set(RwLock::new(EvaEventStore::new()));
+    } else if let Some(store) = EVA_EVENT_STORE.0.get() {
         if let Ok(mut guard) = store.write() {
             guard.init();
         }

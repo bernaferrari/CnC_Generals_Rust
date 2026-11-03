@@ -7,9 +7,24 @@ use crate::{
 };
 use std::sync::atomic::{AtomicU32, Ordering};
 
-static GLOBAL_SCALE_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
-static OLDEST_TIMESTAMP: AtomicU32 = AtomicU32::new(0);
-static NEWEST_TIMESTAMP: AtomicU32 = AtomicU32::new(1);
+struct GlobalScaleBitsSlot(AtomicU32);
+impl std::ops::Deref for GlobalScaleBitsSlot {
+    type Target = AtomicU32;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static GLOBAL_SCALE_BITS: GlobalScaleBitsSlot = GlobalScaleBitsSlot(AtomicU32::new(1.0f32.to_bits()));
+struct OldestTimestampSlot(AtomicU32);
+impl std::ops::Deref for OldestTimestampSlot {
+    type Target = AtomicU32;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static OLDEST_TIMESTAMP: OldestTimestampSlot = OldestTimestampSlot(AtomicU32::new(0));
+struct NewestTimestampSlot(AtomicU32);
+impl std::ops::Deref for NewestTimestampSlot {
+    type Target = AtomicU32;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static NEWEST_TIMESTAMP: NewestTimestampSlot = NewestTimestampSlot(AtomicU32::new(1));
 
 #[derive(Debug, Clone)]
 pub struct LogicalListener {

@@ -1196,7 +1196,12 @@ impl Default for TerrainRoads {
 }
 
 /// Global terrain roads registry (thread-safe)
-static TERRAIN_ROADS: OnceCell<Arc<RwLock<TerrainRoads>>> = OnceCell::new();
+struct TerrainRoadsSlot(OnceCell<Arc<RwLock<TerrainRoads>>>);
+impl std::ops::Deref for TerrainRoadsSlot {
+    type Target = OnceCell<Arc<RwLock<TerrainRoads>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static TERRAIN_ROADS: TerrainRoadsSlot = TerrainRoadsSlot(OnceCell::new());
 
 /// Ensure the terrain roads registry exists and return a handle to it
 pub fn initialize_terrain_roads() -> Arc<RwLock<TerrainRoads>> {
@@ -1207,7 +1212,7 @@ pub fn initialize_terrain_roads() -> Arc<RwLock<TerrainRoads>> {
 
 /// Get the terrain roads registry if it has already been initialized
 pub fn get_terrain_roads() -> Option<Arc<RwLock<TerrainRoads>>> {
-    TERRAIN_ROADS.get().cloned()
+    TERRAIN_ROADS.0.get().cloned()
 }
 
 /// Parse a boolean value from string

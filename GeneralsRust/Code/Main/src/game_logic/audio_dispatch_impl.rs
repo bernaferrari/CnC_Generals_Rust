@@ -122,13 +122,19 @@ impl UnitVoiceSlot {
 }
 
 #[cfg(test)]
-thread_local! {
-    static TEMPLATE_VOICE_OVERRIDE: RefCell<HashMap<(String, UnitVoiceSlot), String>> =
-        RefCell::new(HashMap::new());
-    static PER_UNIT_SOUND_OVERRIDE: RefCell<HashMap<(String, String), String>> =
-        RefCell::new(HashMap::new());
-    static INITIATE_SOUND_OVERRIDE: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
+struct AudioDispatchOverrides {
+    template_voice: std::sync::Mutex<HashMap<(String, UnitVoiceSlot), String>>,
+    per_unit_sound: std::sync::Mutex<HashMap<(String, String), String>>,
+    initiate_sound: std::sync::Mutex<HashMap<String, String>>,
 }
+
+#[cfg(test)]
+static AUDIO_DISPATCH_OVERRIDES: std::sync::LazyLock<AudioDispatchOverrides> =
+    std::sync::LazyLock::new(|| AudioDispatchOverrides {
+        template_voice: std::sync::Mutex::new(HashMap::new()),
+        per_unit_sound: std::sync::Mutex::new(HashMap::new()),
+        initiate_sound: std::sync::Mutex::new(HashMap::new()),
+    });
 
 fn nonempty_event_name(event: &game_engine::common::audio::AudioEventRts) -> Option<String> {
     let name = event.get_event_name();
@@ -215,39 +221,41 @@ pub fn set_test_template_voice(
     slot: UnitVoiceSlot,
     event_name: impl Into<String>,
 ) {
-    TEMPLATE_VOICE_OVERRIDE.with(|m| {
-        m.borrow_mut()
-            .insert((template_name.to_string(), slot), event_name.into());
-    });
+    AUDIO_DISPATCH_OVERRIDES
+        .template_voice
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .insert((template_name.to_string(), slot), event_name.into());
 }
 
 #[cfg(test)]
 pub fn clear_test_template_voices() {
-    TEMPLATE_VOICE_OVERRIDE.with(|m| m.borrow_mut().clear());
-    PER_UNIT_SOUND_OVERRIDE.with(|m| m.borrow_mut().clear());
-    INITIATE_SOUND_OVERRIDE.with(|m| m.borrow_mut().clear());
+    AUDIO_DISPATCH_OVERRIDES.template_voice.lock().unwrap_or_else(|p| p.into_inner()).clear();
+    AUDIO_DISPATCH_OVERRIDES.per_unit_sound.lock().unwrap_or_else(|p| p.into_inner()).clear();
+    AUDIO_DISPATCH_OVERRIDES.initiate_sound.lock().unwrap_or_else(|p| p.into_inner()).clear();
 }
 
 /// Test hook: ThingTemplate `UnitSpecificSounds` key without loading Object.ini.
 #[cfg(test)]
 pub fn set_test_per_unit_sound(template_name: &str, key: &str, event_name: impl Into<String>) {
-    PER_UNIT_SOUND_OVERRIDE.with(|m| {
-        m.borrow_mut().insert(
-            (template_name.to_string(), key.to_string()),
-            event_name.into(),
-        );
-    });
+    AUDIO_DISPATCH_OVERRIDES
+        .per_unit_sound
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .insert((template_name.to_string(), key.to_string()), event_name.into());
 }
 
 /// C++ `ThingTemplate::getPerUnitSound(key)` — building UnderConstruction, etc.
 #[cfg(test)]
 pub fn resolve_per_unit_sound(template_name: &str, key: &str) -> Option<String> {
     #[cfg(test)]
-    if let Some(over) = PER_UNIT_SOUND_OVERRIDE.with(|m| {
-        m.borrow()
-            .get(&(template_name.to_string(), key.to_string()))
-            .cloned()
-    }) {
+    if let Some(over) = {
+        let m = AUDIO_DISPATCH_OVERRIDES
+            .per_unit_sound
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        m.get(&(template_name.to_string(), key.to_string())).cloned()
+    } {
         if over.is_empty() {
             return None;
         }
@@ -269,10 +277,11 @@ pub fn resolve_per_unit_sound(template_name: &str, key: &str) -> Option<String> 
 /// Test hook: SpecialPower / SpecialAbility `InitiateSound`.
 #[cfg(test)]
 pub fn set_test_initiate_sound(power_key: &str, event_name: impl Into<String>) {
-    INITIATE_SOUND_OVERRIDE.with(|m| {
-        m.borrow_mut()
-            .insert(power_key.to_string(), event_name.into());
-    });
+    AUDIO_DISPATCH_OVERRIDES
+        .initiate_sound
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .insert(power_key.to_string(), event_name.into());
 }
 
 /// C++ `spmInterface->getInitiateSound()` (CommandXlat.cpp:637-651).
@@ -281,7 +290,7 @@ pub fn resolve_special_power_initiate_sound(
     module_sound: Option<&str>,
 ) -> Option<String> {
     #[cfg(test)]
-    if let Some(over) = INITIATE_SOUND_OVERRIDE.with(|m| m.borrow().get(_power_key).cloned()) {
+    if let Some(over) = AUDIO_DISPATCH_OVERRIDES.initiate_sound.lock().unwrap_or_else(|p| p.into_inner()).get(_power_key).cloned() {
         if over.is_empty() {
             return None;
         }
@@ -319,8 +328,12 @@ fn named_template_voice(
 #[cfg(test)]
 pub fn resolve_unit_voice_event(template_name: &str, slot: UnitVoiceSlot) -> Option<String> {
     #[cfg(test)]
-    if let Some(over) = TEMPLATE_VOICE_OVERRIDE
-        .with(|m| m.borrow().get(&(template_name.to_string(), slot)).cloned())
+    if let Some(over) = AUDIO_DISPATCH_OVERRIDES
+        .template_voice
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .get(&(template_name.to_string(), slot))
+        .cloned()
     {
         if over.is_empty() {
             return None;

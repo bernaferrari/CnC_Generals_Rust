@@ -1145,7 +1145,12 @@ impl GlobalData {
 }
 
 /// Global GlobalData instance (matches C++ TheWritableGlobalData/TheGlobalData)
-static WRITABLE_GLOBAL_DATA: OnceCell<Arc<RwLock<GlobalData>>> = OnceCell::new();
+struct WritableGlobalDataSlot(OnceCell<Arc<RwLock<GlobalData>>>);
+impl std::ops::Deref for WritableGlobalDataSlot {
+    type Target = OnceCell<Arc<RwLock<GlobalData>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static WRITABLE_GLOBAL_DATA: WritableGlobalDataSlot = WritableGlobalDataSlot(OnceCell::new());
 
 /// Ensure the global data instance exists and return a handle to it
 pub fn ensure_global_data() -> Arc<RwLock<GlobalData>> {
@@ -1168,7 +1173,7 @@ pub fn init_global_data() {
 
 /// Get a handle to the global data (read-only or mutable via locks)
 pub fn get_global_data() -> Option<Arc<RwLock<GlobalData>>> {
-    WRITABLE_GLOBAL_DATA.get().cloned()
+    WRITABLE_GLOBAL_DATA.0.get().cloned()
 }
 
 /// INI parsing function (matches C++ interface)

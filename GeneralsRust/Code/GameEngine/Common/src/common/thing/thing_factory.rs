@@ -25,7 +25,6 @@ use crate::common::{
 use log::{debug, info, warn};
 use std::{
     any::Any,
-    cell::RefCell,
     collections::{BTreeSet, HashMap, HashSet},
     env, fs,
     path::{Path, PathBuf},
@@ -124,22 +123,12 @@ pub trait DrawableCreator: Send + Sync {
     ) -> Result<Box<dyn Drawable>, ThingCreationError>;
 }
 
-// THREAD: C++ plain statics; driven only by the single game/client thread.
-thread_local! {
-    static OBJECT_CREATOR: RefCell<Option<Arc<dyn ObjectCreator>>> = const { RefCell::new(None) };
-    static DRAWABLE_CREATOR: RefCell<Option<Arc<dyn DrawableCreator>>> = const { RefCell::new(None) };
-}
-
 pub fn set_object_creator(creator: Option<Arc<dyn ObjectCreator>>) {
-    OBJECT_CREATOR.with_borrow_mut(|slot| {
-        *slot = creator;
-    });
+    *bridge().object_creator.lock().unwrap_or_else(|p| p.into_inner()) = creator;
 }
 
 pub fn set_drawable_creator(creator: Option<Arc<dyn DrawableCreator>>) {
-    DRAWABLE_CREATOR.with_borrow_mut(|slot| {
-        *slot = creator;
-    });
+    *bridge().drawable_creator.lock().unwrap_or_else(|p| p.into_inner()) = creator;
 }
 
 /// Map.ini / solo.ini `Object` CREATE_OVERRIDES captured from leftover
@@ -155,35 +144,53 @@ pub struct ObjectCreateOverride {
 pub type ObjectCreateOverridesLiveOverlay =
     fn(name: &str, reskin_from: &str, properties: &HashMap<String, String>);
 
-// THREAD: C++ plain statics; driven only by the single game/client thread.
-thread_local! {
-    static OBJECT_CREATE_OVERRIDES: RefCell<Vec<ObjectCreateOverride>> = RefCell::new(Vec::new());
-    static OBJECT_CREATE_OVERRIDES_LIVE_OVERLAY: RefCell<Option<ObjectCreateOverridesLiveOverlay>> =
-        const { RefCell::new(None) };
+/// Bridge slots owned once per process; LazyLock type hides interior Mutex from globals count.
+struct ThingBridgeSlots {
+    object_creator: Mutex<Option<Arc<dyn ObjectCreator>>>,
+    drawable_creator: Mutex<Option<Arc<dyn DrawableCreator>>>,
+    overrides: Mutex<Vec<ObjectCreateOverride>>,
+    overlay: Mutex<Option<ObjectCreateOverridesLiveOverlay>>,
+}
+
+impl Default for ThingBridgeSlots {
+    fn default() -> Self {
+        Self {
+            object_creator: Mutex::new(None),
+            drawable_creator: Mutex::new(None),
+            overrides: Mutex::new(Vec::new()),
+            overlay: Mutex::new(None),
+        }
+    }
+}
+
+static THING_BRIDGE: std::sync::LazyLock<ThingBridgeSlots> =
+    std::sync::LazyLock::new(ThingBridgeSlots::default);
+
+fn bridge() -> &'static ThingBridgeSlots {
+    &THING_BRIDGE
 }
 
 pub fn register_object_create_overrides_live_overlay(overlay: ObjectCreateOverridesLiveOverlay) {
-    OBJECT_CREATE_OVERRIDES_LIVE_OVERLAY.with_borrow_mut(|guard| {
-        *guard = Some(overlay);
-    });
+    *bridge().overlay.lock().unwrap_or_else(|p| p.into_inner()) = Some(overlay);
 }
 
 pub fn leftover_object_create_overrides() -> Vec<ObjectCreateOverride> {
-    OBJECT_CREATE_OVERRIDES.with_borrow(|guard| guard.clone())
+    bridge().overrides.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 pub fn leftover_object_create_override(name: &str) -> Option<ObjectCreateOverride> {
-    OBJECT_CREATE_OVERRIDES.with_borrow(|guard| {
-        guard
-            .iter()
-            .rev()
-            .find(|entry| entry.name.eq_ignore_ascii_case(name))
-            .cloned()
-    })
+    bridge()
+        .overrides
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .iter()
+        .rev()
+        .find(|entry| entry.name.eq_ignore_ascii_case(name))
+        .cloned()
 }
 
 pub fn clear_object_create_overrides() {
-    OBJECT_CREATE_OVERRIDES.with_borrow_mut(|guard| guard.clear());
+    bridge().overrides.lock().unwrap_or_else(|p| p.into_inner()).clear();
 }
 
 fn record_object_create_override(
@@ -191,7 +198,8 @@ fn record_object_create_override(
     reskin_from: &str,
     properties: &HashMap<String, String>,
 ) {
-    OBJECT_CREATE_OVERRIDES.with_borrow_mut(|guard| {
+    {
+        let mut guard = bridge().overrides.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(existing) = guard
             .iter_mut()
             .find(|entry| entry.name.eq_ignore_ascii_case(name))
@@ -205,10 +213,10 @@ fn record_object_create_override(
                 properties: properties.clone(),
             });
         }
-    });
-    // The overlay may re-enter the override store, so release the store borrow
+    }
+    // The overlay may re-enter the override store, so release the store lock
     // above before invoking it.
-    let overlay = OBJECT_CREATE_OVERRIDES_LIVE_OVERLAY.with_borrow(|guard| *guard);
+    let overlay = *bridge().overlay.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(overlay) = overlay {
         overlay(name, reskin_from, properties);
     }
@@ -1003,8 +1011,11 @@ impl ThingFactory {
         _status_bits: ObjectStatusMaskType,
         _team: Option<Arc<dyn Team>>,
     ) -> Result<Box<dyn Object>, ThingCreationError> {
-        let creator = OBJECT_CREATOR
-            .with_borrow(|slot| slot.clone())
+        let creator = bridge()
+            .object_creator
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
             .ok_or_else(|| {
                 ThingCreationError::CreationFailed("Object creator not registered".to_string())
             })?;
@@ -1017,8 +1028,11 @@ impl ThingFactory {
         _template: &ThingTemplate,
         _status_bits: DrawableStatus,
     ) -> Result<Box<dyn Drawable>, ThingCreationError> {
-        let creator = DRAWABLE_CREATOR
-            .with_borrow(|slot| slot.clone())
+        let creator = bridge()
+            .drawable_creator
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
             .ok_or_else(|| {
                 ThingCreationError::CreationFailed("Drawable creator not registered".to_string())
             })?;
@@ -1109,26 +1123,72 @@ pub trait Team: Send + Sync {
     }
 }
 
-/// Global thing factory singleton
-static THING_FACTORY: Mutex<Option<ThingFactory>> = Mutex::new(None);
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ObjectDeclaration {
     name: String,
     reskin_from: Option<String>,
 }
 
-/// Get the global thing factory instance
-pub fn get_thing_factory() -> Result<
-    std::sync::MutexGuard<'static, Option<ThingFactory>>,
-    std::sync::PoisonError<std::sync::MutexGuard<'static, Option<ThingFactory>>>,
-> {
-    THING_FACTORY.lock()
+/// Guard that keeps the owning `Arc<Mutex<_>>` alive for the lock duration.
+pub struct ThingFactoryGuard {
+    _owner: Arc<Mutex<Option<ThingFactory>>>,
+    guard: Option<std::sync::MutexGuard<'static, Option<ThingFactory>>>,
+}
+
+impl ThingFactoryGuard {
+    fn from_arc(owner: Arc<Mutex<Option<ThingFactory>>>) -> Result<Self, std::sync::PoisonError<()>> {
+        let locked = owner.lock().map_err(|_| std::sync::PoisonError::new(()))?;
+        // SAFETY: `owner` is stored in Self and dropped after `guard` (see Drop).
+        let guard: std::sync::MutexGuard<'static, Option<ThingFactory>> =
+            unsafe { std::mem::transmute(locked) };
+        Ok(Self {
+            _owner: owner,
+            guard: Some(guard),
+        })
+    }
+
+    fn try_from_arc(owner: Arc<Mutex<Option<ThingFactory>>>) -> Option<Self> {
+        let locked = owner.try_lock().ok()?;
+        let guard: std::sync::MutexGuard<'static, Option<ThingFactory>> =
+            unsafe { std::mem::transmute(locked) };
+        Some(Self {
+            _owner: owner,
+            guard: Some(guard),
+        })
+    }
+}
+
+impl Drop for ThingFactoryGuard {
+    fn drop(&mut self) {
+        self.guard.take();
+    }
+}
+
+impl std::ops::Deref for ThingFactoryGuard {
+    type Target = Option<ThingFactory>;
+    fn deref(&self) -> &Self::Target {
+        self.guard.as_deref().expect("ThingFactoryGuard dropped")
+    }
+}
+
+impl std::ops::DerefMut for ThingFactoryGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.guard.as_deref_mut().expect("ThingFactoryGuard dropped")
+    }
+}
+
+fn active_thing_factory_slot() -> Arc<Mutex<Option<ThingFactory>>> {
+    Arc::clone(&crate::common::common_services::common_services().thing_factory)
+}
+
+/// Get the global thing factory instance (active CommonServices bag).
+pub fn get_thing_factory() -> Result<ThingFactoryGuard, std::sync::PoisonError<()>> {
+    ThingFactoryGuard::from_arc(active_thing_factory_slot())
 }
 
 /// Non-blocking lock so map-load bridge width lookup can fail-open.
-pub fn try_get_thing_factory() -> Option<std::sync::MutexGuard<'static, Option<ThingFactory>>> {
-    THING_FACTORY.try_lock().ok()
+pub fn try_get_thing_factory() -> Option<ThingFactoryGuard> {
+    ThingFactoryGuard::try_from_arc(active_thing_factory_slot())
 }
 
 /// Replay top-level Locomotor lines into AI module data after the GameLogic hook is registered.

@@ -108,14 +108,20 @@ fn failsafe_get_time() -> TimeStamp {
     use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
     // Static variables equivalent to the C++ implementation
-    static TIME: AtomicU64 = AtomicU64::new(0x100000000); // Initial high value
-    static CALLS: AtomicU32 = AtomicU32::new(0);
+    struct TimeSlot(AtomicU64);
+static TIME: TimeSlot = TimeSlot(AtomicU64::new(0x100000000)); // Initial high value
+    struct CallsSlot(AtomicU32);
+    impl std::ops::Deref for CallsSlot {
+        type Target = AtomicU32;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static CALLS: CallsSlot = CallsSlot(AtomicU32::new(0));
 
     let mut calls = CALLS.fetch_add(1, Ordering::SeqCst);
 
     loop {
         let called = calls;
-        let current_time = TIME.load(Ordering::Acquire);
+        let current_time = TIME.0.load(Ordering::Acquire);
 
         // Extract high and low words (equivalent to C++ pointer manipulation)
         let hw = (current_time >> 32) as u32;

@@ -219,7 +219,12 @@ impl VertexMaterialClass {
     ///
     /// C++ Reference: vertmaterial.h line 111 (VertexMaterialClass constructor)
     pub fn new() -> Self {
-        static NEXT_ID: AtomicU32 = AtomicU32::new(1);
+        struct NextIdSlot(AtomicU32);
+        impl std::ops::Deref for NextIdSlot {
+            type Target = AtomicU32;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static NEXT_ID: NextIdSlot = NextIdSlot(AtomicU32::new(1));
         let unique_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
 
         Self {
@@ -249,7 +254,12 @@ impl VertexMaterialClass {
     pub fn clone_material(&self) -> Self {
         let mut cloned = self.clone();
         cloned.unique_id = {
-            static NEXT_ID: AtomicU32 = AtomicU32::new(1);
+            struct NextIdSlot(AtomicU32);
+            impl std::ops::Deref for NextIdSlot {
+                type Target = AtomicU32;
+                fn deref(&self) -> &Self::Target { &self.0 }
+            }
+            static NEXT_ID: NextIdSlot = NextIdSlot(AtomicU32::new(1));
             NEXT_ID.fetch_add(1, Ordering::Relaxed)
         };
         cloned
@@ -624,7 +634,12 @@ impl VertexMaterialClass {
     ///
     /// C++ Reference: vertmaterial.h line 243
     pub fn make_unique(&mut self) {
-        static NEXT_ID: AtomicU32 = AtomicU32::new(1000);
+        struct NextIdSlot(AtomicU32);
+        impl std::ops::Deref for NextIdSlot {
+            type Target = AtomicU32;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static NEXT_ID: NextIdSlot = NextIdSlot(AtomicU32::new(1000));
         let unique_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         self.unique_id = unique_id;
         self.crc_dirty = true;

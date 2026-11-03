@@ -29,7 +29,12 @@ impl Default for HeaderTemplate {
 }
 
 /// HeaderTemplateManager singleton
-static HEADER_TEMPLATE_MANAGER: OnceLock<RwLock<HeaderTemplateManager>> = OnceLock::new();
+struct HeaderTemplateManagerSlot(OnceLock<RwLock<HeaderTemplateManager>>);
+impl std::ops::Deref for HeaderTemplateManagerSlot {
+    type Target = OnceLock<RwLock<HeaderTemplateManager>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static HEADER_TEMPLATE_MANAGER: HeaderTemplateManagerSlot = HeaderTemplateManagerSlot(OnceLock::new());
 
 /// HeaderTemplateManager - stores and manages header templates
 /// Matches C++ HeaderTemplateManager class
@@ -125,19 +130,19 @@ fn parse_bold(ini: &mut INI, target: &mut HeaderTemplate, _tokens: &[&str]) -> I
 
 /// Initialize the HeaderTemplateManager singleton
 pub fn init_header_template_manager() {
-    HEADER_TEMPLATE_MANAGER.get_or_init(|| RwLock::new(HeaderTemplateManager::new()));
+    HEADER_TEMPLATE_MANAGER.0.get_or_init(|| RwLock::new(HeaderTemplateManager::new()));
 }
 
 /// Get a read reference to the HeaderTemplateManager
 pub fn get_header_template_manager()
 -> Option<std::sync::RwLockReadGuard<'static, HeaderTemplateManager>> {
-    HEADER_TEMPLATE_MANAGER.get()?.read().ok()
+    HEADER_TEMPLATE_MANAGER.0.get()?.read().ok()
 }
 
 /// Get a write reference to the HeaderTemplateManager
 pub fn get_header_template_manager_mut()
 -> Option<std::sync::RwLockWriteGuard<'static, HeaderTemplateManager>> {
-    HEADER_TEMPLATE_MANAGER.get()?.write().ok()
+    HEADER_TEMPLATE_MANAGER.0.get()?.write().ok()
 }
 
 /// Parse a HeaderTemplate definition block

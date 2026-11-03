@@ -414,7 +414,12 @@ impl Default for RankInfoStore {
 }
 
 /// Global rank info store instance
-static RANK_INFO_STORE: OnceCell<RwLock<RankInfoStore>> = OnceCell::new();
+struct RankInfoStoreSlot(OnceCell<RwLock<RankInfoStore>>);
+impl std::ops::Deref for RankInfoStoreSlot {
+    type Target = OnceCell<RwLock<RankInfoStore>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static RANK_INFO_STORE: RankInfoStoreSlot = RankInfoStoreSlot(OnceCell::new());
 
 /// Get the global rank info store (read access)
 pub fn get_rank_info_store() -> RwLockReadGuard<'static, RankInfoStore> {
@@ -434,9 +439,9 @@ pub fn get_rank_info_store_mut() -> RwLockWriteGuard<'static, RankInfoStore> {
 
 /// Initialize the global rank info store
 pub fn init_rank_info_store() {
-    if RANK_INFO_STORE.get().is_none() {
-        let _ = RANK_INFO_STORE.set(RwLock::new(RankInfoStore::new()));
-    } else if let Some(store) = RANK_INFO_STORE.get() {
+    if RANK_INFO_STORE.0.get().is_none() {
+        let _ = RANK_INFO_STORE.0.set(RwLock::new(RankInfoStore::new()));
+    } else if let Some(store) = RANK_INFO_STORE.0.get() {
         if let Ok(mut guard) = store.write() {
             guard.init();
         }

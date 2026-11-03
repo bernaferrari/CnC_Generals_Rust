@@ -1946,9 +1946,7 @@ mod tests {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
         // C++ ActiveBody.cpp:653 doDamageFX after attemptDamage.
-        use crate::game_logic::host_transition_damage_fx::{
-            TemplateDamageAudio, take_dispatched_armor_damage_fx,
-        };
+        use crate::game_logic::host_transition_damage_fx::take_dispatched_armor_damage_fx;
         game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
         let mut dfx = game_engine::common::ini::ini_damage_fx::DamageFX::new();
         dfx.set_major_minor_fx(
@@ -1984,7 +1982,6 @@ mod tests {
                 .any(|n| n == "TankDamageFX" || n == "FX_TestHitSpark"),
             "armor DamageFX must dispatch, got {dispatched:?}"
         );
-        let _ = TemplateDamageAudio::default();
     }
 
     #[test]

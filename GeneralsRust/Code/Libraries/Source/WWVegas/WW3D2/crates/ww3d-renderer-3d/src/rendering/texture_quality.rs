@@ -25,33 +25,36 @@ impl Default for TextureQualitySettings {
     }
 }
 
-thread_local! {
-    /// C++ kept the texture quality knobs in plain statics on the game thread.
-    static SETTINGS: Cell<TextureQualitySettings> = Cell::new(TextureQualitySettings::default());
+struct SettingsBag {
+    settings: std::sync::Mutex<TextureQualitySettings>,
 }
+static SETTINGS_TLS_BAG: std::sync::LazyLock<SettingsBag> = std::sync::LazyLock::new(|| SettingsBag {
+        settings: std::sync::Mutex::new(TextureQualitySettings::default()),
+});
+
 
 /// Fetch a snapshot of the current texture quality settings.
 pub fn settings() -> TextureQualitySettings {
-    SETTINGS.with(Cell::get)
+    SETTINGS_TLS_BAG.settings.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 /// Replace the active texture quality settings.
 pub fn set(settings: TextureQualitySettings) {
     let mut cfg = settings;
     cfg.min_dimension = cfg.min_dimension.max(1);
-    SETTINGS.with(|cell| cell.set(cfg));
+    *SETTINGS_TLS_BAG.settings.lock().unwrap_or_else(|p| p.into_inner()) = cfg;
 }
 
 /// Set the global reduction and minimum dimension as per the legacy `WW3D::Set_Texture_Reduction`.
 pub fn set_texture_reduction(reduction: u32, min_dimension: u32) {
-    SETTINGS.with(|cell| {
-        let extra = cell.get().large_texture_extra_reduction;
-        cell.set(TextureQualitySettings {
+    { let mut cell = SETTINGS_TLS_BAG.settings.lock().unwrap_or_else(|p| p.into_inner()); 
+        let extra = cell.clone().large_texture_extra_reduction;
+        *cell = TextureQualitySettings {
             reduction,
             min_dimension: min_dimension.max(1),
             large_texture_extra_reduction: extra,
-        });
-    });
+        };
+     }
 }
 
 /// Retrieve the currently requested global reduction level.
@@ -66,11 +69,11 @@ pub fn texture_min_dimension() -> u32 {
 
 /// Toggle the "large texture extra reduction" flag from the legacy renderer.
 pub fn enable_large_texture_extra_reduction(enabled: bool) {
-    SETTINGS.with(|cell| {
-        let mut cfg = cell.get();
+    { let mut cell = SETTINGS_TLS_BAG.settings.lock().unwrap_or_else(|p| p.into_inner()); 
+        let mut cfg = cell.clone();
         cfg.large_texture_extra_reduction = enabled;
-        cell.set(cfg);
-    });
+        *cell = cfg;
+     }
 }
 
 /// Query whether the extra large texture reduction is active.

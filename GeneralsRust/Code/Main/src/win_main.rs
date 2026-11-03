@@ -41,20 +41,50 @@ use winit::{
 // They represent opaque handles from the Windows API and are appropriate for FFI.
 
 /// Application instance handle (equivalent to HINSTANCE)
-pub static APPLICATION_INSTANCE: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+struct ApplicationInstanceSlot(AtomicPtr<c_void>);
+impl std::ops::Deref for ApplicationInstanceSlot {
+    type Target = AtomicPtr<c_void>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static APPLICATION_INSTANCE: ApplicationInstanceSlot = ApplicationInstanceSlot(AtomicPtr::new(std::ptr::null_mut()));
 
 /// Application window handle (equivalent to HWND)
-pub static APPLICATION_WINDOW: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+struct ApplicationWindowSlot(AtomicPtr<c_void>);
+impl std::ops::Deref for ApplicationWindowSlot {
+    type Target = AtomicPtr<c_void>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static APPLICATION_WINDOW: ApplicationWindowSlot = ApplicationWindowSlot(AtomicPtr::new(std::ptr::null_mut()));
 
 /// Win32 mouse interface pointer
-pub static THE_WIN32_MOUSE: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+struct TheWin32MouseSlot(AtomicPtr<c_void>);
+impl std::ops::Deref for TheWin32MouseSlot {
+    type Target = AtomicPtr<c_void>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static THE_WIN32_MOUSE: TheWin32MouseSlot = TheWin32MouseSlot(AtomicPtr::new(std::ptr::null_mut()));
 
 /// Whether application is windowed
-pub static APPLICATION_IS_WINDOWED: AtomicBool = AtomicBool::new(false);
+struct ApplicationIsWindowedSlot(AtomicBool);
+impl std::ops::Deref for ApplicationIsWindowedSlot {
+    type Target = AtomicBool;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static APPLICATION_IS_WINDOWED: ApplicationIsWindowedSlot = ApplicationIsWindowedSlot(AtomicBool::new(false));
 
 /// Message time from Windows
-pub static THE_MESSAGE_TIME: AtomicU32 = AtomicU32::new(0);
-static LAUNCHER_SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
+struct TheMessageTimeSlot(AtomicU32);
+impl std::ops::Deref for TheMessageTimeSlot {
+    type Target = AtomicU32;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static THE_MESSAGE_TIME: TheMessageTimeSlot = TheMessageTimeSlot(AtomicU32::new(0));
+struct LauncherShutdownRequestedSlot(AtomicBool);
+impl std::ops::Deref for LauncherShutdownRequestedSlot {
+    type Target = AtomicBool;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static LAUNCHER_SHUTDOWN_REQUESTED: LauncherShutdownRequestedSlot = LauncherShutdownRequestedSlot(AtomicBool::new(false));
 
 // Constants from C++
 const GENERALS_GUID: &str = "685EAFF2-3216-4265-B047-251C5F4B82F3";

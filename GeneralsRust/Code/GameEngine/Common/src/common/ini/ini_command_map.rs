@@ -514,7 +514,12 @@ pub struct MetaMapRec {
 }
 
 /// MetaMap (CommandMap) storage singleton
-static META_MAP: OnceLock<RwLock<MetaMap>> = OnceLock::new();
+struct MetaMapSlot(OnceLock<RwLock<MetaMap>>);
+impl std::ops::Deref for MetaMapSlot {
+    type Target = OnceLock<RwLock<MetaMap>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static META_MAP: MetaMapSlot = MetaMapSlot(OnceLock::new());
 
 /// MetaMap structure holding all key bindings
 #[derive(Debug, Clone, Default)]
@@ -629,17 +634,17 @@ fn parse_display_name(ini: &mut INI, target: &mut MetaMapRec, _tokens: &[&str]) 
 
 /// Initialize the MetaMap singleton
 pub fn init_meta_map() {
-    META_MAP.get_or_init(|| RwLock::new(MetaMap::new()));
+    META_MAP.0.get_or_init(|| RwLock::new(MetaMap::new()));
 }
 
 /// Get a read reference to the MetaMap
 pub fn get_meta_map() -> Option<std::sync::RwLockReadGuard<'static, MetaMap>> {
-    META_MAP.get()?.read().ok()
+    META_MAP.0.get()?.read().ok()
 }
 
 /// Get a write reference to the MetaMap
 pub fn get_meta_map_mut() -> Option<std::sync::RwLockWriteGuard<'static, MetaMap>> {
-    META_MAP.get()?.write().ok()
+    META_MAP.0.get()?.write().ok()
 }
 
 /// Parse a CommandMap definition block

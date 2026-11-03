@@ -149,7 +149,12 @@ impl MaterialTextureBinding {
 /// Material pass class - defines a rendering pass
 const MAX_TEXTURE_STAGES: usize = 8;
 
-static ENABLE_PER_POLYGON_CULLING: AtomicBool = AtomicBool::new(true);
+struct EnablePerPolygonCullingSlot(AtomicBool);
+impl std::ops::Deref for EnablePerPolygonCullingSlot {
+    type Target = AtomicBool;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static ENABLE_PER_POLYGON_CULLING: EnablePerPolygonCullingSlot = EnablePerPolygonCullingSlot(AtomicBool::new(true));
 
 #[derive(Debug, Clone)]
 pub struct MaterialPassClass {

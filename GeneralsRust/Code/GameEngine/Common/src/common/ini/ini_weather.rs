@@ -350,7 +350,12 @@ fn parse_cpp_bool(value: &str) -> INIResult<bool> {
 }
 
 // Global weather setting singleton storage with override support
-static WEATHER_SETTING: OnceCell<RwLock<Option<WeatherSetting>>> = OnceCell::new();
+struct WeatherSettingSlot(OnceCell<RwLock<Option<WeatherSetting>>>);
+impl std::ops::Deref for WeatherSettingSlot {
+    type Target = OnceCell<RwLock<Option<WeatherSetting>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static WEATHER_SETTING: WeatherSettingSlot = WeatherSettingSlot(OnceCell::new());
 
 /// Get the live weather setting (C++ `TheWeatherSetting->`, the final override).
 pub fn get_weather_setting() -> Option<WeatherSetting> {
@@ -378,13 +383,13 @@ pub fn get_base_weather_setting() -> Option<WeatherSetting> {
 
 /// Get mutable access to the weather setting store
 fn get_weather_setting_mut() -> &'static RwLock<Option<WeatherSetting>> {
-    WEATHER_SETTING.get_or_init(|| RwLock::new(None))
+    WEATHER_SETTING.0.get_or_init(|| RwLock::new(None))
 }
 
 /// Get read access to the weather setting store
 pub fn get_weather_setting_lock()
 -> Option<std::sync::RwLockReadGuard<'static, Option<WeatherSetting>>> {
-    WEATHER_SETTING.get().and_then(|lock| lock.read().ok())
+    WEATHER_SETTING.0.get().and_then(|lock| lock.read().ok())
 }
 
 /// Clear any map-generated weather overrides.
@@ -393,7 +398,7 @@ pub fn get_weather_setting_lock()
 ///   WeatherSetting *ws = TheWeatherSetting.getNonOverloadedPointer();
 ///   TheWeatherSetting = ws->deleteOverrides();
 pub fn clear_weather_setting_overrides() {
-    let lock = WEATHER_SETTING.get_or_init(|| RwLock::new(None));
+    let lock = WEATHER_SETTING.0.get_or_init(|| RwLock::new(None));
     if let Ok(mut guard) = lock.write() {
         if let Some(setting) = guard.as_mut() {
             setting.next_override = None;
@@ -403,7 +408,7 @@ pub fn clear_weather_setting_overrides() {
 
 /// Initialize the weather settings system
 pub fn init_weather_setting() {
-    let _ = WEATHER_SETTING.get_or_init(|| RwLock::new(None));
+    let _ = WEATHER_SETTING.0.get_or_init(|| RwLock::new(None));
 }
 
 /// Parse a [Weather] block from an INI file

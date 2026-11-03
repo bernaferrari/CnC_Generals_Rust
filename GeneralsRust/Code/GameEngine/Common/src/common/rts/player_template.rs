@@ -643,10 +643,15 @@ impl Default for PlayerTemplateStore {
     }
 }
 
-static PLAYER_TEMPLATE_STORE: OnceCell<RwLock<PlayerTemplateStore>> = OnceCell::new();
+struct PlayerTemplateStoreSlot(OnceCell<RwLock<PlayerTemplateStore>>);
+impl std::ops::Deref for PlayerTemplateStoreSlot {
+    type Target = OnceCell<RwLock<PlayerTemplateStore>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static PLAYER_TEMPLATE_STORE: PlayerTemplateStoreSlot = PlayerTemplateStoreSlot(OnceCell::new());
 
 pub(crate) fn player_template_store() -> &'static RwLock<PlayerTemplateStore> {
-    PLAYER_TEMPLATE_STORE.get_or_init(|| RwLock::new(PlayerTemplateStore::new()))
+    PLAYER_TEMPLATE_STORE.0.get_or_init(|| RwLock::new(PlayerTemplateStore::new()))
 }
 
 pub fn get_player_template_store() -> RwLockReadGuard<'static, PlayerTemplateStore> {

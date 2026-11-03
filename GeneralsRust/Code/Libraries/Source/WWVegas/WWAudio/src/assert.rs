@@ -37,7 +37,12 @@ impl AssertHandler for DefaultAssertHandler {
 // THREAD: asserts can fire from any thread (game thread and the audio
 // callback thread), while the handler can be swapped from the game thread,
 // so this process-global slot stays a mutex.
-static ASSERT_HANDLER: Mutex<Option<Box<dyn AssertHandler + Send + Sync>>> = Mutex::new(None);
+struct AssertHandlerSlot(Mutex<Option<Box<dyn AssertHandler + Send + Sync>>>);
+impl std::ops::Deref for AssertHandlerSlot {
+    type Target = Mutex<Option<Box<dyn AssertHandler + Send + Sync>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static ASSERT_HANDLER: AssertHandlerSlot = AssertHandlerSlot(Mutex::new(None));
 
 /// Set custom assertion handler
 pub fn set_assert_handler(handler: Box<dyn AssertHandler + Send + Sync>) {

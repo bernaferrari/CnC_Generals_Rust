@@ -510,7 +510,12 @@ impl Default for CampaignStore {
     }
 }
 
-static CAMPAIGN_STORE: OnceCell<RwLock<CampaignStore>> = OnceCell::new();
+struct CampaignStoreSlot(OnceCell<RwLock<CampaignStore>>);
+impl std::ops::Deref for CampaignStoreSlot {
+    type Target = OnceCell<RwLock<CampaignStore>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static CAMPAIGN_STORE: CampaignStoreSlot = CampaignStoreSlot(OnceCell::new());
 
 pub fn get_campaign_store() -> RwLockReadGuard<'static, CampaignStore> {
     CAMPAIGN_STORE

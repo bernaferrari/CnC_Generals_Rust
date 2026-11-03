@@ -21,20 +21,23 @@ pub(super) struct StaticSortState {
     flush_depth: u32,
 }
 
-thread_local! {
-    /// C++ kept the static sort lists as plain statics on the game thread.
-    pub(super) static STATIC_SORT_STATE: RefCell<StaticSortState> = RefCell::new(StaticSortState {
+struct StaticSortStateBag {
+    static_sort_state: std::sync::Mutex<StaticSortState>,
+}
+static STATIC_SORT_STATE_TLS_BAG: std::sync::LazyLock<StaticSortStateBag> = std::sync::LazyLock::new(|| StaticSortStateBag {
+        static_sort_state: std::sync::Mutex::new(StaticSortState {
         entries: Vec::new(),
         meshes: Vec::new(),
         sort_levels: Vec::new(),
         enabled: true,
         decals_enabled: true,
         flush_depth: 0,
-    });
-}
+    }),
+});
+
 
 pub(super) fn with_sort_state<R>(f: impl FnOnce(&mut StaticSortState) -> R) -> R {
-    STATIC_SORT_STATE.with_borrow_mut(f)
+    f(&mut STATIC_SORT_STATE_TLS_BAG.static_sort_state.lock().unwrap_or_else(|p| p.into_inner()))
 }
 
 #[derive(Clone)]

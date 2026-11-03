@@ -324,8 +324,18 @@ pub trait AudioEventOwnerResolver: Send + Sync {
 }
 
 static AUDIO_EVENT_OWNER_RESOLVER: OnceLock<Arc<dyn AudioEventOwnerResolver>> = OnceLock::new();
-static AUDIO_EVENT_LOCALIZATION_LANGUAGE: OnceLock<RwLock<String>> = OnceLock::new();
-static ASYNC_PLAYBACK_HANDLE_POOL: AtomicU32 = AtomicU32::new(10_000_000);
+struct AudioEventLocalizationLanguageSlot(OnceLock<RwLock<String>>);
+impl std::ops::Deref for AudioEventLocalizationLanguageSlot {
+    type Target = OnceLock<RwLock<String>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static AUDIO_EVENT_LOCALIZATION_LANGUAGE: AudioEventLocalizationLanguageSlot = AudioEventLocalizationLanguageSlot(OnceLock::new());
+struct AsyncPlaybackHandlePoolSlot(AtomicU32);
+impl std::ops::Deref for AsyncPlaybackHandlePoolSlot {
+    type Target = AtomicU32;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static ASYNC_PLAYBACK_HANDLE_POOL: AsyncPlaybackHandlePoolSlot = AsyncPlaybackHandlePoolSlot(AtomicU32::new(10_000_000));
 
 pub fn register_audio_event_owner_resolver(resolver: Arc<dyn AudioEventOwnerResolver>) -> bool {
     AUDIO_EVENT_OWNER_RESOLVER.set(resolver).is_ok()
@@ -333,7 +343,7 @@ pub fn register_audio_event_owner_resolver(resolver: Arc<dyn AudioEventOwnerReso
 
 pub fn set_audio_event_localization_language(language: &str) {
     let lock =
-        AUDIO_EVENT_LOCALIZATION_LANGUAGE.get_or_init(|| RwLock::new(String::from("English")));
+        AUDIO_EVENT_LOCALIZATION_LANGUAGE.0.get_or_init(|| RwLock::new(String::from("English")));
     if let Ok(mut guard) = lock.write() {
         guard.clear();
         guard.push_str(language.trim());
@@ -358,7 +368,7 @@ fn current_localization_language() -> String {
     }
 
     let lock =
-        AUDIO_EVENT_LOCALIZATION_LANGUAGE.get_or_init(|| RwLock::new(String::from("English")));
+        AUDIO_EVENT_LOCALIZATION_LANGUAGE.0.get_or_init(|| RwLock::new(String::from("English")));
     match lock.read() {
         Ok(guard) => {
             if guard.trim().is_empty() {
@@ -921,7 +931,7 @@ impl AudioEventRts {
         }
 
         if self.playing_handle == 0 {
-            self.playing_handle = ASYNC_PLAYBACK_HANDLE_POOL.fetch_add(1, Ordering::Relaxed);
+            self.playing_handle = ASYNC_PLAYBACK_HANDLE_POOL.0.fetch_add(1, Ordering::Relaxed);
         }
         let event = self.clone();
 

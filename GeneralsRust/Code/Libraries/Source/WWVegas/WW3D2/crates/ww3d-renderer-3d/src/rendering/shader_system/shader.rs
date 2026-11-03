@@ -141,14 +141,17 @@ impl ShaderGlobalState {
     }
 }
 
-thread_local! {
-    /// C++ kept the global shader state as a plain static on the game thread.
-    static SHADER_STATE: RefCell<ShaderGlobalState> = RefCell::new(ShaderGlobalState::new());
+struct ShaderStateBag {
+    shader_state: std::sync::Mutex<ShaderGlobalState>,
 }
+static SHADER_STATE_TLS_BAG: std::sync::LazyLock<ShaderStateBag> = std::sync::LazyLock::new(|| ShaderStateBag {
+        shader_state: std::sync::Mutex::new(ShaderGlobalState::new()),
+});
+
 
 /// Run `f` with mutable access to the global shader state.
 fn with_shader_state<R>(f: impl FnOnce(&mut ShaderGlobalState) -> R) -> R {
-    SHADER_STATE.with_borrow_mut(f)
+    f(&mut SHADER_STATE_TLS_BAG.shader_state.lock().unwrap_or_else(|p| p.into_inner()))
 }
 
 // Shader construction macro - converted to function
@@ -1759,7 +1762,7 @@ impl ShaderClass {
     /// Check if shader cache is dirty (needs full state update)
     /// Matches C++ ShaderClass::ShaderDirty (shader.cpp line 50)
     pub fn shader_dirty() -> bool {
-        SHADER_STATE.with_borrow(|state| state.dirty)
+        { let state = SHADER_STATE_TLS_BAG.shader_state.lock().unwrap_or_else(|p| p.into_inner()); state.dirty }
     }
 
     /// Invalidate shader cache - forces full state application on next apply
@@ -1783,13 +1786,13 @@ impl ShaderClass {
     /// }
     /// ```
     pub fn calculate_diff(&self) -> u32 {
-        SHADER_STATE.with_borrow(|state| {
+        { let state = SHADER_STATE_TLS_BAG.shader_state.lock().unwrap_or_else(|p| p.into_inner()); 
             if state.dirty {
                 0xffffffff // Apply all states when dirty
             } else {
                 state.current_shader ^ self.bits // XOR to find changed bits
             }
-        })
+         }
     }
 
     /// Apply shader state with differential optimization
@@ -1943,7 +1946,7 @@ impl ShaderClass {
 
     #[cfg(test)]
     fn debug_applied_state_snapshot() -> (u32, u32, u32, u32, u32, u32, u32) {
-        SHADER_STATE.with_borrow(|state| {
+        { let state = SHADER_STATE_TLS_BAG.shader_state.lock().unwrap_or_else(|p| p.into_inner()); 
             (
                 state.applied_blend_bits,
                 state.applied_fog_bits,
@@ -1953,7 +1956,7 @@ impl ShaderClass {
                 state.applied_sec_gradient_bits,
                 state.applied_npatch_bits,
             )
-        })
+         }
     }
 }
 

@@ -370,8 +370,12 @@ impl Default for ResourceManager {
 }
 
 /// Global resource manager instance
-static RESOURCE_MANAGER: std::sync::OnceLock<Arc<Mutex<ResourceManager>>> =
-    std::sync::OnceLock::new();
+struct ResourceManagerSlot(std::sync::OnceLock<Arc<Mutex<ResourceManager>>>);
+impl std::ops::Deref for ResourceManagerSlot {
+    type Target = std::sync::OnceLock<Arc<Mutex<ResourceManager>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static RESOURCE_MANAGER: ResourceManagerSlot = ResourceManagerSlot(std::sync::OnceLock::new());
 
 /// Get the global resource manager instance
 pub fn get_resource_manager() -> Arc<Mutex<ResourceManager>> {
