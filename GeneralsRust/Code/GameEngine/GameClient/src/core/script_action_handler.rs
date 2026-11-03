@@ -16,9 +16,7 @@ use gamelogic::helpers::{TheAudio, TheFXList, TheGameLogic, TheScriptEngine, The
 use gamelogic::object_manager::get_object_manager;
 use gamelogic::player::player_list;
 use gamelogic::scripting::engine::ScriptActionHandler;
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 /// A presentation capability belonging to one GameClient. It neither publishes
@@ -349,7 +347,7 @@ pub fn script_show_object_superweapon_display(object_id: ObjectID) {
 
 pub fn reset_script_action_runtime_state() {
     with_script_runtime(|state| {
-        *state = ScriptRuntimeState::default();
+        *state = ScriptActionRuntime::default();
     });
     game_engine::common::global_data::write().writable.wireframe = false;
     with_tactical_view(|view| view.reset_3d_wireframe_mode());
@@ -403,47 +401,26 @@ fn apply_cinematic_input_lock(
 }
 
 fn request_look_at_reset_modes() {
-    LOOK_AT_RESET.store(true, std::sync::atomic::Ordering::Relaxed);
+    with_script_runtime(|state| state.request_look_at_reset_modes());
 }
-
-static LOOK_AT_RESET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Drain a pending LookAtTranslator::resetModes request.
 pub fn take_look_at_reset_modes() -> bool {
-    LOOK_AT_RESET.swap(false, std::sync::atomic::Ordering::Relaxed)
+    with_script_runtime(|state| state.take_look_at_reset_modes())
 }
 
-/// Script-owned runtime handoff state (C++ `ScriptActions` members).
-///
-/// THREAD: single game thread. Script actions play media and queue the wait
-/// entries, the `is_*_complete` script conditions drain them, and the
-/// GameClient init/reset/shutdown paths clear them — all on the same thread
-/// (C++ runs logic and client from one loop), so this is single-owner state
-/// and carries no lock.
-#[derive(Default)]
-struct ScriptRuntimeState {
-    audio_waits: HashMap<String, Vec<u32>>,
-    speech_waits: HashMap<String, Vec<u32>>,
-    music_waits: HashMap<String, Vec<u32>>,
-    ui: ScriptUiState,
-}
+pub use super::script_action_runtime::{ScriptActionRuntime, ScriptUiState};
 
-thread_local! {
-    static SCRIPT_RUNTIME_STATE: RefCell<ScriptRuntimeState> =
-        RefCell::new(ScriptRuntimeState::default());
-}
-
-fn with_script_runtime<R>(f: impl FnOnce(&mut ScriptRuntimeState) -> R) -> R {
-    SCRIPT_RUNTIME_STATE.with(|state| f(&mut state.borrow_mut()))
-}
-
-#[derive(Default)]
-struct ScriptUiState {
-    named_timers: HashMap<String, (String, bool)>,
-    named_timer_display_shown: bool,
-    superweapon_display_enabled: bool,
-    superweapon_hidden_objects: HashSet<ObjectID>,
-    cameo_flash_count: HashMap<String, i32>,
+/// Prefer the live GameClient runtime; fall back to a discarded local for
+/// Core callers that have no receiving client (tests / early boot).
+fn with_script_runtime<R>(f: impl FnOnce(&mut ScriptActionRuntime) -> R) -> R {
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        f.take().expect("script runtime callback")(client.script_runtime_mut())
+    }) {
+        return result;
+    }
+    f.take().expect("script runtime callback")(&mut ScriptActionRuntime::new())
 }
 
 fn normalize_media_name(name: &str) -> String {
@@ -515,26 +492,24 @@ fn is_named_audio_complete(
     completed
 }
 
-static SCRIPT_VISUAL_SPEED_MULTIPLIER: AtomicI32 = AtomicI32::new(1);
-static SCRIPT_FPS_LIMIT: AtomicI32 = AtomicI32::new(0);
 const SUBTITLE_DURATION_MS: i32 = 8_000;
 const AHSV_STOP_THE_MUSIC: u32 = 0xFFFFFFF0;
 const AHSV_STOP_THE_MUSIC_FADE: u32 = 0xFFFFFFF1;
 
 pub fn get_script_visual_speed_multiplier() -> i32 {
-    SCRIPT_VISUAL_SPEED_MULTIPLIER.load(Ordering::Relaxed)
+    with_script_runtime(|state| state.visual_speed_multiplier)
 }
 
 pub fn set_script_visual_speed_multiplier(multiplier: i32) {
-    SCRIPT_VISUAL_SPEED_MULTIPLIER.store(multiplier, Ordering::Relaxed);
+    with_script_runtime(|state| state.visual_speed_multiplier = multiplier);
 }
 
 pub fn get_script_fps_limit() -> i32 {
-    SCRIPT_FPS_LIMIT.load(Ordering::Relaxed)
+    with_script_runtime(|state| state.fps_limit)
 }
 
 pub fn set_script_fps_limit(fps: i32) {
-    SCRIPT_FPS_LIMIT.store(fps, Ordering::Relaxed);
+    with_script_runtime(|state| state.fps_limit = fps);
 }
 
 mod music_audio;

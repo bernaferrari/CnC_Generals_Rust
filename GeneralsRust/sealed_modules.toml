@@ -218,3 +218,13 @@ path = "Code/GameEngine/GameClient/src/fx_owned_light_scene.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Display/W3DDisplay.cpp"
 note = "DisplayLightScene owns pulse admission and dynamic light fade; 0 process globals."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/core/script_action_runtime.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/MessageStream/LookAtXlat.cpp"
+note = "ScriptActionRuntime owns media waits, UI script latches, look-at reset, visual speed/FPS on GameClient; 0 process globals."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/core/script_action_handler.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
+note = "Script action peels use GameClient::script_runtime via live-client loan; removed SCRIPT_RUNTIME TLS and look-at/speed/FPS atomics."
+

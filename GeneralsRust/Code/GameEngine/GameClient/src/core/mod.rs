@@ -28,6 +28,7 @@
 //! patterns where necessary for subsystem communication.
 
 pub mod game_client;
+pub(crate) mod script_action_runtime;
 pub mod script_action_handler;
 pub mod subsystems;
 

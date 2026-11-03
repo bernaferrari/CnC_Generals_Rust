@@ -301,4 +301,14 @@ impl GameClient {
     pub fn fx_mut(&mut self) -> &mut crate::fx_list::FxClientState {
         &mut self.drawables.fx
     }
+
+    pub fn script_runtime(&self) -> &crate::core::script_action_runtime::ScriptActionRuntime {
+        &self.script_runtime
+    }
+
+    pub fn script_runtime_mut(
+        &mut self,
+    ) -> &mut crate::core::script_action_runtime::ScriptActionRuntime {
+        &mut self.script_runtime
+    }
 }
