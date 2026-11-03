@@ -74,37 +74,29 @@ pub struct AcademyTemplateContext {
     pub supply_center_cost: u32,
 }
 
-type AcademyTemplateContextProvider =
+pub type AcademyTemplateContextProvider =
     Arc<dyn Fn(PlayerHandle) -> Option<AcademyTemplateContext> + Send + Sync>;
-
-struct AcademyTemplateContextSlot {
-    provider: std::sync::Mutex<Option<AcademyTemplateContextProvider>>,
-}
-static ACADEMY_TEMPLATE_CONTEXT: std::sync::LazyLock<AcademyTemplateContextSlot> =
-    std::sync::LazyLock::new(|| AcademyTemplateContextSlot {
-        provider: std::sync::Mutex::new(None),
-    });
 
 pub fn set_academy_template_context_provider<F>(provider: F)
 where
     F: Fn(PlayerHandle) -> Option<AcademyTemplateContext> + Send + Sync + 'static,
 {
-    *ACADEMY_TEMPLATE_CONTEXT
-        .provider
+    *crate::common::common_services::common_services()
+        .academy_template_context
         .lock()
         .unwrap_or_else(|p| p.into_inner()) = Some(Arc::new(provider));
 }
 
 pub fn clear_academy_template_context_provider() {
-    *ACADEMY_TEMPLATE_CONTEXT
-        .provider
+    *crate::common::common_services::common_services()
+        .academy_template_context
         .lock()
         .unwrap_or_else(|p| p.into_inner()) = None;
 }
 
 fn query_academy_template_context(player: PlayerHandle) -> Option<AcademyTemplateContext> {
-    let provider = ACADEMY_TEMPLATE_CONTEXT
-        .provider
+    let provider = crate::common::common_services::common_services()
+        .academy_template_context
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .clone()?;
@@ -1408,6 +1400,11 @@ impl AcademyStats {
 
 #[cfg(test)]
 mod tests {
+    fn with_services<R>(f: impl FnOnce() -> R) -> R {
+        let services = std::sync::Arc::new(crate::common::common_services::CommonServices::new());
+        crate::common::common_services::with_common_services(&services, f)
+    }
+
     use super::*;
 
     #[test]
@@ -1422,42 +1419,46 @@ mod tests {
 
     #[test]
     fn test_academy_stats_init() {
-        clear_academy_template_context_provider();
-        let mut stats = AcademyStats::new();
-        let player = PlayerHandle::new(1);
+        with_services(|| {
+            clear_academy_template_context_provider();
+            let mut stats = AcademyStats::new();
+            let player = PlayerHandle::new(1);
 
-        stats.init(player);
+            stats.init(player);
 
-        assert_eq!(stats.get_player(), player);
-        assert!(stats.is_first_update());
-        assert_eq!(stats.supply_centers_built, 0);
-        assert_eq!(stats.supply_center_cost, 1000);
-        assert!(!stats.researched_radar);
-        assert_eq!(stats.peons_built, 0);
+            assert_eq!(stats.get_player(), player);
+            assert!(stats.is_first_update());
+            assert_eq!(stats.supply_centers_built, 0);
+            assert_eq!(stats.supply_center_cost, 1000);
+            assert!(!stats.researched_radar);
+            assert_eq!(stats.peons_built, 0);
+        });
     }
 
     #[test]
     fn test_academy_stats_uses_template_context_provider() {
-        let player = PlayerHandle::new(7);
-        set_academy_template_context_provider(move |handle| {
-            (handle == player).then_some(AcademyTemplateContext {
-                dozer_command_set: CommandSetHandle::new(11),
-                command_center_template: ThingTemplateHandle::new(12),
-                supply_center_template: ThingTemplateHandle::new(13),
-                supply_center_cost: 1500,
-            })
+        with_services(|| {
+            let player = PlayerHandle::new(7);
+            set_academy_template_context_provider(move |handle| {
+                (handle == player).then_some(AcademyTemplateContext {
+                    dozer_command_set: CommandSetHandle::new(11),
+                    command_center_template: ThingTemplateHandle::new(12),
+                    supply_center_template: ThingTemplateHandle::new(13),
+                    supply_center_cost: 1500,
+                })
+            });
+
+            let mut stats = AcademyStats::new();
+            stats.init_for_base_side(player, Some("China"));
+
+            assert_eq!(stats.dozer_command_set, CommandSetHandle::new(11));
+            assert_eq!(stats.command_center_template, ThingTemplateHandle::new(12));
+            assert_eq!(stats.supply_center_template, ThingTemplateHandle::new(13));
+            assert_eq!(stats.supply_center_cost, 1500);
+            assert!(!stats.unknown_side);
+
+            clear_academy_template_context_provider();
         });
-
-        let mut stats = AcademyStats::new();
-        stats.init_for_base_side(player, Some("China"));
-
-        assert_eq!(stats.dozer_command_set, CommandSetHandle::new(11));
-        assert_eq!(stats.command_center_template, ThingTemplateHandle::new(12));
-        assert_eq!(stats.supply_center_template, ThingTemplateHandle::new(13));
-        assert_eq!(stats.supply_center_cost, 1500);
-        assert!(!stats.unknown_side);
-
-        clear_academy_template_context_provider();
     }
 
     #[test]
