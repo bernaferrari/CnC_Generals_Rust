@@ -578,7 +578,8 @@ fn logic_crc_message_carries_local_player_index() {
             let mut state = ReplayPendingState::default();
             clear_command_list();
             {
-                let mut list = gamelogic::player::ThePlayerList()
+                let player_list = gamelogic::player::ThePlayerList();
+                let mut list = player_list
                     .write()
                     .unwrap_or_else(|e| e.into_inner());
                 list.clear();
@@ -606,7 +607,8 @@ fn logic_crc_message_carries_local_player_index() {
                 "MSG_LOGIC_CRC must be attributed to the local player slot"
             );
             {
-                let mut list = gamelogic::player::ThePlayerList()
+                let player_list = gamelogic::player::ThePlayerList();
+                let mut list = player_list
                     .write()
                     .unwrap_or_else(|e| e.into_inner());
                 list.clear();
@@ -948,7 +950,8 @@ fn slow_client_pump_records_each_logic_crc_exactly_once() {
             }
             // Local player in slot 2 so the recorded attribution is non-zero.
             {
-                let mut list = gamelogic::player::ThePlayerList()
+                let player_list = gamelogic::player::ThePlayerList();
+                let mut list = player_list
                     .write()
                     .unwrap_or_else(|e| e.into_inner());
                 list.clear();
@@ -1011,10 +1014,13 @@ fn slow_client_pump_records_each_logic_crc_exactly_once() {
                 &[2, 2, 2],
                 "each recorded MSG_LOGIC_CRC carries the local player slot"
             );
-            gamelogic::player::ThePlayerList()
-                .write()
-                .unwrap_or_else(|e| e.into_inner())
-                .clear();
+            {
+                let player_list = gamelogic::player::ThePlayerList();
+                player_list
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clear();
+            }
         },
     );
 }
