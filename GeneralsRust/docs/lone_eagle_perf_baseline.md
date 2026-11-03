@@ -28,6 +28,31 @@ ShellMap after ObjectsList unify still ~15 s total (bridges+roads share one walk
 
 
 
+
+## After ObjectsList NameKey + settings one-walk (`d9ff2da2b`, 2026-11-03 America/Sao_Paulo)
+
+Quiet-machine **CPU-only** parse (`lone_eagle_parse_bench`, debug) — no GameLogic install:
+
+| Stage | Time | Notes |
+| --- | ---: | --- |
+| load/decompress | ~0.016 s | EAR RefPack → ~2.2 MB |
+| heightmap | ~0.000 s | |
+| blend tiles | ~0.016 s | |
+| ObjectsList bundle | ~0.016 s | wp=192 bridges=4 roads=112 |
+| polygons | ~0.000 s | n=12 |
+| sides parse | ~0.000 s | 14/14 |
+| settings (placements) | ~0.019 s | 984 objects, one walk |
+| **CPU total** | **~0.066 s** | was multi-minute under load avg 34–68 |
+
+Root cause of the reported ~13 s ObjectsList / ~14 s settings was algorithmic + lock traffic, not map size:
+- settings walked ObjectsList **3×** (placements + starts + camera) and rebuilt `HashMap<String,String>` via `NameKeyGenerator::key_to_name` per property
+- sync bundle re-parsed each object twice (waypoint dict + stub)
+- `parse_world_bounds` could re-materialize full HeightMapData
+
+Fixes in `d9ff2da2b`: one NameKey resolve per walk, typed Dict lookups, one settings ObjectsList walk, dimensions-only heightmap for bounds.
+
+**Still open for boot-to-InGame &lt; 10 s:** sync *install* (scripts admit + sides write + terrain `new_map`), full settings with Map.ini CREATE_OVERRIDES when companions exist, asset hydrate after preserve. Next: release `lone_eagle_bench` with `RUST_LOG=info` stage lines + script-list take (no deep clone).
+
 ## Before / after (windowed 1280x720, runtime host)
 
 | Build | ms/tick | ms/frame (present_ms) | Notes |
