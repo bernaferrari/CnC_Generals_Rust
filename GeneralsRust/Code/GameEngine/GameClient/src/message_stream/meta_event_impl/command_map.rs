@@ -163,18 +163,38 @@ pub fn lookup_command_map_name_usable(
     mod_state: u32,
     usable_mask: u32,
 ) -> Option<String> {
+    lookup_command_map_name_usable_transition(key, mod_state, usable_mask, Transition::Down)
+}
+
+/// C++ MetaEvent walks TheMetaMap for KEY_UP as well as KEY_DOWN so END_* metas fire.
+pub fn lookup_command_map_name_usable_transition(
+    key: u32,
+    mod_state: u32,
+    usable_mask: u32,
+    transition: Transition,
+) -> Option<String> {
     ensure_meta_map_loaded();
     with_meta_map_ref(|map| {
         map.iter()
             .find(|record| {
                 record.key == key
                     && record.mod_state == mod_state
-                    && record.transition == Transition::Down
+                    && record.transition == transition
                     && (record.usable_in & usable_mask) != 0
             })
             .map(|record| record.name.clone())
     })
 }
+
+/// KEY_UP remaps (END_CAMERA_*, END_FORCEATTACK, END_FORCEMOVE).
+pub fn lookup_command_map_name_usable_up(
+    key: u32,
+    mod_state: u32,
+    usable_mask: u32,
+) -> Option<String> {
+    lookup_command_map_name_usable_transition(key, mod_state, usable_mask, Transition::Up)
+}
+
 
 pub const COMMAND_MAP_USABLE_SHELL: u32 = COMMANDUSABLE_SHELL;
 pub const COMMAND_MAP_USABLE_GAME: u32 = COMMANDUSABLE_GAME;

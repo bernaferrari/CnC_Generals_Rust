@@ -449,6 +449,21 @@ impl CnCGameEngine {
                             }
                             _ => {}
                         }
+                        // C++ MetaEvent walks KEY_UP so END_* camera/force metas clear.
+                        if !os_repeat
+                            && matches!(
+                                self.current_state,
+                                GameState::InGame | GameState::Paused | GameState::Menu
+                            )
+                        {
+                            let shell = matches!(self.current_state, GameState::Menu);
+                            let _ = self.try_dispatch_command_map_remap(
+                                key,
+                                Some(physical_key),
+                                shell,
+                                false,
+                            )?;
+                        }
                         // C++ HotKeyTranslator: RAW_KEY_UP, no Ctrl/Shift/Alt.
                         let mods_down = self.keys_pressed.contains(&Key::Named(NamedKey::Control))
                             || self.keys_pressed.contains(&Key::Named(NamedKey::Shift))

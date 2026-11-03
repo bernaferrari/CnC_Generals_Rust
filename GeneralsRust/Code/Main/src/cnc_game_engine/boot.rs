@@ -1124,6 +1124,8 @@ impl CnCGameEngine {
             camera_rotate_right_held: false,
             camera_zoom_in_held: false,
             camera_zoom_out_held: false,
+            meta_force_attack_held: false,
+            meta_force_move_held: false,
             camera_tracking_selection: false,
             replay_fast_forward,
             diplomacy_panel: crate::ui::DiplomacyPanel::new(),

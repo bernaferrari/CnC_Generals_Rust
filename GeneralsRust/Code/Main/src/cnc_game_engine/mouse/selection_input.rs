@@ -1021,12 +1021,13 @@ impl CnCGameEngine {
         // attack / gather / repair / enter / get-repaired / get-healed / move / attack-move.
         let target_object =
             self.peel_locally_controlled_mine_target(self.find_object_at_cursor(true));
-        let ctrl = self.keys_pressed.iter().any(|k| {
-            matches!(
-                k,
-                winit::keyboard::Key::Named(winit::keyboard::NamedKey::Control)
-            )
-        });
+        let ctrl = self.meta_force_attack_held
+            || self.keys_pressed.iter().any(|k| {
+                matches!(
+                    k,
+                    winit::keyboard::Key::Named(winit::keyboard::NamedKey::Control)
+                )
+            });
         let shift = self.keys_pressed.iter().any(|k| {
             matches!(
                 k,
@@ -1070,6 +1071,10 @@ impl CnCGameEngine {
         };
 
         let mut cmd_sys = crate::command_system::CommandSystem::new();
+        // C++ MetaBeginForceMove latches force-move until MetaEndForceMove.
+        if self.meta_force_move_held && !alt && !ctrl {
+            cmd_sys.set_mode(crate::command_system::CommandMode::ForceMove);
+        }
         // Wave 236: presentation-only mouse path when frame installed.
         let command = cmd_sys.process_mouse_input(
             &context,

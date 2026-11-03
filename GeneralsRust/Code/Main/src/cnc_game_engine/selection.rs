@@ -379,9 +379,10 @@ impl CnCGameEngine {
         let frame = self.last_presentation_frame.as_ref()?;
         let player_team = Some(frame.local_team());
         let prioritize_enemy_targets = command_context && has_selected_units;
-        let force_attack_mode = self.keys_pressed.contains(&winit::keyboard::Key::Named(
-            winit::keyboard::NamedKey::Control,
-        ));
+        let force_attack_mode = self.meta_force_attack_held
+            || self.keys_pressed.contains(&winit::keyboard::Key::Named(
+                winit::keyboard::NamedKey::Control,
+            ));
         let profile = host_context_pick_profile(
             force_attack_mode,
             self.host_armed_gui_command_options(),
@@ -447,9 +448,10 @@ impl CnCGameEngine {
         let player_team = Some(frame.local_team());
         let prioritize_enemy_targets = command_context && has_selected_units;
 
-        let force_attack_mode = self.keys_pressed.contains(&winit::keyboard::Key::Named(
-            winit::keyboard::NamedKey::Control,
-        ));
+        let force_attack_mode = self.meta_force_attack_held
+            || self.keys_pressed.contains(&winit::keyboard::Key::Named(
+                winit::keyboard::NamedKey::Control,
+            ));
         let mut profile = host_context_pick_profile(
             force_attack_mode,
             self.host_armed_gui_command_options(),

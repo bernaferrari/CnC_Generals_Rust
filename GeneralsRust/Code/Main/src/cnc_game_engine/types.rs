@@ -1295,6 +1295,10 @@ pub struct CnCGameEngine {
     pub(crate) camera_rotate_right_held: bool,
     pub(crate) camera_zoom_in_held: bool,
     pub(crate) camera_zoom_out_held: bool,
+    /// CommandMap BEGIN/END_FORCEATTACK remap (C++ MetaEvent, not only Ctrl).
+    pub(crate) meta_force_attack_held: bool,
+    /// CommandMap BEGIN/END_FORCEMOVE remap.
+    pub(crate) meta_force_move_held: bool,
     /// Retail TOGGLE_CAMERA_TRACKING_DRAWABLE residual.
     pub(crate) camera_tracking_selection: bool,
     /// Retail TOGGLE_FAST_FORWARD_REPLAY residual (TiVO fast mode).
