@@ -331,7 +331,7 @@ mod tests {
             });
             ranger.set_ai_state(
                 AIState::Capturing,
-                &mut crate::game_logic::ObjectAudio::record(audio),
+                &mut crate::game_logic::ObjectAudio::queue(audio),
             );
             ranger.set_status_using_ability(true);
             ranger.target = Some(barracks_id);
@@ -343,7 +343,7 @@ mod tests {
             burton.charge_plant_unpack_remaining_seconds = Some(2.2);
             burton.set_ai_state(
                 AIState::SpecialAbility,
-                &mut crate::game_logic::ObjectAudio::record(audio),
+                &mut crate::game_logic::ObjectAudio::queue(audio),
             );
             burton.set_status_using_ability(true);
             burton.target = Some(barracks_id);
@@ -445,7 +445,7 @@ mod tests {
                 .expect("tank");
             tank.apply_hijacked_from_with_partition_owner(
                 None,
-                &mut crate::game_logic::ObjectAudio::record(audio),
+                &mut crate::game_logic::ObjectAudio::queue(audio),
                 partition,
             );
         }
@@ -455,7 +455,7 @@ mod tests {
                 .expect("hijacker");
             hijacker.begin_hijacker_in_vehicle_with_partition_owner(
                 vid,
-                &mut crate::game_logic::ObjectAudio::record(audio),
+                &mut crate::game_logic::ObjectAudio::queue(audio),
                 partition,
             );
         }
