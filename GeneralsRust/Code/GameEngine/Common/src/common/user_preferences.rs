@@ -19,7 +19,7 @@ pub enum PreferenceValue {
 #[derive(Debug, Default, Clone)]
 pub struct UserPreferences {
     preferences: BTreeMap<String, String>,
-    filename: Option<PathBuf>,
+    pub(crate) filename: Option<PathBuf>,
 }
 
 /// Exact replay-camera OptionPreferences decoder; independent of broad bool settings.
@@ -213,6 +213,10 @@ impl UserPreferences {
         self.preferences.iter()
     }
 
+    pub fn remove(&mut self, key: &str) -> Option<String> {
+        self.preferences.remove(key)
+    }
+
     pub fn clear(&mut self) {
         self.preferences.clear();
     }
@@ -272,6 +276,25 @@ mod tests {
         assert!(scroll_anchor_pref_enabled(None, true));
         assert!(scroll_anchor_pref_enabled(Some(""), true));
         assert!(!scroll_anchor_pref_enabled(Some(""), false));
+    }
+
+    #[test]
+    fn write_emits_keys_in_asciistring_map_order() {
+        // hq-x1j4u.1.51 — C++ PreferenceMap is std::map; write walks sorted keys.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("prefs_order.ini");
+        let mut prefs = UserPreferences::new();
+        prefs.set_string("zeta", "z".into());
+        prefs.set_string("alpha", "a".into());
+        prefs.set_string("Middle", "m".into());
+        prefs.filename = Some(path.clone());
+        assert!(prefs.write());
+        let body = std::fs::read_to_string(&path).unwrap();
+        let keys: Vec<&str> = body
+            .lines()
+            .filter_map(|line| line.split_once('=').map(|(k, _)| k.trim()))
+            .collect();
+        assert_eq!(keys, vec!["Middle", "alpha", "zeta"]);
     }
 }
 
