@@ -285,7 +285,7 @@ fn exclusive_dozer_does_not_stack_build_rate() {
     let d2 = logic
         .create_object("TestDozer", Team::USA, glam::Vec3::new(3.0, 0.0, 0.0))
         .expect("dozer2");
-    assert_eq!(logic.resume_construction(&[d1], sid), Ok(true));
+    assert_eq!(logic.resume_construction(&[d1], sid).expect("result"), true);
     if let Some((d, attack_events)) = logic.host_object_and_attack_events_mut(d2) {
         d.set_target(
             Some(sid),
@@ -354,7 +354,7 @@ fn under_construction_starts_at_one_hp_and_gains_linearly() {
     let did = logic
         .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
         .expect("dozer");
-    assert_eq!(logic.resume_construction(&[did], sid), Ok(true));
+    assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
     logic.update_construction(&[sid], 1.0);
     let after = logic
         .host_object(sid)
@@ -874,7 +874,7 @@ fn dozer_dock_plays_under_construction_loop_and_stops_on_complete() {
             let did = logic
                 .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
                 .expect("dozer");
-            assert_eq!(logic.resume_construction(&[did], sid), Ok(true));
+            assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
             logic.queued_audio_events.clear();
             logic.update_construction(&[sid], 1.0);
             assert!(
@@ -932,7 +932,7 @@ fn construction_audio_fixture(logic: &mut GameLogic, pos: glam::Vec3) -> ObjectI
     let dozer = logic
         .create_object("TestDozer", Team::USA, pos + glam::Vec3::new(2.0, 0.0, 0.0))
         .expect("builder");
-    assert_eq!(logic.resume_construction(&[dozer], site), Ok(true));
+    assert_eq!(logic.resume_construction(&[dozer], site).expect("result"), true);
     logic.queued_audio_events.clear();
     site
 }

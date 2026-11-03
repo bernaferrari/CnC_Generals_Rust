@@ -153,7 +153,7 @@ fn dispatch(
         &mut crate::game_logic::ScriptPresentationEffects {
             audio: Some(&mut audio),
             ..Default::default()
-        }
+}
     ));
 }
 
@@ -567,7 +567,7 @@ fn authored_nested_bone_fx_borrows_same_session_impulse_and_world_visibility() {
         &mut crate::game_logic::ScriptPresentationEffects {
             view: Some(&mut view),
             ..Default::default()
-        }
+}
     ));
     assert_eq!(view.visits, vec![0, 1]);
     assert!(logic.session_view.impulse.intensity > 0.0);

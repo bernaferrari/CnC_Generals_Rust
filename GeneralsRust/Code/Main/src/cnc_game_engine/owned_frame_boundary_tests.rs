@@ -320,9 +320,9 @@ fn ordinary_boundary_keeps_actual_construction_completion_pending_for_presentati
         AIState::Constructing,
         &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
-    builder.dozer_task_build_target = Some(id);
+    builder.set_dozer_task_build_target(Some(id));
     builder.status.moving = false;
-    builder.dozer_dock_action = Some(builder.get_position());
+    builder.set_dozer_dock_action(Some(builder.get_position()));
     shadow.sync_from_host(&logic);
     // Sleepy UpdateModules cannot wake before frame 1. Frame 0 preserves the
     // scaffold; the next actual frame performs completion and its observation.

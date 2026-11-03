@@ -208,14 +208,14 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             assert!(world.start_sell_object_with_effects(
                 rack,
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             ));
             let object = &world.objects[&jet];
             assert_eq!(
@@ -270,7 +270,7 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             crate::gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), &mut world);
@@ -293,14 +293,14 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             world
                 .process_destroy_list_with_effects_checked(
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             assert!(world.objects.registered_is_empty());
@@ -331,7 +331,7 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             ));
             assert_eq!(peer.objects[&peer_jet].health.current, 0.);
             assert_eq!(

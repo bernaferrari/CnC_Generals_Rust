@@ -172,7 +172,7 @@ fn same_id_constructor_admission_preserves_peer_cash_and_task() {
     assert_eq!(peer.get_player(0).unwrap().effective_supplies(), 1000);
     assert_eq!(peer.host_objects().registered_len(), peer_count);
     assert_eq!(
-        peer.host_object(peer_id).unwrap().dozer_task_build_target,
+        peer.host_object(peer_id).unwrap().dozer_task_build_target(),
         None
     );
     assert_eq!(construct(&mut peer, peer_id), Ok(CommandResult::Success));

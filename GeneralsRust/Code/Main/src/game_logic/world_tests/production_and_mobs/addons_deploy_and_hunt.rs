@@ -694,7 +694,7 @@ fn construction_complete_end_dock_uses_stored_action() {
     logic.dozer_new_task_build(dozer, pad_id);
     let action = logic
         .host_object(dozer)
-        .and_then(|d| d.dozer_dock_action)
+        .and_then(|d| d.dozer_dock_action())
         .expect("ACTION");
     let off_line = Vec3::new(0.0, 0.0, 80.0);
     {

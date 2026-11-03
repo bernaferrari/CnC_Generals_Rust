@@ -1873,7 +1873,7 @@ fn dozer_line_ordinary_scaffolds_use_one_constructor_in_selection_order() {
     assert_eq!(dozer_b_state.ai_state(), AIState::Idle);
     assert!(dozer_a_state.movement.target_position.is_some());
     assert!(dozer_b_state.movement.target_position.is_none());
-    assert!(dozer_b_state.dozer_task_build_target.is_none());
+    assert!(dozer_b_state.dozer_task_build_target().is_none());
     let mut tiles = game_logic
         .host_objects()
         .registered_values()
@@ -1883,7 +1883,7 @@ fn dozer_line_ordinary_scaffolds_use_one_constructor_in_selection_order() {
     assert_eq!(tiles.len(), 2);
     assert_eq!(tiles[0].get_position(), start);
     assert_eq!(tiles[1].get_position(), end);
-    assert_eq!(dozer_a_state.dozer_task_build_target, Some(tiles[1].id));
+    assert_eq!(dozer_a_state.dozer_task_build_target(), Some(tiles[1].id));
     for tile in tiles {
         assert!(tile.status.under_construction);
         assert_eq!(tile.health.current, 1.0);

@@ -91,7 +91,7 @@ fn with_audio<R>(
         &mut crate::game_logic::ScriptPresentationEffects {
             audio: Some(&mut audio),
             ..Default::default()
-        },
+},
     )
 }
 fn world(id: ObjectId, target: Vec3, catalog: &game_client::fx_list::FXListStore) -> GameLogic {

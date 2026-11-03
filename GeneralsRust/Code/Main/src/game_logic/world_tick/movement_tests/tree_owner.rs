@@ -130,7 +130,7 @@ fn actual_movement_tick_delivers_tree_callbacks_only_to_its_receiving_world_at_o
         &mut crate::game_logic::ScriptPresentationEffects {
             terrain: Some(&mut recorded),
             ..Default::default()
-        },
+},
     );
     assert_eq!(
         recorded.moves, 1,
@@ -184,7 +184,7 @@ fn actual_movement_tick_delivers_tree_callbacks_only_to_its_receiving_world_at_o
         &mut crate::game_logic::ScriptPresentationEffects {
             terrain: Some(&mut fractional_recorded),
             ..Default::default()
-        },
+},
     );
     let x = fractional.objects[&id].get_position().x;
     assert!(

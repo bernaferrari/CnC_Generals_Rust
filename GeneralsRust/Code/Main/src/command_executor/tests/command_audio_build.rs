@@ -286,7 +286,7 @@ fn execute_build_clears_removable_and_map_trees() {
             crate::game_logic::ScriptPresentationEffects {
                 terrain: Some(&mut visual),
                 ..Default::default()
-            },
+},
         );
         exec.execute_build(&[ObjectId(9101)], "TestClearFootprintBarracks", site, 0.0)
     };

@@ -2142,14 +2142,14 @@ fn unique_building_max_simultaneous_from_ini_blocks_second() {
 
     let first =
         logic.create_object_under_construction("TestUniqueWarFactory", Team::USA, glam::Vec3::ZERO);
-    assert!(first.is_some(), "first unique building must place");
+    assert!(first.is_ok(), "first unique building must place");
     let second = logic.create_object_under_construction(
         "TestUniqueWarFactory",
         Team::USA,
         glam::Vec3::new(80.0, 0.0, 0.0),
     );
     assert!(
-        second.is_none(),
+        second.is_err(),
         "hq-ss0x8: INI MaxSimultaneousOfType=1 must block a second copy"
     );
 }
@@ -2184,7 +2184,7 @@ fn max_simultaneous_link_key_counts_rebuild_hole() {
         glam::Vec3::new(80.0, 0.0, 0.0),
     );
     assert!(
-        blocked.is_none(),
+        blocked.is_err(),
         "hq-ss0x8: rebuild hole must consume MaxSimultaneousLinkKey"
     );
 }

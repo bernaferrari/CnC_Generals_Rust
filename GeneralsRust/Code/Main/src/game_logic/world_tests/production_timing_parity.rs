@@ -48,7 +48,7 @@ fn unmapped_dozer_hp_gain_uses_energy_adjusted_build_time_frames() {
             let did = logic
                 .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
                 .expect("dozer");
-            assert_eq!(logic.resume_construction(&[did], sid), Ok(true));
+            assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
 
             let before = logic.host_object(sid).expect("site before").clone();
             let power = logic.compute_player_power_factors();
@@ -124,7 +124,7 @@ fn dozer_tick_truncates_handicap_before_player_template_modifier() {
     let did = logic
         .create_object("TestDozer", Team::USA, glam::Vec3::new(2.0, 0.0, 0.0))
         .expect("dozer");
-    assert_eq!(logic.resume_construction(&[did], sid), Ok(true));
+    assert_eq!(logic.resume_construction(&[did], sid).expect("result"), true);
 
     // C++ assigns to Int after each modifier: 9 * 0.95 = 8, then
     // 8 * 0.95 = 7. One actual Main construction frame is therefore 1/7.

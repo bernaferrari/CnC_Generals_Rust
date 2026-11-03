@@ -784,7 +784,7 @@ fn sleep_mood_ai_rejects_hunt_guard_attack_move() {
         u.set_ai_attitude(HostAiAttitude::Sleep);
     }
     assert!(!logic.unit_command_patrol(id));
-    assert_eq!(logic.unit_command_attack_move_to(id, Vec3::new(10.0, 0.0, 0.0)), Ok(false));
+    assert_eq!(logic.unit_command_attack_move_to(id, Vec3::new(10.0, 0.0, 0.0)).expect("result"), false);
     assert!(!logic.unit_command_guard_full(
         id,
         Some(Vec3::ZERO),

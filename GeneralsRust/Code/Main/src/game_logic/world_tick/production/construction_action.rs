@@ -161,7 +161,8 @@ impl GameLogic {
                 .as_mut()
                 .map(|ui| &mut **ui as &mut dyn crate::game_logic::ScriptUiEffects),
             view: None,
-        };
+                    pristine_bones: None,
+};
         self.fixture_build_action_frames_with_effects(sites, dt, &mut effects)
     }
 }

@@ -107,7 +107,7 @@ fn source_float_update_uses_receiving_instance_and_no_same_id_peer() {
         .update_float_update_with_effects(&mut crate::game_logic::ScriptPresentationEffects {
             view: Some(&mut recipient),
             ..Default::default()
-        })
+})
         .unwrap();
     let data = world
         .objects
@@ -138,7 +138,7 @@ fn source_float_missing_receiving_birth_is_reported() {
             .update_float_update_with_effects(&mut crate::game_logic::ScriptPresentationEffects {
                 view: Some(&mut recipient),
                 ..Default::default()
-            })
+})
             .is_err()
     );
     assert!(recipient.calls.is_empty());

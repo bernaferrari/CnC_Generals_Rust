@@ -100,7 +100,7 @@ fn saved_stun_landing_position_delivers_tree_fx_before_resuming_ground_tail() {
                     terrain: Some(&mut terrain),
                     audio: Some(&mut audio),
                     ..Default::default()
-                }
+}
             )
             .unwrap()
             .is_some()

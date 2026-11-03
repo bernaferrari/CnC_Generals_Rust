@@ -183,7 +183,7 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(runtime),
                         ..Default::default()
-                    },
+},
                 );
             },
         );
@@ -214,7 +214,7 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut probe),
                     ..Default::default()
-                },
+},
             );
             assert_eq!(probe.calls, 1);
             assert_eq!(result.is_err(), fail);
@@ -246,7 +246,7 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
                             &mut crate::game_logic::ScriptPresentationEffects {
                                 view: Some(&mut probe),
                                 ..Default::default()
-                            }
+}
                         )
                         .is_err()
                 );
@@ -301,7 +301,7 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
                                 &mut crate::game_logic::ScriptPresentationEffects {
                                     view: Some(&mut *runtime),
                                     ..Default::default()
-                                }
+}
                             )
                             .is_err(),
                         "terminal session cannot admit another factory operation"
@@ -329,13 +329,13 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 );
                 peer.process_destroy_list_with_effects_checked(
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             },
@@ -363,14 +363,14 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 );
                 fresh
                     .process_destroy_list_with_effects_checked(
                         &mut crate::game_logic::ScriptPresentationEffects {
                             view: Some(&mut *runtime),
                             ..Default::default()
-                        },
+},
                     )
                     .unwrap();
             },
@@ -542,7 +542,7 @@ fn actual_team_creation_panic_retains_exact_team_partial_native_life_and_peer() 
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut service),
                         ..Default::default()
-                    },
+},
                 )
             }));
             assert!(result.is_err());

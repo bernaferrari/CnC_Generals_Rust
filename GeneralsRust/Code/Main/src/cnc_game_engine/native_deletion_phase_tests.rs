@@ -112,7 +112,7 @@ fn deletion_phase_scene(recrew: bool) {
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             assert!(world.objects[&unrelated].status.destroyed);
             if recrew {
@@ -123,8 +123,8 @@ fn deletion_phase_scene(recrew: bool) {
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    }
-                ), Ok(true));
+}
+                ).expect("result"), true);
                 assert_eq!(world.unmanned_reclaim_count_for_test(), 1);
                 assert!(!world.objects[&vehicle].status.disabled_unmanned);
                 assert!(world.objects[&vehicle].is_private_captured());
@@ -135,7 +135,7 @@ fn deletion_phase_scene(recrew: bool) {
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 );
                 assert_eq!(world.unmanned_reclaim_count_for_test(), 0);
             }
@@ -186,7 +186,7 @@ fn deletion_phase_scene(recrew: bool) {
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             crate::gameworld_shadow::run_owned_host_boundary(Some(&mut shadow), &mut world);
@@ -207,14 +207,14 @@ fn deletion_phase_scene(recrew: bool) {
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             world
                 .process_destroy_list_with_effects_checked(
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut *runtime),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             assert!(world.objects.registered_is_empty());
@@ -418,14 +418,14 @@ fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_c
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut probe),
                     ..Default::default()
-                },
+},
             );
             world.initialize_owned_skirmish_ai_from_definitions_for_test(
                 1,
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut probe),
                     ..Default::default()
-                },
+},
             );
             for name in [
                 "AmericaCommandCenter",
@@ -463,7 +463,7 @@ fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_c
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut probe),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
             for id in [old_cc, unrelated] {
@@ -478,7 +478,7 @@ fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_c
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut probe),
                         ..Default::default()
-                    },
+},
                 );
             }
             world
@@ -486,7 +486,7 @@ fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_c
                     &mut crate::game_logic::ScriptPresentationEffects {
                         view: Some(&mut probe),
                         ..Default::default()
-                    },
+},
                 )
                 .unwrap();
         },
@@ -508,13 +508,13 @@ fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_c
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             );
             peer.process_destroy_list_with_effects_checked(
                 &mut crate::game_logic::ScriptPresentationEffects {
                     view: Some(&mut *runtime),
                     ..Default::default()
-                },
+},
             )
             .unwrap();
         },

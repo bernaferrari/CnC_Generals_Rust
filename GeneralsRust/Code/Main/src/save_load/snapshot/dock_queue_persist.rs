@@ -291,10 +291,10 @@ mod tests {
         // approach point, so the real queue records reached + clearance time.
         source.set_current_frame(41);
         other.set_current_frame(17);
-        assert_eq!(source.try_claim_dock(dock, active), Ok(true));
-        assert_eq!(other.try_claim_dock(other_dock, other_active), Ok(true));
-        assert_eq!(source.try_claim_dock(dock, waiting), Ok(false));
-        assert_eq!(other.try_claim_dock(other_dock, other_waiting), Ok(false));
+        assert_eq!(source.try_claim_dock(dock, active).expect("result"), true);
+        assert_eq!(other.try_claim_dock(other_dock, other_active).expect("result"), true);
+        assert_eq!(source.try_claim_dock(dock, waiting).expect("result"), false);
+        assert_eq!(other.try_claim_dock(other_dock, other_waiting).expect("result"), false);
 
         let queue_for = |world: &GameLogic| {
             world
@@ -370,7 +370,7 @@ mod tests {
         // the current active docker still blocks the waiter, and its timeout
         // age continues from the captured frame instead of restarting.
         restored.set_current_frame(42);
-        assert_eq!(restored.try_claim_dock(dock, waiting), Ok(false));
+        assert_eq!(restored.try_claim_dock(dock, waiting).expect("result"), false);
         let continued_queue = queue_for(&restored);
         assert_eq!(continued_queue.wait_started.get(&waiting), Some(&41));
         assert!(continued_queue.reached[restored_slot]);

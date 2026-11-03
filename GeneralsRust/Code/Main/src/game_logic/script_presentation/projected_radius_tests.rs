@@ -95,7 +95,7 @@ fn actual_world_radius_creation_clone_drop_and_clear_are_receiving_client_local(
         let mut effects = ScriptPresentationEffects {
             view: Some(&mut view),
             ..Default::default()
-        };
+};
         effects.validate_projected_radius_recipient(true).unwrap();
         assert!(source.create_delivery_radius_decal_with_effects(id, source_pos, 0., &mut effects));
     }
@@ -104,7 +104,7 @@ fn actual_world_radius_creation_clone_drop_and_clear_are_receiving_client_local(
         let mut effects = ScriptPresentationEffects {
             view: Some(&mut view),
             ..Default::default()
-        };
+};
         effects.validate_projected_radius_recipient(true).unwrap();
         assert!(peer.create_delivery_radius_decal_with_effects(
             peer_id,
@@ -198,7 +198,7 @@ fn encoded_world_radius_reconstruction_allocates_only_in_receiving_client() {
         let mut effects = ScriptPresentationEffects {
             view: Some(&mut view),
             ..Default::default()
-        };
+};
         assert!(source.create_delivery_radius_decal_with_effects(id, source_pos, 0., &mut effects));
     }
     let builder = crate::save_load::SnapshotBuilder::new();
@@ -240,7 +240,7 @@ fn encoded_world_radius_reconstruction_allocates_only_in_receiving_client() {
         let mut effects = ScriptPresentationEffects {
             view: Some(&mut view),
             ..Default::default()
-        };
+};
         assert!(restored.create_delivery_radius_decal_with_effects(
             id,
             restored_pos,

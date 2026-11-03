@@ -2456,7 +2456,7 @@ mod tests {
         assert!(!reg.has_body_particles(owner));
 
         let attached = reg
-            .attach_named_to_object(owner, pos, 7, "WreckSmoke")
+            .attach_named_to_object(owner, pos, 7, "WreckSmoke", &mut ())
             .expect("ocl particle");
         assert_eq!(
             reg.get(attached).expect("entry").template_name,

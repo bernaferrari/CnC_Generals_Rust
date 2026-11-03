@@ -541,7 +541,7 @@ fn airfield_pose_callbacks_deliver_tree_fx_to_the_receiving_owner_before_parking
             terrain: Some(&mut terrain),
             audio: Some(&mut audio),
             ..Default::default()
-        };
+};
         let completed = match entry {
             0 => world.dock_jet_at_airfield_pad_with_effects(jet, rack, position, &mut effects),
             1 => world.place_produced_jet_at_parking_pose_with_effects(rack, jet, &mut effects),

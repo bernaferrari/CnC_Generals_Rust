@@ -39,7 +39,7 @@ impl<'a> HostScriptExecutionDriver<'a> {
             ui: crate::game_logic::ScriptPresentationEffects {
                 script_events: Some(crate::game_logic::ScriptEventRecipient::new(interpreter)),
                 ..Default::default()
-            },
+},
             #[cfg(test)]
             after_action_observer: None,
         }

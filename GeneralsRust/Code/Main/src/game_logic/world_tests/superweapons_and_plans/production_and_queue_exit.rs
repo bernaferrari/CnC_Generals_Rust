@@ -329,7 +329,7 @@ fn host_construction_completes_without_coupled_shadow() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         dozer.status.moving = false;
-        dozer.dozer_dock_action = Some(dozer.get_position());
+        dozer.set_dozer_dock_action(Some(dozer.get_position()));
     }
     assert!(
         game_logic
@@ -407,7 +407,7 @@ fn host_construction_completes_when_sole_tick_unmapped() {
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
             dozer.status.moving = false;
-            dozer.dozer_dock_action = Some(dozer.get_position());
+            dozer.set_dozer_dock_action(Some(dozer.get_position()));
         }
 
         for _ in 0..80 {
