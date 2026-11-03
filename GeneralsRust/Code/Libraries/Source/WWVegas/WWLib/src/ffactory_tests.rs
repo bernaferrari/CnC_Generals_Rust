@@ -3,8 +3,10 @@ use super::*;
 #[test]
 fn default_accessors_refer_to_the_same_cpp_factory() {
     // ffactory.cpp:15-17 publishes both interfaces of _DefaultFileFactory.
-    let simple: Arc<dyn FileFactoryClass> = the_simple_file_factory();
-    assert!(Arc::ptr_eq(&the_file_factory(), &simple));
+    let runtime = crate::process_state::WwLibRuntime::new();
+    let simple = the_simple_file_factory(&runtime);
+    let as_dyn: Arc<dyn FileFactoryClass> = Arc::clone(&simple) as Arc<dyn FileFactoryClass>;
+    assert!(Arc::ptr_eq(&the_file_factory(&runtime), &as_dyn));
 }
 
 #[test]

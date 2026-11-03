@@ -3,7 +3,7 @@
 use crate::bufffile::BufferedFile;
 use crate::rawfile::{FileRights, RawFile};
 use std::path::Path;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 pub trait FileFactoryClass: Send + Sync {
     fn get_file(&self, filename: &str) -> FactoryFile;
@@ -274,24 +274,18 @@ fn is_full_path(path: &str) -> bool {
     Path::new(path).is_absolute()
 }
 
-static DEFAULT_WRITING_FACTORY: OnceLock<Arc<RawFileFactory>> = OnceLock::new();
-static DEFAULT_SIMPLE_FACTORY: OnceLock<Arc<SimpleFileFactory>> = OnceLock::new();
-
-pub fn the_file_factory() -> Arc<dyn FileFactoryClass> {
+/// Session file factories live on [`crate::process_state::WwLibRuntime`].
+pub fn the_file_factory(runtime: &crate::process_state::WwLibRuntime) -> Arc<dyn FileFactoryClass> {
     // Both C++ accessors point at _DefaultFileFactory (ffactory.cpp:15-17).
-    the_simple_file_factory()
+    Arc::clone(&runtime.simple_file_factory) as Arc<dyn FileFactoryClass>
 }
 
-pub fn the_writing_file_factory() -> Arc<dyn FileFactoryClass> {
-    DEFAULT_WRITING_FACTORY
-        .get_or_init(|| Arc::new(RawFileFactory))
-        .clone()
+pub fn the_writing_file_factory(runtime: &crate::process_state::WwLibRuntime) -> Arc<dyn FileFactoryClass> {
+    Arc::clone(&runtime.writing_file_factory) as Arc<dyn FileFactoryClass>
 }
 
-pub fn the_simple_file_factory() -> Arc<SimpleFileFactory> {
-    DEFAULT_SIMPLE_FACTORY
-        .get_or_init(|| Arc::new(SimpleFileFactory::new()))
-        .clone()
+pub fn the_simple_file_factory(runtime: &crate::process_state::WwLibRuntime) -> Arc<SimpleFileFactory> {
+    Arc::clone(&runtime.simple_file_factory)
 }
 
 #[cfg(test)]

@@ -42,7 +42,7 @@ pub struct MixFileFactory {
 
 impl MixFileFactory {
     pub fn new(mix_filename: &str) -> Self {
-        Self::new_with_factory(mix_filename, the_file_factory())
+        Self::new_with_factory(mix_filename, Arc::new(crate::ffactory::SimpleFileFactory::new()) as Arc<dyn FileFactoryClass>)
     }
 
     pub fn new_with_factory(mix_filename: &str, factory: Arc<dyn FileFactoryClass>) -> Self {

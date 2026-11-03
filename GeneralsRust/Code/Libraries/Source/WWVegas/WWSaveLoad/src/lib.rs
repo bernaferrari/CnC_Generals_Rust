@@ -56,7 +56,7 @@ pub use pointerremap::{
 pub use saveload::{
     ChunkId, ChunkLoad, ChunkLoadExt, ChunkSave, ChunkSaveExt, Persist, PersistFactory,
     PostLoadable, RefCount, RemapId, SaveLoadError as CoreSaveLoadError,
-    SaveLoadResult as CoreSaveLoadResult, SaveLoadSubsystem, SaveLoadSystem, get_save_load_system,
+    SaveLoadResult as CoreSaveLoadResult, SaveLoadSubsystem, SaveLoadSystem, new_save_load_system, SharedSaveLoadSystem,
 };
 
 // Re-export the persist system types

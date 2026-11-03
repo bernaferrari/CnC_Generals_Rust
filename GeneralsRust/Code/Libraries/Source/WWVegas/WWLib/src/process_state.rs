@@ -3,6 +3,7 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
+use crate::ffactory::{RawFileFactory, SimpleFileFactory};
 use crate::wwfile::WWFile;
 use crate::xmouse::Mouse;
 
@@ -26,6 +27,8 @@ pub struct WwLibRuntime {
     pub mouse: Mutex<Option<Arc<dyn Mouse>>>,
     pub iff_files: Mutex<Vec<Option<WWFile>>>,
     pub iff_buffer: Mutex<Option<Vec<u8>>>,
+    pub simple_file_factory: Arc<SimpleFileFactory>,
+    pub writing_file_factory: Arc<RawFileFactory>,
 }
 
 impl Default for WwLibRuntime {
@@ -42,6 +45,8 @@ impl WwLibRuntime {
             mouse: Mutex::new(None),
             iff_files: Mutex::new(Vec::new()),
             iff_buffer: Mutex::new(None),
+            simple_file_factory: Arc::new(SimpleFileFactory::new()),
+            writing_file_factory: Arc::new(RawFileFactory),
         }
     }
 }
