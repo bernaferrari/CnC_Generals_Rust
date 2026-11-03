@@ -4,7 +4,7 @@
 //! `TheTerrainTracksRenderObjClassSystem` directly. Those live in this crate,
 //! so the logic-side draw modules call through these registered adapters.
 
-use crate::radius_decal::{ShadowHandle, ShadowTypeInfo, get_projected_shadow_manager};
+use crate::radius_decal::{ShadowHandle, ShadowTypeInfo, with_projected_shadow_manager_mut};
 use crate::render_bridge::THE_RENDER_BRIDGE;
 use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
 use gamelogic::common::{Coord3D, Matrix3D, ObjectID, Real};
@@ -118,11 +118,11 @@ impl TerrainDecalClient for ProjectedDecalClient {
             offset_x: desc.offset_x,
             offset_y: desc.offset_y,
         };
-        let mut manager = get_projected_shadow_manager().write();
-        let Some(handle) = manager.add_decal(&info) else {
+        let Some(handle) = with_projected_shadow_manager_mut(|manager| manager.add_decal(&info))
+            .flatten()
+        else {
             return;
         };
-        drop(manager);
 
         handle.set_position(desc.position.x, desc.position.y, desc.position.z);
         handle.set_angle(desc.angle);
@@ -237,11 +237,11 @@ impl TerrainDecalClient for ProjectedDecalClient {
             offset_x: desc.offset_x,
             offset_y: desc.offset_y,
         };
-        let mut manager = get_projected_shadow_manager().write();
-        let Some(handle) = manager.add_shadow(&info) else {
+        let Some(handle) = with_projected_shadow_manager_mut(|manager| manager.add_shadow(&info))
+            .flatten()
+        else {
             return;
         };
-        drop(manager);
         handle.set_position(desc.position.x, desc.position.y, desc.position.z);
         handle.set_angle(desc.angle);
         self.install_blob(desc.object_id, handle, desc.shrouded);

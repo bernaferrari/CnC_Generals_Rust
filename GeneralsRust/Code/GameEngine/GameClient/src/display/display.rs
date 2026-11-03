@@ -23,7 +23,6 @@ use crate::gui::display_string::{DisplayStringHandle, get_display_string_manager
 use crate::gui::font::{FontDesc, get_font_library};
 use crate::gui::ui_renderer::UIRect;
 use crate::platform::GraphicsContext;
-use crate::radius_decal::get_projected_shadow_manager;
 use crate::system::SubsystemInterface;
 use crate::system::debug_display::DebugDisplay;
 use crate::terrain::TerrainVisual;

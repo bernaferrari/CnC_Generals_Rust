@@ -889,6 +889,12 @@ impl ChunkBounds {
     }
 }
 
+impl Default for ChunkManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ChunkManager {
     /// Create a new chunk manager with default configuration.
     pub fn new() -> Self {
