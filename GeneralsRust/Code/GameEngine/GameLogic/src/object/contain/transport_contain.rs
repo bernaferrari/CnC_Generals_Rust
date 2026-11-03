@@ -794,10 +794,13 @@ impl TransportContain {
         if !self.module_data.exit_bone.is_empty() {
             if let Some(owner_arc) = self.get_object() {
                 if let Ok(owner) = owner_arc.try_read() {
-                    let (_, bone_pos, _) =
+                    // C++ :321 sets the rider only when the bone is found.
+                    let (found, bone_pos, _) =
                         owner.get_single_logical_bone_position(&self.module_data.exit_bone);
                     drop(owner);
-                    let _ = rider.set_position(&bone_pos);
+                    if found {
+                        let _ = rider.set_position(&bone_pos);
+                    }
                 }
             }
         }
@@ -2525,6 +2528,53 @@ mod tests {
         OBJECT_REGISTRY.unregister_object(95123);
         OBJECT_REGISTRY.unregister_object(95124);
         ThePlayerList().write().expect("player list write").clear();
+    }
+
+    #[test]
+    fn missing_exit_bone_preserves_rider_position_like_cpp() {
+        // C++ TransportContain.cpp:315-326 sets the rider position only when
+        // the drawable reports exactly one pristine ExitBone position.
+        let _lock = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        let services = crate::system::engine_stores::new_world_services();
+        game_engine::common::common_services::with_common_services(&common, || {
+            crate::system::engine_stores::with_world_services(&services, missing_exit_bone_body)
+        });
+    }
+
+    fn missing_exit_bone_body() {
+        reset_players();
+        let owner = owned_object("NoBoneTransport", 95141, 0);
+        let rider = slotted_passenger("NoBoneRider", 95142, 1);
+        let _ = owner
+            .write()
+            .expect("owner")
+            .set_position(&Coord3D::new(100.0, 50.0, 0.0));
+        let _ = rider
+            .write()
+            .expect("rider")
+            .set_position(&Coord3D::new(5.0, 6.0, 0.0));
+        let data = TransportContainModuleData {
+            slot_capacity: 4,
+            exit_bone: "ExitStart".to_string(),
+            reset_mood_check_time_on_exit: false,
+            ..Default::default()
+        };
+        let mut contain = TransportContain::new(Arc::downgrade(&owner), &data).expect("transport");
+
+        contain.on_removing(95142).expect("missing bone removal");
+
+        let pos = *rider.read().expect("rider").get_position();
+        assert_eq!((pos.x, pos.y), (5.0, 6.0));
+
+        OBJECT_REGISTRY.unregister_object(95141);
+        OBJECT_REGISTRY.unregister_object(95142);
+        ThePlayerList().write().expect("player list write").clear();
+        // Object::drop runs the destructor tail through the Core AI runtime,
+        // which this bounded contain fixture does not install.
+        std::mem::forget(contain);
+        std::mem::forget(owner);
+        std::mem::forget(rider);
     }
 
     #[test]
