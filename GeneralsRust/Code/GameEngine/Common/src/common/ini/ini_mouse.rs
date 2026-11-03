@@ -11,7 +11,6 @@
 //! Rust port: 2025
 
 use crate::common::ini::ini::{FieldParse, INI, INIError, INIResult};
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 
@@ -270,13 +269,6 @@ impl MouseSettings {
 // ============================================================================
 
 /// Global cursor info collection
-struct CursorInfoMapSlot(OnceCell<RwLock<HashMap<String, CursorInfo>>>);
-impl std::ops::Deref for CursorInfoMapSlot {
-    type Target = OnceCell<RwLock<HashMap<String, CursorInfo>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static CURSOR_INFO_MAP: CursorInfoMapSlot = CursorInfoMapSlot(OnceCell::new());
-
 /// Initialize the global mouse settings
 
 /// Get a read reference to the global mouse settings
@@ -289,7 +281,7 @@ fn ini_mouse_cell() -> std::sync::Arc<parking_lot::RwLock<MouseSettings>> {
 
 pub fn init_global_mouse_settings() {
     let _ = ini_mouse_cell();
-    let _ = CURSOR_INFO_MAP.0.get_or_init(|| parking_lot::RwLock::new(std::collections::HashMap::new()));
+    let _ = crate::common::common_services::common_services().ini.cursor_info;
 }
 
 pub fn get_mouse_settings() -> Option<parking_lot::RwLockReadGuard<'static, MouseSettings>> {
@@ -304,20 +296,25 @@ pub fn get_mouse_settings_mut() -> Option<parking_lot::RwLockWriteGuard<'static,
     Some(unsafe { std::mem::transmute(guard) })
 }
 
+/// Add or update cursor info
+
 pub fn get_cursor_info(
     name: &str,
 ) -> Option<parking_lot::RwLockReadGuard<'static, HashMap<String, CursorInfo>>> {
-    let guard = CURSOR_INFO_MAP.0.get()?.read();
-    // Return the guard directly - caller can look up the cursor
-    drop(guard);
-    CURSOR_INFO_MAP.0.get().map(|lock| lock.read())
+    let _ = name;
+    let cell = std::sync::Arc::clone(
+        &crate::common::common_services::common_services().ini.cursor_info,
+    );
+    let guard = cell.read();
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
-/// Add or update cursor info
 pub fn add_cursor_info(name: String, info: CursorInfo) {
-    if let Some(map) = CURSOR_INFO_MAP.0.get() {
-        map.write().insert(name, info);
-    }
+    crate::common::common_services::common_services()
+        .ini
+        .cursor_info
+        .write()
+        .insert(name, info);
 }
 
 // ============================================================================
