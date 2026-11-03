@@ -24,7 +24,6 @@
 //! End
 //! ```
 
-use once_cell::sync::OnceCell;
 use std::sync::RwLock;
 
 use super::ini::{FieldParse, INI, INIError, INILoadType, INIResult};
@@ -350,17 +349,15 @@ fn parse_cpp_bool(value: &str) -> INIResult<bool> {
 }
 
 // Global weather setting singleton storage with override support
-struct WeatherSettingSlot(OnceCell<RwLock<Option<WeatherSetting>>>);
-impl std::ops::Deref for WeatherSettingSlot {
-    type Target = OnceCell<RwLock<Option<WeatherSetting>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static WEATHER_SETTING: WeatherSettingSlot = WeatherSettingSlot(OnceCell::new());
-
 /// Get the live weather setting (C++ `TheWeatherSetting->`, the final override).
+
+
+fn ini_weather_cell() -> std::sync::Arc<std::sync::RwLock<Option<WeatherSetting>>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.weather)
+}
+
 pub fn get_weather_setting() -> Option<WeatherSetting> {
-    WEATHER_SETTING
-        .get_or_init(|| RwLock::new(None))
+    ini_weather_cell()
         .read()
         .ok()
         .and_then(|guard| {
@@ -372,57 +369,46 @@ pub fn get_weather_setting() -> Option<WeatherSetting> {
         })
 }
 
-/// Immutable pristine content definition, excluding any other match's overrides.
 pub fn get_base_weather_setting() -> Option<WeatherSetting> {
-    get_weather_setting_mut()
+    ini_weather_cell()
         .read()
         .ok()?
         .as_ref()
         .map(WeatherSetting::clone_without_chain)
 }
 
-/// Get mutable access to the weather setting store
-fn get_weather_setting_mut() -> &'static RwLock<Option<WeatherSetting>> {
-    WEATHER_SETTING.0.get_or_init(|| RwLock::new(None))
+fn with_weather_setting_mut<R>(f: impl FnOnce(&mut Option<WeatherSetting>) -> R) -> R {
+    let cell = ini_weather_cell();
+    let mut guard = cell.write().expect("WeatherSetting poisoned");
+    f(&mut guard)
 }
 
-/// Get read access to the weather setting store
+fn get_weather_setting_mut() -> std::sync::RwLockWriteGuard<'static, Option<WeatherSetting>> {
+    let cell = ini_weather_cell();
+    let guard = cell.write().expect("WeatherSetting poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
 pub fn get_weather_setting_lock()
 -> Option<std::sync::RwLockReadGuard<'static, Option<WeatherSetting>>> {
-    WEATHER_SETTING.0.get().and_then(|lock| lock.read().ok())
+    let cell = ini_weather_cell();
+    let guard = cell.read().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
-/// Clear any map-generated weather overrides.
-///
-/// Matches C++ GameLogic::reset() lines 469-470:
-///   WeatherSetting *ws = TheWeatherSetting.getNonOverloadedPointer();
-///   TheWeatherSetting = ws->deleteOverrides();
 pub fn clear_weather_setting_overrides() {
-    let lock = WEATHER_SETTING.0.get_or_init(|| RwLock::new(None));
-    if let Ok(mut guard) = lock.write() {
-        if let Some(setting) = guard.as_mut() {
-            setting.next_override = None;
-        }
+    let mut guard = get_weather_setting_mut();
+    if let Some(setting) = guard.as_mut() {
+        setting.next_override = None;
     }
 }
 
-/// Initialize the weather settings system
 pub fn init_weather_setting() {
-    let _ = WEATHER_SETTING.0.get_or_init(|| RwLock::new(None));
+    let _ = ini_weather_cell();
 }
 
-/// Parse a [Weather] block from an INI file
-///
-/// This matches the C++ INI::parseWeatherDefinition function.
-///
-/// The parsing behavior depends on the load type:
-/// - If no existing setting exists, create a new one
-/// - If `CreateOverrides` load type, copy the base, chain as override, parse onto it
-/// - Otherwise throw (C++ `INI_INVALID_DATA`)
 pub fn parse_weather_definition(ini: &mut INI) -> INIResult<()> {
-    let mut guard = get_weather_setting_mut()
-        .write()
-        .map_err(|_| INIError::UnknownError)?;
+    let mut guard = get_weather_setting_mut();
     parse_weather_definition_into(ini, &mut guard)
 }
 
@@ -484,8 +470,8 @@ mod tests {
     use super::*;
 
     fn reset_weather_setting_for_test() {
-        let lock = get_weather_setting_mut();
-        *lock.write().expect("weather setting lock") = None;
+        let mut guard = get_weather_setting_mut();
+        *guard = None;
     }
 
     #[test]
@@ -631,7 +617,7 @@ End
         .expect("base weather");
 
         {
-            let mut guard = get_weather_setting_mut().write().expect("lock");
+            let mut guard = get_weather_setting_mut();
             // Simulate map.ini CreateOverrides by chaining onto the stored base.
             if let Some(base) = guard.as_mut() {
                 let mut ov = base.clone_without_chain();

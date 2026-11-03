@@ -29,7 +29,6 @@
 //! };
 //! ```
 
-use once_cell::sync::OnceCell;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ini::{INI, INIError, INIResult};
@@ -545,6 +544,7 @@ pub fn parse_credits_definition(ini: &mut INI) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::common::common_services::CommonServicesScope;
     use super::*;
 
     #[test]
@@ -659,6 +659,7 @@ mod tests {
 
     #[test]
     fn test_parse_credits_uses_cpp_bool_color_and_unknown_field_rules() {
+        let _scope = CommonServicesScope::new();
         init_credits_manager();
 
         let mut ini = INI::new();
@@ -677,6 +678,7 @@ mod tests {
 
     #[test]
     fn test_parse_credits_rejects_non_cpp_bool_color_and_unknown_fields() {
+        let _scope = CommonServicesScope::new();
         init_credits_manager();
 
         let mut ini = INI::new();
@@ -700,6 +702,7 @@ mod tests {
 
     #[test]
     fn test_global_manager() {
+        let _scope = CommonServicesScope::new();
         init_credits_manager();
 
         let manager = get_credits_manager();

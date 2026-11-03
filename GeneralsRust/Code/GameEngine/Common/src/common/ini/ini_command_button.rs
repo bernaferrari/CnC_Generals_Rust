@@ -6,7 +6,6 @@
 use super::ini::{FieldParse, INI, INIError, INILoadType, INIResult, LookupListRec};
 use crate::common::ini::ini_misc_audio::AudioEventRTS;
 use crate::common::rts::{SCIENCE_INVALID, ScienceType, WeaponSlotType, get_science_store};
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -553,43 +552,43 @@ impl Default for ControlBar {
     }
 }
 
-/// Global control bar instance (simulating TheControlBar)
-struct ControlBarSlot(OnceCell<RwLock<ControlBar>>);
-impl std::ops::Deref for ControlBarSlot {
-    type Target = OnceCell<RwLock<ControlBar>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static CONTROL_BAR: ControlBarSlot = ControlBarSlot(OnceCell::new());
-
-fn control_bar_cell() -> &'static RwLock<ControlBar> {
-    CONTROL_BAR.0.get_or_init(|| RwLock::new(ControlBar::new()))
-}
-
 fn control_bar_read() -> RwLockReadGuard<'static, ControlBar> {
-    control_bar_cell().read().expect("ControlBar poisoned")
+    let cell = ini_control_bar_cell();
+    let guard = cell.read().expect("ControlBar poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
-
 fn control_bar_write() -> RwLockWriteGuard<'static, ControlBar> {
-    control_bar_cell().write().expect("ControlBar poisoned")
+    let cell = ini_control_bar_cell();
+    let guard = cell.write().expect("ControlBar poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
-
 /// Initialize the global control bar
-pub fn initialize_control_bar() {
-    let _ = control_bar_cell();
-}
 
 /// Get a reference to the global control bar
-pub fn get_control_bar() -> Option<RwLockReadGuard<'static, ControlBar>> {
-    Some(control_bar_read())
-}
-
 /// Get a mutable reference to the global control bar
-pub fn get_control_bar_mut() -> Option<RwLockWriteGuard<'static, ControlBar>> {
-    Some(control_bar_write())
-}
-
 /// Parse command button definition from INI file
 /// This is the main entry point called by the INI parser
+
+fn ini_control_bar_cell() -> std::sync::Arc<std::sync::RwLock<ControlBar>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.control_bar)
+}
+
+pub fn initialize_control_bar() {
+    let _ = ini_control_bar_cell();
+}
+
+pub fn get_control_bar() -> Option<RwLockReadGuard<'static, ControlBar>> {
+    let cell = ini_control_bar_cell();
+    let guard = cell.read().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
+pub fn get_control_bar_mut() -> Option<RwLockWriteGuard<'static, ControlBar>> {
+    let cell = ini_control_bar_cell();
+    let guard = cell.write().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
 pub fn parse_command_button_definition(ini: &mut INI) -> INIResult<()> {
     ControlBar::parse_command_button_definition(ini)
 }

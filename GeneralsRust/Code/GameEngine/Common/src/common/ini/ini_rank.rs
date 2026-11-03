@@ -24,7 +24,6 @@
 //! };
 //! ```
 
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -413,39 +412,32 @@ impl Default for RankInfoStore {
     }
 }
 
-/// Global rank info store instance
-struct RankInfoStoreSlot(OnceCell<RwLock<RankInfoStore>>);
-impl std::ops::Deref for RankInfoStoreSlot {
-    type Target = OnceCell<RwLock<RankInfoStore>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static RANK_INFO_STORE: RankInfoStoreSlot = RankInfoStoreSlot(OnceCell::new());
-
 /// Get the global rank info store (read access)
-pub fn get_rank_info_store() -> RwLockReadGuard<'static, RankInfoStore> {
-    RANK_INFO_STORE
-        .get_or_init(|| RwLock::new(RankInfoStore::new()))
-        .read()
-        .unwrap()
-}
 
 /// Get the global rank info store (write access)
-pub fn get_rank_info_store_mut() -> RwLockWriteGuard<'static, RankInfoStore> {
-    RANK_INFO_STORE
-        .get_or_init(|| RwLock::new(RankInfoStore::new()))
-        .write()
-        .unwrap()
+/// Initialize the global rank info store
+
+fn ini_rank_cell() -> std::sync::Arc<std::sync::RwLock<RankInfoStore>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.rank)
 }
 
-/// Initialize the global rank info store
+
+pub fn get_rank_info_store() -> std::sync::RwLockReadGuard<'static, RankInfoStore> {
+    let cell = ini_rank_cell();
+    let guard = cell.read().expect("RankInfoStore poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
+
+pub fn get_rank_info_store_mut() -> std::sync::RwLockWriteGuard<'static, RankInfoStore> {
+    let cell = ini_rank_cell();
+    let guard = cell.write().expect("RankInfoStore poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
+
 pub fn init_rank_info_store() {
-    if RANK_INFO_STORE.0.get().is_none() {
-        let _ = RANK_INFO_STORE.0.set(RwLock::new(RankInfoStore::new()));
-    } else if let Some(store) = RANK_INFO_STORE.0.get() {
-        if let Ok(mut guard) = store.write() {
-            guard.init();
-        }
-    }
+    ini_rank_cell().write().expect("RankInfoStore poisoned").init();
 }
 
 /// Parse rank definition from INI block

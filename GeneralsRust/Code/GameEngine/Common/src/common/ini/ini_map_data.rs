@@ -6,7 +6,6 @@
 //! Author: Colin Day, November 2001
 //! Rust port: 2025
 
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -533,41 +532,36 @@ impl MapData {
     }
 }
 
-/// Global MapData instance (placeholder for actual global)
-struct MapDataSlot(OnceCell<RwLock<MapData>>);
-impl std::ops::Deref for MapDataSlot {
-    type Target = OnceCell<RwLock<MapData>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static MAP_DATA: MapDataSlot = MapDataSlot(OnceCell::new());
-
 /// Initialize the global map data
-pub fn init_global_map_data() {
-    if MAP_DATA.0.get().is_none() {
-        let _ = MAP_DATA.0.set(RwLock::new(MapData::new()));
-    } else if let Some(data) = MAP_DATA.0.get() {
-        if let Ok(mut guard) = data.write() {
-            *guard = MapData::new();
-        }
-    }
-}
 
 /// Get reference to global map data
-pub fn get_map_data() -> Option<RwLockReadGuard<'static, MapData>> {
-    MAP_DATA
-        .get()
-        .map(|data| data.read().expect("MapData poisoned"))
-}
-
 /// Get mutable reference to global map data
-pub fn get_map_data_mut() -> Option<RwLockWriteGuard<'static, MapData>> {
-    MAP_DATA
-        .get()
-        .map(|data| data.write().expect("MapData poisoned"))
-}
-
 /// C++ INIMapData.cpp:22-24 leaves MapData parsing empty, with no parser cursor
 /// or global MapData mutation.
+
+fn ini_map_data_cell() -> std::sync::Arc<std::sync::RwLock<MapData>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.map_data)
+}
+
+
+pub fn init_global_map_data() {
+    let _ = ini_map_data_cell();
+}
+
+
+pub fn get_map_data() -> Option<std::sync::RwLockReadGuard<'static, MapData>> {
+    let cell = ini_map_data_cell();
+    let guard = cell.read().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
+
+pub fn get_map_data_mut() -> Option<std::sync::RwLockWriteGuard<'static, MapData>> {
+    let cell = ini_map_data_cell();
+    let guard = cell.write().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
 pub fn parse_map_data_definition(_ini: &mut INI) -> Result<(), String> {
     Ok(())
 }

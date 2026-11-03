@@ -10,7 +10,6 @@
 //! Rust port: 2025
 
 use crate::common::ini::ini::{INI, INIError, INIResult};
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 
 // ============================================================================
@@ -399,6 +398,7 @@ pub fn register_online_chat_colors_parser() {
 
 #[cfg(test)]
 mod tests {
+    use crate::common::common_services::CommonServicesScope;
     use super::*;
 
     #[test]

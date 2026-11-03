@@ -9,7 +9,6 @@
 //! Desc:   Parsing Particle System INI entries
 
 use crate::common::ascii_string::AsciiString;
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -414,19 +413,9 @@ impl Default for ParticleSystemManager {
     }
 }
 
-/// Global particle system manager instance (thread-safe)
-struct ParticleSystemManagerSlot(OnceCell<Arc<RwLock<ParticleSystemManager>>>);
-impl std::ops::Deref for ParticleSystemManagerSlot {
-    type Target = OnceCell<Arc<RwLock<ParticleSystemManager>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static PARTICLE_SYSTEM_MANAGER: ParticleSystemManagerSlot = ParticleSystemManagerSlot(OnceCell::new());
-
 /// Ensure the particle system manager exists and return a handle to it
 pub fn ensure_particle_system_manager() -> Arc<RwLock<ParticleSystemManager>> {
-    PARTICLE_SYSTEM_MANAGER
-        .get_or_init(|| Arc::new(RwLock::new(ParticleSystemManager::new())))
-        .clone()
+    Arc::clone(&crate::common::common_services::common_services().ini.particle_system)
 }
 
 /// Initialize (or reinitialize) the global particle system manager
@@ -436,7 +425,7 @@ pub fn initialize_particle_system_manager() {
 
 /// Get a handle to the global particle system manager if initialized
 pub fn get_particle_system_manager() -> Option<Arc<RwLock<ParticleSystemManager>>> {
-    PARTICLE_SYSTEM_MANAGER.0.get().cloned()
+    Some(Arc::clone(&crate::common::common_services::common_services().ini.particle_system))
 }
 
 /// Parse a boolean value from string

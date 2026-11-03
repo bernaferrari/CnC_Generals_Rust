@@ -12,7 +12,6 @@
 //! Road field parse: TerrainRoads.cpp lines 21-30
 //! Bridge field parse: TerrainRoads.cpp lines 34-64
 
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -732,41 +731,36 @@ impl Default for TerrainRoadCollection {
     }
 }
 
-/// Global terrain road collection
-struct TerrainRoadCollectionSlot(OnceCell<RwLock<TerrainRoadCollection>>);
-impl std::ops::Deref for TerrainRoadCollectionSlot {
-    type Target = OnceCell<RwLock<TerrainRoadCollection>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static TERRAIN_ROAD_COLLECTION: TerrainRoadCollectionSlot = TerrainRoadCollectionSlot(OnceCell::new());
-
 /// Get the global terrain road collection
-pub fn get_terrain_roads() -> RwLockReadGuard<'static, TerrainRoadCollection> {
-    TERRAIN_ROAD_COLLECTION
-        .get_or_init(|| RwLock::new(TerrainRoadCollection::new()))
-        .read()
-        .unwrap()
-}
 
 /// Non-blocking read so map-load road parse can fail-open if Roads.ini still holds the write lock.
-pub fn try_get_terrain_roads() -> Option<RwLockReadGuard<'static, TerrainRoadCollection>> {
-    TERRAIN_ROAD_COLLECTION
-        .get_or_init(|| RwLock::new(TerrainRoadCollection::new()))
-        .try_read()
-        .ok()
-}
-
 /// Get mutable access to the global terrain road collection
-pub fn get_terrain_roads_mut() -> RwLockWriteGuard<'static, TerrainRoadCollection> {
-    TERRAIN_ROAD_COLLECTION
-        .get_or_init(|| RwLock::new(TerrainRoadCollection::new()))
-        .write()
-        .unwrap()
-}
-
 /// Parse a terrain road definition from INI
 /// Matches C++ INI::parseTerrainRoadDefinition from INITerrainRoad.cpp lines 15-46
 /// Field parse table from TerrainRoads.cpp lines 21-30
+
+fn ini_road_cell() -> std::sync::Arc<std::sync::RwLock<TerrainRoadCollection>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.road)
+}
+
+pub fn get_terrain_roads() -> RwLockReadGuard<'static, TerrainRoadCollection> {
+    let cell = ini_road_cell();
+    let guard = cell.read().expect("TerrainRoadCollection poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
+pub fn try_get_terrain_roads() -> Option<RwLockReadGuard<'static, TerrainRoadCollection>> {
+    let cell = ini_road_cell();
+    let guard = cell.read().ok()?;
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
+pub fn get_terrain_roads_mut() -> RwLockWriteGuard<'static, TerrainRoadCollection> {
+    let cell = ini_road_cell();
+    let guard = cell.write().expect("TerrainRoadCollection poisoned");
+    unsafe { std::mem::transmute(guard) }
+}
+
 pub fn parse_terrain_road_definition(
     name: &str,
     properties: &HashMap<String, String>,

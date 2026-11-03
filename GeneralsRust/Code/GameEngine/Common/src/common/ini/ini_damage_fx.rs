@@ -819,10 +819,6 @@ impl DamageFXStore {
     pub fn parse_damage_fx_definition(ini: &mut INI) -> Result<(), String> {
         let (name, damage_fx) = Self::parse_entry(ini)?;
 
-        if DAMAGE_FX_STORE.0.get().is_none() {
-            init_global_damage_fx_store();
-        }
-
         if let Some(mut store) = get_damage_fx_store_mut() {
             store.add_damage_fx(name, damage_fx);
         }
@@ -831,40 +827,34 @@ impl DamageFXStore {
     }
 }
 
-/// Global DamageFXStore instance, initialized via `init_global_damage_fx_store`.
-struct DamageFxStoreSlot(OnceCell<RwLock<DamageFXStore>>);
-impl std::ops::Deref for DamageFxStoreSlot {
-    type Target = OnceCell<RwLock<DamageFXStore>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static DAMAGE_FX_STORE: DamageFxStoreSlot = DamageFxStoreSlot(OnceCell::new());
-
 /// Initialize the global damage FX store
-pub fn init_global_damage_fx_store() {
-    if DAMAGE_FX_STORE.0.get().is_none() {
-        let store = DamageFXStore::new();
-        let _ = DAMAGE_FX_STORE.0.set(RwLock::new(store));
-    }
-
-    if let Some(store) = DAMAGE_FX_STORE.0.get() {
-        if let Ok(mut guard) = store.write() {
-            guard.init();
-        }
-    }
-}
 
 /// Get reference to global damage FX store
-pub fn get_damage_fx_store() -> Option<RwLockReadGuard<'static, DamageFXStore>> {
-    DAMAGE_FX_STORE
-        .get()
-        .map(|store| store.read().expect("DamageFXStore poisoned"))
+/// Get mutable reference to global damage FX store
+
+fn ini_damage_fx_cell() -> std::sync::Arc<std::sync::RwLock<DamageFXStore>> {
+    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.damage_fx)
 }
 
-/// Get mutable reference to global damage FX store
+/// Initialize the damage FX store on the published CommonServices.
+pub fn init_global_damage_fx_store() {
+    let cell = ini_damage_fx_cell();
+    let mut guard = cell.write().expect("DamageFXStore poisoned");
+    guard.init();
+}
+
+/// Get reference to the instance damage FX store
+pub fn get_damage_fx_store() -> Option<RwLockReadGuard<'static, DamageFXStore>> {
+    let cell = ini_damage_fx_cell();
+    let guard = cell.read().expect("DamageFXStore poisoned");
+    Some(unsafe { std::mem::transmute(guard) })
+}
+
+/// Get mutable reference to the instance damage FX store
 pub fn get_damage_fx_store_mut() -> Option<RwLockWriteGuard<'static, DamageFXStore>> {
-    DAMAGE_FX_STORE
-        .get()
-        .map(|store| store.write().expect("DamageFXStore poisoned"))
+    let cell = ini_damage_fx_cell();
+    let guard = cell.write().expect("DamageFXStore poisoned");
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
 /// INI parsing function (matches C++ interface)
@@ -876,6 +866,7 @@ pub fn parse_damage_fx_definition(ini: &mut INI) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::common::common_services::CommonServicesScope;
     use super::*;
 
     struct TestObject {
@@ -1099,6 +1090,7 @@ mod tests {
 
     #[test]
     fn test_global_store_init() {
+        let _scope = CommonServicesScope::new();
         init_global_damage_fx_store();
 
         assert!(get_damage_fx_store().is_some());
@@ -1115,6 +1107,7 @@ mod tests {
 
     #[test]
     fn init_and_reset_do_not_wipe_parsed_fx() {
+        let _scope = CommonServicesScope::new();
         // C++ DamageFX.cpp:266-273 — init/reset are empty; the catalog is not
         // a per-match table. dispatch_armor_damage_fx used to call
         // init_global_damage_fx_store on every hit, which wiped INI FX.
