@@ -567,6 +567,10 @@ impl UnitAIUpdate {
         &mut self,
         command: &crate::ai::AiCommandParams,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !self.runtime.is_allowed_to_respond_to_ai_commands(command) {
+            return Ok(()); // CPP AIUpdate.cpp:2572-2590.
+        }
+
         if self.runtime.data.forbid_player_commands
             && command.cmd_source == crate::ai::CommandSourceType::FromPlayer
         {
