@@ -35,10 +35,13 @@ fn authored_slave_factory_preserves_ids_links_draws_and_recursive_admission() {
     assert_eq!(id, 1);
     assert_eq!(manager.next_system_id, 4);
     assert_eq!(manager.active_system_ids_in_order(), vec![3, 2, 1]);
+    // C++ ParticleSystem ctor seeds RandomValue with getGameClientRandomValue(0, UINT_MAX)
+    // before initialDelay / wind angles (ParticleSys.cpp constructor).
     let expected: Vec<_> = [10.0, 20.0, 30.0]
         .into_iter()
         .flat_map(|b| {
             [
+                (0.0, u32::MAX as f32),
                 (b, b + 1.0),
                 (b + 2.0, b + 3.0),
                 (b + 4.0, b + 5.0),
@@ -74,7 +77,7 @@ fn authored_slave_factory_missing_child_and_false_path_stay_parent_only() {
             lo
         })
         .unwrap();
-    assert_eq!(draws, 4);
+    assert_eq!(draws, 5); // seed + delay + 3 wind draws
     assert_eq!(manager.active_system_ids_in_order(), vec![1]);
     assert_eq!(
         manager.find_particle_system(1).unwrap().slave_system_id(),

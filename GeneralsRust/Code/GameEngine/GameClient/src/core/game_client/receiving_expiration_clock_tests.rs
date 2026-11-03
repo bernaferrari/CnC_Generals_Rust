@@ -103,6 +103,8 @@ fn run_public_expiration(
     let result = (|| {
         let template = expiration_template();
         let mut receiving = GameClient::new().map_err(|error| error.to_string())?;
+        receiving.subsystem_manager.in_game_ui =
+            Some(crate::core::subsystems::InGameUISubsystem::default());
         receiving.initialized = true;
         let id = receiving
             .create_drawable_from_template(&template)

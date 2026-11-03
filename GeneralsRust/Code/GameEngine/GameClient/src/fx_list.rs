@@ -1047,6 +1047,7 @@ fn executable_nugget(
     }
 }
 
+#[derive(Clone)]
 struct SoundFXNugget {
     sound_name: String,
 }
@@ -1055,17 +1056,37 @@ impl FXNugget for SoundFXNugget {
     fn do_fx_pos(
         &self,
         primary: Option<&Coord3D>,
+        primary_mtx: Option<&Matrix3D>,
+        primary_speed: f32,
+        secondary: Option<&Coord3D>,
+        override_radius: f32,
+    ) {
+        with_tactical_fx_view_services(|view| {
+            self.do_fx_pos_with_view(
+                primary,
+                primary_mtx,
+                primary_speed,
+                secondary,
+                override_radius,
+                view,
+            );
+        });
+    }
+
+    fn do_fx_pos_with_view(
+        &self,
+        primary: Option<&Coord3D>,
         _primary_mtx: Option<&Matrix3D>,
         _primary_speed: f32,
         _secondary: Option<&Coord3D>,
         _override_radius: f32,
+        view: &mut FxViewServices<'_>,
     ) {
         // C++ SoundFXNugget::doFXPos: AudioEventRTS + TheAudio->addAudioEvent.
-        // Prefer registered GameClient audio hook; fall back to gameplay dispatch
-        // so FXList sound nuggets are not silent no-ops when hook is absent.
+        // Receiving FxViewServices owns TheAudio; fall back to gameplay dispatch
+        // when the live client has no hook installed.
         let position = primary.map(to_message_coord);
-        let routed = with_tactical_fx_view_services(|view| (view.play_fx_audio)(&self.sound_name, position));
-        if !routed {
+        if !(view.play_fx_audio)(&self.sound_name, position) {
             if let Some(pos) = primary {
                 game_engine::common::audio::gameplay_audio_dispatch::dispatch_positional_sound(
                     &self.sound_name,
@@ -2349,9 +2370,9 @@ if let Ok(mut players) = __arc_bind.write() {
     #[test]
     fn fx_list_do_fx_pos_skips_audio_and_particles_on_unexplored_cell() {
         crate::test_support::ensure_ambient_host();
-        let mut fx = FxClientState::default();
         use std::sync::atomic::{AtomicU32, Ordering};
 
+        let mut fx = FxClientState::default();
         let played = Arc::new(AtomicU32::new(0));
         let hook_played = Arc::clone(&played);
         fx.register_audio(Box::new(move |name, _pos| {
@@ -2374,23 +2395,25 @@ if let Ok(mut players) = __arc_bind.write() {
             *shroud = gamelogic::system::shroud_manager::ShroudManager::new();
             shroud.init_shroud_grid(500.0, 500.0);
         }
-        let __arc_bind = gamelogic::player::player_list();
-if let Ok(mut list) = __arc_bind.write() {
-            list.set_local_player_index(0);
+        if let Ok(mut players) = gamelogic::player::player_list().write() {
+            players.set_local_player_index(0);
         }
 
-        let mut list = FXList::new();
-        list.add_fx_nugget(Box::new(SoundFXNugget {
+        let sound = SoundFXNugget {
             sound_name: "WeaponFireShrouded".to_string(),
-        }));
-        list.add_fx_nugget(Box::new(LightPulseFXNugget {
+        };
+        let light = LightPulseFXNugget {
             color: Vec3::ONE,
             radius: 40.0,
             bounding_circle_pct: 0.0,
             increase_frames: 2,
             decrease_frames: 4,
-        }));
+        };
+        let mut list = FXList::new();
+        list.add_fx_nugget(Box::new(sound.clone()));
+        list.add_fx_nugget(Box::new(light.clone()));
 
+        // Public doFXPos observes PartitionManager shroud; unexplored stays silent.
         list.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
         assert_eq!(
             played.load(Ordering::SeqCst),
@@ -2401,13 +2424,76 @@ if let Ok(mut list) = __arc_bind.write() {
             fx.drain_display_light_pulses().is_empty(),
             "unexplored CELLSHROUD_SHROUDED must not leak LightPulse/particle nuggets"
         );
+        assert!(
+            !fx_pos_cell_is_clear(Some(&pos)),
+            "unexplored cell must report CELLSHROUD_SHROUDED"
+        );
 
         {
             let shroud_handle = gamelogic::system::shroud_manager::get_shroud_manager();
             let mut shroud = shroud_handle.lock().expect("shroud");
+            // player_mask bit0 = local player 0
             shroud.do_shroud_reveal(&pos, 75.0, 1);
         }
-        list.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
+        assert!(
+            fx_pos_cell_is_clear(Some(&pos)),
+            "doShroudReveal must admit CELLSHROUD_CLEAR for the local player"
+        );
+
+        // Receiving FxClientState owns TheAudio / TheDisplay hooks (no process TLS).
+        {
+            let mut add_scorch = |_, _, _| {};
+            let mut shake = |_: &Coord3D, _| {};
+            let mut find_list = |_: &str| None;
+            let mut bones = |_, _: &str, _, _| Vec::new();
+            let mut visible = |_: Option<&Coord3D>| true;
+            let mut create_light_pulse = |_: DisplayLightPulse| false;
+            let mut play_fx_audio = |name: &str, pos: Option<MessageCoord3D>| {
+                fx.with_audio(|hook| hook(name, pos))
+            };
+            sound.do_fx_pos_with_view(
+                Some(&pos),
+                None,
+                0.0,
+                None,
+                0.0,
+                &mut FxViewServices {
+                    add_scorch: &mut add_scorch,
+                    shake: &mut shake,
+                    find_list: &mut find_list,
+                    bone_transforms: &mut bones,
+                    position_visible: &mut visible,
+                    create_light_pulse: &mut create_light_pulse,
+                    play_fx_audio: &mut play_fx_audio,
+                },
+            );
+        }
+        {
+            let mut add_scorch = |_, _, _| {};
+            let mut shake = |_: &Coord3D, _| {};
+            let mut find_list = |_: &str| None;
+            let mut bones = |_, _: &str, _, _| Vec::new();
+            let mut visible = |_: Option<&Coord3D>| true;
+            let mut create_light_pulse =
+                |pulse: DisplayLightPulse| fx.create_display_light_pulse(pulse);
+            let mut play_fx_audio = |_: &str, _: Option<MessageCoord3D>| false;
+            light.do_fx_pos_with_view(
+                Some(&pos),
+                None,
+                0.0,
+                None,
+                0.0,
+                &mut FxViewServices {
+                    add_scorch: &mut add_scorch,
+                    shake: &mut shake,
+                    find_list: &mut find_list,
+                    bone_transforms: &mut bones,
+                    position_visible: &mut visible,
+                    create_light_pulse: &mut create_light_pulse,
+                    play_fx_audio: &mut play_fx_audio,
+                },
+            );
+        }
         assert_eq!(
             played.load(Ordering::SeqCst),
             1,
@@ -2415,14 +2501,12 @@ if let Ok(mut list) = __arc_bind.write() {
         );
         assert_eq!(fx.drain_display_light_pulses().len(), 1);
 
-        let __arc_bind = gamelogic::player::player_list();
-if let Ok(mut players) = __arc_bind.write() {
+        if let Ok(mut players) = gamelogic::player::player_list().write() {
             players.set_local_player_index(prev_player);
         }
         *gamelogic::system::shroud_manager::get_shroud_manager()
             .lock()
             .expect("shroud") = gamelogic::system::shroud_manager::ShroudManager::new();
-        fx.register_audio(Box::new(|_name, _pos| {}));
     }
 
     #[test]
