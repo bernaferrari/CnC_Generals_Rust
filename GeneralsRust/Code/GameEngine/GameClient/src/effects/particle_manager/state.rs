@@ -257,7 +257,14 @@ mod tests;
 fn decode_random_tail(
     bytes: &[u8],
 ) -> Result<(&[u8], Option<([u32; 6], Vec<(u32, [u32; 6])>)>), String> {
-    if bytes.len() < 8 || &bytes[bytes.len() - 4..] != b"NRG1" {
+    const MAGIC: &[u8] = b"NRG1";
+    if bytes.len() < 8 || &bytes[bytes.len() - 4..] != MAGIC {
+        // A chopped magic must not reinterpret the capsule as payload (atomic fail).
+        for n in 1..MAGIC.len() {
+            if bytes.len() >= n && bytes.ends_with(&MAGIC[..n]) {
+                return Err("truncated particle random capsule".into());
+            }
+        }
         return Ok((bytes, None));
     }
     let length =

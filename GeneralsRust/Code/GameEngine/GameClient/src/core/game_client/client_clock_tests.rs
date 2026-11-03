@@ -69,6 +69,13 @@ fn actual_presentation_shell_preserves_the_admitted_client_frame() {
     );
     assert_eq!(peer.get_frame(), 900);
     let mut no_companion = GameClient::new().unwrap();
+    no_companion
+        .window_manager_owner()
+        .shell_handle()
+        .init()
+        .unwrap();
+    no_companion.subsystem_manager.in_game_ui =
+        Some(crate::core::subsystems::InGameUISubsystem::default());
     no_companion.initialized = true;
     no_companion.set_frame(902);
     no_companion.restore_from_xfer_bytes(&[]).unwrap();

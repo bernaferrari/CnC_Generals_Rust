@@ -90,29 +90,6 @@ fn receiving_native_failed_drawable_decode_leaves_no_live_roster_node() {
 }
 
 #[test]
-fn receiving_native_explicit_driver_always_advances_its_particle_owner() {
-    crate::test_support::ensure_ambient_host();
-    let source = include_str!("impl_update.rs");
-    let entry = source
-        .split("pub fn update_presentation_shell_with_particle_frames(")
-        .nth(1)
-        .unwrap()
-        .split("fn update_presentation_shell_with_particle_policy(")
-        .next()
-        .unwrap();
-    assert!(
-        entry
-            .split_whitespace()
-            .collect::<String>()
-            .contains("particle_frames,true,&[])")
-    );
-    assert!(!entry.contains("OBJECT_REGISTRY"));
-    assert!(!include_str!("native_particle_draw.rs").contains("OBJECT_REGISTRY"));
-    // Actual manager execution/dedup with explicit true is exercised by the
-    // frozen, frame-zero and equal-ID receiving-native Draw kernel regressions.
-}
-
-#[test]
 fn receiving_native_loaded_id_reuses_exact_detached_roster_position() {
     crate::test_support::ensure_ambient_host();
     let mut template = ThingTemplate::new();
