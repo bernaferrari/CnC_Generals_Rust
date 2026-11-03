@@ -2605,11 +2605,11 @@ fn callback_getters_return_installed_handlers_like_cpp() {
     assert!(window.get_draw_callback().is_some());
     assert!(window.get_tooltip_callback().is_none());
     assert_eq!(
-        window.get_input_callback().unwrap()(&window, WindowMessage::LeftDown, 0, 0),
+        window.get_input_callback().unwrap()(&mut window, WindowMessage::LeftDown, 0, 0),
         WindowMsgHandled::Ignored
     );
     assert_eq!(
-        window.get_system_callback().unwrap()(&window, WindowMessage::Create, 0, 0),
+        window.get_system_callback().unwrap()(&mut window, WindowMessage::Create, 0, 0),
         WindowMsgHandled::Ignored
     );
 }
@@ -2668,7 +2668,7 @@ fn set_callbacks_updates_input_draw_and_tooltip_like_cpp() {
 
     let draw: DrawCallback = {
         let drawn = drawn.clone();
-        Box::new(move |_, _| {
+        Box::new(move |_, _, _| {
             *drawn.borrow_mut() += 1;
         })
     };
@@ -2680,7 +2680,7 @@ fn set_callbacks_updates_input_draw_and_tooltip_like_cpp() {
     };
 
     window.set_callbacks(
-        Some(Box::new(|_, _, _, _| WindowMsgHandled::Handled)),
+        Some(Rc::new(|_, _, _, _| WindowMsgHandled::Handled)),
         Some(draw),
         Some(tooltip),
     );

@@ -1038,11 +1038,10 @@ mod native_observer_roster_portrait_tests {
         let _restore = RestorePlayers(Some(saved));
         let mut ambient = CorePlayer::new(5);
         ambient.get_money_mut().set_money(990);
-        let mut ambient_score = game_engine::common::rts::score_keeper::KindOfMaskType::new();
-        ambient_score.set(game_engine::common::rts::score_keeper::KindOf::Infantry);
-        ambient.get_score_keeper_mut().add_object_destroyed(
+        // Infantry retail KindOf bit matches ScoreKeeper::score_kindof_retail_bit.
+        ambient.get_score_keeper_mut().add_object_destroyed_template(
             "AmbientCorePlayer",
-            &ambient_score,
+            1u64 << 8,
             1,
             false,
         );

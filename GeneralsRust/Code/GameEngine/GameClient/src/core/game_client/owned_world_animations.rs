@@ -685,9 +685,8 @@ mod admitted_game_client_animation_tests {
         let (templates, images) = content("Retirement", 32, 100);
         let mut client = GameClient::new().unwrap();
         client.admit_owned_world_animations(&templates, &images);
-        client.subsystem_manager.in_game_ui = Some(std::sync::Arc::new(std::sync::Mutex::new(
-            crate::core::subsystems::InGameUISubsystem::default(),
-        )));
+        client.subsystem_manager.in_game_ui =
+            Some(crate::core::subsystems::InGameUISubsystem::default());
         let event = lifecycle_event();
         client.apply_presentation_world_anims(11, 103, false, &[event.clone()]);
         client.owned_world_animations.prepare_draw(&event, 103);
@@ -701,8 +700,6 @@ mod admitted_game_client_animation_tests {
                 .subsystem_manager
                 .in_game_ui
                 .as_ref()
-                .unwrap()
-                .lock()
                 .unwrap()
                 .presentation_world_anims()
                 .is_empty()
@@ -722,47 +719,6 @@ mod admitted_game_client_animation_tests {
                 .get_filename(),
             "Retirement-SharedFrame0.tga"
         );
-    }
-    #[test]
-    fn failed_retirement_preflight_preserves_animation_runtime_and_transport() {
-        let (templates, images) = content("Failure", 32, 100);
-        let mut client = GameClient::new().unwrap();
-        client.admit_owned_world_animations(&templates, &images);
-        let ui = std::sync::Arc::new(std::sync::Mutex::new(
-            crate::core::subsystems::InGameUISubsystem::default(),
-        ));
-        client.subsystem_manager.in_game_ui = Some(ui.clone());
-        let event = lifecycle_event();
-        client.apply_presentation_world_anims(11, 103, false, &[event.clone()]);
-        client.owned_world_animations.prepare_draw(&event, 103);
-        let failed = std::panic::catch_unwind({
-            let ui = ui.clone();
-            move || {
-                let _guard = ui.lock().unwrap();
-                panic!("animation retirement UI poison witness");
-            }
-        });
-        assert!(failed.is_err());
-        assert!(
-            client
-                .retire_native_drawable_world_for_replace()
-                .unwrap_err()
-                .to_string()
-                .contains("UI lock poisoned before world-animation retirement")
-        );
-        assert_eq!(
-            client.owned_world_animations.instances[&event.identity].position,
-            [3.0, 4.0, 6.0]
-        );
-        assert_eq!(client.owned_world_animations.host_epoch, Some(11));
-        let recovered = ui
-            .lock()
-            .err()
-            .expect("witness poisoned this UI loan")
-            .into_inner();
-        assert_eq!(recovered.presentation_world_anims().len(), 1);
-        drop(recovered);
-        ui.clear_poison();
     }
     #[test]
     fn admitted_animation_clock_does_not_follow_independent_client_frame() {

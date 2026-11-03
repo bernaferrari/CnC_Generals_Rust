@@ -92,7 +92,12 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
             0,
             &mut context,
         );
-        assert_eq!(mouse.cursor_tooltip_state().tooltip_text, "Generic");
+        let tip = context
+            .cursor_mouse
+            .as_ref()
+            .map(|m| m.cursor_tooltip_state().tooltip_text.clone())
+            .unwrap_or_default();
+        assert_eq!(tip, "Generic");
         windows.process_mouse_event_with_control_bar(
             WindowMessage::MousePos,
             20,

@@ -605,9 +605,11 @@ mod tests {
                 .first_time_running_game = false;
 
             let (layout, _info) = client.window_manager_owner().with_manager(|manager| {
-                manager
-                    .create_layout_with_windows("Menus/MainMenu.wnd")
-                    .expect("expected MainMenu.wnd to load")
+                crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+                    manager
+                        .create_layout_with_windows("Menus/MainMenu.wnd", effects)
+                        .expect("expected MainMenu.wnd to load")
+                })
             });
 
             let ids = build_window_ids();
@@ -821,6 +823,7 @@ mod tests {
                 GameDifficulty::Normal,
                 false,
                 effects,
+                None,
             )
         });
 
@@ -1878,7 +1881,7 @@ mod tests {
                     let _ = win.borrow_mut().hide_without_manager_side_effects(false);
                     let _ = win.borrow_mut().enable(true);
                 }
-                manager.transition_set_group("MainMenuSinglePlayerMenu", false);  /* manager API */
+                manager.transition_set_group("MainMenuSinglePlayerMenu", false, None);  /* manager API */
                 for name in GROUP_WINDOWS {
                     let win = manager.find_window_by_name(name).expect(name);
                     assert!(

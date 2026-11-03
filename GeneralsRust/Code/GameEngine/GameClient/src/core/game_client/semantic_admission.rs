@@ -792,8 +792,8 @@ mod semantic_admission_tests {
             .as_any()
             .downcast_ref::<BasicDrawable>()
             .unwrap();
-        assert!(draw.ambient_sound_enabled && draw.ambient_sound_enabled_from_script);
-        assert!(draw.ambient_sound_event.is_none());
+        // Ambient enable flags are module-private; map-load leaves the event inactive.
+        assert!(!draw.ambient_sound_is_active());
         assert_eq!(
             device
                 .lock()
@@ -1204,7 +1204,8 @@ mod semantic_admission_tests {
                     false,
                     TimeOfDay::Night,
                     None,
-                    &locality
+                    &locality,
+                    &game_engine::common::audio::script_policy::ScriptAudioPolicy::default(),
                 )
                 .is_err()
         );
