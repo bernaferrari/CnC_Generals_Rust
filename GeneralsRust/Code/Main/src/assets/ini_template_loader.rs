@@ -693,6 +693,40 @@ pub(crate) fn register_weapons_from_ini_text_with_load_type(
     content: &str,
     load_type: WeaponDefinitionLoadType,
 ) -> usize {
+    let register = || register_weapons_from_ini_text_with_load_type_on_active(content, load_type);
+    if gamelogic::system::engine_stores::try_active_services().is_some() {
+        register()
+    } else {
+        // Free/test admission: temporary WorldServices so WeaponStore cell binds
+        // without requiring each caller to wrap.
+        let services = gamelogic::system::engine_stores::new_world_services();
+        gamelogic::system::engine_stores::with_world_services(&services, register)
+    }
+}
+
+/// Register weapons then run `f` while the admitting WorldServices stay bound.
+/// Prefer this over `register_weapons_from_ini_text` + a later free `with_weapon_store`
+/// when the caller needs to read the store it just filled.
+pub fn with_weapons_from_ini_text<R>(content: &str, f: impl FnOnce(usize) -> R) -> R {
+    let run = || {
+        let n = register_weapons_from_ini_text_with_load_type_on_active(
+            content,
+            WeaponDefinitionLoadType::CreateOverrides,
+        );
+        f(n)
+    };
+    if gamelogic::system::engine_stores::try_active_services().is_some() {
+        run()
+    } else {
+        let services = gamelogic::system::engine_stores::new_world_services();
+        gamelogic::system::engine_stores::with_world_services(&services, run)
+    }
+}
+
+fn register_weapons_from_ini_text_with_load_type_on_active(
+    content: &str,
+    load_type: WeaponDefinitionLoadType,
+) -> usize {
     // Ensure store exists before registration attempts.
     if let Err(e) = gamelogic::initialize_weapon_store() {
         warn!("Cannot register weapons — WeaponStore init failed: {e}");
@@ -1880,8 +1914,9 @@ Weapon __RustExactWeaponAntiMask
 End
 "#;
 
-        assert_eq!(register_weapons_from_ini_text(ini_content), 1);
-        gamelogic::with_weapon_store(|store| {
+        with_weapons_from_ini_text(ini_content, |n| {
+            assert_eq!(n, 1);
+            gamelogic::with_weapon_store(|store| {
             use gamelogic::weapon::WeaponAntiMask;
 
             let weapon = store
@@ -1900,8 +1935,9 @@ End
             ] {
                 assert_ne!(mask & bit, 0, "missing parsed anti-mask bit {bit:#x}");
             }
-        })
-        .expect("weapon store available");
+            })
+            .expect("weapon store available");
+        });
     }
 
     #[test]
@@ -1914,15 +1950,17 @@ Weapon __RustDamageStatusFaerie
   DamageStatusType = FAERIE_FIRE
 End
 "#;
-        assert_eq!(register_weapons_from_ini_text(ini_content), 1);
-        gamelogic::with_weapon_store(|store| {
-            let weapon = store
-                .find_weapon_template("__RustDamageStatusFaerie")
-                .expect("registered status weapon");
-            let status: gamelogic::common::ObjectStatusTypes = weapon.damage_status_type.into();
-            assert_eq!(status, gamelogic::common::ObjectStatusTypes::FaerieFire);
-        })
-        .expect("weapon store available");
+        with_weapons_from_ini_text(ini_content, |n| {
+            assert_eq!(n, 1);
+            gamelogic::with_weapon_store(|store| {
+                let weapon = store
+                    .find_weapon_template("__RustDamageStatusFaerie")
+                    .expect("registered status weapon");
+                let status: gamelogic::common::ObjectStatusTypes = weapon.damage_status_type.into();
+                assert_eq!(status, gamelogic::common::ObjectStatusTypes::FaerieFire);
+            })
+            .expect("weapon store available");
+        });
     }
 
     #[test]
@@ -1935,24 +1973,25 @@ Weapon __RustShotsPerBarrelExact
 End
 "#;
 
-        assert_eq!(register_weapons_from_ini_text(ini_content), 1);
-        gamelogic::with_weapon_store(|store| {
-            assert_eq!(
-                store
-                    .find_weapon_template("__RustShotsPerBarrelExact")
-                    .expect("registered exact barrel weapon")
-                    .shots_per_barrel,
-                3
-            );
-        })
-        .expect("weapon store available");
+        with_weapons_from_ini_text(ini_content, |n| {
+            assert_eq!(n, 1);
+            gamelogic::with_weapon_store(|store| {
+                assert_eq!(
+                    store
+                        .find_weapon_template("__RustShotsPerBarrelExact")
+                        .expect("registered exact barrel weapon")
+                        .shots_per_barrel,
+                    3
+                );
+            })
+            .expect("weapon store available");
+        });
     }
 
     #[test]
     fn redeclared_weapon_ini_merges_instead_of_replacing() {
         // C++ parseWeaponTemplateDefinition found-or-create then initFromINI.
         // A later partial block must keep unlisted fields.
-        let _ = gamelogic::initialize_weapon_store();
         let first = r#"
 Weapon __RustWeaponMergeBase
   AttackRange = 150.0
@@ -1968,19 +2007,22 @@ Weapon __RustWeaponMergeBase
   ClipSize = 4
 End
 "#;
-        assert_eq!(register_weapons_from_ini_text(first), 1);
-        assert_eq!(register_weapons_from_ini_text(overlay), 1);
-        gamelogic::with_weapon_store(|store| {
-            let weapon = store
-                .find_weapon_template("__RustWeaponMergeBase")
-                .expect("merged weapon still registered");
-            assert_eq!(weapon.primary_damage, 40.0);
-            assert_eq!(weapon.clip_size, 4);
-            assert_eq!(weapon.attack_range, 150.0);
-            assert_eq!(weapon.secondary_damage, 25.0);
-            assert_eq!(weapon.shots_per_barrel, 2);
-        })
-        .expect("weapon store available");
+        let services = gamelogic::system::engine_stores::new_world_services();
+        gamelogic::system::engine_stores::with_world_services(&services, || {
+            assert_eq!(register_weapons_from_ini_text(first), 1);
+            assert_eq!(register_weapons_from_ini_text(overlay), 1);
+            gamelogic::with_weapon_store(|store| {
+                let weapon = store
+                    .find_weapon_template("__RustWeaponMergeBase")
+                    .expect("merged weapon still registered");
+                assert_eq!(weapon.primary_damage, 40.0);
+                assert_eq!(weapon.clip_size, 4);
+                assert_eq!(weapon.attack_range, 150.0);
+                assert_eq!(weapon.secondary_damage, 25.0);
+                assert_eq!(weapon.shots_per_barrel, 2);
+            })
+            .expect("weapon store available");
+        });
     }
 
     #[test]
@@ -2024,8 +2066,9 @@ End
             "repeated Weapon.ini properties must survive section parsing"
         );
 
-        assert_eq!(register_weapons_from_ini_text(ini_content), 1);
-        gamelogic::with_weapon_store(|store| {
+        with_weapons_from_ini_text(ini_content, |n| {
+            assert_eq!(n, 1);
+            gamelogic::with_weapon_store(|store| {
             let weapon = store
                 .find_weapon_template("__RustOrderedVeterancyEffectWeapon")
                 .expect("ordered weapon registered");
@@ -2102,8 +2145,9 @@ End
                 Some("Exhaust_Heroic")
             );
             assert!(weapon.play_fx_when_stealthed);
-        })
-        .expect("weapon store available");
+            })
+            .expect("weapon store available");
+        });
     }
 
     #[test]
