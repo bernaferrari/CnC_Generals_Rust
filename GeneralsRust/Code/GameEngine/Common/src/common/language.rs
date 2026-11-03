@@ -127,30 +127,24 @@ impl LanguageId {
     }
 }
 
-// Global language setting
-// THREAD: C++ plain statics; driven only by the single game/client thread.
-struct LanguageRuntime {
-    current: std::sync::Mutex<LanguageId>,
-    strings: std::sync::Mutex<HashMap<String, String>>,
-}
-static LANGUAGE_RUNTIME: std::sync::LazyLock<LanguageRuntime> =
-    std::sync::LazyLock::new(|| LanguageRuntime {
-        current: std::sync::Mutex::new(LanguageId::Us),
-        strings: std::sync::Mutex::new(HashMap::new()),
-    });
+
 
 /// Get the current language
 pub fn get_current_language() -> LanguageId {
-    *LANGUAGE_RUNTIME
-        .current
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .language_current
         .lock()
         .unwrap_or_else(|p| p.into_inner())
 }
 
 /// Set the current language
 pub fn set_current_language(language: LanguageId) {
-    *LANGUAGE_RUNTIME
-        .current
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .language_current
         .lock()
         .unwrap_or_else(|p| p.into_inner()) = language;
 }
@@ -219,8 +213,10 @@ impl Language {
 
     /// Register or replace a localized string in the runtime table.
     pub fn register_localized_string<K: Into<String>, V: Into<String>>(key: K, value: V) {
-        LANGUAGE_RUNTIME
-            .strings
+        let services = crate::common::common_services::common_services();
+        services
+            .system
+            .language_strings
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .insert(key.into(), value.into());
@@ -228,8 +224,10 @@ impl Language {
 
     /// Clear all runtime localized strings.
     pub fn clear_localized_strings() {
-        LANGUAGE_RUNTIME
-            .strings
+        let services = crate::common::common_services::common_services();
+        services
+            .system
+            .language_strings
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .clear();
@@ -243,8 +241,10 @@ impl Language {
         }
 
         let lookup = trimmed.strip_prefix("LOC:").unwrap_or(trimmed);
-        let table = LANGUAGE_RUNTIME
-            .strings
+        let services = crate::common::common_services::common_services();
+        let table = services
+            .system
+            .language_strings
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         if let Some(value) = table.get(lookup) {
