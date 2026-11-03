@@ -604,13 +604,22 @@ impl GameLogic {
             .map(|id| id.0)
             .collect();
         let players = &self.players;
-        let candidates: Vec<(ObjectId, f32)> = self
-            .objects
-            .registered()
-            .filter_map(|(id, obj)| {
-                if *id == intended_id {
+        // Weapon.cpp:1283 iterateObjectsInRange — partition fastest-iterator
+        // order, never HostObjectStore registration order.
+        let ordered_ids = self.partition_manager.ids_in_radius_iterator_order(
+            impact.x,
+            impact.z,
+            max_r,
+            |_| true,
+        );
+        let candidates: Vec<(ObjectId, f32)> = ordered_ids
+            .into_iter()
+            .filter_map(|raw| {
+                let id = ObjectId(raw);
+                if id == intended_id {
                     return None;
                 }
+                let obj = self.objects.lookup(&id)?;
                 if !obj.is_alive() {
                     return None;
                 }
@@ -649,7 +658,7 @@ impl GameLogic {
                         affects & !doesnt_affect_similar,
                         mask_relationship,
                         attacker_id,
-                        *id,
+                        id,
                         attacker_producer,
                         airborne,
                         false,
@@ -665,7 +674,7 @@ impl GameLogic {
                 if dist > max_r {
                     return None;
                 }
-                Some((*id, dist))
+                Some((id, dist))
             })
             .collect();
         let mut hits = 0u32;
@@ -870,13 +879,20 @@ impl GameLogic {
             .unwrap_or_default();
         let source_present = self.objects.lookup(&attacker_id).is_some();
         let players = &self.players;
-        let candidates: Vec<(ObjectId, f32)> = self
-            .objects
-            .registered()
-            .filter_map(|(id, obj)| {
-                if *id == skip_id {
+        let ordered_ids = self.partition_manager.ids_in_radius_iterator_order(
+            impact.x,
+            impact.z,
+            max_r,
+            |_| true,
+        );
+        let candidates: Vec<(ObjectId, f32)> = ordered_ids
+            .into_iter()
+            .filter_map(|raw| {
+                let id = ObjectId(raw);
+                if id == skip_id {
                     return None;
                 }
+                let obj = self.objects.lookup(&id)?;
                 if !obj.is_alive() {
                     return None;
                 }
@@ -937,7 +953,7 @@ impl GameLogic {
                         affects & !doesnt_affect_similar,
                         mask_relationship,
                         attacker_id,
-                        *id,
+                        id,
                         attacker_producer,
                         airborne,
                         false,
@@ -953,7 +969,7 @@ impl GameLogic {
                 if dist > max_r {
                     return None;
                 }
-                Some((*id, dist))
+                Some((id, dist))
             })
             .collect();
         let mut hits = 0u32;

@@ -30,6 +30,8 @@ mod physics;
 mod presence;
 mod production;
 mod shock;
+#[cfg(test)]
+mod splash_partition_order_tests;
 mod sleepy;
 mod step;
 pub(crate) use step::{
