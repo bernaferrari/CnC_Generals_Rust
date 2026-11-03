@@ -1070,7 +1070,14 @@ impl TerrainVisualImpl {
                 }
             }
         }
-        candidates.push(with_ext(class_name));
+        // C++ WorldHeightMap::readTexClass always opens under
+        // TERRAIN_TGA_DIR_PATH even when TheTerrainTypes has no match
+        // (#ifdef LOAD_TEST_ASSETS opens the bare class name as a fallback).
+        // ZH-only TerrainZH.big lacks ground tiles; base Generals Terrain.big
+        // holds TMSnow/TLCliff/TXRock — those paths must be tried every time.
+        let class_file = with_ext(class_name);
+        candidates.push(format!("{TERRAIN_TGA_DIR_PATH}{class_file}"));
+        candidates.push(class_file);
         candidates
     }
 
