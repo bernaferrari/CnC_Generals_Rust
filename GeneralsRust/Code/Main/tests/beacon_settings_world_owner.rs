@@ -129,7 +129,7 @@ fn authored_beacon_cap_and_template_are_session_owned_through_admission_and_rese
     assert!(place(&mut one, 1, 11.0, "one").is_ok_and(|r| r == CommandResult::Success));
     assert!(place(&mut two, 1, 11.0, "two").is_ok_and(|r| r == CommandResult::Success));
     let id = *one.host_objects().registered_keys().next().unwrap();
-    assert!(*two.host_objects().registered_keys().next().unwrap(), id);
+    assert_eq!(*two.host_objects().registered_keys().next().unwrap(), id);
     assert_eq!(one.host_object(id).unwrap().template_name, "SignalGlyph");
     assert_eq!(two.host_object(id).unwrap().template_name, "RallyMarker");
     assert!(host_object_is_beacon(&one, id));
@@ -139,7 +139,7 @@ fn authored_beacon_cap_and_template_are_session_owned_through_admission_and_rese
     assert!(!host_local_player_can_place_beacon(&one, 1));
     assert!(host_local_player_can_place_beacon(&two, 1));
 
-    assert_eq!(
+    assert!(
         place(&mut one, 1, 21.0, "overflow").is_ok_and(|r| r == CommandResult::InvalidCommand));
     // C++ countObjectsByThingTemplate is called with ignoreDead=false. A
     // beacon retained as effectively dead and awaiting destruction still
@@ -161,7 +161,7 @@ fn authored_beacon_cap_and_template_are_session_owned_through_admission_and_rese
         "C++ destroyObject marks the beacon before deferred physical removal"
     );
     assert!(two.host_object(id).is_some());
-    assert!(host_beacon_caption(&two, id).as_deref(), Some("two"));
+    assert_eq!(host_beacon_caption(&two, id).as_deref(), Some("two"));
 
     // Restart preserves this receiving session's admitted application rule.
     assert!(one.start_new_game_with_player_template(
@@ -173,7 +173,7 @@ fn authored_beacon_cap_and_template_are_session_owned_through_admission_and_rese
         },
     ));
     assert!(one.load_map(one_root.path().join("one.map").to_str().unwrap()));
-    assert_eq!(
+    assert!(
         place(&mut one, 1, 31.0, "after reset").is_ok_and(|r| r == CommandResult::Success));
     assert!(place(&mut one, 1, 41.0, "still capped").is_ok_and(|r| r == CommandResult::InvalidCommand));
 }

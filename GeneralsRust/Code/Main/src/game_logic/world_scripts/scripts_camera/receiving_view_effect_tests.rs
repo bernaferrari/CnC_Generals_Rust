@@ -115,7 +115,7 @@ fn authored_enable_slave_then_home_samples_current_receiving_owner_before_walk_r
             ),
         )
         .unwrap();
-    assert!(backend.calls.len(),
+    assert_eq!(backend.calls.len(),
         2,
         "invalid cache performs both original build queries in this action"
     );
@@ -198,7 +198,7 @@ fn actual_radar_command_borrows_receiving_slave_view_without_peer_delivery() {
     )
     .execute_command(command)
     .unwrap();
-    assert_eq!(result.is_ok_and(|r| r == crate::command_system::CommandResult::Success));
+    assert!(result == crate::command_system::CommandResult::Success);
     assert!(
         !receiving.calls.is_empty(),
         "actual radar LookAt must sample its native receiver synchronously"

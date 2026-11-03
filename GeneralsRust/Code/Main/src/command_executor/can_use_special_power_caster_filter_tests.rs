@@ -39,7 +39,7 @@ fn frenzy_execute_rejects_selection_without_module() {
 
     {
         let exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.special_power_source_object(&[tank_id], &SpecialPowerType::Frenzy),
+        assert_eq!(exec.special_power_source_object(&[tank_id], &SpecialPowerType::Frenzy),
             None
         );
     }
@@ -124,7 +124,7 @@ fn cash_hack_and_defector_consume_only_on_valid_object() {
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
+        assert!(
             exec.execute_special_power_at_location(
                 &[caster],
                 &SpecialPowerType::CashHack,
@@ -242,7 +242,7 @@ fn microwave_disable_building_starts_hdb_channel() {
             ).is_ok_and(|r| r == CommandResult::Success), "Microwave Disable Building must not be hard-rejected");
     }
     let issued = logic.host_object(tank_id).expect("tank after issue");
-    assert!(issued.ai_state(), AIState::SpecialAbility);
+    assert_eq!(issued.ai_state(), AIState::SpecialAbility);
     assert_eq!(issued.target, Some(building_id));
     assert_eq!(
         issued
@@ -300,7 +300,7 @@ fn baikonur_location_does_not_open_door_object_does_not_spend() {
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
+        assert!(
             exec.execute_special_power(
                 &[tower_id],
                 &SpecialPowerType::BaikonurRocket,
@@ -312,11 +312,11 @@ fn baikonur_location_does_not_open_door_object_does_not_spend() {
         "object click must not spend the Baikonur charge"
     );
     let bits = logic.host_object(tower_id).unwrap().model_condition_bits;
-    assert!(bits, 0, "object click must not open the door");
+    assert_eq!(bits, 0, "object click must not open the door");
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
+        assert!(
             exec.execute_special_power(
                 &[tower_id],
                 &SpecialPowerType::BaikonurRocket,
@@ -324,7 +324,7 @@ fn baikonur_location_does_not_open_door_object_does_not_spend() {
             ).is_ok_and(|r| r == CommandResult::Success));
     }
     let bits = logic.host_object(tower_id).unwrap().model_condition_bits;
-    assert!(bits, 0, "location fire must not set DOOR_1_OPENING");
+    assert_eq!(bits, 0, "location fire must not set DOOR_1_OPENING");
     assert!(
         logic
             .host_objects()
@@ -382,7 +382,7 @@ fn battleship_object_target_locks_object_not_position() {
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
+        assert!(
             exec.execute_special_power(
                 &[ship_id],
                 &SpecialPowerType::BattleshipBombardment,
@@ -390,7 +390,7 @@ fn battleship_object_target_locks_object_not_position() {
             ).is_ok_and(|r| r == CommandResult::Success));
     }
     let ship = logic.host_object(ship_id).expect("ship after fire");
-    assert!(ship.target, Some(tgt_id));
+    assert_eq!(ship.target, Some(tgt_id));
     assert!(ship.target_location.is_none());
     assert_eq!(ship.turret_target_id, Some(tgt_id));
     assert!(

@@ -279,7 +279,7 @@ mod tests {
     fn admitted_return_appends_real_goal_once_and_deletes_without_damage() {
         let (mut logic, id) = carrier();
         let (peer, peer_id) = carrier();
-        assert!(id, peer_id);
+        assert_eq!(id, peer_id);
         let origin = logic.host_object(id).unwrap().get_position();
         {
             let object = logic.host_object_mut(id).unwrap();
@@ -555,7 +555,7 @@ mod tests {
         );
         assert_eq!(owner.movement.path, path);
         assert!(logic.unit_command_set_pending_evacuate(id, true, true, true));
-        assert_eq!(
+        assert!(
             crate::command_executor::CommandExecutor::new(&mut logic, 0)
                 .execute_move_to_and_evacuate(&[id], Vec3::new(70.0, 0.0, 70.0), true).is_ok_and(|r| r == crate::command_system::CommandResult::Success));
         assert_eq!(logic.host_object(id).unwrap().movement.path, path);

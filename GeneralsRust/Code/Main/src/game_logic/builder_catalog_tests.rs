@@ -56,7 +56,7 @@ fn assert_constructor_admission(world: &mut GameLogic, name: &str) {
         "actual {name} construction permission"
     );
     assert!(object.can_repair(), "actual {name} repair permission");
-    assert!(world.unit_owner_if_can_construct(builder),
+    assert_eq!(world.unit_owner_if_can_construct(builder),
         Some((0, object.team))
     );
     world.admit_fixture_command_action_source(
@@ -65,8 +65,8 @@ fn assert_constructor_admission(world: &mut GameLogic, name: &str) {
     world.host_object_mut(builder).unwrap().command_set_override = Some("CatalogScaffoldBuildSet".into());
     let cash = world.get_player(0).unwrap().effective_supplies();
     assert_eq!(
-        construct(world, builder).is_ok_and(|r| r == CommandResult::Success), "actual {name} DozerConstruct");
-    assert!(world.get_player(0).unwrap().effective_supplies(),
+        construct(world, builder) == CommandResult::Success, "actual {name} DozerConstruct");
+    assert_eq!(world.get_player(0).unwrap().effective_supplies(),
         cash - 300
     );
     let site = world
@@ -132,8 +132,8 @@ fn constructor_admission_does_not_promote_worker_harvester_or_names() {
         assert!(object.can_move());
         assert!(!object.can_construct());
         assert!(!object.can_repair());
-        assert_eq!(construct(&mut owner, id).is_ok_and(|r| r == CommandResult::InvalidCommand));
-        assert!(owner.get_player(0).unwrap().effective_supplies(), 1000);
+        assert!(construct(&mut owner, id).is_ok_and(|r| r == CommandResult::InvalidCommand));
+        assert_eq!(owner.get_player(0).unwrap().effective_supplies(), 1000);
         assert!(
             !owner
                 .host_objects()
@@ -162,15 +162,15 @@ fn same_id_constructor_admission_preserves_peer_cash_and_task() {
     peer.host_object_mut(peer_id).unwrap().command_set_override = Some("CatalogScaffoldBuildSet".into());
     assert_eq!(id, peer_id);
     let peer_count = peer.host_objects().registered_len();
-    assert_eq!(construct(&mut owner, id).is_ok_and(|r| r == CommandResult::Success));
-    assert!(owner.get_player(0).unwrap().effective_supplies(), 700);
+    assert!(construct(&mut owner, id) == CommandResult::Success);
+    assert_eq!(owner.get_player(0).unwrap().effective_supplies(), 700);
     assert_eq!(peer.get_player(0).unwrap().effective_supplies(), 1000);
     assert_eq!(peer.host_objects().registered_len(), peer_count);
     assert_eq!(
         peer.host_object(peer_id).unwrap().dozer_task_build_target(),
         None
     );
-    assert_eq!(construct(&mut peer, peer_id).is_ok_and(|r| r == CommandResult::Success));
+    assert!(construct(&mut peer, peer_id) == CommandResult::Success);
     assert_eq!(peer.get_player(0).unwrap().effective_supplies(), 700);
     assert_eq!(owner.get_player(0).unwrap().effective_supplies(), 700);
 }

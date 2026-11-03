@@ -16,7 +16,7 @@ fn legacy_weapon_command_without_shot_field_uses_cxx_no_max_default() {
         .remove("max_shots_to_fire");
 
     let decoded: CommandType = serde_json::from_value(encoded).expect("deserialize legacy command");
-    assert!(decoded, original);
+    assert_eq!(decoded, original);
 }
 
 #[test]
@@ -126,7 +126,7 @@ fn test_command_execution() {
     };
 
     let result = system.execute_command(&command, &mut game_logic);
-    assert_eq!(result.is_ok_and(|r| r == CommandResult::Success));
+    assert!(result == CommandResult::Success);
 }
 
 #[test]
@@ -491,10 +491,10 @@ fn queue_upgrade_deducts_once_per_team_and_prevents_duplicate_queue() {
     };
 
     let first_result = system.execute_command(&queue_command, &mut game_logic);
-    assert!(first_result.is_ok_and(|r| r == CommandResult::Success));
+    assert!(first_result == CommandResult::Success);
 
     let player_after_first = game_logic.get_player(0).expect("player should exist");
-    assert!(player_after_first.effective_supplies(),
+    assert_eq!(player_after_first.effective_supplies(),
         4200,
         "upgrade cost should be charged once per team, not per selected unit (retail SupplyLines=800)"
     );
@@ -505,7 +505,7 @@ fn queue_upgrade_deducts_once_per_team_and_prevents_duplicate_queue() {
     );
 
     let second_result = system.execute_command(&queue_command, &mut game_logic);
-    assert_eq!(second_result.is_ok_and(|r| r == CommandResult::InvalidCommand));
+    assert!(second_result == CommandResult::InvalidCommand);
 }
 
 #[test]
@@ -535,7 +535,7 @@ fn queue_upgrade_identity_matches_ini_name_variants() {
         selected_units: vec![ObjectId(251)],
         modifier_keys: ModifierKeys::default(),
     };
-    assert!(system.execute_command(&queue_command, &mut game_logic).is_ok_and(|r| r == CommandResult::Success));
+    assert!(system.execute_command(&queue_command, &mut game_logic) == CommandResult::Success);
 
     let variant_command = GameCommand {
         command_type: CommandType::QueueUpgrade {
@@ -547,7 +547,7 @@ fn queue_upgrade_identity_matches_ini_name_variants() {
         selected_units: vec![ObjectId(251)],
         modifier_keys: ModifierKeys::default(),
     };
-    assert!(system.execute_command(&variant_command, &mut game_logic).is_ok_and(|r| r == CommandResult::InvalidCommand), "same upgrade should not be charged twice when naming style differs");
+    assert!(system.execute_command(&variant_command, &mut game_logic) == CommandResult::InvalidCommand, "same upgrade should not be charged twice when naming style differs");
 
     let cancel_variant = GameCommand {
         command_type: CommandType::CancelUpgrade {
@@ -559,10 +559,10 @@ fn queue_upgrade_identity_matches_ini_name_variants() {
         selected_units: vec![ObjectId(251)],
         modifier_keys: ModifierKeys::default(),
     };
-    assert!(system.execute_command(&cancel_variant, &mut game_logic).is_ok_and(|r| r == CommandResult::Success), "cancel should find the queued upgrade by normalized INI identity");
+    assert!(system.execute_command(&cancel_variant, &mut game_logic) == CommandResult::Success, "cancel should find the queued upgrade by normalized INI identity");
 
     let player = game_logic.get_player(0).expect("player should exist");
-    assert!(player.effective_supplies(), 5000);
+    assert_eq!(player.effective_supplies(), 5000);
     assert!(player.queued_upgrades.is_empty());
 }
 
@@ -590,8 +590,8 @@ fn purchase_science_identity_matches_command_name_variants() {
         selected_units: Vec::new(),
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(
-        system.execute_command(&purchase_command, &mut game_logic).is_ok_and(|r| r == CommandResult::Success));
+    assert!(
+        system.execute_command(&purchase_command, &mut game_logic) == CommandResult::Success);
 
     let variant_command = GameCommand {
         command_type: CommandType::PurchaseScience {
@@ -603,10 +603,10 @@ fn purchase_science_identity_matches_command_name_variants() {
         selected_units: Vec::new(),
         modifier_keys: ModifierKeys::default(),
     };
-    assert!(system.execute_command(&variant_command, &mut game_logic).is_ok_and(|r| r == CommandResult::InvalidCommand), "same science should not be charged twice when naming style differs");
+    assert!(system.execute_command(&variant_command, &mut game_logic) == CommandResult::InvalidCommand, "same science should not be charged twice when naming style differs");
 
     let player = game_logic.get_player(0).expect("player should exist");
-    assert!(player.effective_supplies(),
+    assert_eq!(player.effective_supplies(),
         3000,
         "science purchase must not spend supplies residual"
     );
@@ -668,9 +668,9 @@ fn sell_refunds_queued_production() {
             selected_units: vec![barracks_id],
             modifier_keys: ModifierKeys::default(),
         };
-        assert_eq!(
-            system.execute_command(&queue_command, &mut game_logic).is_ok_and(|r| r == CommandResult::Success));
-        assert!(game_logic.get_player(0).unwrap().effective_supplies(),
+        assert!(
+            system.execute_command(&queue_command, &mut game_logic) == CommandResult::Success);
+        assert_eq!(game_logic.get_player(0).unwrap().effective_supplies(),
             900,
             "queued unit should charge before selling"
         );
@@ -685,12 +685,12 @@ fn sell_refunds_queued_production() {
             selected_units: vec![barracks_id],
             modifier_keys: ModifierKeys::default(),
         };
-        assert_eq!(
-            system.execute_command(&sell_command, &mut game_logic).is_ok_and(|r| r == CommandResult::Success));
+        assert!(
+            system.execute_command(&sell_command, &mut game_logic) == CommandResult::Success);
 
         // C++ BuildAssistant::sellObject cancels production at sell start;
         // structure refund deposits when sell finishes (~90 frames).
-        assert!(game_logic.get_player(0).unwrap().effective_supplies(),
+        assert_eq!(game_logic.get_player(0).unwrap().effective_supplies(),
             1_000,
             "sell start should refund queued production immediately"
         );
@@ -775,8 +775,8 @@ fn sell_refund_uses_global_sell_percentage() {
             selected_units: vec![barracks_id],
             modifier_keys: ModifierKeys::default(),
         };
-        assert_eq!(
-            system.execute_command(&sell_command, &mut game_logic).is_ok_and(|r| r == CommandResult::Success));
+        assert!(
+            system.execute_command(&sell_command, &mut game_logic) == CommandResult::Success);
 
         // Structure refund deposits at sell finish (C++ BuildAssistant::update).
         for step in 1..=200u64 {
@@ -791,7 +791,7 @@ fn sell_refund_uses_global_sell_percentage() {
             game_logic.host_object(barracks_id).is_none(),
             "sell finish should destroy structure"
         );
-        assert!(game_logic.get_player(0).unwrap().effective_supplies(),
+        assert_eq!(game_logic.get_player(0).unwrap().effective_supplies(),
             250,
             "sell refund should use GlobalData SellPercentage (effective under economy auth)"
         );
@@ -833,15 +833,15 @@ fn cancel_construction_refunds_full_build_cost() {
         modifier_keys: ModifierKeys::default(),
     };
 
-    assert_eq!(
-        system.execute_command(&cancel_command, &mut game_logic).is_ok_and(|r| r == CommandResult::Success));
+    assert!(
+        system.execute_command(&cancel_command, &mut game_logic) == CommandResult::Success);
     game_logic.update();
 
     assert!(
         game_logic.host_object(barracks_id).is_none(),
         "cancelled construction should be destroyed"
     );
-    assert!(game_logic.get_player(0).unwrap().effective_supplies(),
+    assert_eq!(game_logic.get_player(0).unwrap().effective_supplies(),
         1_000,
         "C++ dozer cancel refunds the full build cost"
     );
@@ -885,15 +885,15 @@ fn cancel_construction_rejects_enemy_structure() {
         modifier_keys: ModifierKeys::default(),
     };
 
-    assert_eq!(
-        system.execute_command(&cancel_command, &mut game_logic).is_ok_and(|r| r == CommandResult::InvalidTarget));
+    assert!(
+        system.execute_command(&cancel_command, &mut game_logic) == CommandResult::InvalidTarget);
     game_logic.update();
 
     assert!(
         game_logic.host_object(barracks_id).is_some(),
         "enemy cancel command must not destroy the target"
     );
-    assert!(game_logic.get_player(2).unwrap().effective_supplies(),
+    assert_eq!(game_logic.get_player(2).unwrap().effective_supplies(),
         0,
         "enemy cancel command must not refund the issuing player"
     );
@@ -1752,8 +1752,8 @@ fn cancel_upgrade_refunds_only_when_upgrade_is_queued() {
         selected_units: vec![ObjectId(301)],
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(
-        system.execute_command(&queue_command, &mut game_logic).is_ok_and(|r| r == CommandResult::Success));
+    assert!(
+        system.execute_command(&queue_command, &mut game_logic) == CommandResult::Success);
 
     let cancel_command = GameCommand {
         command_type: CommandType::CancelUpgrade {
@@ -1765,10 +1765,10 @@ fn cancel_upgrade_refunds_only_when_upgrade_is_queued() {
         selected_units: vec![ObjectId(301)],
         modifier_keys: ModifierKeys::default(),
     };
-    assert!(system.execute_command(&cancel_command, &mut game_logic).is_ok_and(|r| r == CommandResult::Success));
+    assert!(system.execute_command(&cancel_command, &mut game_logic) == CommandResult::Success);
 
     let player_after_cancel = game_logic.get_player(0).expect("player should exist");
-    assert!(player_after_cancel.effective_supplies(),
+    assert_eq!(player_after_cancel.effective_supplies(),
         3000,
         "cancel should refund the queued upgrade cost"
     );
@@ -1778,8 +1778,7 @@ fn cancel_upgrade_refunds_only_when_upgrade_is_queued() {
             .contains("Upgrade_AmericaSupplyLines")
     );
 
-    assert_eq!(
-        system.execute_command(&cancel_command, &mut game_logic).is_ok_and(|r| r == CommandResult::InvalidCommand), "cancelling a non-queued upgrade should not issue another refund");
+    assert!(system.execute_command(&cancel_command, &mut game_logic) == CommandResult::InvalidCommand, "cancelling a non-queued upgrade should not issue another refund");
 }
 
 #[test]
@@ -1810,9 +1809,9 @@ fn queue_upgrade_requires_constructed_building_source() {
         modifier_keys: ModifierKeys::default(),
     };
 
-    assert!(system.execute_command(&command, &mut game_logic).is_ok_and(|r| r == CommandResult::InvalidCommand));
+    assert!(system.execute_command(&command, &mut game_logic) == CommandResult::InvalidCommand);
     let player_after = game_logic.get_player(0).expect("player should exist");
-    assert!(player_after.effective_supplies(),
+    assert_eq!(player_after.effective_supplies(),
         3000,
         "non-producing units must not charge upgrade resources"
     );
@@ -1846,10 +1845,9 @@ fn queue_upgrade_refuses_command_set_without_upgrade_button() {
         selected_units: vec![ObjectId(501)],
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(
-        system.execute_command(&command, &mut game_logic).is_ok_and(|r| r == CommandResult::InvalidCommand), "Barracks CommandSet has no SupplyLines button");
+    assert!(system.execute_command(&command, &mut game_logic) == CommandResult::InvalidCommand, "Barracks CommandSet has no SupplyLines button");
     let player_after = game_logic.get_player(0).expect("player");
-    assert!(player_after.effective_supplies(), 5000);
+    assert_eq!(player_after.effective_supplies(), 5000);
     assert!(!player_after.has_queued_upgrade("Upgrade_AmericaSupplyLines"));
 }
 
@@ -1899,8 +1897,8 @@ fn queued_upgrade_completes_during_simulation_update() {
         selected_units: vec![ObjectId(401)],
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(
-        system.execute_command(&command, &mut game_logic).is_ok_and(|r| r == CommandResult::Success));
+    assert!(
+        system.execute_command(&command, &mut game_logic) == CommandResult::Success);
 
     let player_after_queue = game_logic.get_player(0).expect("player should exist");
     assert!(
@@ -1944,7 +1942,7 @@ fn queued_upgrade_completes_during_simulation_update() {
             .unlocked_sciences
             .contains("Upgrade_AmericaSupplyLines")
     );
-    assert!(system.execute_command(&command, &mut game_logic).is_ok_and(|r| r == CommandResult::InvalidCommand), "completed upgrades should not be queued or charged again");
+    assert!(system.execute_command(&command, &mut game_logic) == CommandResult::InvalidCommand, "completed upgrades should not be queued or charged again");
 }
 
 #[test]
