@@ -105,9 +105,25 @@ impl AttackPriorityTable {
             return Err(XferStatus::InvalidParameters);
         }
         if xfer.get_xfer_mode() == XferMode::Load {
-            self.rows.clear();
-            self.rows
-                .resize_with(attack_priority_size as usize, AttackPriorityInfo::new);
+            // Stage rows so a malformed load leaves the live table untouched.
+            let size = attack_priority_size as usize;
+            let mut rows = Vec::with_capacity(size);
+            rows.resize_with(size, AttackPriorityInfo::new);
+            for row in rows.iter_mut() {
+                row.xfer(xfer)?;
+            }
+            let mut num_attack_info: i32 = 0;
+            xfer.xfer_int(&mut num_attack_info)?;
+            // C++ keeps m_numAttackInfo in 1..=MAX and allocates exactly that many rows.
+            if num_attack_info < 1
+                || num_attack_info as usize > MAX_ATTACK_PRIORITIES
+                || num_attack_info as usize != size
+            {
+                return Err(XferStatus::InvalidData);
+            }
+            self.rows = rows;
+            self.count = size;
+            return Ok(());
         }
         for i in 0..attack_priority_size as usize {
             self.rows[i].xfer(xfer)?;
@@ -115,9 +131,6 @@ impl AttackPriorityTable {
 
         let mut num_attack_info = self.count as i32;
         xfer.xfer_int(&mut num_attack_info)?;
-        if xfer.get_xfer_mode() == XferMode::Load {
-            self.count = num_attack_info as usize;
-        }
 
         Ok(())
     }

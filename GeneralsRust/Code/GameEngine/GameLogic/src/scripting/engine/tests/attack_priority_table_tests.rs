@@ -210,3 +210,57 @@ fn base_xfer_round_trip_keeps_priority_wire_and_rng() {
     );
     println!("priority_table_wire={saved:02x?}");
 }
+
+fn saved_table(names: &[&str]) -> (AttackPriorityTable, Vec<u8>) {
+    let mut table = AttackPriorityTable::new();
+    table.ensure_default();
+    for (i, name) in names.iter().enumerate() {
+        table.with_mut(name, true, |info| info.default_priority = i as i32 + 5);
+    }
+    let mut out = Cursor::new(Vec::new());
+    table.xfer(&mut XferSave::new(&mut out, 1)).unwrap();
+    (table, out.into_inner())
+}
+
+fn table_rows(table: &AttackPriorityTable) -> Vec<(String, i32)> {
+    table
+        .entries()
+        .iter()
+        .map(|r| (r.name.clone(), r.default_priority))
+        .collect()
+}
+
+/// ScriptEngine.cpp:8923-8941: the int live count must agree with the ushort
+/// row prefix (1..=MAX_ATTACK_PRIORITIES); malformed loads leave the table intact.
+#[test]
+fn malformed_attack_priority_count_load_rejects_and_preserves_table() {
+    let _serial = crate::test_sync::lock();
+    let (_, wire) = saved_table(&["Zulu", "Alpha"]);
+    let mut cases: Vec<(&str, Vec<u8>)> = Vec::new();
+    for (label, count) in [
+        ("negative", -1i32),
+        ("zero", 0),
+        ("over_max", MAX_ATTACK_PRIORITIES as i32 + 1),
+        ("mismatch_high", 4),
+        ("mismatch_low", 2),
+    ] {
+        let mut bad = wire.clone();
+        let n = bad.len();
+        bad[n - 4..].copy_from_slice(&count.to_le_bytes());
+        cases.push((label, bad));
+    }
+    cases.push(("truncated", wire[..wire.len() - 2].to_vec()));
+    for (label, bad) in cases {
+        let (mut target, _) = saved_table(&["Keep"]);
+        let before = table_rows(&target);
+        let result = target.xfer(&mut XferLoad::new(Cursor::new(bad), 1));
+        assert!(result.is_err(), "{label}: malformed count accepted");
+        if label != "truncated" {
+            assert_eq!(result.err(), Some(XferStatus::InvalidData), "{label}");
+        }
+        assert_eq!(table_rows(&target), before, "{label}: table not preserved");
+    }
+    let (mut ok, _) = saved_table(&["Keep"]);
+    ok.xfer(&mut XferLoad::new(Cursor::new(wire), 1)).unwrap();
+    assert_eq!(table_rows(&ok).len(), 3);
+}
