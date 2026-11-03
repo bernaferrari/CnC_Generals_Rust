@@ -74,6 +74,8 @@ impl GameClient {
     pub fn new_with_input_authority(
         input_authority: ClientInputAuthority,
     ) -> GameClientResult<Self> {
+        #[cfg(test)]
+        crate::test_support::ensure_ambient_host();
         let window_manager_owner = WindowManagerOwner::new();
         let client = Self {
             window_manager_owner,
