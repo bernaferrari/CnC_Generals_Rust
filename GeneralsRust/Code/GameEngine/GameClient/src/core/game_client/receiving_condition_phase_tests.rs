@@ -67,7 +67,6 @@ struct Observation {
 fn run_public_phase(decal: bool, expires: bool, restore: bool) -> Result<Observation, String> {
     // Existing application boundaries, restored before any test assertions.
     // No fixture serialization mutex or ambient frame mutation is introduced.
-    get_shell().init().map_err(|error| error.to_string())?;
     let previous_bridge = crate::render_bridge::THE_RENDER_BRIDGE
         .lock()
         .unwrap()

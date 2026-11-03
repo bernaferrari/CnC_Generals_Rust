@@ -3,6 +3,20 @@
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gui::callbacks::control_bar_callbacks::ControlBarViewport;
+
+    struct OwnedViewport {
+        display: (u32, u32),
+        height: i32,
+    }
+    impl ControlBarViewport for OwnedViewport {
+        fn display_size(&self) -> (u32, u32) {
+            self.display
+        }
+        fn set_height_px(&mut self, height: i32) {
+            self.height = height;
+        }
+    }
 
     include!("presentation_input_owner_tests.rs");
     include!("shortcut_upgrade_population_tests.rs");
@@ -30,7 +44,7 @@ mod tests {
                     parent.borrow_mut().set_name(CONTROL_BAR_PARENT);
                     parent
                 });
-                reveal_ingame_command_window();
+                owner.with_manager(|wm| reveal_ingame_command_window(wm));
                 assert_eq!(
                     parent.borrow().get_position(),
                     (0, authored_y),
@@ -73,7 +87,11 @@ mod tests {
             assert_eq!(default_marker, (6, 476));
 
             let mut bar = ControlBar::new();
-            bar.switch_control_bar_stage(ControlBarStage::Low);
+            owner.with_manager(|wm| {
+                let mut viewport = OwnedViewport { display: (wm.screen_size().0.max(0) as u32, wm.screen_size().1.max(0) as u32), height: wm.screen_size().1 };
+                let parent = leftover_find_window(CONTROL_BAR_PARENT, wm);
+                bar.switch_control_bar_stage_on_window_owned(ControlBarStage::Low, &mut viewport, false, parent, wm);
+            });
             assert_eq!(parent.borrow().get_position(), (0, 432));
             assert_eq!(marker.borrow().get_screen_position(), (6, 576));
 
@@ -82,10 +100,8 @@ mod tests {
             // so restoring Default shifted scheme artwork upward by 100 pixels.
             for _ in 0..4 {
                 let window = marker.borrow();
-                crate::gui::w3d_gadget_draw::w3d_command_bar_background_draw(
-                    &window,
-                    window.instance_data(),
-                );
+                { let mut __draw = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default());
+                crate::gui::w3d_gadget_draw::w3d_command_bar_background_draw(&window, window.instance_data(), &mut __draw); };
             }
             let scheme = manager.read();
             let background_base = scheme.get_background_marker_pos();
@@ -93,7 +109,11 @@ mod tests {
             assert_eq!((background_base.x, background_base.y), default_marker);
             assert_eq!((foreground_base.x, foreground_base.y), default_marker);
             drop(scheme);
-            bar.switch_control_bar_stage(ControlBarStage::Default);
+            owner.with_manager(|wm| {
+                let mut viewport = OwnedViewport { display: (wm.screen_size().0.max(0) as u32, wm.screen_size().1.max(0) as u32), height: wm.screen_size().1 };
+                let parent = leftover_find_window(CONTROL_BAR_PARENT, wm);
+                bar.switch_control_bar_stage_on_window_owned(ControlBarStage::Default, &mut viewport, false, parent, wm);
+            });
             assert_eq!(parent.borrow().get_position(), (0, 332));
             let restored_marker = marker.borrow().get_screen_position();
             let restored_base = manager.read().get_background_marker_pos();
@@ -359,10 +379,8 @@ mod tests {
         window.set_name("ControlBar.wnd:BackgroundMarker");
         let _ = window.set_position(0, 460);
         let _ = window.test_set_size(800, 140);
-        crate::gui::w3d_gadget_draw::w3d_command_bar_background_draw(
-            &window,
-            window.instance_data(),
-        );
+        { let mut __draw = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default());
+                crate::gui::w3d_gadget_draw::w3d_command_bar_background_draw(&window, window.instance_data(), &mut __draw); };
         assert_eq!(
             crate::gui::w3d_gadget_draw::shipped_ui_draw_command_count(),
             0,
@@ -419,7 +437,7 @@ mod tests {
                 power
             });
             let check = |bar: &mut ControlBar, produced, consumed| {
-                bar.update_money_and_power_windows();
+                owner.with_manager(|wm| bar.update_money_and_power_windows(wm));
                 assert_eq!(
                     power.borrow().get_text(),
                     ControlBar::format_control_bar_power_display(produced, consumed)
@@ -441,13 +459,13 @@ mod tests {
             a.apply_presentation_power(-3, -5);
             check(&mut a, 0, 0);
             a.apply_presentation_power(80, 20);
-            a.reset().unwrap();
+            owner.with_manager(|wm| a.reset(wm)).unwrap();
             a.apply_presentation_money(100);
             check(&mut a, 0, 0);
             check(&mut b, 10, 50);
             assert!(!power.borrow().is_hidden());
-            b.reset().unwrap();
-            b.update_money_and_power_windows();
+            owner.with_manager(|wm| b.reset(wm)).unwrap();
+            owner.with_manager(|wm| b.update_money_and_power_windows(wm));
             assert!(
                 power.borrow().is_hidden(),
                 "no money player hides PowerWindow"
@@ -497,7 +515,7 @@ mod tests {
             let mut bar = ControlBar::new();
             bar.apply_presentation_money(1250);
             owner.with_manager(|manager| manager.test_destroy_all_windows());
-            bar.update_money_and_power_windows(); // Host snapshot arrived before its WND.
+            owner.with_manager(|wm| bar.update_money_and_power_windows(wm)); // Host snapshot arrived before its WND.
             for _ in 0..2 {
                 let win = owner.with_manager(|manager| {
                     manager.test_destroy_all_windows();
@@ -506,7 +524,7 @@ mod tests {
                     win.borrow_mut().set_text("$$$").unwrap();
                     win
                 });
-                bar.update_money_and_power_windows();
+                owner.with_manager(|wm| bar.update_money_and_power_windows(wm));
                 assert_eq!(
                     win.borrow().get_text(),
                     ControlBar::format_control_bar_money_display(1250),
@@ -514,8 +532,8 @@ mod tests {
                 );
             }
             gamelogic::player::player_list().write().unwrap().clear();
-            bar.reset().unwrap();
-            bar.update_money_and_power_windows();
+            owner.with_manager(|wm| bar.reset(wm)).unwrap();
+            owner.with_manager(|wm| bar.update_money_and_power_windows(wm));
             let hidden = owner.with_manager_ref(|manager| {
                 manager
                     .find_window_by_name("ControlBar.wnd:MoneyDisplay")
@@ -543,7 +561,7 @@ mod tests {
                     let _ = win.borrow_mut().set_text("PLACEHOLDER");
                 });
                 let mut bar = ControlBar::new();
-                bar.update_money_and_power_windows();
+                owner.with_manager(|wm| bar.update_money_and_power_windows(wm));
                 let text = owner.with_manager_ref(|manager| {
                     manager
                         .find_window_by_name("ControlBar.wnd:MoneyDisplay")
@@ -593,7 +611,21 @@ mod tests {
                         .map(|w| w.borrow().is_hidden())
                 })
             };
-            ControlBar::new().switch_control_bar_stage(ControlBarStage::Default);
+            owner.with_manager(|wm| {
+                let mut bar = ControlBar::new();
+                let mut viewport = OwnedViewport {
+                    display: (wm.screen_size().0.max(0) as u32, wm.screen_size().1.max(0) as u32),
+                    height: wm.screen_size().1,
+                };
+                let parent = leftover_find_window(CONTROL_BAR_PARENT, wm);
+                bar.switch_control_bar_stage_on_window_owned(
+                    ControlBarStage::Default,
+                    &mut viewport,
+                    false,
+                    parent,
+                    wm,
+                );
+            });
             assert_eq!(
                 read_hidden("ControlBar.wnd:ObserverPlayerInfoWindow"),
                 Some(true),

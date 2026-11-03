@@ -2,6 +2,7 @@ use super::*;
 
 #[cfg(test)]
 mod tests {
+    use crate::gui::game_window::WindowEventEffects;
     use super::*;
 
     const RETAIL_WINDOW_TRANSITIONS: &str =
@@ -330,7 +331,9 @@ mod tests {
         }
 
         let pop_immediate = true;
-        menu.shutdown(&(), Some(&pop_immediate)).unwrap();
+        WindowEventEffects::with_standalone(|effects| {
+            menu.shutdown(&(), Some(&pop_immediate), effects).unwrap();
+        });
 
         let state = &menu.state;
         assert!(!state.is_shutting_down);
@@ -407,7 +410,9 @@ mod tests {
             state.disp_changed = true;
         }
 
-        let reverted = menu.rollback_resolution_state();
+        let reverted = WindowEventEffects::with_standalone(|effects| {
+            menu.rollback_resolution_state(effects)
+        });
 
         assert_eq!(reverted.x_res, 1280);
         assert_eq!(reverted.y_res, 720);
@@ -432,7 +437,9 @@ mod tests {
             state.online_cancel_window_open = true;
         }
 
-        menu.handle_canceled_download(true);
+        WindowEventEffects::with_standalone(|effects| {
+            menu.handle_canceled_download(true, effects, None);
+        });
 
         let state = &menu.state;
         assert!(!state.button_pushed);
@@ -589,7 +596,7 @@ mod tests {
                 global.shell_map_on = true;
             }
             client.message_stream_mut().clear_messages();
-            show_shell_map_if_available(false);
+            WindowEventEffects::with_standalone(|effects| show_shell_map_if_available(false, effects));
             assert!(!client.window_manager_owner().shell_handle().is_shell_map_on());
 
             client
@@ -650,7 +657,7 @@ mod tests {
                 global.pending_file.clear();
                 global.shell_map_on = false;
             }
-            show_shell_map_if_available(false);
+            WindowEventEffects::with_standalone(|effects| show_shell_map_if_available(false, effects));
         });
     }
 
@@ -688,10 +695,10 @@ mod tests {
         state.window_ids.options_id = 13;
         state.window_ids.exit_id = 14;
 
-        MainMenu::handle_mouse_entering(&mut state, 11);
-        MainMenu::handle_mouse_entering(&mut state, 12);
-        MainMenu::handle_mouse_leaving(&mut state, 13);
-        MainMenu::handle_mouse_leaving(&mut state, 14);
+        WindowEventEffects::with_standalone(|effects| MainMenu::handle_mouse_entering(&mut state, 11, effects, None));
+        WindowEventEffects::with_standalone(|effects| MainMenu::handle_mouse_entering(&mut state, 12, effects, None));
+        WindowEventEffects::with_standalone(|effects| MainMenu::handle_mouse_leaving(&mut state, 13, effects, None));
+        WindowEventEffects::with_standalone(|effects| MainMenu::handle_mouse_leaving(&mut state, 14, effects, None));
 
         let hooks = state
             .pending_actions
@@ -722,11 +729,11 @@ mod tests {
         state.campaign_selected = false;
         let usa_id = state.window_ids.button_usa_id;
 
-        MainMenu::handle_mouse_entering(&mut state, usa_id);
+        WindowEventEffects::with_standalone(|effects| MainMenu::handle_mouse_entering(&mut state, usa_id, effects, None));
         assert!(state.show_logo);
         assert_eq!(state.show_side, ShowSide::USA);
 
-        MainMenu::handle_mouse_leaving(&mut state, usa_id);
+        WindowEventEffects::with_standalone(|effects| MainMenu::handle_mouse_leaving(&mut state, usa_id, effects, None));
         assert!(!state.show_logo);
         assert_eq!(state.show_side, ShowSide::None);
     }
@@ -1254,7 +1261,7 @@ mod tests {
             });
 
             let (down, up) = with_shell_menu_effects(client, |effects| {
-                client.window_manager_owner().with_manager(|manager| {
+                effects.with_manager(|manager, effects| {
                     let down = manager.process_mouse_event_with_delta_and_message_sink(
                         WindowMessage::LeftDown,
                         20,
@@ -1277,7 +1284,7 @@ mod tests {
             assert_eq!(down, WindowInputReturnCode::Used);
             assert_eq!(up, WindowInputReturnCode::Used);
             let wrapped = with_shell_menu_effects(client, |effects| {
-                client.window_manager_owner().with_manager(|manager| {
+                effects.with_manager(|manager, effects| {
                     manager.process_mouse_event_with_delta_and_message_sink(
                         WindowMessage::LeftDown,
                         20,
@@ -1450,7 +1457,7 @@ mod tests {
             });
 
             let (down, up) = with_shell_menu_effects(client, |effects| {
-                client.window_manager_owner().with_manager(|manager| {
+                effects.with_manager(|manager, effects| {
                     let down = manager.process_mouse_event_with_delta_and_message_sink(
                         WindowMessage::LeftDown,
                         644,
@@ -1871,7 +1878,7 @@ mod tests {
                     let _ = win.borrow_mut().hide_without_manager_side_effects(false);
                     let _ = win.borrow_mut().enable(true);
                 }
-                manager.transition_set_group("MainMenuSinglePlayerMenu", false);
+                manager.transition_set_group("MainMenuSinglePlayerMenu", false);  /* manager API */
                 for name in GROUP_WINDOWS {
                     let win = manager.find_window_by_name(name).expect(name);
                     assert!(
@@ -1940,7 +1947,7 @@ mod tests {
             // already mutably borrowed. The old `with_window_manager` path was a
             // fail-closed no-op here; the queued op must run after the drain.
             client.window_manager_owner().with_manager(|_outer| {
-                MainMenu::transition_set_group("MainMenuSinglePlayerMenu", true);
+                WindowEventEffects::with_standalone(|effects| MainMenu::transition_set_group("MainMenuSinglePlayerMenu", true, effects, None));
             });
 
             client.window_manager_owner().with_manager(|manager| {

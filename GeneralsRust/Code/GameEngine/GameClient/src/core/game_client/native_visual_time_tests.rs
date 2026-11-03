@@ -1,3 +1,4 @@
+use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
 //! Receiving native prefix facts are observed at the original late UI boundary.
 use super::*;
 use crate::test_support::with_receiving_ui;
@@ -522,7 +523,7 @@ fn native_presentation_prefix_does_not_reactivate_hidden_shell_or_replace_match(
             )),
             "an ordinary native Client prefix must not queue a Shell game replacement"
         );
-        assert!(!get_shell().is_shell_active());
+        assert!(!a_shell.is_shell_active());
         assert_eq!(global.read().pending_file, "receiving-match.map");
     }
     // Explicit Menu admission remains available; do not suppress valid Shell starts.
@@ -539,6 +540,6 @@ fn native_presentation_prefix_does_not_reactivate_hidden_shell_or_replace_match(
             .count(),
         1
     );
-    assert!(get_shell().is_shell_active());
+    assert!(a.window_manager_owner().shell_handle().is_shell_active());
     assert_eq!(global.read().pending_file, "Maps\\ShellMap\\ShellMap.map");
 }

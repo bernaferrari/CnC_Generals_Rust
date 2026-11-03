@@ -93,7 +93,6 @@ fn run_public_expiration(
 ) -> Result<ExpirationObservations, String> {
     // These are the existing application presentation boundaries, exercised
     // serially. No fixture lock, ambient clock write or substitute UI is added.
-    get_shell().init().map_err(|error| error.to_string())?;
     let previous_bridge = crate::render_bridge::THE_RENDER_BRIDGE
         .lock()
         .unwrap()

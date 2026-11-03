@@ -1556,6 +1556,19 @@ mod tests {
 
     use super::*;
 
+    struct OwnedViewport {
+        display: (u32, u32),
+        height: i32,
+    }
+    impl ControlBarViewport for OwnedViewport {
+        fn display_size(&self) -> (u32, u32) {
+            self.display
+        }
+        fn set_height_px(&mut self, height: i32) {
+            self.height = height;
+        }
+    }
+
     #[test]
     fn test_control_bar_callbacks() {
         with_receiving_observation(test_observation(false, false, false), |effects| {
