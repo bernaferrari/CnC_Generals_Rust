@@ -843,7 +843,43 @@ pub struct Movement {
     /// C++ LocomotorTemplate::m_maxTurnRateDamaged residual.
     pub turn_rate_damaged: f32,
     pub path: Vec<Vec3>,
+    /// C++ `PathNode::m_layer` parallel to `path` (AIPathfind.h PathNode).
+    /// Empty or length-mismatched means callers fall back to geometry layer.
+    pub path_layers: Vec<u8>,
     pub current_path_index: usize,
+}
+
+impl Movement {
+    /// Replace the route and its original PathNode layers together.
+    pub fn set_path_with_layers(&mut self, path: Vec<Vec3>, layers: Vec<u8>) {
+        if layers.len() == path.len() {
+            self.path_layers = layers;
+        } else {
+            self.path_layers.clear();
+        }
+        self.path = path;
+    }
+
+    /// Install a coordinate-only path; forget prior node layers.
+    pub fn set_path_coords(&mut self, path: Vec<Vec3>) {
+        self.path_layers.clear();
+        self.path = path;
+    }
+
+    pub fn clear_path(&mut self) {
+        self.path.clear();
+        self.path_layers.clear();
+        self.current_path_index = 0;
+    }
+
+    /// Last PathNode layer when the parallel vector is authoritative.
+    pub fn last_path_layer(&self) -> Option<u8> {
+        if self.path_layers.len() == self.path.len() {
+            self.path_layers.last().copied()
+        } else {
+            None
+        }
+    }
 }
 
 impl Default for Movement {
@@ -859,6 +895,7 @@ impl Default for Movement {
             turn_rate: std::f32::consts::PI,
             turn_rate_damaged: std::f32::consts::PI * 0.5,
             path: Vec::new(),
+            path_layers: Vec::new(),
             current_path_index: 0,
         }
     }

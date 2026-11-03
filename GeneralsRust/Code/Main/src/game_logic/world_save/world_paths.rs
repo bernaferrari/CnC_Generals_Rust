@@ -99,7 +99,8 @@ impl GameLogic {
             unit.waiting_for_path = false;
             unit.queue_for_path_frame = 0;
             unit.movement.current_path_index = 0;
-            unit.movement.path = full_path;
+            let layers = self.pathfinding_system.found_path_layers().to_vec();
+            unit.movement.set_path_with_layers(full_path, layers);
             unit.movement.target_position = unit.movement.path.first().copied();
             unit.is_exact_path = true;
             unit.is_attack_path = false;
@@ -611,7 +612,8 @@ impl GameLogic {
             unit.is_attack_path = false;
             unit.is_exact_path = false;
             unit.set_locomotor_goal_position_on_path();
-            unit.movement.path = path;
+            let layers = self.pathfinding_system.found_path_layers().to_vec();
+            unit.movement.set_path_with_layers(path, layers);
             if unit.movement.path.len() >= 2 {
                 unit.movement.current_path_index = 1;
                 unit.movement.target_position = Some(unit.movement.path[1]);
@@ -642,7 +644,7 @@ impl GameLogic {
         unit.is_attack_path = false;
         unit.is_exact_path = false;
         unit.set_locomotor_goal_position_on_path();
-        unit.movement.path = vec![start, destination];
+        unit.movement.set_path_coords(vec![start, destination]);
         unit.movement.current_path_index = 1;
         unit.movement.target_position = Some(destination);
         unit.refresh_follow_path_extra_distance();
@@ -986,7 +988,8 @@ impl GameLogic {
             unit.movement.current_path_index = 0;
             unit.movement.target_position = Some(destination);
         }
-        unit.movement.path = full_path;
+        let layers = self.pathfinding_system.found_path_layers().to_vec();
+        unit.movement.set_path_with_layers(full_path, layers);
         unit.is_attack_path = false;
         unit.num_frames_blocked = 0;
         unit.is_blocked_and_stuck = false;
@@ -2196,7 +2199,8 @@ impl GameLogic {
                 }
                 let last_node = full_path.last().copied();
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
-                    unit.movement.path = full_path;
+                    let layers = self.pathfinding_system.found_path_layers().to_vec();
+                    unit.movement.set_path_with_layers(full_path, layers);
                     // AIUpdate.cpp:1985 timestamps a computed attack path.
                     unit.path_timestamp = self.frame;
                     unit.num_frames_blocked = 0;
@@ -2657,7 +2661,8 @@ impl GameLogic {
                 &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
             );
         }
-        unit.movement.path = appended;
+        let layers = self.pathfinding_system.found_path_layers().to_vec();
+        unit.movement.set_path_with_layers(appended, layers);
         if had_no_path {
             unit.movement.current_path_index = usize::from(unit.movement.path.len() > 1);
         }

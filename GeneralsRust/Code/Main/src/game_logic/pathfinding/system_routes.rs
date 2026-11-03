@@ -60,6 +60,7 @@ impl PathfindingSystem {
         mover: Option<ObjectId>,
         ground_source: &PathfindingGround<'_>,
     ) -> Option<Vec<Vec3>> {
+        self.last_found_path_layers.clear();
         self.ensure_dynamic_obstacles(objects, ground_source);
         self.bind_seeker_from_mover(objects, mover);
         self.apply_seeker_human_flag(objects);
@@ -249,6 +250,10 @@ impl PathfindingSystem {
         // were built directly with the requested start altitude above.
         // C++ checkDestination: snapped dest is the final position. Do not
         // restore the raw click (that walks units into building footprints).
+        if self.last_found_path_layers.len() != path.len() {
+            // Aircraft / non-crate routes: no searched PathNode layers.
+            self.last_found_path_layers.clear();
+        }
         Some(path)
     }
 

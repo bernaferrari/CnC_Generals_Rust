@@ -2690,17 +2690,62 @@ impl PathfindingGrid {
         crusher_level: u8,
         ground_source: &PathfindingGround<'_>,
     ) -> Vec<Vec3> {
+        let layers: Vec<u8> = waypoints
+            .iter()
+            .map(|p| self.layer_for_destination(*p, ground_source) as u8)
+            .collect();
+        self.optimize_ground_path_ex_layered(
+            waypoints,
+            &layers,
+            surfaces,
+            is_crusher,
+            seeker_player,
+            crusher_level,
+            ground_source,
+        )
+        .0
+    }
+
+    /// C++ `Path::optimize` / `optimizeGroundPath` using the PathNode layers
+    /// already carried from search. Geometry is not allowed to re-pick the
+    /// layer when bridge and ground heights overlap (hq-8ecpbu).
+    pub fn optimize_ground_path_ex_layered(
+        &self,
+        waypoints: &[Vec3],
+        path_layers: &[u8],
+        surfaces: u32,
+        is_crusher: bool,
+        seeker_player: Option<u32>,
+        crusher_level: u8,
+        ground_source: &PathfindingGround<'_>,
+    ) -> (Vec<Vec3>, Vec<u8>) {
         if waypoints.len() <= 2 {
-            return waypoints.to_vec();
+            let layers = if path_layers.len() == waypoints.len() {
+                path_layers.to_vec()
+            } else {
+                waypoints
+                    .iter()
+                    .map(|p| self.layer_for_destination(*p, ground_source) as u8)
+                    .collect()
+            };
+            return (waypoints.to_vec(), layers);
         }
         // C++ Path::optimize ALLOWED_STEPS = 3 past a layer change
         // (AIPathfind.cpp:472-485). Deck shortcuts stay on the deck.
         const ALLOWED_STEPS: usize = 3;
-        let layers: Vec<PathfindLayerEnum> = waypoints
-            .iter()
-            .map(|p| self.layer_for_destination(*p, ground_source))
-            .collect();
+        let layers: Vec<PathfindLayerEnum> = if path_layers.len() == waypoints.len() {
+            path_layers
+                .iter()
+                .map(|l| PathfindLayerEnum::from_u32(*l as u32))
+                .collect()
+        } else {
+            waypoints
+                .iter()
+                .map(|p| self.layer_for_destination(*p, ground_source))
+                .collect()
+        };
         let mut optimized = vec![waypoints[0]];
+        let mut optimized_layers = vec![layers[0] as u8];
         let mut anchor = 0usize;
         let mut first_node = true;
         let first_layer = layers[0];
@@ -2734,12 +2779,8 @@ impl PathfindingGrid {
             while far > anchor {
                 let a = self.world_to_grid(waypoints[anchor]);
                 let b = self.world_to_grid(waypoints[far]);
-                // C++ groundPathPassableCallback: the H/V/diag "A* already
-                // walked it" bypass only applies within one layer's corridor;
-                // a ground anchor must LOS across a deck span on `layer`,
-                // never shortcut across water via collinearity.
-                let layers_uniform = (anchor..=far)
-                    .all(|i| self.layer_for_destination(waypoints[i], ground_source) == layer);
+                // Uniformity uses the carried PathNode layers, not geometry.
+                let layers_uniform = (anchor..=far).all(|i| layers[i] == layer);
                 if self.line_passable_on_layer(
                     a,
                     b,
@@ -2751,12 +2792,6 @@ impl PathfindingGrid {
                     true,
                     layer,
                 ) || (layers_uniform
-                    // C++ optimizeGroundPath LOS is isGroundPathPassable →
-                    // clearCellForDiameter (AIPathfind.cpp:9602-9613, 6721-6733):
-                    // any solid CELL_OBSTACLE in the span refuses the shortcut;
-                    // crusher fences stay exempt. The H/V/diag "A* already
-                    // walked it" bypass (Path::optimize AIPathfind.cpp:511-551)
-                    // must not erase detour waypoints across buildings.
                     && !self.span_crosses_solid_obstacle(waypoints, anchor, far)
                     && self.collinear_cells_force_passable(waypoints, anchor, far))
                 {
@@ -2764,6 +2799,7 @@ impl PathfindingGrid {
                         break;
                     }
                     optimized.push(waypoints[far]);
+                    optimized_layers.push(layers[far] as u8);
                     anchor = far;
                     found = true;
                     break;
@@ -2775,6 +2811,7 @@ impl PathfindingGrid {
             }
             if !found {
                 optimized.push(waypoints[anchor + 1]);
+                optimized_layers.push(layers[anchor + 1] as u8);
                 anchor += 1;
             }
         }
@@ -2787,12 +2824,14 @@ impl PathfindingGrid {
             let dz = optimized[i + 1].z - optimized[i].z;
             if dx * dx + dz * dz < thresh {
                 optimized.remove(i + 1);
+                optimized_layers.remove(i + 1);
             } else {
                 i += 1;
             }
         }
-        optimized
+        (optimized, optimized_layers)
     }
+
 
     /// C++ `Path::optimize` H/V/diag force-passable (AIPathfind.cpp:511-551).
     /// A* already walked these cells; pinched occupancy on a straight jog
