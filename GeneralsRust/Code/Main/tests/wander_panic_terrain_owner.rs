@@ -134,6 +134,11 @@ fn team_path_script(kind: ScriptActionType, path: &str) -> ScriptEngine {
 
 #[test]
 fn live_team_wander_and_panic_ignore_foreign_same_label_terrain() {
+    // NameKeyGenerator / script admission need CommonServices (no process bag).
+    let common = std::sync::Arc::new(
+        game_engine::common::common_services::CommonServices::new(),
+    );
+    game_engine::common::common_services::with_common_services(&common, || {
     let temp = tempfile::tempdir().unwrap();
     let owner_map = waypoint_map(
         temp.path(),
@@ -228,4 +233,5 @@ fn live_team_wander_and_panic_ignore_foreign_same_label_terrain() {
         owner.host_object(owner_id).unwrap().requested_destination,
         Some(after_foreign)
     );
+    });
 }
