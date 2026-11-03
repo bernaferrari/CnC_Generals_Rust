@@ -915,7 +915,22 @@ mod os_wnd_tests {
     use super::*;
     use crate::gui::game_window::WindowEventEffects;
 
-    fn install_named_button(owner: &crate::gui::window_manager::WindowManagerOwner, name: &str, x: i32, y: i32) {
+    fn with_fixture(operation: impl FnOnce(&mut WindowEventEffects<'_>)) {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        operation(&mut effects);
+    }
+
+    fn install_named_button(name: &str, x: i32, y: i32, effects: &mut WindowEventEffects<'_>) {
+        let owner = effects
+            .window_manager_owner
+            .expect("named button install requires receiving owner");
         owner.with_manager(|manager| {
             let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
@@ -926,31 +941,33 @@ mod os_wnd_tests {
     #[test]
     fn os_wnd_replay_menu_prepare_load_hits_list_and_load() {
         crate::test_support::ensure_ambient_host();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        install_named_button(&owner, "ReplayMenu.wnd:ListboxReplayFiles", 10, 10);
-        install_named_button(&owner, "ReplayMenu.wnd:ButtonLoadReplay", 10, 40);
-        assert!(
-            WindowEventEffects::with_standalone(|effects| drive_os_wnd_replay_menu_prepare_load_like_cpp(0, effects)),
-            "OS WND clicks on list + Load must latch Load residual"
-        );
-        assert_eq!(residual_replay_menu_selected_slot(), Some(0));
-        assert_eq!(
-            residual_replay_menu_last_action(),
-            ResidualReplayMenuAction::Load
-        );
-        assert!(!WindowEventEffects::with_standalone(|effects| drive_os_wnd_replay_menu_prepare_load_like_cpp(-1, effects)));
+        with_fixture(|effects| {
+            install_named_button("ReplayMenu.wnd:ListboxReplayFiles", 10, 10, effects);
+            install_named_button("ReplayMenu.wnd:ButtonLoadReplay", 10, 40, effects);
+            assert!(
+                drive_os_wnd_replay_menu_prepare_load_like_cpp(0, effects),
+                "OS WND clicks on list + Load must latch Load residual"
+            );
+            assert_eq!(residual_replay_menu_selected_slot(), Some(0));
+            assert_eq!(
+                residual_replay_menu_last_action(),
+                ResidualReplayMenuAction::Load
+            );
+            assert!(!drive_os_wnd_replay_menu_prepare_load_like_cpp(-1, effects));
+        });
     }
 
     #[test]
     fn os_wnd_replay_menu_back_hits_button_back() {
         crate::test_support::ensure_ambient_host();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        install_named_button(&owner, "ReplayMenu.wnd:ButtonBack", 10, 70);
-        assert!(WindowEventEffects::with_standalone(|effects| drive_os_wnd_replay_menu_back_like_cpp(effects)));
-        assert_eq!(
-            residual_replay_menu_last_action(),
-            ResidualReplayMenuAction::Back
-        );
-        assert_eq!(residual_replay_menu_selected_slot(), None);
+        with_fixture(|effects| {
+            install_named_button("ReplayMenu.wnd:ButtonBack", 10, 70, effects);
+            assert!(drive_os_wnd_replay_menu_back_like_cpp(effects));
+            assert_eq!(
+                residual_replay_menu_last_action(),
+                ResidualReplayMenuAction::Back
+            );
+        });
     }
 }
+

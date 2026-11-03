@@ -2850,47 +2850,45 @@ mod tests {
     #[test]
     fn start_next_campaign_game_appends_msg_new_game_like_cpp() {
         crate::test_support::ensure_ambient_host();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut campaign_manager = CampaignManager::new();
         let campaign = campaign_manager.new_campaign("testcampaign".to_string());
         campaign.first_mission = "m1".to_string();
         campaign.new_mission("m1".to_string()).map_name = "maps/m1.map".to_string();
         campaign_manager.set_campaign("testcampaign");
         let mut emitted_messages = Vec::new();
-        let mut effects = WindowEventEffects {
-            cursor_mouse: None,
-            control_bar_observation: None,
-            menu_audio: None,
-            input_provenance:
-                crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
-            standalone_view: None,
-            payloads: Default::default(),
-            pending_window_callbacks: Default::default(),
-            diplomacy_world: None,
-            menus: None,
-            ime: None,
-            manager: None,
-            script_display: None,
-            window_videos: None,
-            window_manager_owner: None,
-            selected_window: None,
-            lent_windows: Vec::new(),
-            emitted_messages: &mut emitted_messages,
-            pending_control_bar_clicks: None,
-            campaign_manager: Some(&mut campaign_manager),
-            main_menu: None,
-            menu_world: None,
-            menu_host: None,
-            client_frame: None,
-            logic_frame: None,
-            ui: None,
-            pending_main_menu_actions: Vec::new(),
-        };
+        let mut menu_host = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut effects = WindowEventEffects::new(&mut emitted_messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.campaign_manager = Some(&mut campaign_manager);
+        effects.menu_world =
+            Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts::default());
+        effects.menu_host = Some(&mut menu_host);
         start_next_campaign_game(&mut effects);
-        assert!(
-            emitted_messages
-                .iter()
-                .any(|message| message.get_type() == &GameMessageType::NewGame),
+        // Ownership bridge: score screen queues StartCampaign on the receiving
+        // mailbox; Main drains it into MSG_NEW_GAME via campaign_message (same
+        // as ChallengeMenu). Direct emit was the pre-bridge path.
+        let requests = menu_host.take_requests();
+        let start = requests.into_iter().find_map(|request| match request {
+            crate::gui::campaign_launch_host_bridge::MenuHostRequest::StartCampaign {
+                descriptor,
+                source: crate::gui::campaign_launch_host_bridge::MenuLaunchSource::ScoreScreen,
+                ..
+            } => Some(descriptor),
+            _ => None,
+        });
+        let descriptor = start.expect("score screen must queue StartCampaign on host mailbox");
+        let message = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::campaign_message(
+            descriptor,
+        );
+        assert_eq!(
+            message.get_type(),
+            &GameMessageType::NewGame,
             "C++ startNextCampaignGame appends MSG_NEW_GAME, not prepare_new_game"
+        );
+        assert!(
+            emitted_messages.is_empty(),
+            "StartCampaign must not double-emit NewGame onto the effects stream"
         );
     }
 
@@ -3277,7 +3275,35 @@ pub fn drive_os_wnd_score_screen_emote_like_cpp(
 mod os_wnd_tests {
     use super::*;
 
-    fn install_named_button(owner: &crate::gui::window_manager::WindowManagerOwner, name: &str, x: i32, y: i32) {
+    fn with_fixture(operation: impl FnOnce(&mut WindowEventEffects<'_>)) {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+        let mut ime = crate::gui::ime_manager::ImeManager::new();
+        let mut main_menu = crate::gui::shell::main_menu::MainMenu::new();
+        let mut menu_host = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut script_display =
+            crate::core::script_action_handler::ScriptDisplayReceiver::default();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        effects.ui = Some(&mut ui);
+        effects.ime = Some(&mut ime);
+        effects.main_menu = Some(&mut main_menu);
+        effects.menu_host = Some(&mut menu_host);
+        effects.menu_world =
+            Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts::default());
+        effects.script_display = Some(&mut script_display);
+        operation(&mut effects);
+    }
+
+    fn install_named_button(name: &str, x: i32, y: i32, effects: &mut WindowEventEffects<'_>) {
+        let owner = effects
+            .window_manager_owner
+            .expect("named button install requires receiving owner");
         owner.with_manager(|manager| {
             let button = manager.test_create_window(None, x, y, 80, 24).expect(name);
             button.borrow_mut().set_name(name);
@@ -3288,87 +3314,77 @@ mod os_wnd_tests {
     #[test]
     fn os_wnd_score_screen_continue_hits_button_then_latches_continue() {
         crate::test_support::ensure_ambient_host();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        install_named_button(&owner, "ScoreScreen.wnd:ButtonContinue", 10, 10);
-        let _ = WindowEventEffects::with_standalone(|effects| simulate_score_screen_set_finish_campaign(false, effects));
-        assert!(
-            WindowEventEffects::with_standalone(|effects| drive_os_wnd_score_screen_continue_like_cpp(effects)),
-            "OS WND click on ButtonContinue must latch continue residual"
-        );
-        assert_eq!(
-            WindowEventEffects::with_standalone(|effects| residual_score_screen_last_action(effects)),
-            ResidualScoreScreenAction::Continue
-        );
-        assert!(!WindowEventEffects::with_standalone(|effects| drive_os_wnd_score_screen_ok_like_cpp(effects)));
+        with_fixture(|effects| {
+            install_named_button("ScoreScreen.wnd:ButtonContinue", 10, 10, effects);
+            let _ = simulate_score_screen_set_finish_campaign(false, effects);
+            assert!(
+                drive_os_wnd_score_screen_continue_like_cpp(effects),
+                "OS WND click on ButtonContinue must latch continue residual"
+            );
+            assert_eq!(
+                residual_score_screen_last_action(effects),
+                ResidualScoreScreenAction::Continue
+            );
+            assert!(!drive_os_wnd_score_screen_ok_like_cpp(effects));
+        });
     }
 
     #[test]
     fn os_wnd_score_screen_ok_hits_button_then_latches_ok() {
         crate::test_support::ensure_ambient_host();
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        install_named_button(&owner, "ScoreScreen.wnd:ButtonOk", 10, 40);
-        assert!(
-            WindowEventEffects::with_standalone(|effects| drive_os_wnd_score_screen_ok_like_cpp(effects)),
-            "OS WND click on ButtonOk must latch ok residual"
-        );
-        assert_eq!(
-            WindowEventEffects::with_standalone(|effects| residual_score_screen_last_action(effects)),
-            ResidualScoreScreenAction::Ok
-        );
+        with_fixture(|effects| {
+            install_named_button("ScoreScreen.wnd:ButtonOk", 10, 40, effects);
+            assert!(
+                drive_os_wnd_score_screen_ok_like_cpp(effects),
+                "OS WND click on ButtonOk must latch ok residual"
+            );
+            assert_eq!(
+                residual_score_screen_last_action(effects),
+                ResidualScoreScreenAction::Ok
+            );
+        });
     }
 
     #[test]
     fn os_wnd_score_screen_continue_starts_next_usa_mission_like_cpp() {
         crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut messages = Vec::new();
+        let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+        let mut ime = crate::gui::ime_manager::ImeManager::new();
+        let mut main_menu = crate::gui::shell::main_menu::MainMenu::new();
+        let mut menu_host = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut script_display =
+            crate::core::script_action_handler::ScriptDisplayReceiver::default();
         let mut campaign_manager = CampaignManager::new();
         campaign_manager.init();
         campaign_manager.set_campaign("USA");
-        // Victory → next mission is already current when ScoreScreen Continue fires.
         let _ = campaign_manager.goto_next_mission();
         let current_map = campaign_manager.get_current_map().unwrap_or_default();
-        install_named_button(&owner, "ScoreScreen.wnd:ButtonContinue", 10, 70);
-        let _ = WindowEventEffects::with_standalone(|effects| simulate_score_screen_set_finish_campaign(false, effects));
-        let mut emitted_messages = Vec::new();
-        let mut effects = WindowEventEffects {
-            cursor_mouse: None,
-            control_bar_observation: None,
-            menu_audio: None,
-            input_provenance:
-                crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
-            standalone_view: None,
-            payloads: Default::default(),
-            pending_window_callbacks: Default::default(),
-            diplomacy_world: None,
-            menus: None,
-            ime: None,
-            manager: None,
-            script_display: None,
-            window_videos: None,
-            selected_window: None,
-            lent_windows: Vec::new(),
-            window_manager_owner: None,
-            emitted_messages: &mut emitted_messages,
-            pending_control_bar_clicks: None,
-            campaign_manager: None,
-            main_menu: None,
-            menu_world: None,
-            menu_host: None,
-            client_frame: None,
-            logic_frame: None,
-            ui: None,
-            pending_main_menu_actions: Vec::new(),
-        };
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
+        effects.menus = Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        );
+        effects.ui = Some(&mut ui);
+        effects.ime = Some(&mut ime);
+        effects.main_menu = Some(&mut main_menu);
+        effects.menu_host = Some(&mut menu_host);
+        effects.menu_world =
+            Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts::default());
+        effects.script_display = Some(&mut script_display);
+        effects.campaign_manager = Some(&mut campaign_manager);
+        install_named_button("ScoreScreen.wnd:ButtonContinue", 10, 70, &mut effects);
+        let _ = simulate_score_screen_set_finish_campaign(false, &mut effects);
         assert!(drive_os_wnd_score_screen_continue_like_cpp(&mut effects));
         assert_eq!(
-            WindowEventEffects::with_standalone(|effects| residual_score_screen_last_action(effects)),
+            residual_score_screen_last_action(&mut effects),
             ResidualScoreScreenAction::Continue
         );
         if current_map.is_empty() {
             return;
         }
-        // The effect-aware click path appends to the receiving message stream; the production
-        // callback emitter is exercised by the owning client input dispatch test.
         if let Some(data) = game_engine::common::ini::get_global_data() {
             let pending = data.read().pending_file.clone();
             if !pending.is_empty() {
