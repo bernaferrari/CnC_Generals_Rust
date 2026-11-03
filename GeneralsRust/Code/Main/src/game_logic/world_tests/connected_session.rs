@@ -454,18 +454,18 @@ fn connected_construction_movement_combat_save_continues_without_peer_interferen
             "saved combat must continue at the same observation phase: frame={} source={:?} receiver={:?}",
             source.frame,
             source.host_object(unit).map(|o| (
-                &o.attack_substate(),
+                format!("{:?}", o.attack_substate()),
                 o.status.is_aiming_weapon,
                 o.status.is_firing_weapon,
                 o.fire_intent_count,
-                &o.weapon
+                format!("{:?}", o.weapon)
             )),
             receiver.host_object(unit).map(|o| (
-                &o.attack_substate(),
+                format!("{:?}", o.attack_substate()),
                 o.status.is_aiming_weapon,
                 o.status.is_firing_weapon,
                 o.fire_intent_count,
-                &o.weapon
+                format!("{:?}", o.weapon)
             )),
         );
         witnessed_damage |= left.is_none_or(|(health, _)| health < 80.0);
@@ -478,15 +478,15 @@ fn connected_construction_movement_combat_save_continues_without_peer_interferen
         witnessed_damage,
         "actual attack must reach damage: actor={:?} target={:?}",
         source.host_object(unit).map(|o| (
-            &o.ai_state(),
+            format!("{:?}", o.ai_state()),
             o.target,
             o.fire_intent_count,
             o.last_fire_damage,
-            &o.weapon
+            format!("{:?}", o.weapon)
         )),
         source
             .host_object(target)
-            .map(|o| (o.health.current, &o.ai_state(), o.owner_player_id)),
+            .map(|o| (o.health.current, format!("{:?}", o.ai_state()), o.owner_player_id)),
     );
     assert!(
         source

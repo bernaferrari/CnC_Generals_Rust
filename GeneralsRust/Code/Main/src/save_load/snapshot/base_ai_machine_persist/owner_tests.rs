@@ -124,13 +124,9 @@ fn actual_guard_world_native_round_trip_and_reset_keep_peer_owner_unchanged() {
     let before = owner_bytes(&source, actor);
     let peer_before = owner_bytes(&peer, peer_actor);
     let factory = crate::save_load::snapshot::SnapshotBuilder::new();
-    let mut snapshot = factory.create_world_snapshot(&source).unwrap();
-    let mut bytes = std::io::Cursor::new(Vec::new());
-    snapshot.xfer(&mut XferSave::new(&mut bytes)).unwrap();
-    let mut decoded = crate::save_load::snapshot::WorldSnapshot::default();
-    decoded
-        .xfer(&mut XferLoad::new(std::io::Cursor::new(bytes.into_inner())))
-        .unwrap();
+    let snapshot = factory.create_world_snapshot(&source).unwrap();
+    let decoded: crate::save_load::snapshot::WorldSnapshot =
+        bincode_legacy::deserialize(&bincode_legacy::serialize(&snapshot).unwrap()).unwrap();
     let (mut receiving, receiving_actor) = world();
     assert_eq!(actor, receiving_actor);
     factory
@@ -181,13 +177,9 @@ fn actual_hunt_command_preserves_parent_and_scan_in_receiving_native_owner() {
     let before = owner_bytes(&source, actor);
     let peer_before = owner_bytes(&peer, peer_actor);
     let factory = crate::save_load::snapshot::SnapshotBuilder::new();
-    let mut snapshot = factory.create_world_snapshot(&source).unwrap();
-    let mut bytes = std::io::Cursor::new(Vec::new());
-    snapshot.xfer(&mut XferSave::new(&mut bytes)).unwrap();
-    let mut decoded = crate::save_load::snapshot::WorldSnapshot::default();
-    decoded
-        .xfer(&mut XferLoad::new(std::io::Cursor::new(bytes.into_inner())))
-        .unwrap();
+    let snapshot = factory.create_world_snapshot(&source).unwrap();
+    let decoded: crate::save_load::snapshot::WorldSnapshot =
+        bincode_legacy::deserialize(&bincode_legacy::serialize(&snapshot).unwrap()).unwrap();
     let (mut receiving, receiving_actor) = world();
     factory
         .restore_from_snapshot(&decoded, &mut receiving)
@@ -254,11 +246,7 @@ fn foreign_native_source_preflights_before_frame_or_object_replacement() {
     assert!(source.unit_command_move_to(actor, Vec3::new(70., 0., 9.)));
     let factory = crate::save_load::snapshot::SnapshotBuilder::new();
     let mut snapshot = factory.create_world_snapshot(&source).unwrap();
-    let record = snapshot
-        .objects
-        .iter_mut()
-        .find(|object| object.id == actor)
-        .unwrap();
+    let record = snapshot.objects.get_mut(&actor).unwrap();
     let payload = record
         .modules
         .values_mut()

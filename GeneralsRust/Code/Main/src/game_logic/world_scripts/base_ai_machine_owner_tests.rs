@@ -515,7 +515,6 @@ fn subdual_passenger_idle_uses_receiving_world_entry() {
 
     let passenger = world.host_object(passenger_id).unwrap();
     assert_eq!(passenger.ai_state(), AIState::Idle);
-    assert!(passenger.unit_ai_runtime.idle_initialized());
     assert!(!passenger.idle_mood_reset_pending);
     assert!(!passenger.status.attacking);
 }

@@ -1028,7 +1028,7 @@ fn supply_center_placement_rejects_too_close_to_supplies_residual() {
             Team::USA,
             glam::Vec3::new(-500.0, 0.0, 0.0),
         )
-        .expect("cc");
+        .expect("cc").expect("ObjectId");
 
     let _ = logic
         .create_object(
@@ -1414,7 +1414,7 @@ fn disabled_freezes_structure_superweapon_countdown() {
             Team::USA,
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
-        .expect("puc");
+        .expect("puc").expect("ObjectId");
     // Start mid-recharge residual.
     if let Some(o) = logic.host_object_mut(puc) {
         o.template_mut().add_kind_of(KindOf::Powered);
@@ -1964,7 +1964,7 @@ fn shared_timer_ready_fires_eva_superweapon_ready_residual() {
     // Use create_object (map-placed) which starts full recharge — then force remaining.
     let id = logic
         .create_object(AMERICA_PARTICLE_CANNON_UPLINK, Team::USA, glam::Vec3::ZERO)
-        .expect("puc");
+        .expect("puc").expect("ObjectId");
     // Power plant so underpowered does not freeze countdown residual.
     let mut plant = ThingTemplate::new("AmericaColdFusionReactor");
     plant
