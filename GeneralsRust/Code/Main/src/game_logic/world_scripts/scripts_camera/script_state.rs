@@ -615,65 +615,93 @@ impl GameLogic {
         use crate::game_logic::KindOf;
         use gamelogic::scripting::HostScriptPlayerCensus;
 
+        // C++ Player/Team counters are maintained incrementally. We still
+        // rebuild from the living object set, but do it in one pass over
+        // objects (O(objects + players)) instead of O(players * objects).
         let build_facilities = self.build_facility_template_names();
-        let mut player_census = std::collections::HashMap::new();
+        let mut by_player_id: std::collections::HashMap<u32, HostScriptPlayerCensus> =
+            std::collections::HashMap::new();
         for player in self.players.values() {
-            let mut census = HostScriptPlayerCensus {
-                money: player.effective_supplies() as i32,
-                energy_production: player.energy_production_at(self.frame),
-                energy_consumption: player.power_consumed,
-                power_sabotaged: player.power_sabotaged_till_frame != 0
-                    && self.frame < player.power_sabotaged_till_frame,
-                science_purchase_points: player.science_purchase_points,
-                unlocked_sciences: player.unlocked_sciences.iter().cloned().collect(),
-                supply_box_value:
-                    crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX,
-                ..Default::default()
-            };
-            for obj in self.host_objects().registered_values() {
-                if !self.object_owned_by_player(obj, player.id) {
-                    continue;
-                }
-                let dead = !obj.is_alive() || obj.status.destroyed || obj.status.effectively_dead;
-                // C++ Team::hasAnyObjects / leftover Player::has_any_objects:
-                // skip dead, projectile, inert (radiation fields), and mine.
-                // leftover_host_template_is_inert matches the kind_inert already
-                // stamped onto HostScriptQueryObject in this same inject.
-                if !dead
-                    && !obj.is_kind_of(KindOf::Projectile)
-                    && !obj.is_kind_of(KindOf::Mine)
-                    && !obj.is_kind_of(KindOf::SmallMissile)
-                    && !obj.is_kind_of(KindOf::BallisticMissile)
-                    && !obj.is_kind_of(KindOf::Inert)
-                    && !leftover_host_template_is_inert(&obj.template_name)
-                {
-                    census.has_any_objects = true;
-                }
-                if !dead && obj.is_kind_of(KindOf::Structure) {
-                    census.building_count += 1;
-                    if obj.is_kind_of(KindOf::MpCountForVictory) {
-                        census.faction_building_count += 1;
+            by_player_id.insert(
+                player.id,
+                HostScriptPlayerCensus {
+                    money: player.effective_supplies() as i32,
+                    energy_production: player.energy_production_at(self.frame),
+                    energy_consumption: player.power_consumed,
+                    power_sabotaged: player.power_sabotaged_till_frame != 0
+                        && self.frame < player.power_sabotaged_till_frame,
+                    science_purchase_points: player.science_purchase_points,
+                    unlocked_sciences: player.unlocked_sciences.iter().cloned().collect(),
+                    supply_box_value:
+                        crate::game_logic::host_structure_economy_residual::VALUE_PER_SUPPLY_BOX,
+                    ..Default::default()
+                },
+            );
+        }
+
+        for obj in self.host_objects().registered_values() {
+            // Resolve ownership once (same rules as object_owned_by_player).
+            let owner_id = match obj.owner_player_id {
+                Some(owner) => owner,
+                None => {
+                    let mut same_faction = self
+                        .players
+                        .values()
+                        .filter(|player| player.team == obj.team);
+                    match (same_faction.next(), same_faction.next()) {
+                        (Some(player), None) => player.id,
+                        _ => continue,
                     }
                 }
-                // C++ Team::hasAnyBuildFacility: template isBuildFacility, no
-                // liveness test (members leave the team when destroyed).
-                if !obj.status.destroyed
-                    && build_facilities.contains(&obj.template_name.to_ascii_lowercase())
-                {
-                    census.has_any_build_facility = true;
+            };
+            let Some(census) = by_player_id.get_mut(&owner_id) else {
+                continue;
+            };
+            let dead = !obj.is_alive() || obj.status.destroyed || obj.status.effectively_dead;
+            if !dead
+                && !obj.is_kind_of(KindOf::Projectile)
+                && !obj.is_kind_of(KindOf::Mine)
+                && !obj.is_kind_of(KindOf::SmallMissile)
+                && !obj.is_kind_of(KindOf::BallisticMissile)
+                && !obj.is_kind_of(KindOf::Inert)
+                && !leftover_host_template_is_inert(&obj.template_name)
+            {
+                census.has_any_objects = true;
+            }
+            if !dead && obj.is_kind_of(KindOf::Structure) {
+                census.building_count += 1;
+                if obj.is_kind_of(KindOf::MpCountForVictory) {
+                    census.faction_building_count += 1;
                 }
-                if !obj.status.under_construction && !obj.template_name.is_empty() {
-                    let key = obj.template_name.to_ascii_lowercase();
+            }
+            let template_key = if obj.template_name.is_empty() {
+                None
+            } else {
+                Some(obj.template_name.to_ascii_lowercase())
+            };
+            if !obj.status.destroyed
+                && template_key
+                    .as_ref()
+                    .is_some_and(|key| build_facilities.contains(key))
+            {
+                census.has_any_build_facility = true;
+            }
+            if !obj.status.under_construction {
+                if let Some(key) = template_key {
                     *census.template_counts.entry(key.clone()).or_insert(0) += 1;
                     if !dead {
                         *census.template_counts_ignore_dead.entry(key).or_insert(0) += 1;
                     }
                 }
             }
-            // The census key follows Player::getPlayerNameKey: authored
-            // `playerName`, with NameKeyGenerator's exact case-sensitive key.
-            // Keep a player's census even when it has no owned objects.
-            if !player.map_side.map_player_name.is_empty() {
+        }
+
+        let mut player_census = std::collections::HashMap::new();
+        for player in self.players.values() {
+            if player.map_side.map_player_name.is_empty() {
+                continue;
+            }
+            if let Some(census) = by_player_id.remove(&player.id) {
                 player_census.insert(player.map_side.map_player_name.clone(), census);
             }
         }
