@@ -1209,6 +1209,8 @@ pub struct InGameUISubsystem {
     pub(crate) control_bar_events: crate::helpers::LiveControlBarEvents,
     pub(crate) control_bar_observer_look_at: Option<i32>,
     pub(crate) legacy_core_control_bar_ingress: crate::helpers::LegacyCoreControlBarIngress,
+    /// C++ ControlBar m_genArrow (was process Mutex GEN_ARROW).
+    pub(crate) gen_arrow: Option<crate::gui::game_window::Image>,
     pub(crate) live_hud: crate::gui::ingame_ui::LiveHud,
     pub(crate) superweapon_strip: crate::gui::ingame_ui::LiveSuperweaponStrip,
     pub(crate) status: crate::helpers::InGameUIStatusState,
@@ -1872,6 +1874,7 @@ impl InGameUISubsystem {
         self.control_bar_events = Default::default();
         self.control_bar_observer_look_at = None;
         self.legacy_core_control_bar_ingress = Default::default();
+        self.gen_arrow = None;
         crate::gui::ingame_ui::reset_live_hud(&mut self.live_hud);
         self.superweapon_strip = Default::default();
         self.status = Default::default();
