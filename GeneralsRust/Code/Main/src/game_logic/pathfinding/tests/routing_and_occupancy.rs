@@ -2031,3 +2031,58 @@ fn pathfind_cluster_bridge_layer_identity_and_line_passable() {
         "resolved deck line must clear ground Impassable via layer cells"
     );
 }
+
+/// Cluster proof for hq-oapxl1: move-away search identity follows resolved
+/// bridge-layer getCell (object layer), not height-picked ground under the deck.
+#[test]
+fn pathfind_cluster_move_away_uses_resolved_bridge_layer() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let ground = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+    let mut sys = PathfindingSystem::new(200.0, 120.0);
+    for x in 4..14 {
+        for y in 0..12 {
+            sys.grid
+                .set_cell_type(GridPos::new(x, y), PathfindCellType::Impassable);
+        }
+    }
+    sys.grid.stamp_bridge_deck(
+        Vec3::new(30.0, 20.0, 40.0),
+        Vec3::new(30.0, 20.0, 60.0),
+        Vec3::new(130.0, 20.0, 40.0),
+        Vec3::new(130.0, 20.0, 60.0),
+        false,
+        &ground,
+    );
+    let deck_id = sys.grid.first_bridge_layer_id().expect("deck");
+    let deck = PathfindLayerEnum::from_u32(deck_id as u32);
+    let from = Vec3::new(55.0, 0.0, 55.0);
+    let cell = sys.grid.world_to_grid(from);
+    let (resolved, _) = sys.grid.path_cell_on_layer(cell, deck);
+    assert_eq!(resolved, deck);
+
+    let mut objects = HostObjectStore::new();
+    let mut tmpl = ThingTemplate::new("BridgeMover");
+    tmpl.add_kind_of(KindOf::Vehicle);
+    let mut unit = Object::new(tmpl, ObjectId(1), Team::USA);
+    unit.set_position(from);
+    unit.pathfind_layer = deck_id;
+    unit.owner_player_id = Some(0);
+    objects.admit(unit.id, unit);
+
+    let avoided = vec![
+        Vec3::new(30.0, 0.0, 55.0),
+        from,
+        Vec3::new(120.0, 0.0, 55.0),
+    ];
+    let path = sys
+        .get_move_away_from_path(&avoided, None, &ground, objects.read(), ObjectId(1), ObjectId(1))
+        .expect("deck move-away must search on the bridge layer over impassable ground");
+    assert!(path.len() >= 2);
+    let dest = *path.last().unwrap();
+    let dest_cell = sys.grid.world_to_grid(dest);
+    let (dest_layer, _) = sys.grid.path_cell_on_layer(dest_cell, deck);
+    assert_eq!(
+        dest_layer, deck,
+        "yield dest must stay resolved on the deck, not fall to impassable ground"
+    );
+}
