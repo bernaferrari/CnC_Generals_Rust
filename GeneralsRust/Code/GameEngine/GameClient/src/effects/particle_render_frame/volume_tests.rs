@@ -9,6 +9,7 @@ fn frame() -> ParticleRenderFrame {
         uniforms: ParticleUniforms::default(),
         batches: Vec::new(),
         particles_rendered: 0,
+        source_particle_count: 0,
         preparation_time: std::time::Duration::ZERO,
         heat_smudges: Vec::new(),
     }

@@ -90,7 +90,9 @@ impl W3DParticleSystemBridge {
         }
         renderer.render_tracer_and_ray_fx(encoder, view, depth_view, uniforms);
 
-        self.on_screen_particle_count = renderer.stats.particles_rendered as i32;
+        // C++ W3DParticleSys.cpp:328/351 — publish source point-group count, not
+        // expanded volume-layer / billboard instance statistics.
+        self.on_screen_particle_count = renderer.stats.source_particle_count as i32;
     }
 
     /// Get the number of particles rendered last frame (matches C++ getOnScreenParticleCount)

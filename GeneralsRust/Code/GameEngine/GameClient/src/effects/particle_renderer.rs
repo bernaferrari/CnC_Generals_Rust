@@ -613,6 +613,8 @@ pub struct ParticleRenderer {
 #[derive(Debug, Default)]
 pub struct ParticleRenderStats {
     pub particles_rendered: usize,
+    /// Source point-group count for diagnostics (C++ getOnScreenParticleCount).
+    pub source_particle_count: usize,
     pub batches_rendered: usize,
     pub draw_calls: usize,
     pub gpu_memory_used: usize,
@@ -622,6 +624,7 @@ pub struct ParticleRenderStats {
 impl ParticleRenderStats {
     fn reset_frame_counters(&mut self) {
         self.particles_rendered = 0;
+        self.source_particle_count = 0;
         self.batches_rendered = 0;
         self.draw_calls = 0;
         self.render_time_ms = 0.0;
@@ -1314,6 +1317,7 @@ impl ParticleRenderer {
         let start_time = std::time::Instant::now();
         self.stats.reset_frame_counters();
         self.stats.particles_rendered = prepared.particles_rendered;
+        self.stats.source_particle_count = prepared.source_particle_count;
         self.queue.write_buffer(
             &self.uniform_buffer,
             0,
@@ -2305,6 +2309,7 @@ mod tests {
         crate::test_support::ensure_ambient_host();
         let mut stats = ParticleRenderStats {
             particles_rendered: 17,
+            source_particle_count: 17,
             batches_rendered: 3,
             draw_calls: 3,
             gpu_memory_used: 4096,
@@ -2314,6 +2319,7 @@ mod tests {
         stats.reset_frame_counters();
 
         assert_eq!(stats.particles_rendered, 0);
+        assert_eq!(stats.source_particle_count, 0);
         assert_eq!(stats.batches_rendered, 0);
         assert_eq!(stats.draw_calls, 0);
         assert_eq!(stats.gpu_memory_used, 4096);

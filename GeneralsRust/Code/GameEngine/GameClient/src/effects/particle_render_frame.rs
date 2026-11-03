@@ -16,6 +16,8 @@ pub struct ParticleRenderFrame {
     pub(super) uniforms: ParticleUniforms,
     pub(super) batches: Vec<PreparedParticleBatch>,
     pub(super) particles_rendered: usize,
+    /// C++ W3DParticleSys.cpp:328 — capped source point-group count (not layer instances).
+    pub(super) source_particle_count: usize,
     pub(super) preparation_time: std::time::Duration,
     heat_smudges: Vec<crate::effects::heat_haze::HeatHazeSmudge>,
 }
@@ -35,6 +37,7 @@ impl ParticleRenderFrame {
             uniforms: *uniforms,
             batches: Vec::new(),
             particles_rendered: 0,
+            source_particle_count: 0,
             preparation_time: std::time::Duration::ZERO,
             heat_smudges: Vec::new(),
         };
@@ -89,6 +92,7 @@ impl ParticleRenderFrame {
             uniforms: *uniforms,
             batches: Vec::new(),
             particles_rendered: 0,
+            source_particle_count: 0,
             preparation_time: std::time::Duration::ZERO,
             heat_smudges: Vec::new(),
         };
@@ -143,13 +147,28 @@ impl ParticleRenderFrame {
 
         if info.particle_type == ParticleType::Streak {
             let before = batch.vertices.len();
+            let source_before = system
+                .particles()
+                .iter()
+                .filter(|p| p.is_draw_alive())
+                .count();
             batch.add_streak_polyline(system);
             self.particles_rendered += batch.vertices.len().saturating_sub(before);
+            self.source_particle_count += source_before;
         } else if info.particle_type == ParticleType::VolumeParticle {
             // One bounded source group expands layer-major, not one complete
             // stack per particle. The 512-source cap does not cap layer instances.
+            let source_count = system
+                .particles()
+                .iter()
+                .filter(|p| p.is_draw_alive())
+                .take(MAX_PARTICLES_PER_BATCH)
+                .count();
+            let before = batch.vertices.len();
             batch.add_volume_system(system, camera_position);
-            self.particles_rendered += batch.vertices.len();
+            self.particles_rendered += batch.vertices.len().saturating_sub(before);
+            // C++ W3DParticleSys.cpp:328 adds the source `count`, not expanded layers.
+            self.source_particle_count += source_count;
         } else {
             for particle in system.particles() {
                 if !particle.is_draw_alive() {
@@ -164,6 +183,7 @@ impl ParticleRenderFrame {
                     | ParticleType::Smudge => continue,
                 }
                 self.particles_rendered += 1;
+                self.source_particle_count += 1;
             }
         }
 
@@ -181,6 +201,7 @@ impl ParticleRenderFrame {
 #[cfg(test)]
 mod owned_info_tests {
     use super::*;
+    use crate::system::particle_sys::ParticleInfo;
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use game_engine::common::system::{Snapshotable, Xfer};
@@ -232,6 +253,7 @@ mod owned_info_tests {
             uniforms: ParticleUniforms::default(),
             batches: Vec::new(),
             particles_rendered: 0,
+            source_particle_count: 0,
             preparation_time: std::time::Duration::ZERO,
             heat_smudges: Vec::new(),
         };
@@ -239,12 +261,40 @@ mod owned_info_tests {
         // reset/collection: this is an ordinary sprite system.
         frame.collect_system_particles(&loaded, [0.0; 3]);
         assert_eq!(frame.particles_rendered, 1);
+        assert_eq!(frame.source_particle_count, 1);
         assert_eq!(frame.batches.len(), 1);
         assert_eq!(frame.batches[0].shader_type, ParticleShaderType::Alpha);
         assert_eq!(frame.batches[0].texture_name, "SavedTexture");
         assert_eq!(frame.batches[0].vertices.len(), 1);
         assert_eq!(frame.batches[0].vertices[0].color, [1.0, 0.5, 0.25, 1.0]);
         assert!(Arc::ptr_eq(saved.template(), &authored));
+    }
+
+    #[test]
+    fn volume_source_count_excludes_layer_instances() {
+        // hq-twhpt — on-screen diagnostic uses source points, not 6x layers.
+        let mut authored = ParticleSystemTemplate::new("VolSrcCount".into());
+        authored.info_mut().particle_type = ParticleType::VolumeParticle;
+        authored.info_mut().shader_type = ParticleShaderType::Alpha;
+        authored.info_mut().particle_type_name = "vol.tga".into();
+        let template = Arc::new(authored);
+        let mut system =
+            ParticleSystem::new_with_random(template, 1, false, &mut |lo, _| lo);
+        let base = ParticleInfo::default();
+        for i in 0..8 {
+            let mut particle = Particle::new(&base, i, 0);
+            particle.size = 1.0;
+            particle.alpha = 1.0;
+            system.push_particle(particle);
+        }
+        let uniforms = ParticleUniforms::default();
+        let frame =
+            ParticleRenderFrame::prepare_owned(&[&system], &uniforms, false, &mut |a, _| a);
+        assert_eq!(frame.source_particle_count, 8);
+        assert_eq!(
+            frame.particles_rendered,
+            8 * OPTIMUM_VOLUME_PARTICLE_DEPTH as usize
+        );
     }
 }
 
