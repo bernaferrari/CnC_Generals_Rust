@@ -2093,6 +2093,7 @@ mod tests {
             None,
             DamageType::Toxin,
             crate::game_logic::host_usa_pilot::HostDeathType::PoisonedBeta,
+            0,
             &mut health_events
         ));
         let p = unit
@@ -2215,6 +2216,7 @@ mod tests {
             20.0,
             Some(ObjectId(9)),
             DamageType::Healing,
+            0,
             &mut health_events
         ));
         assert_eq!(unit.last_damage_source, Some(ObjectId(9)));
@@ -2239,6 +2241,7 @@ mod tests {
             20.0,
             Some(ObjectId(1)),
             DamageType::Bullet,
+            0,
             &mut health_events
         ));
         assert!((field.health.current - 50.0).abs() < 1e-3);
@@ -2247,6 +2250,7 @@ mod tests {
             1.0,
             Some(ObjectId(1)),
             DamageType::Unresistable,
+            0,
             &mut health_events
         ));
         assert!(field.status.destroyed);
@@ -2254,6 +2258,7 @@ mod tests {
             1.0,
             Some(ObjectId(1)),
             DamageType::Unresistable,
+            0,
             &mut health_events
         ));
     }
@@ -2288,6 +2293,7 @@ mod tests {
             40.0,
             Some(ObjectId(5)),
             DamageType::Bullet,
+            0,
             &mut health_events
         ));
         assert!((site.health.current - 1000.0).abs() < 0.01);
@@ -2303,6 +2309,7 @@ mod tests {
             200.0,
             Some(ObjectId(5)),
             DamageType::Sniper,
+            0,
             &mut health_events
         ));
         assert!((empty.health.current - 1000.0).abs() < 0.01);

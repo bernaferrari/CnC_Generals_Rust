@@ -2213,7 +2213,7 @@ mod tests {
                 projectile,
                 shooter,
                 first_position,
-                "TowMissileExhaust".to_string(),
+                "TowMissileExhaust".to_string(, &mut ()),
             )],
         );
         let exhaust = reg
@@ -2233,7 +2233,7 @@ mod tests {
                 projectile,
                 shooter,
                 moved_position,
-                "TowMissileExhaust".to_string(),
+                "TowMissileExhaust".to_string(, &mut ()),
             )],
         );
         let exhausts = reg.systems_of_kind(CombatParticleKind::ProjectileExhaust);
@@ -2254,7 +2254,7 @@ mod tests {
         );
 
         let no_projectiles: [(ObjectId, ObjectId, Vec3, String); 0] = [];
-        reg.sync_projectile_exhausts(12, &no_projectiles);
+        reg.sync_projectile_exhausts(12, &no_projectiles, &mut ());
         assert!(
             !reg.get(exhaust_id).expect("retained history entry").active,
             "trail is destroyed when the projectile impacts or expires"
@@ -2265,7 +2265,7 @@ mod tests {
 
         reg.sync_projectile_exhausts(
             13,
-            &[(ObjectId(701), shooter, Vec3::ZERO, "None".to_string())],
+            &[(ObjectId(701, &mut ()), shooter, Vec3::ZERO, "None".to_string())],
         );
         assert_eq!(
             reg.systems_of_kind(CombatParticleKind::ProjectileExhaust)

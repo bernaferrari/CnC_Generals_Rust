@@ -2443,6 +2443,7 @@ fn deploy_hack_surrender_kill_garrisoned_damage_residuals() {
         3.7,
         None,
         DamageType::KillGarrisoned,
+        0,
         &mut health_events
     ));
     assert!((bunker.health.current - 500.0).abs() < 1e-3);

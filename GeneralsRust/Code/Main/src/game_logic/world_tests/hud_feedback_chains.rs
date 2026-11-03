@@ -304,7 +304,12 @@ fn ocl_countdown_object_reveals_timer_window_with_ticking_seconds() {
         .expect("update_for_selection");
 
     // Presentation-synced countdown: the window reveals with formatted time.
-    bar.sync_ocl_timer_from_presentation(7);
+    {
+        let __wm = game_client::gui::window_manager::WindowManagerOwner::new();
+        __wm.with_manager(|manager| {
+            bar.sync_ocl_timer_from_presentation(7, manager);
+        });
+    }
     assert_eq!(
         window_hidden("ControlBar.wnd:OCLTimerWindow"),
         Some(false),
@@ -340,7 +345,12 @@ fn ocl_countdown_object_reveals_timer_window_with_ticking_seconds() {
         "OCL timer context update must keep the revealed text live"
     );
 
-    bar.sync_ocl_timer_from_presentation(5);
+    {
+        let __wm = game_client::gui::window_manager::WindowManagerOwner::new();
+        __wm.with_manager(|manager| {
+            bar.sync_ocl_timer_from_presentation(5, manager);
+        });
+    }
     assert_eq!(
         window_text("ControlBar.wnd:OCLTimerStaticText").as_deref(),
         Some("0:05"),

@@ -882,7 +882,7 @@ mod emission_player_owner_tests {
         (world, id)
     }
     fn emit(world: &mut GameLogic, id: ObjectId) -> gamelogic::helpers::HostFxObjectPose {
-        world.spawn_emp_sparks_on_victim(id, 30);
+        world.spawn_emp_sparks_on_victim(id, 30, &mut ());
         gamelogic::helpers::host_fx_object_pose(id.0)
             .expect("actual particle create publishes its attachment pose")
     }

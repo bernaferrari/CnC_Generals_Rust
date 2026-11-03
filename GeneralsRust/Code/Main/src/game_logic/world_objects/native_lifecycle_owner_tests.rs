@@ -394,6 +394,7 @@ fn height_particle_cleanup_observes_snap_after_rejected_body_and_only_attachment
         30,
         Some(peer),
         Some(id),
+        &mut (),
     );
     drive(&mut world, id, 30);
     let object = world.host_object(id).unwrap();

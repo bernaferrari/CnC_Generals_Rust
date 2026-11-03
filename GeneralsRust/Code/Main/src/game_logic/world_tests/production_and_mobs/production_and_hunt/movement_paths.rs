@@ -1392,6 +1392,7 @@ fn residual_path_installs_drop_the_exact_path_formula() {
                 Vec3::new(20.0, 0.0, 0.0),
                 Vec3::new(50.0, 0.0, 0.0),
             ],
+            0,
         );
         assert!(!unit.is_exact_path);
         assert!((unit.path_extra_distance - 30.0).abs() < 0.01);
