@@ -3,7 +3,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
 
 use crate::display::image::Image;
 use crate::game_text::GameText;
@@ -51,7 +50,7 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct WolWelcomeState {
+pub(crate) struct WolWelcomeState {
     parent_id: i32,
     button_back_id: i32,
     button_quick_match_id: i32,
@@ -91,27 +90,77 @@ struct WolWelcomeState {
     total_win_percent: f32,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_WELCOME_STATE: Rc<RefCell<WolWelcomeState>> = Rc::new(RefCell::new(WolWelcomeState::default()));
+    static TEST_WOL_WELCOME_STATE: std::cell::OnceCell<Rc<RefCell<WolWelcomeState>>> =
+        const { std::cell::OnceCell::new() };
+    static TEST_LOOK_AT_PLAYER: RefCell<(i32, String)> = const { RefCell::new((0, String::new())) };
 }
-static LOOK_AT_PLAYER: OnceLock<Mutex<(i32, String)>> = OnceLock::new();
+
+fn wol_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolWelcomeState>> {
+    if let Some(owner) = owner {
+        return owner.wol_welcome_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_welcome_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_WELCOME_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolWelcomeState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolWelcomeState::default()))
+    }
+}
 
 fn wol_state() -> Rc<RefCell<WolWelcomeState>> {
-    WOL_WELCOME_STATE.with(Rc::clone)
+    wol_state_on_owner(None)
 }
 
 pub fn set_look_at_player(profile_id: i32, name: &str) {
-    let slot = LOOK_AT_PLAYER.get_or_init(|| Mutex::new((0, String::new())));
-    let mut guard = slot.lock().unwrap_or_else(|e| e.into_inner());
-    *guard = (profile_id, name.to_string());
+    let value = (profile_id, name.to_string());
+    if let Some(()) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_wol_welcome_look_at_player_mut(|slot| *slot = value.clone());
+    }) {
+        return;
+    }
+    #[cfg(test)]
+    {
+        *TEST_LOOK_AT_PLAYER.borrow_mut() = value;
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        let _ = value;
+    }
 }
 
 pub fn get_look_at_player() -> (i32, String) {
-    LOOK_AT_PLAYER
-        .get_or_init(|| Mutex::new((0, String::new())))
-        .lock()
-        .map(|guard| guard.clone())
-        .unwrap_or((0, String::new()))
+    if let Some(value) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_wol_welcome_look_at_player_mut(|slot| slot.clone())
+    }) {
+        return value;
+    }
+    #[cfg(test)]
+    {
+        return TEST_LOOK_AT_PLAYER.with(|slot| slot.borrow().clone());
+    }
+    #[cfg(not(test))]
+    {
+        (0, String::new())
+    }
 }
 
 fn name_to_id(name: &str) -> i32 {

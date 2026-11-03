@@ -3,7 +3,6 @@
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
 
 use crate::gui::callbacks::online_callback_support::dispatch_esc_gadget_selected;
 use crate::gui::{
@@ -20,7 +19,7 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct WolLadderState {
+pub(crate) struct WolLadderState {
     parent_id: i32,
     button_back_id: i32,
     window_ladder_id: i32,
@@ -29,14 +28,94 @@ struct WolLadderState {
     window_ladder: Option<Rc<RefCell<GameWindow>>>,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_LADDER_STATE: Rc<RefCell<WolLadderState>> = Rc::new(RefCell::new(WolLadderState::default()));
-    static THE_LADDER_BROWSER: RefCell<W3DWebBrowser> = RefCell::new(W3DWebBrowser::new());
+    static TEST_WOL_LADDER_STATE: std::cell::OnceCell<Rc<RefCell<WolLadderState>>> =
+        const { std::cell::OnceCell::new() };
+    static TEST_LADDER_BROWSER: RefCell<W3DWebBrowser> = RefCell::new(W3DWebBrowser::new());
+    static TEST_WEBPAGES_LOADED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
-static WEBPAGES_LOADED: OnceLock<Mutex<bool>> = OnceLock::new();
+
+fn wol_ladder_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolLadderState>> {
+    if let Some(owner) = owner {
+        return owner.wol_ladder_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_ladder_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_LADDER_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolLadderState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolLadderState::default()))
+    }
+}
 
 fn wol_ladder_state() -> Rc<RefCell<WolLadderState>> {
-    WOL_LADDER_STATE.with(Rc::clone)
+    wol_ladder_state_on_owner(None)
+}
+
+fn with_ladder_browser_mut<R>(f: impl FnOnce(&mut W3DWebBrowser) -> R) -> R {
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_wol_ladder_browser_mut(|browser| f.take().expect("ladder browser")(browser))
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_LADDER_BROWSER.with(|slot| f.take().expect("ladder browser")(&mut slot.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("ladder browser")(&mut W3DWebBrowser::new())
+    }
+}
+
+fn webpages_loaded() -> bool {
+    if let Some(loaded) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_ladder_webpages_loaded()
+    }) {
+        return loaded;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WEBPAGES_LOADED.with(|c| c.get());
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
+
+fn set_webpages_loaded(loaded: bool) {
+    if let Some(()) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .set_wol_ladder_webpages_loaded(loaded);
+    }) {
+        return;
+    }
+    #[cfg(test)]
+    {
+        TEST_WEBPAGES_LOADED.with(|c| c.set(loaded));
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        let _ = loaded;
+    }
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -67,17 +146,13 @@ fn locate_webpages_ini() -> Option<PathBuf> {
 }
 
 fn ensure_webpages_loaded() -> bool {
-    let mut loaded_guard = WEBPAGES_LOADED
-        .get_or_init(|| Mutex::new(false))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    if *loaded_guard {
+    if webpages_loaded() {
         return true;
     }
 
     if let Some(path) = locate_webpages_ini() {
         if IniWebpageUrl::load_webpage_urls_from_file(&path).is_ok() {
-            *loaded_guard = true;
+            set_webpages_loaded(true);
             return true;
         }
     }
@@ -92,15 +167,20 @@ pub fn wol_ladder_screen_init(layout: &WindowLayout, _user_data: Option<&dyn std
     let button_back_id = name_to_id("WOLLadderScreen.wnd:ButtonBack");
     let window_ladder_id = name_to_id("WOLLadderScreen.wnd:WindowLadder");
 
-    let parent = owner.with_manager(|manager| manager.get_window_by_id(parent_id as i32));
-    let button_back =
-        owner.with_manager(|manager| manager.get_window_by_id(button_back_id as i32));
-    let window_ladder =
-        owner.with_manager(|manager| manager.get_window_by_id(window_ladder_id as i32));
+    let (parent, button_back, window_ladder) =
+        crate::core::game_client::with_live_game_client_mut(|client| {
+            let owner = client.window_manager_owner_ref();
+            (
+                owner.with_manager(|manager| manager.get_window_by_id(parent_id as i32)),
+                owner.with_manager(|manager| manager.get_window_by_id(button_back_id as i32)),
+                owner.with_manager(|manager| manager.get_window_by_id(window_ladder_id as i32)),
+            )
+        })
+        .unwrap_or((None, None, None));
 
     if ensure_webpages_loaded() {
         if let Some(window) = window_ladder.as_ref() {
-            THE_LADDER_BROWSER.with(|browser| {
+            with_ladder_browser_mut(|browser| {
                 let _ = browser
                     .borrow_mut()
                     .create_browser_window("MessageBoard", &window.borrow());
@@ -111,7 +191,11 @@ pub fn wol_ladder_screen_init(layout: &WindowLayout, _user_data: Option<&dyn std
     layout.hide(false);
 
     if let Some(parent) = parent.as_ref() {
-        let _ = owner.with_manager(|manager| manager.set_focus(Some(parent)));
+        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+            client
+                .window_manager_owner_ref()
+                .with_manager(|manager| manager.set_focus(Some(parent)))
+        });
     }
 
     let state_slot = wol_ladder_state();
@@ -129,7 +213,7 @@ pub fn wol_ladder_screen_shutdown(layout: &WindowLayout, _user_data: Option<&dyn
         let state_slot = wol_ladder_state();
         let state = state_slot.borrow();
         if let Some(window) = state.window_ladder.as_ref() {
-            THE_LADDER_BROWSER.with(|browser| {
+            with_ladder_browser_mut(|browser| {
                 browser.borrow_mut().close_browser_window(&window.borrow());
             });
         }

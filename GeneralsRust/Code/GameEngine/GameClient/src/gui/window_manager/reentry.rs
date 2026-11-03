@@ -151,6 +151,33 @@ struct WindowManagerOwnerState {
     /// NetworkDirectConnectState (was process TLS).
     #[cfg(feature = "online_ui")]
     network_direct_connect_state: Rc<RefCell<crate::gui::callbacks::network_direct_connect::NetworkDirectConnectState>>,
+    /// WOL ladder menu state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_ladder_state: Rc<RefCell<crate::gui::callbacks::wol_ladder_screen::WolLadderState>>,
+    /// WOL ladder web browser (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_ladder_browser: RefCell<crate::w3d_web_browser::W3DWebBrowser>,
+    /// WOL ladder Webpages.ini loaded latch (was process OnceLock).
+    #[cfg(feature = "online_ui")]
+    wol_ladder_webpages_loaded: Cell<bool>,
+    /// WOL buddy overlay state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_buddy_overlay_state: Rc<RefCell<crate::gui::callbacks::wol_buddy_overlay::WolBuddyOverlayState>>,
+    /// Buddy controls residual (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_buddy_controls: Rc<RefCell<crate::gui::callbacks::wol_buddy_overlay::BuddyControls>>,
+    /// WOL welcome menu state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_welcome_state: Rc<RefCell<crate::gui::callbacks::wol_welcome_menu::WolWelcomeState>>,
+    /// WOL welcome look-at player residual (was process OnceLock).
+    #[cfg(feature = "online_ui")]
+    wol_welcome_look_at_player: RefCell<(i32, String)>,
+    /// WOL login menu state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_login_state: Rc<RefCell<crate::gui::callbacks::wol_login_menu::WolLoginState>>,
+    /// WOL login TOS browser (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_login_tos_browser: RefCell<crate::w3d_web_browser::W3DWebBrowser>,
 }
 
 /// Persistent owner for one native client's WND tree and its re-entry queues.
@@ -318,6 +345,34 @@ impl WindowManagerOwner {
                 network_direct_connect_state: Rc::new(RefCell::new(
                     crate::gui::callbacks::network_direct_connect::NetworkDirectConnectState::default(),
                 )),
+                #[cfg(feature = "online_ui")]
+                wol_ladder_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_ladder_screen::WolLadderState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_ladder_browser: RefCell::new(crate::w3d_web_browser::W3DWebBrowser::new()),
+                #[cfg(feature = "online_ui")]
+                wol_ladder_webpages_loaded: Cell::new(false),
+                #[cfg(feature = "online_ui")]
+                wol_buddy_overlay_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_buddy_overlay::WolBuddyOverlayState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_buddy_controls: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_buddy_overlay::BuddyControls::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_welcome_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_welcome_menu::WolWelcomeState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_welcome_look_at_player: RefCell::new((0, String::new())),
+                #[cfg(feature = "online_ui")]
+                wol_login_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_login_menu::WolLoginState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_login_tos_browser: RefCell::new(crate::w3d_web_browser::W3DWebBrowser::new()),
             }),
         }
     }
@@ -456,6 +511,66 @@ impl WindowManagerOwner {
         &self,
     ) -> Rc<RefCell<crate::gui::callbacks::network_direct_connect::NetworkDirectConnectState>> {
         Rc::clone(&self.state.network_direct_connect_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_ladder_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_ladder_screen::WolLadderState>> {
+        Rc::clone(&self.state.wol_ladder_state)
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn with_wol_ladder_browser_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::w3d_web_browser::W3DWebBrowser) -> R,
+    ) -> R {
+        f(&mut self.state.wol_ladder_browser.borrow_mut())
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_ladder_webpages_loaded(&self) -> bool {
+        self.state.wol_ladder_webpages_loaded.get()
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn set_wol_ladder_webpages_loaded(&self, loaded: bool) {
+        self.state.wol_ladder_webpages_loaded.set(loaded);
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_buddy_overlay_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_buddy_overlay::WolBuddyOverlayState>> {
+        Rc::clone(&self.state.wol_buddy_overlay_state)
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_buddy_controls_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_buddy_overlay::BuddyControls>> {
+        Rc::clone(&self.state.wol_buddy_controls)
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_welcome_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_welcome_menu::WolWelcomeState>> {
+        Rc::clone(&self.state.wol_welcome_state)
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn with_wol_welcome_look_at_player_mut<R>(
+        &self,
+        f: impl FnOnce(&mut (i32, String)) -> R,
+    ) -> R {
+        f(&mut self.state.wol_welcome_look_at_player.borrow_mut())
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_login_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_login_menu::WolLoginState>> {
+        Rc::clone(&self.state.wol_login_state)
+    }
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn with_wol_login_tos_browser_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::w3d_web_browser::W3DWebBrowser) -> R,
+    ) -> R {
+        f(&mut self.state.wol_login_tos_browser.borrow_mut())
     }
 
     pub(crate) fn keyboard_options_handle(
