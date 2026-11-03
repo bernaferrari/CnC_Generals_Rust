@@ -1,6 +1,32 @@
 # Lone Eagle perf baseline (Mac arm64, debug unless noted)
 
-Updated: 2026-11-02 America/Sao_Paulo
+Updated: 2026-11-03 America/Sao_Paulo (partial after-fix; load noisy)
+
+## After-fix bench status (2026-11-03, America/Sao_Paulo)
+
+Machine load during attempts: **~34–68** (other worktree cargo builds). Harness run with `nice -n 15`. **No quiet-window InGame median yet** — release windowed run stalled for 10+ minutes after `Preserving N host player(s)` in asset path resolve (`opendir`/`stat`). Mitigations landed on `main` before the next rerun:
+
+| Commit | Change |
+| --- | --- |
+| `db9a0d841` | TextureManager instance TGA decode cache; parallel tile warm; ThingFactory INFO→debug; sync stage timers |
+| `4024f4596` | One NameKey lock per map dict + finer sync stages |
+| `835c384a0` | One ObjectsList walk for bridges+roads |
+| `e57bc9210` | macOS: skip case-fold `read_dir` walk on negative asset lookups |
+
+### Partial release numbers (noisy load; do not treat as quiet medians)
+
+| Metric | Value | Source |
+| --- | ---: | --- |
+| ShellMapMD Fast legacy sync (release) | **~15.1 s** | stderr stage log (before+after ObjectsList unify) |
+| Lone Eagle Fast legacy sync (release) | **~116 s** | stderr before ObjectsList unify; stages ~13 s × ObjectsList walks + polygons ~26 s + sides write ~25 s |
+| Lone Eagle settings parse (release) | **~14 s** | stderr |
+| Lone Eagle heightmap re-parse after sync | **~13 s** | stderr (duplicate of sync heightmap) |
+| Boot-to-InGame (release windowed) | **not reached** | stalled in spawn/hydrate after preserve |
+| debug/release ms/tick, ms/frame medians | **pending** | need 3× InGame measure after `e57bc9210` rebuild |
+
+ShellMap after ObjectsList unify still ~15 s total (bridges+roads share one walk; polygons/sides remain). Lone Eagle should drop ~one ObjectsList walk (~13 s) once remeasured.
+
+
 
 ## Before / after (windowed 1280x720, runtime host)
 
