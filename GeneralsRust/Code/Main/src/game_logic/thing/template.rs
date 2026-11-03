@@ -211,6 +211,33 @@ impl ReceivingClientTemplate {
         ))
     }
 
+    /// C++ ParticleUplinkCannonUpdate.cpp:112-113 SwathOfDeathDistance/Amplitude
+    /// from this exact authored module data.
+    pub(crate) fn particle_swath_settings(
+        &self,
+    ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleSwathSettings>, ()> {
+        let Some(entry) = self.0.behavior_modules().iter().find(|entry| {
+            entry
+                .name
+                .as_str()
+                .eq_ignore_ascii_case("ParticleUplinkCannonUpdate")
+        }) else {
+            return Ok(None);
+        };
+        let Some(data) = entry
+            .data
+            .downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>(
+        ) else {
+            return Err(());
+        };
+        Ok(Some(
+            crate::game_logic::special_power_strikes::ParticleSwathSettings {
+                swath_of_death_distance: data.swath_of_death_distance,
+                swath_of_death_amplitude: data.swath_of_death_amplitude,
+            },
+        ))
+    }
+
     pub(crate) fn has_behavior_module(&self, name: &str) -> bool {
         self.0
             .behavior_modules()
@@ -1032,6 +1059,14 @@ impl ThingTemplate {
             Ok(None),
             ReceivingClientTemplate::particle_manual_drive_settings,
         )
+    }
+
+    pub(crate) fn particle_swath_settings(
+        &self,
+    ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleSwathSettings>, ()> {
+        self.receiving_client_template
+            .as_ref()
+            .map_or(Ok(None), ReceivingClientTemplate::particle_swath_settings)
     }
 
     /// C++ Object::getObjectExitInterface checks behavior modules in authored

@@ -78,6 +78,19 @@ impl GameLogic {
         } else {
             None
         };
+        let particle_swath_settings = if kind == HostSuperweaponKind::ParticleCannon {
+            let captured = self
+                .objects
+                .get(&source_object)
+                .map(|object| object.get_template().particle_swath_settings())
+                .transpose();
+            let Ok(captured) = captured else {
+                return None;
+            };
+            Some(captured.flatten().unwrap_or_default())
+        } else {
+            None
+        };
         let frame = self.frame;
         // C++ OCLSpecialPower::findOCL: getObject()->getControllingPlayer()->hasScience.
         // Never union same-faction allies or USA-vs-USA opponents.
@@ -126,6 +139,11 @@ impl GameLogic {
         if let Some(settings) = particle_manual_drive_settings {
             if let Some(strike) = self.special_power_strikes.get_mut(id) {
                 strike.manual_drive_settings = settings;
+            }
+        }
+        if let Some(settings) = particle_swath_settings {
+            if let Some(strike) = self.special_power_strikes.get_mut(id) {
+                strike.swath_settings = settings;
             }
         }
         // C++ ParticleUplinkCannonUpdate.cpp:260-268: !COMMAND_FIRED_BY_SCRIPT
