@@ -23,6 +23,7 @@ use crate::common::rts::energy::{EnergyObjectLookup, EnergyOwnerCallbacks};
 use crate::common::rts::production_prerequisite::PrereqObjectCounter;
 use crate::common::message_stream::message_stream::CommandListAppendFn;
 use crate::common::damage_fx::DamageFXStore;
+use crate::common::resource_manager::ResourceManager;
 use crate::common::system::geometry::Coord3D;
 use crate::common::time::SimulationClock;
 use std::cell::RefCell;
@@ -143,6 +144,8 @@ pub struct CommonServices {
     pub async_playback_handle_pool: AtomicU32,
     /// Damage FX definition store (was process DAMAGE_FX_STORE).
     pub damage_fx_store: Mutex<DamageFXStore>,
+    /// Resource manager (was process RESOURCE_MANAGER).
+    pub resource_manager: Arc<Mutex<ResourceManager>>,
 }
 
 impl Default for CommonServices {
@@ -169,6 +172,7 @@ impl Default for CommonServices {
             audio_event_localization_language: Mutex::new(String::from("English")),
             async_playback_handle_pool: AtomicU32::new(10_000_000),
             damage_fx_store: Mutex::new(DamageFXStore::new()),
+            resource_manager: Arc::new(Mutex::new(ResourceManager::new())),
         }
     }
 }
