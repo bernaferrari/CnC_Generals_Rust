@@ -14,20 +14,13 @@ use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-struct AcademyCounters {
-    local_player_mines: AtomicU32,
-    neutral_vehicles_sniped: AtomicU32,
-}
-static ACADEMY_COUNTERS: std::sync::LazyLock<AcademyCounters> =
-    std::sync::LazyLock::new(|| AcademyCounters {
-        local_player_mines: AtomicU32::new(0),
-        neutral_vehicles_sniped: AtomicU32::new(0),
-    });
-
 /// C++ ThePlayerList local/neutral academy counters used by advice #31/#32.
 pub fn set_academy_peer_counts(local_mines: u32, neutral_vehicles_sniped: u32) {
-    ACADEMY_COUNTERS.local_player_mines.store(local_mines, Ordering::Relaxed);
-    ACADEMY_COUNTERS.neutral_vehicles_sniped.store(neutral_vehicles_sniped, Ordering::Relaxed);
+    let system = &crate::common::common_services::common_services().system;
+    system.academy_local_player_mines.store(local_mines, Ordering::Relaxed);
+    system
+        .academy_neutral_vehicles_sniped
+        .store(neutral_vehicles_sniped, Ordering::Relaxed);
 }
 
 /// Immutable observations from the match whose advice is being displayed.
@@ -779,8 +772,14 @@ impl AcademyStats {
                 use_alternate_mouse: crate::common::global_data::read_safe()
                     .map(|data| data.use_alternate_mouse)
                     .unwrap_or(false),
-                local_player_mines: ACADEMY_COUNTERS.local_player_mines.load(Ordering::Relaxed),
-                neutral_vehicles_sniped: ACADEMY_COUNTERS.neutral_vehicles_sniped.load(Ordering::Relaxed),
+                local_player_mines: crate::common::common_services::common_services()
+                    .system
+                    .academy_local_player_mines
+                    .load(Ordering::Relaxed),
+                neutral_vehicles_sniped: crate::common::common_services::common_services()
+                    .system
+                    .academy_neutral_vehicles_sniped
+                    .load(Ordering::Relaxed),
             },
         )
     }

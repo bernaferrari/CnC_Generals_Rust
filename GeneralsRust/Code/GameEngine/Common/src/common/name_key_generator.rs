@@ -218,8 +218,6 @@ impl NameKeyGenerator {
     }
 }
 
-/// Global name key generator instance (placeholder for legacy API parity).
-pub static THE_NAME_KEY_GENERATOR: NameKeyGenerator = NameKeyGenerator;
 
 /// C++ `calcHashForString` (`lowercase == false`) / `calcHashForLowercaseString`
 /// (`lowercase == true`) from NameKeyGenerator.cpp: `result = (result << 5) +

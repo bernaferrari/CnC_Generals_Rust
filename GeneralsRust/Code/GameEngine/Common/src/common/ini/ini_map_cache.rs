@@ -674,16 +674,29 @@ pub fn quoted_printable_to_unicode_string(input: &str) -> UnicodeString {
 }
 
 type GameTextProvider = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
-static GAME_TEXT_PROVIDER: OnceCell<GameTextProvider> = OnceCell::new();
 
 pub fn set_game_text_provider(provider: GameTextProvider) -> bool {
-    GAME_TEXT_PROVIDER.set(provider).is_ok()
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .ini
+        .game_text_provider
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_some() {
+        return false;
+    }
+    *slot = Some(provider);
+    true
 }
 
 fn lookup_game_text(tag: &str) -> Option<String> {
-    GAME_TEXT_PROVIDER
-        .get()
-        .and_then(|provider| (provider)(tag))
+    let services = crate::common::common_services::common_services();
+    let slot = services
+        .ini
+        .game_text_provider
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    slot.as_ref().and_then(|provider| (provider)(tag))
 }
 
 /// Initialize the global map cache

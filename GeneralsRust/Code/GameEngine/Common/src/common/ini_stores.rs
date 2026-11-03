@@ -47,6 +47,7 @@ use crate::common::rts::special_power::SpecialPowerStore as RtsSpecialPowerStore
 use crate::common::ini::ini_mouse::CursorInfo;
 use crate::common::ini::ini_object::ObjectDefinition;
 use std::collections::HashMap;
+use crate::common::ini::ini::{BlockParse, ParticleSystemLiveOverlay};
 
 /// INI / definition registries owned by one game instance.
 pub struct IniStores {
@@ -90,6 +91,12 @@ pub struct IniStores {
     pub rts_special_power: Arc<RwLock<RtsSpecialPowerStore>>,
     pub cursor_info: Arc<ParkingRwLock<HashMap<String, CursorInfo>>>,
     pub object_definitions: Arc<RwLock<HashMap<String, ObjectDefinition>>>,
+    /// Runtime-registered INI block parsers (client overlays).
+    pub extra_block_parsers: RwLock<Vec<BlockParse>>,
+    /// Live GameClient ParticleSystemManager overlay for map.ini blocks.
+    pub particle_system_live_overlay: RwLock<Option<ParticleSystemLiveOverlay>>,
+    /// Map-cache display-name text provider (GameTextManager bridge).
+    pub game_text_provider: Mutex<Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>>,
 }
 
 impl Default for IniStores {
@@ -135,6 +142,9 @@ impl Default for IniStores {
             rts_special_power: Arc::new(RwLock::new(RtsSpecialPowerStore::new())),
             cursor_info: Arc::new(ParkingRwLock::new(HashMap::new())),
             object_definitions: Arc::new(RwLock::new(HashMap::new())),
+            extra_block_parsers: RwLock::new(Vec::new()),
+            particle_system_live_overlay: RwLock::new(None),
+            game_text_provider: Mutex::new(None),
         }
     }
 }
