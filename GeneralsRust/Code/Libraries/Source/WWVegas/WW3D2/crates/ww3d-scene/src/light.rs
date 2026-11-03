@@ -627,12 +627,12 @@ fn hsv_to_rgb(hsv: Vec3) -> Vec3 {
 ///
 /// Lights with diffuse intensity below this threshold are converted to pure ambient
 pub fn set_lighting_lod_cutoff(cutoff: f32) {
-    { let mut cell = crate::process_state::SCENE.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()); *cell = cutoff };
+    { let s = crate::process_state::scene(); let mut cell = s.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()); *cell = cutoff };
 }
 
 /// Get the lighting LOD cutoff
 pub fn get_lighting_lod_cutoff() -> f32 {
-    crate::process_state::SCENE.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    crate::process_state::scene().lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 #[cfg(test)]

@@ -1076,7 +1076,7 @@ impl ParticleBuffer {
         // Calculate value heuristic
         let mut lod = 0;
         {
-            let lod_sizes = crate::process_state::PARTICLES.lod_max_screen_sizes.lock().unwrap_or_else(|p| p.into_inner()).clone();
+            let lod_sizes = crate::process_state::particles().lod_max_screen_sizes.lock().unwrap_or_else(|p| p.into_inner()).clone();
             // Find first LOD where MaxScreenSize >= screen_area
             while lod < self.lod_count && lod_sizes[lod] < screen_area {
                 self.value[lod] = AT_MIN_LOD;
@@ -1161,7 +1161,7 @@ impl ParticleBuffer {
     /// Set global LOD max screen size for a specific level
     pub fn set_lod_max_screen_size(lod_level: usize, max_screen_size: f32) {
         if lod_level < 17 {
-            let mut sizes = crate::process_state::PARTICLES.lod_max_screen_sizes.lock().unwrap_or_else(|p| p.into_inner()).clone();
+            let mut sizes = crate::process_state::particles().lod_max_screen_sizes.lock().unwrap_or_else(|p| p.into_inner()).clone();
             sizes[lod_level] = max_screen_size;
         }
     }
@@ -1169,7 +1169,7 @@ impl ParticleBuffer {
     /// Get global LOD max screen size for a specific level
     pub fn get_lod_max_screen_size(lod_level: usize) -> f32 {
         if lod_level < 17 {
-            crate::process_state::PARTICLES.lod_max_screen_sizes.lock().unwrap_or_else(|p| p.into_inner()).clone()[lod_level]
+            crate::process_state::particles().lod_max_screen_sizes.lock().unwrap_or_else(|p| p.into_inner()).clone()[lod_level]
         } else {
             NO_MAX_SCREEN_SIZE
         }

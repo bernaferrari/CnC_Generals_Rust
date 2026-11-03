@@ -334,7 +334,7 @@ pub struct TaskId(u64);
 impl TaskId {
     fn new() -> Self {
         use std::sync::atomic::{AtomicU64, Ordering};
-        Self(crate::process_state::SCENE.task_id_counter.fetch_add(1, Ordering::SeqCst))
+        Self(crate::process_state::scene().task_id_counter.fetch_add(1, Ordering::SeqCst))
     }
 }
 
