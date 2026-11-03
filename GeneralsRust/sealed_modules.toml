@@ -615,3 +615,18 @@ path = "Code/GameEngine/GameClient/src/gui/skirmish_setup.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks"
 note = "SkirmishSetup on GameClient; get_skirmish_setup peels live client then cfg(test) TLS; no process LazyLock."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/w3d_web_browser.rs"
+cpp = "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DWebBrowser.cpp"
+note = "Presented pages owned on W3DWebBrowser; process PAGES LazyLock removed."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/message_stream/command_router.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/MessageStream"
+note = "Host command authority on GameClient; process HOST_COMMAND_AUTHORITY LazyLock removed."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/network/bridge.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameNetwork"
+note = "Network progress map owned by NetworkBridgeHandle; process NETWORK_PROGRESS removed."
+
