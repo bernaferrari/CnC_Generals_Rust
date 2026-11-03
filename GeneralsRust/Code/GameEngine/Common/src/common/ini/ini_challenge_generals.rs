@@ -12,7 +12,7 @@ use std::env;
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 // Constants matching C++ definitions
 pub const NUM_GENERALS: usize = 12;
@@ -856,11 +856,8 @@ pub enum ChallengeGeneralsLoadStatus {
 
 struct LoadedChallengeGenerals {
     source: String,
-    definitions: ChallengeGenerals,
+    definitions: Arc<ChallengeGenerals>,
 }
-
-static CHALLENGE_GENERALS: OnceLock<Result<LoadedChallengeGenerals, ChallengeGeneralsLoadError>> =
-    OnceLock::new();
 
 fn validate_challenge_generals_data(
     store: &ChallengeGenerals,
@@ -994,7 +991,7 @@ fn load_challenge_generals_once() -> Result<LoadedChallengeGenerals, ChallengeGe
             validate_challenge_generals_data(&definitions, &source)?;
             return Ok(LoadedChallengeGenerals {
                 source,
-                definitions,
+                definitions: Arc::new(definitions),
             });
         }
         Err(error) => {
@@ -1011,62 +1008,72 @@ fn load_challenge_generals_once() -> Result<LoadedChallengeGenerals, ChallengeGe
     validate_challenge_generals_data(&definitions, &source)?;
     Ok(LoadedChallengeGenerals {
         source,
-        definitions,
+        definitions: Arc::new(definitions),
     })
 }
 
+fn load_into_active_services() -> Result<(String, Arc<ChallengeGenerals>), ChallengeGeneralsLoadError> {
+    load_challenge_generals_once().map(|loaded| (loaded.source, loaded.definitions))
+}
+
 pub fn ensure_challenge_generals_loaded() -> Result<(), ChallengeGeneralsLoadError> {
-    CHALLENGE_GENERALS
-        .get_or_init(load_challenge_generals_once)
+    let services = crate::common::common_services::common_services();
+    services
+        .ini
+        .challenge_generals
+        .get_or_init(load_into_active_services)
         .as_ref()
         .map(|_| ())
         .map_err(Clone::clone)
 }
 
 pub fn challenge_generals_load_status() -> ChallengeGeneralsLoadStatus {
-    match CHALLENGE_GENERALS.get() {
+    let Some(services) = crate::common::common_services::try_common_services() else {
+        return ChallengeGeneralsLoadStatus::Uninitialized;
+    };
+    match services.ini.challenge_generals.get() {
         None => ChallengeGeneralsLoadStatus::Uninitialized,
-        Some(Ok(loaded)) => ChallengeGeneralsLoadStatus::Loaded {
-            source: loaded.source.clone(),
+        Some(Ok((source, _))) => ChallengeGeneralsLoadStatus::Loaded {
+            source: source.clone(),
         },
         Some(Err(error)) => ChallengeGeneralsLoadStatus::Failed(error.clone()),
     }
 }
 
 fn challenge_generals_load_failed() -> bool {
-    matches!(CHALLENGE_GENERALS.get(), Some(Err(_)))
+    let Some(services) = crate::common::common_services::try_common_services() else {
+        return false;
+    };
+    matches!(services.ini.challenge_generals.get(), Some(Err(_)))
 }
 
-fn fail_closed_general_persona() -> &'static GeneralPersona {
-    static FAIL_CLOSED_PERSONA: OnceLock<GeneralPersona> = OnceLock::new();
-    FAIL_CLOSED_PERSONA.get_or_init(GeneralPersona::new)
-}
-
-/// Get the immutable authored persona definitions. The returned reference is
-/// stable for the process lifetime; selection and difficulty belong to the
-/// receiving campaign/UI state.
-pub fn get_challenge_generals() -> &'static ChallengeGenerals {
+/// Authored ChallengeMode personas for the active CommonServices instance.
+/// Selection and difficulty remain in campaign/UI state, not this table.
+pub fn get_challenge_generals() -> Arc<ChallengeGenerals> {
     let _ = ensure_challenge_generals_loaded();
-    match CHALLENGE_GENERALS.get().expect("loader initialized") {
-        Ok(loaded) => &loaded.definitions,
-        Err(_) => {
-            static EMPTY: OnceLock<ChallengeGenerals> = OnceLock::new();
-            EMPTY.get_or_init(ChallengeGenerals::new)
-        }
+    let services = crate::common::common_services::common_services();
+    match services
+        .ini
+        .challenge_generals
+        .get()
+        .expect("loader initialized")
+    {
+        Ok((_, definitions)) => Arc::clone(definitions),
+        Err(_) => Arc::new(ChallengeGenerals::new()),
     }
 }
 
 /// Resolve a template against the authoritative authored table, preserving
 /// C++'s fail-closed handling for Challenge personas when the INI is missing.
-pub fn get_authored_general_by_template_name(name: &str) -> Option<&'static GeneralPersona> {
+pub fn get_authored_general_by_template_name(name: &str) -> Option<GeneralPersona> {
     let definitions = get_challenge_generals();
     if challenge_generals_load_failed() {
         return name
             .to_ascii_lowercase()
             .contains("general")
-            .then(fail_closed_general_persona);
+            .then(GeneralPersona::new);
     }
-    definitions.get_general_by_template_name(name)
+    definitions.get_general_by_template_name(name).cloned()
 }
 
 /// Initialize the immutable authored definitions for existing startup callers.

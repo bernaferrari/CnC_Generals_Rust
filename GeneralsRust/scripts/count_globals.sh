@@ -270,11 +270,6 @@ details = collections.defaultdict(list)
 ALLOWED_STATIC_EXCEPTIONS = {
     # name: reason
     # Example: "GLOBAL_ALLOCATOR": "#[global_allocator] must be static (Rust)",
-    # Authored ChallengeMode.ini load-once cache. get_challenge_generals() returns
-    # &'static ChallengeGenerals (C++ TheChallengeGenerals table); per-instance
-    # storage cannot satisfy that lifetime without leaking or rewriting every
-    # GameClient/campaign consumer.
-    "CHALLENGE_GENERALS": "load-once authored ChallengeMode.ini table; &'static API",
     # Source-counted even when the feature is off; bags only exist under
     # debug_crc / perf_timers and are process instrumentation, not game state.
     "CRC_DEBUG_BAG": "cfg(feature=debug_crc) instrumentation bag",
