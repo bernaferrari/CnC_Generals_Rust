@@ -6,7 +6,6 @@
 
 use std::cell::RefCell;
 use std::f32::consts::PI;
-use std::sync::atomic::{AtomicU32, Ordering};
 
 use game_engine::common::ini::get_global_data;
 use serde::{Deserialize, Serialize};
@@ -61,18 +60,41 @@ const DEFAULT_CAMERA_HEIGHT: f32 = 200.0;
 const DEFAULT_CAMERA_PITCH_DEG: f32 = 37.5;
 pub const LETTER_BOX_FADE_TIME_MS: f32 = 1000.0;
 
-thread_local! {
-    static DISPLAY_LETTER_BOXED: Cell<bool> = const { Cell::new(false) };
-}
-
 /// C++ `TheDisplay->isLetterBoxed()` as seen by `W3DView::buildCameraTransform`.
 pub fn set_display_letter_boxed(enabled: bool) {
-    DISPLAY_LETTER_BOXED.with(|flag| flag.set(enabled));
+    if crate::core::game_client::with_live_game_client_mut(|client| {
+        client.display_letter_boxed = enabled;
+    })
+    .is_some()
+    {
+        return;
+    }
+    #[cfg(test)]
+    {
+        TEST_LETTER_BOXED.with(|flag| flag.set(enabled));
+    }
 }
 
 /// C++ `TheDisplay->isLetterBoxed()`.
 pub fn is_display_letter_boxed() -> bool {
-    DISPLAY_LETTER_BOXED.with(|flag| flag.get())
+    if let Some(flag) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.display_letter_boxed
+    }) {
+        return flag;
+    }
+    #[cfg(test)]
+    {
+        return TEST_LETTER_BOXED.with(|flag| flag.get());
+    }
+    #[cfg(not(test))]
+    {
+        false
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_LETTER_BOXED: Cell<bool> = const { Cell::new(false) };
 }
 
 fn ground_height_at(x: f32, y: f32) -> f32 {
@@ -758,8 +780,9 @@ fn parabolic_ease(t: f32) -> f32 {
 impl View {
     /// Create a new view with default settings
     pub fn new() -> Self {
-        static NEXT_ID: AtomicU32 = AtomicU32::new(1);
-        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        // Per-client tactical view is the C++ singleton; tests may construct
+        // additional Views with the same id without process-wide sequencing.
+        let id = 1u32;
 
         Self {
             id,
@@ -2143,8 +2166,27 @@ impl View {
     }
 }
 
+fn with_hint_model_cache<R>(f: impl FnOnce(&mut HintModelCache) -> R) -> R {
+    if crate::core::game_client::live_game_client_frame().is_some() {
+        return crate::core::game_client::with_live_game_client_mut(|client| {
+            f(&mut client.hint_model_cache)
+        })
+        .expect("live client frame implies registered client");
+    }
+    #[cfg(test)]
+    {
+        return TEST_HINT_MODELS.with(|cache| f(&mut cache.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        let mut ephemeral = HintModelCache::default();
+        f(&mut ephemeral)
+    }
+}
+
+#[cfg(test)]
 thread_local! {
-    static HINT_MODELS: RefCell<HintModelCache> = RefCell::new(HintModelCache::default());
+    static TEST_HINT_MODELS: RefCell<HintModelCache> = RefCell::new(HintModelCache::default());
 }
 
 #[derive(Default)]
@@ -2213,8 +2255,7 @@ fn draw_move_hint_and_locater_models(
         .map(|hint| Point3::new(hint.end.x, hint.end.y, hint.end.z))
         .collect();
 
-    HINT_MODELS.with(|cache| {
-        let mut cache = cache.borrow_mut();
+    with_hint_model_cache(|cache| {
         while cache.move_hints.len() < live.len() {
             let pos = live[cache.move_hints.len()];
             cache
@@ -2240,8 +2281,7 @@ fn draw_move_hint_and_locater_models(
             let dx = (end.x - start.x) as f32;
             let dy = (end.y - start.y) as f32;
             let show_arrow = (dx * dx + dy * dy).sqrt() >= 5.0;
-            HINT_MODELS.with(|cache| {
-                let mut cache = cache.borrow_mut();
+            with_hint_model_cache(|cache| {
                 if cache.locater_anchor.is_none() {
                     cache.locater_anchor =
                         Some(spawn_world_model("Locater01", start_world, "LOOP"));
@@ -2269,8 +2309,7 @@ fn draw_move_hint_and_locater_models(
             });
         }
     } else {
-        HINT_MODELS.with(|cache| {
-            let cache = cache.borrow();
+        with_hint_model_cache(|cache| {
             if let Some(id) = cache.locater_anchor {
                 hide_or_move_model(id, None);
             }
@@ -2472,22 +2511,38 @@ pub fn draw_live_command_markers(
         }
     }
 }
+/// Access the receiving client's tactical view (legacy `TheTacticalView`).
+pub fn with_tactical_view<R>(f: impl FnOnce(&mut View) -> R) -> R {
+    if crate::core::game_client::live_game_client_frame().is_some() {
+        return crate::core::game_client::with_live_game_client_mut(|client| {
+            f(&mut client.tactical_view)
+        })
+        .expect("live client frame implies registered client");
+    }
+    #[cfg(test)]
+    {
+        return TEST_TACTICAL_VIEW.with(|view| f(&mut view.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        let mut ephemeral = View::new();
+        ephemeral.init();
+        f(&mut ephemeral)
+    }
+}
+
+/// Access the receiving client's tactical view immutably.
+pub fn with_tactical_view_ref<R>(f: impl FnOnce(&View) -> R) -> R {
+    with_tactical_view(|view| f(view))
+}
+
+#[cfg(test)]
 thread_local! {
-    static THE_TACTICAL_VIEW: RefCell<View> = {
+    static TEST_TACTICAL_VIEW: RefCell<View> = {
         let mut view = View::new();
         view.init();
         RefCell::new(view)
     };
-}
-
-/// Access the global tactical view (legacy `TheTacticalView` equivalent).
-pub fn with_tactical_view<R>(f: impl FnOnce(&mut View) -> R) -> R {
-    THE_TACTICAL_VIEW.with(|view| f(&mut view.borrow_mut()))
-}
-
-/// Access the global tactical view immutably.
-pub fn with_tactical_view_ref<R>(f: impl FnOnce(&View) -> R) -> R {
-    THE_TACTICAL_VIEW.with(|view| f(&view.borrow()))
 }
 
 impl Default for View {
@@ -3914,5 +3969,36 @@ impl ViewTrait for View {
 
     fn set_position(&mut self, pos: Point3) {
         self.set_position(&pos);
+    }
+
+}
+
+#[cfg(test)]
+mod tactical_view_ownership_tests {
+    use super::*;
+    use std::sync::{Arc, Barrier};
+
+    #[test]
+    fn tactical_view_two_threads_do_not_share_state() {
+        let barrier = Arc::new(Barrier::new(2));
+        let mut joins = Vec::new();
+        for thread_idx in 0..2 {
+            let barrier = Arc::clone(&barrier);
+            joins.push(std::thread::spawn(move || {
+                barrier.wait();
+                let x = 10.0 + thread_idx as f32;
+                with_tactical_view(|view| {
+                    view.set_position(&Point3::new(x, 0.0, 0.0));
+                });
+                let got = with_tactical_view_ref(|view| view.position().x);
+                assert!(
+                    (got - x).abs() < 0.01,
+                    "thread {thread_idx} expected {x} got {got}"
+                );
+            }));
+        }
+        for j in joins {
+            j.join().unwrap();
+        }
     }
 }

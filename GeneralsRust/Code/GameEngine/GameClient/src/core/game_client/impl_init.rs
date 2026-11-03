@@ -120,6 +120,13 @@ impl GameClient {
             skirmish_setup: None,
             host_command_authority: None,
             font_library: None,
+            tactical_view: {
+                let mut view = crate::display::view::View::new();
+                view.init();
+                view
+            },
+            hint_model_cache: crate::display::view::HintModelCache::default(),
+            display_letter_boxed: false,
             fx_next_id: std::sync::atomic::AtomicU64::new(1),
             render_bridge_next_line_id: std::sync::atomic::AtomicU64::new(1),
             win_draw_image_commands: std::sync::atomic::AtomicUsize::new(0),
