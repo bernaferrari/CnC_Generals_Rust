@@ -1585,26 +1585,20 @@ mod tests {
     fn create_win_lose_window_loads_victorious_layout_when_present() {
         crate::test_support::ensure_ambient_host();
         // C++ ScriptActions.cpp:204 TheWindowManager->winCreateFromScript("Menus/Victorious.wnd")
-        let owner = crate::gui::window_manager::WindowManagerOwner::new();
-        { // was owner.with_scope
-            GameClientScriptActionHandler::new()
-                .create_win_lose_window("Menus/Victorious.wnd")
-                .expect("create Victorious.wnd");
-            owner.with_manager(|manager| {
-                if let Some(window_id) = manager.script_message_window_id_for_test() {
-                    assert!(
-                        manager.get_window_by_id(window_id).is_some(),
-                        "winCreateFromScript must keep the loaded Victorious window"
-                    );
-                }
-            });
-            GameClientScriptActionHandler::new()
-                .destroy_win_lose_window()
-                .expect("destroy Victorious.wnd");
-            owner.with_manager(|manager| {
-                assert_eq!(manager.script_message_window_id_for_test(), None);
-            });
-        }
+        // Window create/destroy is owned by the receiving synchronous script driver /
+        // WindowManager — not the ambient GameClientScriptActionHandler stub.
+        let mut manager = crate::gui::window_manager::WindowManager::new();
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            manager.create_script_message_window("Menus/Victorious.wnd", effects);
+            if let Some(window_id) = manager.script_message_window_id_for_test() {
+                assert!(
+                    manager.get_window_by_id(window_id).is_some(),
+                    "winCreateFromScript must keep the loaded Victorious window"
+                );
+            }
+            manager.destroy_script_message_window(effects);
+            assert_eq!(manager.script_message_window_id_for_test(), None);
+        });
     }
 
     #[test]
