@@ -90,13 +90,20 @@ fn write_control(path: &Path, lines: &[&str]) -> std::io::Result<()> {
 }
 
 fn find_generals_exe() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("GENERALS_RUNTIME_EXE") {
+        let p = PathBuf::from(path);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace = manifest.parent()?.parent()?;
+    // Prefer release for honest ms/tick / boot numbers.
     let candidates = [
-        workspace.join("target/debug/generals"),
         workspace.join("target/release/generals"),
-        PathBuf::from("target/debug/generals"),
+        workspace.join("target/debug/generals"),
         PathBuf::from("target/release/generals"),
+        PathBuf::from("target/debug/generals"),
     ];
     candidates.into_iter().find(|p| p.is_file())
 }
