@@ -2213,8 +2213,9 @@ mod tests {
                 projectile,
                 shooter,
                 first_position,
-                "TowMissileExhaust".to_string(, &mut ()),
+                "TowMissileExhaust".to_string(),
             )],
+            &mut (),
         );
         let exhaust = reg
             .systems_of_kind(CombatParticleKind::ProjectileExhaust)
@@ -2233,8 +2234,9 @@ mod tests {
                 projectile,
                 shooter,
                 moved_position,
-                "TowMissileExhaust".to_string(, &mut ()),
+                "TowMissileExhaust".to_string(),
             )],
+            &mut (),
         );
         let exhausts = reg.systems_of_kind(CombatParticleKind::ProjectileExhaust);
         assert_eq!(
@@ -2265,7 +2267,8 @@ mod tests {
 
         reg.sync_projectile_exhausts(
             13,
-            &[(ObjectId(701, &mut ()), shooter, Vec3::ZERO, "None".to_string())],
+            &[(ObjectId(701), shooter, Vec3::ZERO, "None".to_string())],
+            &mut (),
         );
         assert_eq!(
             reg.systems_of_kind(CombatParticleKind::ProjectileExhaust)
