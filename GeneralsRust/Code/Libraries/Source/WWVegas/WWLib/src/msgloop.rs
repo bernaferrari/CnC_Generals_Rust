@@ -39,38 +39,21 @@ impl PartialEq for AcceleratorTracker {
 }
 
 #[cfg(target_os = "windows")]
-struct ModelessDialogsSlot(OnceLock<Mutex<DynamicVectorClass<HWND>>>);
-#[cfg(target_os = "windows")]
-impl std::ops::Deref for ModelessDialogsSlot {
-    type Target = OnceLock<Mutex<DynamicVectorClass<HWND>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
+struct MsgLoopRuntime {
+    modeless_dialogs: OnceLock<Mutex<DynamicVectorClass<HWND>>>,
+    accelerators: OnceLock<Mutex<DynamicVectorClass<AcceleratorTracker>>>,
+    message_intercept_handler: Mutex<Option<fn(&mut MSG) -> bool>>,
 }
 #[cfg(target_os = "windows")]
-static MODELESS_DIALOGS: ModelessDialogsSlot = ModelessDialogsSlot(OnceLock::new());
-
-#[cfg(target_os = "windows")]
-struct AcceleratorsSlot(OnceLock<Mutex<DynamicVectorClass<AcceleratorTracker>>>);
-#[cfg(target_os = "windows")]
-impl std::ops::Deref for AcceleratorsSlot {
-    type Target = OnceLock<Mutex<DynamicVectorClass<AcceleratorTracker>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-#[cfg(target_os = "windows")]
-static ACCELERATORS: AcceleratorsSlot = AcceleratorsSlot(OnceLock::new());
-
-#[cfg(target_os = "windows")]
-struct MessageInterceptHandlerSlot(Mutex<Option<fn(&mut MSG) -> bool>>);
-#[cfg(target_os = "windows")]
-impl std::ops::Deref for MessageInterceptHandlerSlot {
-    type Target = Mutex<Option<fn(&mut MSG) -> bool>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-#[cfg(target_os = "windows")]
-static MESSAGE_INTERCEPT_HANDLER: MessageInterceptHandlerSlot = MessageInterceptHandlerSlot(Mutex::new(None));
+static MSG_LOOP: MsgLoopRuntime = MsgLoopRuntime {
+    modeless_dialogs: OnceLock::new(),
+    accelerators: OnceLock::new(),
+    message_intercept_handler: Mutex::new(None),
+};
 
 #[cfg(target_os = "windows")]
 fn modeless_dialogs() -> std::sync::MutexGuard<'static, DynamicVectorClass<HWND>> {
-    MODELESS_DIALOGS
+    MSG_LOOP.modeless_dialogs
         .get_or_init(|| Mutex::new(DynamicVectorClass::new(0, None)))
         .lock()
         .unwrap()
@@ -78,7 +61,7 @@ fn modeless_dialogs() -> std::sync::MutexGuard<'static, DynamicVectorClass<HWND>
 
 #[cfg(target_os = "windows")]
 fn accelerators() -> std::sync::MutexGuard<'static, DynamicVectorClass<AcceleratorTracker>> {
-    ACCELERATORS
+    MSG_LOOP.accelerators
         .get_or_init(|| Mutex::new(DynamicVectorClass::new(0, None)))
         .lock()
         .unwrap()
@@ -129,7 +112,7 @@ pub fn windows_message_handler() {
         }
 
         {
-            let handler_guard = MESSAGE_INTERCEPT_HANDLER.lock().unwrap();
+            let handler_guard = MSG_LOOP.message_intercept_handler.lock().unwrap();
             if let Some(handler) = *handler_guard {
                 processed = handler(&mut msg);
             }

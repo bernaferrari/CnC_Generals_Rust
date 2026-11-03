@@ -7,43 +7,26 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use windows::Win32::Foundation::{GetLastError, HINSTANCE, HWND};
 
 #[cfg(target_os = "windows")]
-struct ProgramInstanceSlot(AtomicIsize);
-#[cfg(target_os = "windows")]
-impl std::ops::Deref for ProgramInstanceSlot {
-    type Target = AtomicIsize;
-    fn deref(&self) -> &Self::Target { &self.0 }
+struct WinProcessRuntime {
+    program_instance: AtomicIsize,
+    main_window: AtomicIsize,
+    game_in_focus: AtomicBool,
 }
 #[cfg(target_os = "windows")]
-static PROGRAM_INSTANCE: ProgramInstanceSlot = ProgramInstanceSlot(AtomicIsize::new(0));
-
-#[cfg(target_os = "windows")]
-struct MainWindowSlot(AtomicIsize);
-#[cfg(target_os = "windows")]
-impl std::ops::Deref for MainWindowSlot {
-    type Target = AtomicIsize;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-#[cfg(target_os = "windows")]
-static MAIN_WINDOW: MainWindowSlot = MainWindowSlot(AtomicIsize::new(0));
-
-#[cfg(target_os = "windows")]
-struct GameInFocusSlot(AtomicBool);
-#[cfg(target_os = "windows")]
-impl std::ops::Deref for GameInFocusSlot {
-    type Target = AtomicBool;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-#[cfg(target_os = "windows")]
-static GAME_IN_FOCUS: GameInFocusSlot = GameInFocusSlot(AtomicBool::new(false));
+static WIN_PROCESS: WinProcessRuntime = WinProcessRuntime {
+    program_instance: AtomicIsize::new(0),
+    main_window: AtomicIsize::new(0),
+    game_in_focus: AtomicBool::new(false),
+};
 
 #[cfg(target_os = "windows")]
 pub fn set_game_in_focus(value: bool) {
-    GAME_IN_FOCUS.store(value, Ordering::Relaxed);
+    WIN_PROCESS.game_in_focus.store(value, Ordering::Relaxed);
 }
 
 #[cfg(target_os = "windows")]
 pub fn is_game_in_focus() -> bool {
-    GAME_IN_FOCUS.load(Ordering::Relaxed)
+    WIN_PROCESS.game_in_focus.load(Ordering::Relaxed)
 }
 
 #[cfg(target_os = "windows")]

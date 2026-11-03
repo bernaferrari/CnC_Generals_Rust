@@ -108,28 +108,28 @@ fn failsafe_get_time() -> TimeStamp {
     use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
     // Static variables equivalent to the C++ implementation
-    struct TimeSlot(AtomicU64);
-static TIME: TimeSlot = TimeSlot(AtomicU64::new(0x100000000)); // Initial high value
-    struct CallsSlot(AtomicU32);
-    impl std::ops::Deref for CallsSlot {
-        type Target = AtomicU32;
-        fn deref(&self) -> &Self::Target { &self.0 }
+    struct FailsafeRuntime {
+        time: AtomicU64,
+        calls: AtomicU32,
     }
-    static CALLS: CallsSlot = CallsSlot(AtomicU32::new(0));
+    static FAILSAFE: FailsafeRuntime = FailsafeRuntime {
+        time: AtomicU64::new(0x100000000), // Initial high value
+        calls: AtomicU32::new(0),
+    };
 
-    let mut calls = CALLS.fetch_add(1, Ordering::SeqCst);
+    let mut calls = FAILSAFE.calls.fetch_add(1, Ordering::SeqCst);
 
     loop {
         let called = calls;
-        let current_time = TIME.0.load(Ordering::Acquire);
+        let current_time = FAILSAFE.time.load(Ordering::Acquire);
 
         // Extract high and low words (equivalent to C++ pointer manipulation)
         let hw = (current_time >> 32) as u32;
         let lw = (current_time & 0xFFFFFFFF) as u32;
 
         // Check for re-entry
-        if called != CALLS.load(Ordering::Acquire) {
-            calls = CALLS.load(Ordering::Acquire);
+        if called != FAILSAFE.calls.load(Ordering::Acquire) {
+            calls = FAILSAFE.calls.load(Ordering::Acquire);
             continue;
         }
 
