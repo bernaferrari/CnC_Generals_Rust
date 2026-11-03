@@ -6,6 +6,8 @@
 //! The existing publication stack remains a bounded migration aid for legacy
 //! presentation callbacks. It carries services independently of Core runtime;
 //! asking for Core AI inside a Main service scope is an explicit error.
+//! Unscoped `active` / `active_services` panic: there is no process-wide
+//! fallback bag. Prefer passing `Arc<WorldServices>` / `EngineStores`.
 use crate::ai::AI;
 use crate::helpers::{ClientVisualState, EvaState, InGameUIState};
 use crate::special_power_module::area_damage::DamageOverTimeField;
@@ -597,13 +599,18 @@ pub fn active() -> Arc<EngineStores> {
         Some(PublishedOwner::Services(_)) => {
             panic!("Core AI runtime requested from a Main world-services boundary")
         }
-        None => Arc::clone(&PROCESS_LIFETIME),
+        None => panic!(
+            "EngineStores::active requires with_active_stores / install_active (no process-lifetime fallback bag)"
+        ),
     }
 }
+pub fn try_active_services() -> Option<Arc<WorldServices>> {
+    published_owner().map(|owner| Arc::clone(owner.services()))
+}
 pub fn active_services() -> Arc<WorldServices> {
-    published_owner()
-        .map(|owner| Arc::clone(owner.services()))
-        .unwrap_or_else(|| Arc::clone(&PROCESS_SERVICES))
+    try_active_services().expect(
+        "WorldServices::active_services requires with_world_services / install_services (no process bag)",
+    )
 }
 fn is_published(owner: &PublishedOwner) -> bool {
     SCOPED_ACTIVE.with(|stack| stack.borrow().last().is_some_and(|head| head.same(owner)))
@@ -1169,13 +1176,15 @@ mod tests {
     fn world_construction_does_not_touch_the_active_slot() {
         let _serial = crate::test_sync::lock();
         assert_eq!(active_stack_depth(), 0);
-        let before = active();
 
         let _bundled = new_for_world();
         let _plain = EngineStores::new_for_world();
 
         assert_eq!(active_stack_depth(), 0);
-        assert!(Arc::ptr_eq(&active(), &before));
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| active())).is_err(),
+            "constructing a world must not publish a process bag"
+        );
     }
 
     #[test]
@@ -1255,14 +1264,16 @@ mod tests {
         assert!(panicked);
 
         // Scoped publication and the Common INI slots are restored even on
-        // unwind: resolution falls back to the engine-lifetime store.
-        assert!(!Arc::ptr_eq(&active(), &b));
-        assert!(Arc::ptr_eq(&active(), &PROCESS_LIFETIME));
+        // unwind: no published owner remains (no process-lifetime bag).
+        assert_eq!(active_stack_depth(), 0);
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| active())).is_err(),
+            "unscoped active() must not resolve a process bag"
+        );
         assert!(Arc::ptr_eq(
             &ini_ai_data::get_ai_data_store(),
             &ini_ai_data::process_lifetime_ai_data_store()
         ));
-        assert_eq!(active_stack_depth(), 0);
     }
 
     #[test]
@@ -1308,10 +1319,13 @@ mod tests {
         assert!(Arc::ptr_eq(&active(), &b));
         assert_eq!(active_stack_depth(), 1);
 
-        // The newer world dying later must fall back to the engine-lifetime
-        // store, never reinstate the dead world A.
+        // The newer world dying later leaves no published owner and must
+        // never reinstate the dead world A (no process-lifetime bag).
         assert!(uninstall_active_if_current(&b));
         assert_eq!(active_stack_depth(), 0);
-        assert!(Arc::ptr_eq(&active(), &PROCESS_LIFETIME));
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| active())).is_err(),
+            "unscoped active() must not resolve a process bag"
+        );
     }
 }
