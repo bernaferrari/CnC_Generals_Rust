@@ -1,31 +1,75 @@
-id	title	priority	one_line_cpp_ref
-hq-x1j4u	Playable Rust+WASM skirmish	0	
-hq-x1j4u.6.1	Hear skirmish voices, weapons, and music on native and wasm	0	GeneralsMD/Code/GameEngineDevice/Source/MilesAudioDevice/MilesAudioManager.cpp,
-hq-x1j4u.6.4	Present the skirmish frame from the existing display device	0	GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DDisplay.cpp,
-hq-x1j4u.6.5	Draw the skirmish map with the device terrain machines	0	GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DTerrainVisual.cpp,
-hq-x1j4u.9	Playable Rust+WASM: integration roadmap	0	
-hq-x1j4u.9.4	Gate one skirmish sim tick against the C++ trace	0	
-hq-0f6bh	Preserve restored native Drawable bindings and module continuation through Client Xfer	1	
-hq-2qedt	Route direct native combat through authored shot delivery and original commit order	1	
-hq-6n23w	Verify and restore startup splash and IME routing on the live macOS path	1	
-hq-8ecpbu	Preserve original layer identity in host path nodes	1	
-hq-ckp4x	Admit moduleful native minefield placement with real LandMine scoot and geometry collision	1	
-hq-exam6e	Own TeamMove group movement and preserve original roster order	1	
-hq-j3dq0	Verify and repair HUD clipping, hover flashing and drag-selection coordinates	1	
-hq-m4hr	[WW3D] Prelit lightmap material chunks never loaded	1	ww3d.cpp:127
-hq-nwmz9j	Scope native cue limits and interruption queries to receiving audio instance	1	
-hq-tibppi	Make named waypoint fire return the canonical live projectile	1	
-hq-w44bz	Match original partition float-to-cell conversions under the actual FPU mode	1	
-hq-x14su	Platform quit message adapter logs instead of delivering MetaInstantQuit	1	
-hq-x1j4u.1	Playable Rust+WASM: boot, INI, and core systems	1	
-hq-x1j4u.10	wasm32 platform shims for the skirmish binary	1	
-hq-x1j4u.2	Playable Rust+WASM: simulation modules	1	
-hq-x1j4u.3	Playable Rust+WASM: AI skirmish and map	1	
-hq-x1j4u.4	Playable Rust+WASM: shell and input	1	
-hq-x1j4u.5	Playable Rust+WASM: presentation	1	
-hq-x1j4u.6	Playable Rust+WASM: device and backends	1	
-hq-x1j4u.8	Playable Rust+WASM: files, math, audio, save library	1	
-hq-xbhvkd	Make skirmish options state owned by each receiving client	1	
-hq-y6z4wk	Own actual native replay/score MapCache refresh and metadata lookup through receiving service	1	
-hq-za4t6	Admit authored Particle Cannon swath settings	1	
-hq-4bsj5	Preserve authored look-toward retarget frame and start semantics	2	
+id	title	priority	checklist_merged_count	one_line_cpp_ref
+hq-x1j4u	Playable Rust+WASM skirmish	0	0	
+hq-x1j4u.6.1	Hear skirmish voices, weapons, and music on native and wasm	0	0	GeneralsMD/Code/GameEngineDevice/Source/MilesAudioDevice/MilesAudioManager.cpp,
+hq-x1j4u.6.4	Present the skirmish frame from the existing display device	0	0	GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DDisplay.cpp,
+hq-x1j4u.6.5	Draw the skirmish map with the device terrain machines	0	0	GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/W3DTerrainVisual.cpp,
+hq-x1j4u.9	Playable Rust+WASM: integration roadmap	0	0	
+hq-x1j4u.9.4	Gate one skirmish sim tick against the C++ trace	0	0	
+hq-0ckgv	Resolve TeamGuardArea aliases at owned script action ingress	1	0	
+hq-0f6bh	Preserve restored native Drawable bindings and module continuation through Client Xfer	1	137	GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIGuard.cpp:101-127,602-646,722-730,791-796`;
+hq-2qedt	Route direct native combat through authored shot delivery and original commit order	1	212	GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/DockUpdate/DockUpdate.cpp:532-586
+hq-47fs2	Preserve master template identity and completed override chain across parsing and reset	1	0	
+hq-6n23w	Verify and restore startup splash and IME routing on the live macOS path	1	0	WinMain.cpp
+hq-8ecpbu	Preserve original layer identity in host path nodes	1	100	GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIStates.cpp:1762-1915
+hq-8iair	Restore canonical Rappel state-machine entry and authored gravity contract	1	0	AIUpdate.cpp:2981
+hq-8po5n	Eliminate cross-thread name-key namespace ambiguity in script catalogs	1	0	
+hq-cdp4s	Avoid repeated retail asset bootstrap in fresh body/factory construction	1	0	Common/GameEngine.cpp
+hq-ckp4x	Admit moduleful native minefield placement with real LandMine scoot and geometry collision	1	24	PartitionManager.cpp:2473
+hq-cw4zj	Track individual delayed multi-strike deliveries instead of a formation prefix count	1	0	
+hq-exam6e	Own TeamMove group movement and preserve original roster order	1	76	Common/RTS/Player.cpp
+hq-f8npl	Reconcile full DockUpdate side effects on epoch cancellation	1	0	GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Update/DockUpdate/DockUpdate.cpp:356-379
+hq-fck1j	Propagate typed ModuleData parser errors through the actual factory constructor	1	0	ModuleFactory.cpp
+hq-h6l83	Migrate remaining guard-bound power and brownout callers to explicit callback boundaries	1	0	Energy.cpp
+hq-j3dq0	Verify and repair HUD clipping, hover flashing and drag-selection coordinates	1	111	GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarScheme.cpp:683-694
+hq-jh076	Query exact current render-object pose for attached model particles	1	0	W3DModelDraw.cpp
+hq-m4hr	[WW3D] Prelit lightmap material chunks never loaded	1	40	ww3d.cpp:127
+hq-mzd8i	Honor authored PRODUCED_AT_HELIPAD capability in host gameplay	1	0	AIUpdate.cpp
+hq-nhoka	Preserve supply BuildList gatherer accounting and dock visit order at production delivery	1	0	AIPlayer.cpp
+hq-nwmz9j	Scope native cue limits and interruption queries to receiving audio instance	1	8	Object.cpp:6167
+hq-on6u2	Release passenger Object borrow before transport death scatter AI callbacks	1	0	TransportContain.cpp
+hq-qhdh7	Recover valid named script records when stored ordinal is outside the enum	1	0	Scripts.cpp
+hq-qwvox	Reconcile Core Drawable frozen/frequency admission with original update ordering	1	0	updateDrawable.cpp
+hq-rx2qf	Admit native ModelDraw TrackMarks through the receiving terrain owner	1	0	W3DModelDraw.cpp
+hq-tibppi	Make named waypoint fire return the canonical live projectile	1	0	
+hq-ua453	Preserve mapped PhysicsBehavior runtime in host save continuation	1	0	PhysicsUpdate.cpp
+hq-v6a1b	Enumerate native Object sources through an explicit receiving archive owner	1	0	
+hq-w16d36	Preserve accumulated Science definitions during asset template registration	1	15	Scripts.cpp:2128
+hq-w44bz	Match original partition float-to-cell conversions under the actual FPU mode	1	4	PartitionManager.cpp
+hq-wwjwu	Initialize admitted native AI default state at the original object-created phase	1	0	AIUpdate.cpp
+hq-x14su	Platform quit message adapter logs instead of delivering MetaInstantQuit	1	0	WinMain.cpp
+hq-x1j4u.1	Playable Rust+WASM: boot, INI, and core systems	1	25	GeneralsMD/Code/GameEngine/Source/Common/Audio/GameAudio.cpp
+hq-x1j4u.10	wasm32 platform shims for the skirmish binary	1	8	GeneralsMD/Code/GameEngineDevice/Source/Win32Device/Common/Win32BIGFileSystem.cpp,
+hq-x1j4u.2	Playable Rust+WASM: simulation modules	1	3	GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Body/ActiveBody.cpp
+hq-x1j4u.3	Playable Rust+WASM: AI skirmish and map	1	2	
+hq-x1j4u.4	Playable Rust+WASM: shell and input	1	0	
+hq-x1j4u.5	Playable Rust+WASM: presentation	1	7	GeneralsMD/Code/GameEngine/Source/GameClient/Terrain/TerrainVisual.cpp,
+hq-x1j4u.6	Playable Rust+WASM: device and backends	1	1	GeneralsMD/Code/GameEngineDevice/Source/VideoDevice/Bink/BinkVideoPlayer.cpp,
+hq-x1j4u.8	Playable Rust+WASM: files, math, audio, save library	1	2	
+hq-xbhvkd	Make skirmish options state owned by each receiving client	1	222	GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIPathfind.cpp
+hq-xe9tm	Preserve source bridge identity across overflow and coincident native restoration	1	0	
+hq-y6z4wk	Own actual native replay/score MapCache refresh and metadata lookup through receiving service	1	14	Common/RTS/PlayerList.cpp
+hq-yb52u	Use actual terrain and JetAI flight phases for parked-unit capture	1	0	ParkingPlaceBehavior.cpp
+hq-yqalp	Restore derived contain trait admission query result propagation	1	0	Overlord.cpp
+hq-za4t6	Admit authored Particle Cannon swath settings	1	16	Scripts.cpp:1695
+hq-2ufc2	Discover explicit Cargo target paths and preserve crate-root module context in provenance crawler	2	0	
+hq-4bsj5	Preserve authored look-toward retarget frame and start semantics	2	8	Drawable.cpp
+hq-50fda	Match UpgradeMux list replacement and invalid-name parsing contracts	2	0	INI.cpp
+hq-5s9z65	Resolve native particle bones from receiving assets and actual animated Drawable	2	0	
+hq-88t62	Repair Core live ghost driving-grid fixtures after canonical Object ID admission	2	0	
+hq-8eeuj	Distinguish mapless logical archives from unavailable authored maps	2	0	
+hq-bseq8	Discard newly malformed PlayerTemplate definitions like C++	2	0	PlayerTemplate.cpp
+hq-fu0dg	Complete draw-family cleanup ownership and original resource-presence ordering	2	0	
+hq-hlm7t	Remove empty-registry veto from skirmish scripted priority building requests	2	0	AISkirmishPlayer.cpp
+hq-i7emf	Fix campaign playthrough map discovery reporting zero retail USA disk maps	2	0	
+hq-kbz02	Repair oversized Beads lock-tracker event storage	2	0	
+hq-krx2b	Replace authoritative host KindOf HashSet with typed fixed bit set	2	0	GeneralsMD/Code/GameEngine/Include/Common/ThingTemplate.h:374-377
+hq-lp5xr	Validate experience sink cycles before applying object updates	2	0	
+hq-mry98	Preserve the CPP health high cap when Immortal max health falls below one	2	0	ImmortalBody.cpp
+hq-ueqdnf	Beads event journal rejects oversized existing issue records	2	0	
+hq-x1j4u.1.42	RAMFile::open must load through the filesystem	2	0	GeneralsMD/Code/GameEngine/Source/Common/System/RAMFile.cpp
+hq-x1j4u.1.43	GameState save UI and mission description strings	2	0	GeneralsMD/Code/GameEngine/Source/Common/System/SaveGame/GameState.cpp
+hq-x1j4u.1.51	UserPreferences write order and ignore list	2	0	GeneralsMD/Code/GameEngine/Source/Common/UserPreferences.cpp
+hq-y2l9s	Bound native fixture bootstrap cost without test serialization	2	0	
+hq-e2s7dm	Match typing transition UTF-16 code-unit timing	3	0	
+hq-gf9op	Configure a Dolt remote for repository issue synchronization	3	0	
+hq-twhpt	Keep onscreen particle source counts separate from expanded draw-instance statistics	3	0	W3DParticleSys.cpp
