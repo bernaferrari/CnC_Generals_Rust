@@ -1233,9 +1233,11 @@ impl CnCGameEngine {
     ) -> StartupLoadState {
         let (sender, receiver) = mpsc::channel();
         let (worker_owner, worker_signal) = super::startup_worker_owner::worker_pair();
-        // Re-bind the active CommonServices Arc on the worker thread. TLS does
-        // not cross threads; INI/NameKey paths panic without a published bag.
+        // Re-bind Common + World services on the worker. TLS does not cross
+        // threads; INI weapon/FX registration panics without published bags.
         let worker_common = game_engine::common::common_services::try_common_services();
+        let worker_world = gamelogic::system::engine_stores::try_active_services()
+            .unwrap_or_else(gamelogic::system::engine_stores::new_world_services);
         // The driving application already admitted these immutable paths before
         // Options IO. Carry that same Recorder input into the worker; later
         // match resets retain the directory and update only map/seed.
@@ -1243,6 +1245,9 @@ impl CnCGameEngine {
             let _common_tls = worker_common.map(
                 game_engine::common::common_services::CommonServicesScope::from_services,
             );
+            // install_services also publishes this world's CommonServices head.
+            gamelogic::system::engine_stores::install_services(std::sync::Arc::clone(&worker_world));
+            let _world_tls = worker_world;
             Self::emit_startup_load_progress(&sender, 0.03, "Preparing startup archive access");
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
                 || -> std::result::Result<StartupPreparedLoadResult, String> {
