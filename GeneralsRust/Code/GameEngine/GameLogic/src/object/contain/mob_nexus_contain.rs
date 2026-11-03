@@ -400,11 +400,15 @@ impl MobNexusContain {
         rider.clear_disabled(DisabledType::Held);
 
         if !self.module_data.exit_bone.is_empty() {
-            if let Some(bone_pos) = self.with_owner_object(|owner| {
-                let (_, bone_pos, _) =
-                    owner.get_single_logical_bone_position(&self.module_data.exit_bone);
-                bone_pos
-            }) {
+            // C++ only moves the rider when the ExitBone is actually found.
+            if let Some(bone_pos) = self
+                .with_owner_object(|owner| {
+                    let (found, bone_pos, _) =
+                        owner.get_single_logical_bone_position(&self.module_data.exit_bone);
+                    found.then_some(bone_pos)
+                })
+                .flatten()
+            {
                 let _ = rider.set_position(&bone_pos);
             }
         }
@@ -1162,6 +1166,50 @@ mod tests {
             .expect("object")
             .set_physics(Some(physics.clone()));
         (physics, record)
+    }
+
+    #[test]
+    fn missing_exit_bone_preserves_rider_position_like_cpp() {
+        // C++ MobNexusContain.cpp:215-226 moves the rider only when the
+        // drawable reports exactly one pristine ExitBone position.
+        let _lock = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        let services = crate::system::engine_stores::new_world_services();
+        game_engine::common::common_services::with_common_services(&common, || {
+            crate::system::engine_stores::with_world_services(&services, missing_exit_bone_body)
+        });
+    }
+
+    fn missing_exit_bone_body() {
+        let owner_id = 91_440_031;
+        let rider_id = 91_440_032;
+        let owner = test_object("MobNexusNoBoneOwner", owner_id);
+        let rider = test_object("MobNexusNoBoneRider", rider_id);
+        let _ = owner
+            .write()
+            .expect("owner")
+            .set_position(&Coord3D::new(100.0, 50.0, 0.0));
+        let _ = rider
+            .write()
+            .expect("rider")
+            .set_position(&Coord3D::new(5.0, 6.0, 0.0));
+        let mut data = MobNexusContainModuleData::default();
+        data.exit_bone = "ExitStart".to_string();
+        // Isolate the ExitBone step from the scatter move that follows it.
+        data.scatter_nearby_on_exit = false;
+        let mut nexus = MobNexusContain::new(Arc::downgrade(&owner), &data).expect("nexus");
+
+        nexus.on_removing(rider_id).expect("missing bone removal");
+
+        let pos = *rider.read().expect("rider").get_position();
+        assert_eq!((pos.x, pos.y), (5.0, 6.0));
+
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(owner_id);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(rider_id);
+        // Object::drop needs the Core AI runtime, which this fixture lacks.
+        std::mem::forget(nexus);
+        std::mem::forget(owner);
+        std::mem::forget(rider);
     }
 
     #[test]
