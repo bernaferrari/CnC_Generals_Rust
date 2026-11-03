@@ -146,11 +146,12 @@ impl GameLogic {
             }
         });
         // Stash for world_load — C++ does not re-read HeightMapData after MapReader.
-        self.pending_map_heightmap = heightmap.clone();
-        self.pending_blend_tile_data = blend_tile_data.clone();
+        // Move into pending; terrain write clones sample bytes once if needed.
         if let Some(blend) = blend_tile_data.as_ref() {
             self.runtime_terrain_texture_classes = blend.texture_classes.clone();
         }
+        self.pending_map_heightmap = heightmap;
+        self.pending_blend_tile_data = blend_tile_data;
         log::info!(
             "Fast legacy runtime sync heightmap parsed for '{}' in {:.2}s (parse_only={:.3}s, stage={:.2}s, blend={})",
             map_path.display(),
@@ -328,7 +329,7 @@ impl GameLogic {
             "Fast sync terrain write",
         )?;
 
-        let has_terrain_payload = heightmap.is_some()
+        let has_terrain_payload = self.pending_map_heightmap.is_some()
             || water_height.is_some()
             || !bridges.is_empty()
             || !polygon_triggers.is_empty()
@@ -355,14 +356,15 @@ impl GameLogic {
                 })
                 .collect();
             map_data.waypoint_links = waypoint_links;
-            if let Some(heightmap) = heightmap {
+            if let Some(heightmap) = self.pending_map_heightmap.as_ref() {
                 map_data.width = heightmap.width.max(0) as u32;
                 map_data.height = heightmap.height.max(0) as u32;
-                map_data.heightmap = heightmap.data;
+                map_data.heightmap = heightmap.data.clone();
                 map_data.border_size = heightmap.border_size;
                 map_data.boundaries = heightmap
                     .boundaries
-                    .into_iter()
+                    .iter()
+                    .copied()
                     .map(|(x, y)| gamelogic::common::ICoord2D::new(x, y))
                     .collect();
             }
