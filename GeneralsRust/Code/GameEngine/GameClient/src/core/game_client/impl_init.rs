@@ -106,6 +106,8 @@ impl GameClient {
             fx_list_store: None,
             weather_setting: None,
             snow_manager: None,
+            supply_and_tech_images: None,
+            map_cache_manager: None,
             startup_shell_image_reported: std::collections::HashSet::new(),
             receiving_draw_icon_ui: true,
             snow: crate::snow::SnowManager::new(),

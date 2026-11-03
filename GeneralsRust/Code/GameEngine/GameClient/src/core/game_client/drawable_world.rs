@@ -399,4 +399,26 @@ impl GameClient {
     ) -> Option<std::sync::Arc<std::sync::Mutex<crate::snow::SnowManager>>> {
         self.snow_manager.clone()
     }
+
+    pub fn ensure_supply_and_tech_images(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::map_util::TechAndSupplyImages>> {
+        self.supply_and_tech_images
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::map_util::TechAndSupplyImages::default(),
+                ))
+            })
+            .clone()
+    }
+
+    pub fn ensure_map_cache_manager(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::map_util::MapCache>> {
+        self.map_cache_manager
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(crate::map_util::MapCache::new()))
+            })
+            .clone()
+    }
 }
