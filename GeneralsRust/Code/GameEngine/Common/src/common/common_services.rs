@@ -136,6 +136,10 @@ pub struct CommonServices {
     pub prereq_object_counter: Mutex<Option<Box<dyn PrereqObjectCounter>>>,
     /// MessageStream → CommandList append sink (was process COMMAND_LIST_APPEND_FN).
     pub command_list_append: Mutex<Option<Box<CommandListAppendFn>>>,
+    /// AudioEventRTS localization language (was process AUDIO_EVENT_LOCALIZATION_LANGUAGE).
+    pub audio_event_localization_language: Mutex<String>,
+    /// Async playback handle allocator (was process ASYNC_PLAYBACK_HANDLE_POOL).
+    pub async_playback_handle_pool: AtomicU32,
 }
 
 impl Default for CommonServices {
@@ -159,6 +163,8 @@ impl Default for CommonServices {
             energy_owner_callbacks: Mutex::new(None),
             prereq_object_counter: Mutex::new(None),
             command_list_append: Mutex::new(None),
+            audio_event_localization_language: Mutex::new(String::from("English")),
+            async_playback_handle_pool: AtomicU32::new(10_000_000),
         }
     }
 }

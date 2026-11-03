@@ -324,30 +324,19 @@ pub trait AudioEventOwnerResolver: Send + Sync {
 }
 
 static AUDIO_EVENT_OWNER_RESOLVER: OnceLock<Arc<dyn AudioEventOwnerResolver>> = OnceLock::new();
-struct AudioEventLocalizationLanguageSlot(OnceLock<RwLock<String>>);
-impl std::ops::Deref for AudioEventLocalizationLanguageSlot {
-    type Target = OnceLock<RwLock<String>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static AUDIO_EVENT_LOCALIZATION_LANGUAGE: AudioEventLocalizationLanguageSlot = AudioEventLocalizationLanguageSlot(OnceLock::new());
-struct AsyncPlaybackHandlePoolSlot(AtomicU32);
-impl std::ops::Deref for AsyncPlaybackHandlePoolSlot {
-    type Target = AtomicU32;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static ASYNC_PLAYBACK_HANDLE_POOL: AsyncPlaybackHandlePoolSlot = AsyncPlaybackHandlePoolSlot(AtomicU32::new(10_000_000));
 
 pub fn register_audio_event_owner_resolver(resolver: Arc<dyn AudioEventOwnerResolver>) -> bool {
     AUDIO_EVENT_OWNER_RESOLVER.set(resolver).is_ok()
 }
 
 pub fn set_audio_event_localization_language(language: &str) {
-    let lock =
-        AUDIO_EVENT_LOCALIZATION_LANGUAGE.0.get_or_init(|| RwLock::new(String::from("English")));
-    if let Ok(mut guard) = lock.write() {
-        guard.clear();
-        guard.push_str(language.trim());
-    }
+    let services = crate::common::common_services::common_services();
+    let mut guard = services
+        .audio_event_localization_language
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    guard.clear();
+    guard.push_str(language.trim());
 }
 
 fn with_audio_event_owner_resolver<F, R>(f: F) -> Option<R>
@@ -367,17 +356,15 @@ fn current_localization_language() -> String {
         }
     }
 
-    let lock =
-        AUDIO_EVENT_LOCALIZATION_LANGUAGE.0.get_or_init(|| RwLock::new(String::from("English")));
-    match lock.read() {
-        Ok(guard) => {
-            if guard.trim().is_empty() {
-                "English".to_string()
-            } else {
-                guard.clone()
-            }
-        }
-        Err(_) => "English".to_string(),
+    let services = crate::common::common_services::common_services();
+    let guard = services
+        .audio_event_localization_language
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if guard.trim().is_empty() {
+        "English".to_string()
+    } else {
+        guard.clone()
     }
 }
 
@@ -931,7 +918,9 @@ impl AudioEventRts {
         }
 
         if self.playing_handle == 0 {
-            self.playing_handle = ASYNC_PLAYBACK_HANDLE_POOL.0.fetch_add(1, Ordering::Relaxed);
+            self.playing_handle = crate::common::common_services::common_services()
+                .async_playback_handle_pool
+                .fetch_add(1, Ordering::Relaxed);
         }
         let event = self.clone();
 
