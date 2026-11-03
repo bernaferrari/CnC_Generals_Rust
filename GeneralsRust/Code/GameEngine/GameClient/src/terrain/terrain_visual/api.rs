@@ -3,15 +3,75 @@
 // Re-export the main implementation
 pub use TerrainVisualImpl as TerrainVisualSystem;
 
-// Global singleton instance (matching C++ pattern)
-lazy_static::lazy_static! {
-    pub static ref THE_TERRAIN_VISUAL: std::sync::Mutex<Option<TerrainVisualImpl>> = std::sync::Mutex::new(None);
+/// Published live-client terrain visual Arc (C++ `TheTerrainVisual` pointer).
+/// Each GameClient owns its Arc; only the registered live client is published.
+static PUBLISHED_TERRAIN_VISUAL: std::sync::Mutex<
+    Option<std::sync::Arc<std::sync::Mutex<Option<TerrainVisualImpl>>>>,
+> = std::sync::Mutex::new(None);
+
+pub(crate) fn publish_terrain_visual(
+    visual: std::sync::Arc<std::sync::Mutex<Option<TerrainVisualImpl>>>,
+) {
+    *PUBLISHED_TERRAIN_VISUAL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(visual);
 }
 
-/// Initialize the global terrain visual instance
+pub(crate) fn unpublish_terrain_visual(
+    visual: &std::sync::Arc<std::sync::Mutex<Option<TerrainVisualImpl>>>,
+) {
+    let mut slot = PUBLISHED_TERRAIN_VISUAL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if slot
+        .as_ref()
+        .is_some_and(|published| std::sync::Arc::ptr_eq(published, visual))
+    {
+        *slot = None;
+    }
+}
+
+fn published_terrain_visual() -> Option<
+    std::sync::Arc<std::sync::Mutex<Option<TerrainVisualImpl>>>,
+> {
+    PUBLISHED_TERRAIN_VISUAL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+/// Mutate the live/published terrain visual (preferred over `get_terrain_visual`).
+pub fn with_terrain_visual_mut<R>(f: impl FnOnce(&mut Option<TerrainVisualImpl>) -> R) -> Option<R> {
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        let mut guard = client
+            .terrain_visual_gpu
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        f.take().expect("terrain visual")(&mut guard)
+    }) {
+        return Some(result);
+    }
+    let arc = published_terrain_visual()?;
+    let mut guard = arc.lock().unwrap_or_else(|e| e.into_inner());
+    Some(f.take().expect("terrain visual")(&mut guard))
+}
+
+/// Initialize terrain visual on the live GameClient (C++ GameClient constructs TheTerrainVisual).
 pub fn init_terrain_visual() -> TerrainResult<()> {
-    let mut global_instance = THE_TERRAIN_VISUAL.lock().unwrap_or_else(|e| e.into_inner());
-    *global_instance = Some(TerrainVisualImpl::new());
+    let inited = crate::core::game_client::with_live_game_client_mut(|client| {
+        let mut guard = client
+            .terrain_visual_gpu
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *guard = Some(TerrainVisualImpl::new());
+        publish_terrain_visual(std::sync::Arc::clone(&client.terrain_visual_gpu));
+    });
+    if inited.is_none() {
+        // Headless/tests without a live client: publish a dedicated Arc.
+        let arc = std::sync::Arc::new(std::sync::Mutex::new(Some(TerrainVisualImpl::new())));
+        publish_terrain_visual(arc);
+    }
     register_logic_height_hooks();
     register_overlay_rebuild_hooks();
     ensure_radar_terrain_paint_source_registered();
@@ -21,8 +81,19 @@ pub fn init_terrain_visual() -> TerrainResult<()> {
 /// C++ `GameClient::~GameClient` deletes `TheTerrainVisual` after Drawables.
 /// Called only by the published owner during GameClient teardown.
 pub(crate) fn shutdown_terrain_visual() {
-    let mut visual = THE_TERRAIN_VISUAL.lock().unwrap_or_else(|e| e.into_inner());
-    *visual = None;
+    // C++ deletes TheTerrainVisual but the process pointer cell remains for the
+    // next GameClient; keep the published Arc and clear its Option.
+    let _ = with_terrain_visual_mut(|visual| {
+        *visual = None;
+    });
+}
+
+/// Compatibility export for older direct `THE_TERRAIN_VISUAL.lock()` call sites.
+/// Prefer [`with_terrain_visual_mut`].
+#[deprecated(note = "use with_terrain_visual_mut / GameClient.terrain_visual_gpu")]
+pub fn the_terrain_visual_published(
+) -> Option<std::sync::Arc<std::sync::Mutex<Option<TerrainVisualImpl>>>> {
+    published_terrain_visual()
 }
 
 /// Bind C++ `TheTerrainVisual::setRawMapHeight` / `staticLightingChanged` to
@@ -183,12 +254,40 @@ pub fn rebuild_tank_tracks() {
     rebuild_tank_tracks_hook();
 }
 
-/// Get reference to global terrain visual instance
-pub fn get_terrain_visual()
--> Result<std::sync::MutexGuard<'static, Option<TerrainVisualImpl>>, TerrainError> {
-    THE_TERRAIN_VISUAL.lock().map_err(|_| {
+/// Guard that keeps the published Arc alive while the inner mutex is locked.
+pub struct TerrainVisualGuard {
+    _arc: std::sync::Arc<std::sync::Mutex<Option<TerrainVisualImpl>>>,
+    guard: std::sync::MutexGuard<'static, Option<TerrainVisualImpl>>,
+}
+
+impl std::ops::Deref for TerrainVisualGuard {
+    type Target = Option<TerrainVisualImpl>;
+    fn deref(&self) -> &Self::Target {
+        &self.guard
+    }
+}
+
+impl std::ops::DerefMut for TerrainVisualGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.guard
+    }
+}
+
+/// Lock the published/live terrain visual. Prefer [`with_terrain_visual_mut`].
+pub fn get_terrain_visual() -> Result<TerrainVisualGuard, TerrainError> {
+    let arc = published_terrain_visual().ok_or_else(|| {
+        TerrainError::InitializationError(
+            "no published terrain visual (need live GameClient or init_terrain_visual)".into(),
+        )
+    })?;
+    // SAFETY: `guard` borrows from `arc`; we keep `arc` in the same struct so the
+    // mutex outlives the guard. Extending the lifetime is the owning-guard pattern.
+    let guard = arc.lock().map_err(|_| {
         TerrainError::InitializationError("Failed to lock terrain visual mutex".to_string())
-    })
+    })?;
+    let guard: std::sync::MutexGuard<'static, Option<TerrainVisualImpl>> =
+        unsafe { std::mem::transmute(guard) };
+    Ok(TerrainVisualGuard { _arc: arc, guard })
 }
 
 /// Bind leftover TheRadar land/bridge paint to GameClient TerrainVisual + leftover TerrainLogic.

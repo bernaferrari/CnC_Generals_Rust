@@ -26,7 +26,7 @@ use crate::platform::GraphicsContext;
 use crate::system::SubsystemInterface;
 use crate::system::debug_display::DebugDisplay;
 use crate::terrain::TerrainVisual;
-use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
+use crate::terrain::terrain_visual::get_terrain_visual;
 use crate::video_buffer::{SoftwareVideoBuffer, VideoBuffer, VideoBufferType};
 use crate::video_player::{VideoPlayerInterface, get_video_player};
 use crate::video_stream::VideoStreamInterface;
@@ -1041,7 +1041,7 @@ impl Display {
             let proj_glam = projection_matrix;
 
             // Terrain rendering pass: guard must outlive RenderPass due to wgpu borrow on record_chunk_draws.
-            if let Ok(mut terrain_guard) = THE_TERRAIN_VISUAL.lock() {
+            if let Ok(mut terrain_guard) = get_terrain_visual() {
                 if let Some(terrain) = terrain_guard.as_mut() {
                     if let Some(snow) = snow {
                         let _ = terrain.render_client_view(&view_glam, &proj_glam, snow);

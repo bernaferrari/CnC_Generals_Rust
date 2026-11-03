@@ -6,7 +6,7 @@
 
 use crate::radius_decal::{ShadowHandle, ShadowTypeInfo, with_projected_shadow_manager_mut};
 use crate::render_bridge::THE_RENDER_BRIDGE;
-use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
+use crate::terrain::terrain_visual::get_terrain_visual;
 use gamelogic::common::{Coord3D, Matrix3D, ObjectID, Real};
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::draw::{
@@ -278,7 +278,7 @@ struct TrackClient {
 
 impl TerrainTrackClient for TrackClient {
     fn bind_track(&self, object_id: ObjectID, width: Real, texture: &str) -> Option<u32> {
-        let mut visual = THE_TERRAIN_VISUAL.lock().ok()?;
+        let mut visual = get_terrain_visual().ok()?;
         let terrain = visual.as_mut()?;
         let handle = terrain
             .terrain_tracks_mut()
@@ -288,7 +288,7 @@ impl TerrainTrackClient for TrackClient {
     }
 
     fn unbind_track(&self, handle: u32) {
-        if let Ok(mut visual) = THE_TERRAIN_VISUAL.lock() {
+        if let Ok(mut visual) = get_terrain_visual() {
             if let Some(terrain) = visual.as_mut() {
                 terrain.terrain_tracks_mut().unbind_track(handle as usize);
             }
@@ -297,7 +297,7 @@ impl TerrainTrackClient for TrackClient {
     }
 
     fn add_edge(&self, handle: u32, x: Real, y: Real, sync_time: u32) {
-        if let Ok(mut visual) = THE_TERRAIN_VISUAL.lock() {
+        if let Ok(mut visual) = get_terrain_visual() {
             if let Some(terrain) = visual.as_mut() {
                 terrain.add_track_edge(handle as usize, x, y, sync_time as i32);
             }
@@ -305,7 +305,7 @@ impl TerrainTrackClient for TrackClient {
     }
 
     fn add_cap(&self, handle: u32, x: Real, y: Real, sync_time: u32) {
-        if let Ok(mut visual) = THE_TERRAIN_VISUAL.lock() {
+        if let Ok(mut visual) = get_terrain_visual() {
             if let Some(terrain) = visual.as_mut() {
                 terrain.add_track_cap(handle as usize, x, y, sync_time as i32);
             }
@@ -313,7 +313,7 @@ impl TerrainTrackClient for TrackClient {
     }
 
     fn set_airborne(&self, handle: u32) {
-        if let Ok(mut visual) = THE_TERRAIN_VISUAL.lock() {
+        if let Ok(mut visual) = get_terrain_visual() {
             if let Some(terrain) = visual.as_mut() {
                 if let Some(track) = terrain.terrain_tracks_mut().track_mut(handle as usize) {
                     track.set_airborne();
@@ -549,11 +549,11 @@ mod tests {
             .terrain_tracks_mut()
             .bind_track(4.0, 4.0, "track")
             .unwrap() as u32;
-        let previous = THE_TERRAIN_VISUAL.lock().unwrap().replace(visual);
+        let previous = get_terrain_visual().unwrap().replace(visual);
         struct RestoreTerrain(Option<TerrainVisualImpl>);
         impl Drop for RestoreTerrain {
             fn drop(&mut self) {
-                *THE_TERRAIN_VISUAL.lock().unwrap() = self.0.take();
+                *get_terrain_visual().unwrap() = self.0.take();
             }
         }
         let _restore = RestoreTerrain(previous);
@@ -564,7 +564,7 @@ mod tests {
         client.add_edge(handle, 20.0, 0.0, 20);
         client.add_edge(handle, 40.0, 0.0, 30);
         client.add_cap(handle, 60.0, 0.0, 40);
-        let owner = THE_TERRAIN_VISUAL.lock().unwrap();
+        let owner = get_terrain_visual().unwrap();
         let track = owner
             .as_ref()
             .unwrap()

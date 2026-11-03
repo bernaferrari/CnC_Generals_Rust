@@ -44,6 +44,9 @@ pub(crate) fn register_live_game_client(client: &mut GameClient) {
     if registered != Some(true) {
         return;
     }
+    crate::terrain::terrain_visual::publish_terrain_visual(std::sync::Arc::clone(
+        &client.terrain_visual_gpu,
+    ));
     // Free-function player-id publish may re-enter `with_live_game_client_mut`;
     // never call it while the live bridge mutex is held.
     set_local_player_id(player_id);
@@ -506,6 +509,49 @@ assert_eq!(live_game_client_frame(), Some(41));
             .expect("live visuals remain");
         assert_eq!(live_after.explicit_opacity, original.explicit_opacity);
         assert_eq!(live_after.hidden, original.hidden);
+    }
+
+    #[test]
+    fn two_clients_own_independent_terrain_visual_gpu_arcs() {
+        crate::test_support::ensure_ambient_host();
+        let _serial = live_slot_test_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut a = GameClient::new().unwrap();
+        let mut b = GameClient::new().unwrap();
+        assert!(!std::sync::Arc::ptr_eq(
+            &a.terrain_visual_gpu,
+            &b.terrain_visual_gpu
+        ));
+        *a.terrain_visual_gpu.lock().unwrap() =
+            Some(crate::terrain::terrain_visual::TerrainVisualSystem::new());
+        assert!(a.terrain_visual_gpu.lock().unwrap().is_some());
+        assert!(b.terrain_visual_gpu.lock().unwrap().is_none());
+        register_live_game_client(&mut a);
+        {
+            let guard =
+                crate::terrain::terrain_visual::get_terrain_visual().expect("published a");
+            assert!(guard.is_some());
+        }
+        register_live_game_client(&mut b);
+        {
+            let mut guard =
+                crate::terrain::terrain_visual::get_terrain_visual().expect("published b");
+            assert!(guard.is_none(), "b starts empty; a must not be published");
+            *guard = Some(crate::terrain::terrain_visual::TerrainVisualSystem::new());
+        }
+        assert!(
+            a.terrain_visual_gpu.lock().unwrap().is_some(),
+            "a keeps its own visual after b becomes live"
+        );
+        assert!(b.terrain_visual_gpu.lock().unwrap().is_some());
+        assert!(clear_live_game_client(&mut b));
+        crate::terrain::terrain_visual::unpublish_terrain_visual(&b.terrain_visual_gpu);
+        // After clear, free-function peels must not observe a foreign client's Arc.
+        assert!(
+            a.terrain_visual_gpu.lock().unwrap().is_some()
+                && b.terrain_visual_gpu.lock().unwrap().is_some()
+        );
     }
 
     #[test]

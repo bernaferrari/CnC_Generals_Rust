@@ -13,7 +13,7 @@ use crate::drawable::drawable_manager::with_drawable_manager;
 use crate::effects::decals::DecalRenderItem;
 use crate::radius_decal::with_projected_shadow_manager;
 use crate::terrain::TerrainVisual;
-use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
+use crate::terrain::terrain_visual::get_terrain_visual;
 use game_engine::common::ini::ini_game_data::get_global_data;
 use gamelogic::common::SHADOW_VOLUME;
 use gamelogic::common::types::KindOf;
@@ -1226,7 +1226,7 @@ pub fn maximum_visible_box(
 }
 
 pub fn terrain_min_height() -> f32 {
-    if let Ok(guard) = THE_TERRAIN_VISUAL.lock() {
+    if let Ok(guard) = get_terrain_visual() {
         if let Some(terrain) = guard.as_ref() {
             if let Ok(h) = terrain.get_height_at(0.0, 0.0) {
                 return h.min(0.0);
