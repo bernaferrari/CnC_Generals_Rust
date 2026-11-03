@@ -250,12 +250,9 @@ unsafe fn init_version() {
 /// Synchronous GameMain wrapper - equivalent to C++ GameMain call
 // SAFETY: parity wrapper; renderer attachment dispatch is safe Rust.
 unsafe fn game_main_sync(_argc: c_int, _argv: *mut *mut c_char) {
-    // Historically dispatched WW3D attachments; now we rely on the real engine run path.
-    let attachments = ww3d_renderer_3d::Renderer::with_global_mut(|renderer| {
-        Ok(renderer.take_pending_attachments())
-    })
-    .unwrap_or_default();
-    dispatch_attachments(attachments);
+    // Attachments drain through CncGameEngine::drain_renderer_attachments once the
+    // owned Ww3dContext is live on ForwardPass. No process-wide renderer remains.
+    dispatch_attachments(Vec::new());
 }
 
 fn set_working_directory_to_executable() -> anyhow::Result<()> {

@@ -66,7 +66,6 @@ use winit::{
     keyboard::{Key, NamedKey},
     window::{Window, WindowAttributes},
 };
-use ww3d_core::ww3d::WW3D;
 use ww3d_engine::{self, EngineConfig, EngineError, FrameTiming};
 use ww3d_renderer_3d::core::error::Error as RendererError;
 

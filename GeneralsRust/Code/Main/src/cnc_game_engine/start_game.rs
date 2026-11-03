@@ -2122,16 +2122,9 @@ impl CnCGameEngine {
     }
 
     pub(super) fn drain_renderer_attachments(&mut self) {
-        match ww3d_renderer_3d::Renderer::with_global_mut(|renderer| {
-            Ok(renderer.take_pending_attachments())
-        }) {
-            Ok(records) if !records.is_empty() => {
-                dispatch_attachments(records);
-            }
-            Ok(_) => {}
-            Err(err) => {
-                warn!("Failed to dispatch WW3D attachments: {err}");
-            }
+        let records = self.render_pipeline.drain_pending_attachments();
+        if !records.is_empty() {
+            dispatch_attachments(records);
         }
     }
 
