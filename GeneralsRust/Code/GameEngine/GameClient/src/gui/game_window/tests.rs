@@ -2600,7 +2600,7 @@ fn test_callbacks() {
 
 #[test]
 fn callback_getters_return_installed_handlers_like_cpp() {
-    let window = GameWindow::new();
+    let mut window = GameWindow::new();
 
     assert!(window.get_draw_callback().is_some());
     assert!(window.get_tooltip_callback().is_none());

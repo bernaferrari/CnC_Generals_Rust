@@ -1643,7 +1643,7 @@ mod tests {
         );
         assert_eq!(peer.active_event_count(), 1);
         assert_eq!(peer.fading_audio_count(), 0);
-        manager.test_reset();
+        manager.reset();
         assert!(!manager.is_currently_playing(first));
         assert!(peer.is_currently_playing(peer_handle));
         assert_eq!(peer.active_event_count(), 1);

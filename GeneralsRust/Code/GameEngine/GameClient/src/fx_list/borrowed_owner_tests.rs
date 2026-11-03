@@ -27,7 +27,8 @@ impl FXNugget for ObjectNugget {
         let name = owner.get_template().get_name().as_str().to_owned();
         // A synchronous nugget can admit another FX definition. The bridge
         // must retain the immutable FX Arc, not the catalog read guard.
-        let _catalog = super::fx_list_store_handle()
+        let catalog = super::fx_list_store_handle();
+        let _catalog = catalog
             .try_write()
             .expect("FX definition lookup guard must end before callback");
         self.calls.send(name).unwrap();

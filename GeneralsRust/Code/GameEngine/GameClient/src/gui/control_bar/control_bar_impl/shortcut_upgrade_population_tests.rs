@@ -56,7 +56,8 @@ fn actual_shortcut_population_observes_each_receiving_upgrade_operation() {
         local.init(Arc::new(template));
         let local = Arc::new(RwLock::new(local));
         {
-            let mut players = logic_player_list().write().unwrap();
+            let player_list = logic_player_list();
+            let mut players = player_list.write().unwrap();
             *players = gamelogic::player::PlayerList::new();
             players.add_player(Arc::clone(&local));
             players.set_local_player_index(7);
