@@ -19,7 +19,7 @@ pub use selection::{AudioEventSelection, AudioSelectionStreams};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{
-    Arc, OnceLock, RwLock, Weak,
+    Arc, RwLock, Weak,
     atomic::{AtomicI32, AtomicU32, Ordering},
 };
 #[cfg(feature = "async")]
@@ -323,10 +323,16 @@ pub trait AudioEventOwnerResolver: Send + Sync {
     fn resolve_drawable_player_index(&self, drawable_id: DrawableId) -> Option<Int>;
 }
 
-static AUDIO_EVENT_OWNER_RESOLVER: OnceLock<Arc<dyn AudioEventOwnerResolver>> = OnceLock::new();
-
 pub fn register_audio_event_owner_resolver(resolver: Arc<dyn AudioEventOwnerResolver>) -> bool {
-    AUDIO_EVENT_OWNER_RESOLVER.set(resolver).is_ok()
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .audio_event_owner_resolver
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let first = slot.is_none();
+    *slot = Some(resolver);
+    first
 }
 
 pub fn set_audio_event_localization_language(language: &str) {
@@ -343,9 +349,13 @@ fn with_audio_event_owner_resolver<F, R>(f: F) -> Option<R>
 where
     F: FnOnce(&dyn AudioEventOwnerResolver) -> R,
 {
-    AUDIO_EVENT_OWNER_RESOLVER
-        .get()
-        .map(|resolver| f(resolver.as_ref()))
+    let resolver = crate::common::common_services::common_services()
+        .system
+        .audio_event_owner_resolver
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+    resolver.map(|resolver| f(resolver.as_ref()))
 }
 
 fn current_localization_language() -> String {

@@ -12,7 +12,7 @@ use crate::common::audio::{
     audio_event_rts::{AudioEventRts, AudioHandle, AudioPriority, Coord3D, ObjectId},
     game_audio::with_sound_playback_hook,
 };
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 // Type aliases
 pub type AsciiString = String;
@@ -57,19 +57,29 @@ pub trait AudioShroudResolver: Send + Sync {
     fn is_position_visible_to_local_player(&self, position: &Coord3D) -> Bool;
 }
 
-static AUDIO_SHROUD_RESOLVER: OnceLock<Arc<dyn AudioShroudResolver>> = OnceLock::new();
-
 pub fn register_audio_shroud_resolver(resolver: Arc<dyn AudioShroudResolver>) -> bool {
-    AUDIO_SHROUD_RESOLVER.set(resolver).is_ok()
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .audio_shroud_resolver
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let first = slot.is_none();
+    *slot = Some(resolver);
+    first
 }
 
 fn with_audio_shroud_resolver<F, R>(f: F) -> Option<R>
 where
     F: FnOnce(&dyn AudioShroudResolver) -> R,
 {
-    AUDIO_SHROUD_RESOLVER
-        .get()
-        .map(|resolver| f(resolver.as_ref()))
+    let resolver = crate::common::common_services::common_services()
+        .system
+        .audio_shroud_resolver
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+    resolver.map(|resolver| f(resolver.as_ref()))
 }
 
 /// Sound Manager - handles sound effect playback and management

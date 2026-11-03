@@ -79,7 +79,7 @@ pub trait SoundPlaybackHook: Send + Sync {
     }
 }
 
-static SOUND_PLAYBACK_HOOK: OnceLock<Arc<dyn SoundPlaybackHook>> = OnceLock::new();
+// SOUND_PLAYBACK_HOOK → SystemStores.sound_playback_hook
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioLocalityRelationship {
@@ -172,7 +172,7 @@ enum AudioSubmission<'a> {
     Explicit(&'a AudioSubmissionLocality),
 }
 
-static AUDIO_LOCALITY_RESOLVER: OnceLock<Arc<dyn AudioLocalityResolver>> = OnceLock::new();
+// AUDIO_LOCALITY_RESOLVER → SystemStores.audio_locality_resolver
 
 /// Resolver for C++ TheTacticalView and TheTerrainLogic access needed by AudioManager::update().
 pub trait AudioViewResolver: Send + Sync {
@@ -212,29 +212,64 @@ pub trait AudioViewResolver: Send + Sync {
 
 include!("game_audio_view.rs");
 
-static AUDIO_VIEW_RESOLVER: OnceLock<Arc<dyn AudioViewResolver>> = OnceLock::new();
+// AUDIO_VIEW_RESOLVER → SystemStores.audio_view_resolver
 
 pub fn register_audio_view_resolver(resolver: Arc<dyn AudioViewResolver>) -> bool {
-    AUDIO_VIEW_RESOLVER.set(resolver).is_ok()
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .audio_view_resolver
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let first = slot.is_none();
+    *slot = Some(resolver);
+    first
 }
 
 pub fn register_sound_playback_hook(hook: Arc<dyn SoundPlaybackHook>) -> bool {
-    SOUND_PLAYBACK_HOOK.set(hook).is_ok()
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .sound_playback_hook
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let first = slot.is_none();
+    *slot = Some(hook);
+    first
 }
 
 pub fn sound_playback_hook_registered() -> bool {
-    SOUND_PLAYBACK_HOOK.get().is_some()
+    crate::common::common_services::common_services()
+        .system
+        .sound_playback_hook
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .is_some()
 }
 
 pub fn register_audio_locality_resolver(resolver: Arc<dyn AudioLocalityResolver>) -> bool {
-    AUDIO_LOCALITY_RESOLVER.set(resolver).is_ok()
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .audio_locality_resolver
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let first = slot.is_none();
+    *slot = Some(resolver);
+    first
 }
 
 pub(crate) fn with_sound_playback_hook<F, R>(f: F) -> Option<R>
 where
     F: FnOnce(&dyn SoundPlaybackHook) -> R,
 {
-    SOUND_PLAYBACK_HOOK.get().map(|hook| f(hook.as_ref()))
+    let hook = crate::common::common_services::common_services()
+        .system
+        .sound_playback_hook
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+    hook.map(|hook| f(hook.as_ref()))
 }
 
 // Session-wide play-failure reports (event name -> reason).
@@ -246,19 +281,13 @@ where
 // one. Each failing event name logs once per session (rate limit) instead of
 // once per frame.
 //
-struct PlayFailureReports {
-    reports: std::sync::Mutex<HashMap<AsciiString, AsciiString>>,
-}
-
-static PLAY_FAILURE_REPORTS: LazyLock<PlayFailureReports> = LazyLock::new(|| PlayFailureReports {
-    reports: std::sync::Mutex::new(HashMap::new()),
-});
-
 /// Report a TheAudio play failure for `event_name`, rate-limited to one
 /// `warn!` per event name per session. Returns true when this call logged.
 fn report_play_failure_once(event_name: &str, reason: &str) -> Bool {
-    let mut reports = PLAY_FAILURE_REPORTS
-        .reports
+    let services = crate::common::common_services::common_services();
+    let mut reports = services
+        .system
+        .play_failure_reports
         .lock()
         .unwrap_or_else(|p| p.into_inner());
     if reports.contains_key(event_name) {
@@ -271,21 +300,45 @@ fn report_play_failure_once(event_name: &str, reason: &str) -> Bool {
 
 #[cfg(test)]
 fn reset_play_failure_reports_for_tests() {
-    PLAY_FAILURE_REPORTS.reports.lock().unwrap_or_else(|p| p.into_inner()).clear();
+    crate::common::common_services::common_services()
+        .system
+        .play_failure_reports
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clear();
 }
 
 #[cfg(test)]
 fn play_failure_report_reason_for_tests(event_name: &str) -> Option<AsciiString> {
-    PLAY_FAILURE_REPORTS.reports.lock().unwrap_or_else(|p| p.into_inner()).get(event_name).cloned()
+    crate::common::common_services::common_services()
+        .system
+        .play_failure_reports
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(event_name)
+        .cloned()
 }
 
 fn with_audio_locality_resolver<F, R>(f: F) -> Option<R>
 where
     F: FnOnce(&dyn AudioLocalityResolver) -> R,
 {
-    AUDIO_LOCALITY_RESOLVER
-        .get()
-        .map(|resolver| f(resolver.as_ref()))
+    let resolver = crate::common::common_services::common_services()
+        .system
+        .audio_locality_resolver
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+    resolver.map(|resolver| f(resolver.as_ref()))
+}
+
+fn audio_view_resolver() -> Option<Arc<dyn AudioViewResolver>> {
+    crate::common::common_services::common_services()
+        .system
+        .audio_view_resolver
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 // Audio system constants
@@ -3263,29 +3316,34 @@ impl Default for AudioManager {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-struct RodioStreamState {
-    state: std::sync::Mutex<Option<(OutputStream, OutputStreamHandle)>>,
-}
-
 fn get_rodio_stream_handle() -> Option<OutputStreamHandle> {
-    static STATE: LazyLock<RodioStreamState> = LazyLock::new(|| RodioStreamState {
-        state: std::sync::Mutex::new(None),
-    });
-
-    let mut state = STATE.state.lock().unwrap_or_else(|p| p.into_inner());
-    if state.is_none() {
+    type Payload = Option<(OutputStream, OutputStreamHandle)>;
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .rodio_stream_slot
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_none() {
+        *slot = Some(Box::new(None as Payload));
+    }
+    let payload = slot
+        .as_mut()
+        .unwrap()
+        .downcast_mut::<Payload>()
+        .expect("rodio_stream_slot type");
+    if payload.is_none() {
         if let Ok((stream, handle)) = OutputStream::try_default() {
-            *state = Some((stream, handle));
+            *payload = Some((stream, handle));
         }
     }
-    state.as_ref().map(|(_, handle)| handle.clone())
+    payload.as_ref().map(|(_, handle)| handle.clone())
 }
-static LIVE_AUDIO_FILE_CACHE: LazyLock<AudioFileCache> =
-    LazyLock::new(|| AudioFileCache::new(16 * 1024 * 1024));
-
-fn live_audio_file_cache() -> &'static AudioFileCache {
-    &LIVE_AUDIO_FILE_CACHE
+fn live_audio_file_cache() -> Arc<AudioFileCache> {
+    crate::common::common_services::common_services()
+        .system
+        .live_audio_file_cache
+        .clone()
 }
 
 /// C++ `AudioFileCache::openFile` stereo-positional reject (MilesAudioManager.cpp:3147-3152).
@@ -3843,15 +3901,7 @@ pub const AHSV_STOP_THE_MUSIC: AudioHandle = 0xFFFF_FFF0;
 pub const AHSV_STOP_THE_MUSIC_FADE: AudioHandle = 0xFFFF_FFF1;
 const AHSV_FIRST_HANDLE: AudioHandle = 1000;
 
-// THREAD: kept locked - the public handle handed out by
-// `get_global_audio_manager`/`initialize_global_audio_manager` (dozens of
-// callers across GameLogic/GameClient/Main) and reached from the hook paths.
-struct TheAudioSlot(OnceLock<Arc<Mutex<AudioManager>>>);
-impl std::ops::Deref for TheAudioSlot {
-    type Target = OnceLock<Arc<Mutex<AudioManager>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static THE_AUDIO: TheAudioSlot = TheAudioSlot(OnceLock::new());
+// THE_AUDIO → SystemStores.the_audio
 
 struct AnimatedSoundBridge {
     audio: Arc<Mutex<AudioManager>>,
@@ -3978,8 +4028,16 @@ pub fn register_animation_sound_library(manager: Arc<Mutex<AudioManager>>) {
 
 /// Initialize the global audio manager singleton.
 pub fn initialize_global_audio_manager() -> Arc<Mutex<AudioManager>> {
-    if let Some(existing) = THE_AUDIO.0.get() {
-        return existing.clone();
+    let services = crate::common::common_services::common_services();
+    {
+        let slot = services
+            .system
+            .the_audio
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if let Some(existing) = slot.as_ref() {
+            return existing.clone();
+        }
     }
 
     let mut created = AudioManager::new();
@@ -3987,23 +4045,35 @@ pub fn initialize_global_audio_manager() -> Arc<Mutex<AudioManager>> {
     // `new()` leaves effective music/sound/speech volumes at 0 until init.
     created.init();
     let manager = Arc::new(Mutex::new(created));
-    if THE_AUDIO.0.set(manager.clone()).is_err() {
-        THE_AUDIO.0.get().expect("THE_AUDIO set but missing").clone()
-    } else {
-        #[cfg(not(target_arch = "wasm32"))]
-        register_rodio_playback_hook();
-        #[cfg(target_arch = "wasm32")]
-        register_wasm_playback_hook();
-        register_animation_sound_library(manager.clone());
-        // Parsers register via THE_AUDIO; load after the singleton is published.
-        load_audio_event_inis();
-        manager
+    {
+        let mut slot = services
+            .system
+            .the_audio
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if let Some(existing) = slot.as_ref() {
+            return existing.clone();
+        }
+        *slot = Some(manager.clone());
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    register_rodio_playback_hook();
+    #[cfg(target_arch = "wasm32")]
+    register_wasm_playback_hook();
+    register_animation_sound_library(manager.clone());
+    // Parsers register via THE_AUDIO; load after the singleton is published.
+    load_audio_event_inis();
+    manager
 }
 
 /// Access the global audio manager if it has been initialised.
 pub fn get_global_audio_manager() -> Option<Arc<Mutex<AudioManager>>> {
-    THE_AUDIO.0.get().cloned()
+    crate::common::common_services::common_services()
+        .system
+        .the_audio
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 /// C++ `AudioManager::init` (GameAudio.cpp:186-202) loads AudioSettings.ini,

@@ -28,6 +28,14 @@ use crate::common::game_engine::{GameClientInterface, GameEngine};
 use crate::common::global_data::GlobalData as RuntimeGlobalData;
 use crate::common::recorder::Recorder;
 use crate::common::version::Version;
+use crate::common::audio::audio_cache::AudioFileCache;
+use crate::common::audio::game_audio::{
+    AudioLocalityResolver, AudioManager as GameAudioManager, AudioViewResolver,
+    SoundPlaybackHook,
+};
+use crate::common::audio::gameplay_audio_dispatch::GameplayAudioDispatch;
+use crate::common::audio::audio_event_rts::AudioEventOwnerResolver;
+use crate::common::audio::game_sounds::AudioShroudResolver;
 use parking_lot::Mutex as ParkingMutex;
 use crate::System::SaveGame::{
     GameState, RuntimeIdCounterHooks, SaveLoadLifecycleHooks,
@@ -117,6 +125,21 @@ pub struct SystemStores {
     pub global_data_test_lock: Mutex<()>,
     pub recorder: Mutex<Option<Mutex<Recorder>>>,
     pub version: Mutex<Option<ParkingRwLock<Version>>>,
+    /// C++ TheAudio — owned per CommonServices instance.
+    pub the_audio: Mutex<Option<Arc<Mutex<GameAudioManager>>>>,
+    pub sound_playback_hook: Mutex<Option<Arc<dyn SoundPlaybackHook>>>,
+    pub audio_locality_resolver: Mutex<Option<Arc<dyn AudioLocalityResolver>>>,
+    pub audio_view_resolver: Mutex<Option<Arc<dyn AudioViewResolver>>>,
+    pub play_failure_reports: Mutex<std::collections::HashMap<String, String>>,
+    pub live_audio_file_cache: Arc<AudioFileCache>,
+    /// Rodio default output stream slot (non-wasm). Stored as opaque mutex payload
+    /// so system_stores does not depend on rodio types at the type level.
+    pub rodio_stream_slot: Mutex<Option<Box<dyn std::any::Any + Send>>>,
+    pub gameplay_audio_dispatch: Mutex<Option<Arc<dyn GameplayAudioDispatch>>>,
+    pub audio_event_owner_resolver: Mutex<Option<Arc<dyn AudioEventOwnerResolver>>>,
+    pub audio_shroud_resolver: Mutex<Option<Arc<dyn AudioShroudResolver>>>,
+    pub speech_registry: RwLock<std::collections::HashMap<String, crate::common::audio::game_speech::Speech>>,
+    pub effects_next_handle: std::sync::atomic::AtomicU32,
 }
 
 impl SystemStores {
@@ -176,6 +199,18 @@ impl SystemStores {
             global_data_test_lock: Mutex::new(()),
             recorder: Mutex::new(None),
             version: Mutex::new(None),
+            the_audio: Mutex::new(None),
+            sound_playback_hook: Mutex::new(None),
+            audio_locality_resolver: Mutex::new(None),
+            audio_view_resolver: Mutex::new(None),
+            play_failure_reports: Mutex::new(std::collections::HashMap::new()),
+            live_audio_file_cache: Arc::new(AudioFileCache::new(16 * 1024 * 1024)),
+            rodio_stream_slot: Mutex::new(None),
+            gameplay_audio_dispatch: Mutex::new(None),
+            audio_event_owner_resolver: Mutex::new(None),
+            audio_shroud_resolver: Mutex::new(None),
+            speech_registry: RwLock::new(std::collections::HashMap::new()),
+            effects_next_handle: std::sync::atomic::AtomicU32::new(10000),
         }
     }
 
