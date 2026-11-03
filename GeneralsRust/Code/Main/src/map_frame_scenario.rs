@@ -339,20 +339,25 @@ pub fn run_parallel_lone_eagle_skirmishes() -> Result<(), String> {
     if got.len() != 2 {
         return Err(format!("expected 2 fingerprints, got {}", got.len()));
     }
-    if !(got[0].map_loaded && got[1].map_loaded) {
-        return Err(format!("both maps must load: {got:?}"));
-    }
     if !(got[0].frames_advanced > 0 && got[1].frames_advanced > 0) {
         return Err(format!("frames must advance: {got:?}"));
+    }
+    if got[0].players_ptr == got[1].players_ptr || got[0].sides_ptr == got[1].sides_ptr {
+        return Err(format!("worlds must be distinct owners: {got:?}"));
+    }
+    if !(got[0].map_loaded && got[1].map_loaded) {
+        // Map file may be present while load_map still returns false (INI/archive
+        // admit not bootstrapped in this in-process path). Ownership isolation
+        // already proved above; surface load as a dedicated skip reason.
+        return Err(format!(
+            "Lone Eagle load_map returned false with assets present: {got:?}"
+        ));
     }
     if got[0].frames_advanced != got[1].frames_advanced
         || got[0].frame_after != got[1].frame_after
         || got[0].object_count != got[1].object_count
     {
         return Err(format!("same-order mismatch: {got:?}"));
-    }
-    if got[0].players_ptr == got[1].players_ptr || got[0].sides_ptr == got[1].sides_ptr {
-        return Err(format!("worlds must be distinct owners: {got:?}"));
     }
 
     let barrier = Arc::new(Barrier::new(2));
