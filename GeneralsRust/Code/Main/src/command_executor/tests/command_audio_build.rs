@@ -283,9 +283,9 @@ fn execute_build_clears_removable_and_map_trees() {
                 ..Default::default()
 },
         );
-        exec.execute_build(&[ObjectId(9101)], "TestClearFootprintBarracks", site, 0.0)
+        exec.execute_build(&[ObjectId(9101)], "TestClearFootprintBarracks", site, 0.0).unwrap()
     };
-    assert!(matches!(result, Ok(CommandResult::Success)), "placement must succeed");
+    assert!(matches!(result, CommandResult::Success), "placement must succeed");
 
     let shrub = logic
         .host_object(ObjectId(9102))
@@ -375,9 +375,9 @@ fn execute_build_clears_kindof_not_name_substrings() {
     let site = Vec3::new(80.0, 0.0, 80.0);
     let result = {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        exec.execute_build(&[ObjectId(9201)], "TestKindOfClearBarracks", site, 0.0)
+        exec.execute_build(&[ObjectId(9201)], "TestKindOfClearBarracks", site, 0.0).unwrap()
     };
-    assert!(matches!(result, Ok(CommandResult::Success)));
+    assert!(matches!(result, CommandResult::Success));
 
     let cleared = logic.host_object(ObjectId(9202)).expect("cleared");
     assert!(
@@ -445,9 +445,9 @@ fn execute_build_refuses_human_on_unmovables() {
         .unwrap_or(0);
     let result = {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        exec.execute_build(&[ObjectId(9301)], "TestUnmovableBarracks", site, 0.0)
+        exec.execute_build(&[ObjectId(9301)], "TestUnmovableBarracks", site, 0.0).unwrap()
     };
-    assert!(matches!(result, Ok(CommandResult::InvalidLocation)), "hq-ys09u: human buildObjectNow must refuse when leftover moveObjects is FALSE");
+    assert!(matches!(result, CommandResult::InvalidLocation), "hq-ys09u: human buildObjectNow must refuse when leftover moveObjects is FALSE");
     let money_after = logic
         .get_player(0)
         .map(|p| p.resources.supplies)
@@ -503,7 +503,7 @@ fn execute_build_no_money_queues_insufficient_funds_eva_and_refuses() {
     let site = Vec3::new(80.0, 0.0, 80.0);
     let result = {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        exec.execute_build(&[ObjectId(9311)], "TestPoorBarracks", site, 0.0)
+        exec.execute_build(&[ObjectId(9311)], "TestPoorBarracks", site, 0.0).unwrap()
     };
     assert!(result == CommandResult::InvalidCommand, "insufficient funds must refuse the placement");
     assert_eq!(logic
@@ -576,7 +576,7 @@ fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
             "TestHandicapBarracks",
             Vec3::new(40.0, 0.0, 0.0),
             0.0,
-        )
+        ).unwrap()
     };
     assert!(result == CommandResult::Success, "handicap place must succeed");
     assert_eq!(logic.get_player(0).unwrap().effective_supplies(),
@@ -598,7 +598,7 @@ fn dozer_place_and_cancel_use_calc_cost_to_build_handicap() {
     logic.economy_events.clear();
     let cancel = {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        exec.execute_cancel_construction(building_id, 0)
+        exec.execute_cancel_construction(building_id, 0).unwrap()
     };
     assert!(cancel == CommandResult::Success);
     assert_eq!(logic.get_player(0).unwrap().effective_supplies(),
@@ -654,7 +654,7 @@ fn context_move_plays_voice_move_not_unit_command() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert!(
-            exec.execute_move(&[a], Vec3::new(40.0, 0.0, 0.0)) == CommandResult::Success);
+            exec.execute_move(&[a], Vec3::new(40.0, 0.0, 0.0)).unwrap() == CommandResult::Success);
     }
     assert!(
         logic
@@ -692,7 +692,7 @@ fn context_move_plays_voice_move_not_unit_command() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_attack_move(&[a], Vec3::new(120.0, 0.0, 0.0), -1) == CommandResult::Success);
+        assert!(exec.execute_attack_move(&[a], Vec3::new(120.0, 0.0, 0.0), -1).unwrap() == CommandResult::Success);
     }
     assert!(
         logic
@@ -980,7 +980,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert!(
-            exec.execute_repair(&[dozer], damaged) == CommandResult::Success);
+            exec.execute_repair(&[dozer], damaged).unwrap() == CommandResult::Success);
     }
     assert!(
         logic
@@ -1001,7 +1001,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_resume_construction(&[dozer], scaffold) == CommandResult::Success);
+        assert!(exec.execute_resume_construction(&[dozer], scaffold).unwrap() == CommandResult::Success);
     }
     assert!(
         logic
@@ -1022,7 +1022,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_get_repaired(&[tank_id], pad_id) == CommandResult::Success);
+        assert!(exec.execute_get_repaired(&[tank_id], pad_id).unwrap() == CommandResult::Success);
     }
     assert!(
         logic
@@ -1043,7 +1043,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_get_healed(&[inf_id], heal_id) == CommandResult::Success);
+        assert!(exec.execute_get_healed(&[inf_id], heal_id).unwrap() == CommandResult::Success);
     }
     assert!(
         logic
@@ -1063,7 +1063,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_snipe_vehicle(&[kell_id], enemy) == CommandResult::Success);
+        assert!(exec.execute_snipe_vehicle(&[kell_id], enemy).unwrap() == CommandResult::Success);
     }
     assert!(
         logic
@@ -1090,7 +1090,7 @@ fn repair_heal_resume_snipe_and_special_play_authored_voices() {
                 &[sat_id],
                 &SpecialPowerType::SpySatellite,
                 &PowerTarget::Location(Vec3::new(80.0, 0.0, 80.0)),
-            ) == CommandResult::Success);
+            ).unwrap() == CommandResult::Success);
     }
     assert!(
         logic
@@ -1517,7 +1517,7 @@ fn attack_move_includes_immobile_attacker() {
     );
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_attack_move(&[tur, tk], Vec3::new(200.0, 0.0, 0.0), 4) == CommandResult::Success);
+        assert!(exec.execute_attack_move(&[tur, tk], Vec3::new(200.0, 0.0, 0.0), 4).unwrap() == CommandResult::Success);
     }
     let u = logic.host_object(tur).unwrap();
     assert_ne!(u.ai_state(), AIState::AttackMoving);
@@ -1656,7 +1656,7 @@ fn free_move_dissolves_mixed_formation_stamps() {
     // Outside gather bbox, closer than MinDistanceForGroup so no column pack.
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_move(&all, Vec3::new(80.0, 0.0, 0.0)) == CommandResult::Success);
+        assert!(exec.execute_move(&all, Vec3::new(80.0, 0.0, 0.0)).unwrap() == CommandResult::Success);
     }
     for id in stamped {
         assert_eq!(logic.host_object(id).unwrap().formation_id,
