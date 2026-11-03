@@ -1124,6 +1124,9 @@ mod receiving_radius_lifetime_tests {
         for thread_idx in 0..2 {
             let barrier = Arc::clone(&barrier);
             handles.push(std::thread::spawn(move || {
+                // collect_render_items reads GameLOD via CommonServices; child
+                // threads do not inherit the parent's install.
+                crate::test_support::ensure_ambient_host();
                 crate::core::game_client::reset_test_projected_decals();
                 barrier.wait();
                 let texture = if thread_idx == 0 { "ThreadA" } else { "ThreadB" };

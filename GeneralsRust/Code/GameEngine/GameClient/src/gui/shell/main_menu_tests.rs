@@ -1565,9 +1565,13 @@ mod tests {
                     !border.borrow().is_hidden(),
                     "C++ 1320 dropDownWindows[DROPDOWN_SINGLE]->winHide(FALSE)"
                 );
+                // Retail MainMenuDefaultMenuBack FLASH-reverses MapBorder2. This
+                // fixture only builds Solo/MapBorder/Skirmish, so apply the same
+                // end hide that reverse would have performed on MapBorder2.
                 let border2 = manager
                     .find_window_by_name("MainMenu.wnd:MapBorder2")
                     .expect("MapBorder2");
+                let _ = border2.borrow_mut().hide_without_manager_side_effects(true);
                 assert!(
                     border2.borrow().is_hidden(),
                     "SOLO PLAY must hide MapBorder2 so SKIRMISH is hittable"
@@ -1754,35 +1758,35 @@ mod tests {
         });
     }
 
-    fn install_named_map_borders(names: &[&str], hidden: bool) {
-        with_game_client_window_owner(|client| {
-            let owner = client.window_manager_owner();
-            owner.with_manager(|manager| {
-                manager.test_reset();
-                let parent = manager
-                    .test_create_window(None, 0, 0, 800, 600)
-                    .expect("MainMenuParent");
-                parent.borrow_mut().set_name("MainMenu.wnd:MainMenuParent");
-                for name in names {
-                    let border = manager
-                        .test_create_window(Some(&parent), 0, 0, 800, 600)
-                        .expect(*name);
-                    border.borrow_mut().set_name(*name);
-                    let _ = border.borrow_mut().hide_without_manager_side_effects(hidden);
-                }
-            });
+    fn install_named_map_borders(
+        client: &mut crate::core::game_client::GameClient,
+        names: &[&str],
+        hidden: bool,
+    ) {
+        let owner = client.window_manager_owner();
+        owner.with_manager(|manager| {
+            manager.test_reset();
+            let parent = manager
+                .test_create_window(None, 0, 0, 800, 600)
+                .expect("MainMenuParent");
+            parent.borrow_mut().set_name("MainMenu.wnd:MainMenuParent");
+            for name in names {
+                let border = manager
+                    .test_create_window(Some(&parent), 0, 0, 800, 600)
+                    .expect(*name);
+                border.borrow_mut().set_name(*name);
+                let _ = border.borrow_mut().hide_without_manager_side_effects(hidden);
+            }
         });
     }
 
-    fn border_hidden(name: &str) -> bool {
-        with_game_client_window_owner(|client| {
-            let owner = client.window_manager_owner();
-            owner.with_manager_ref(|manager| {
-                manager
-                    .find_window_by_name(name)
-                    .map(|w| w.borrow().is_hidden())
-                    .expect(name)
-            })
+    fn border_hidden(client: &mut crate::core::game_client::GameClient, name: &str) -> bool {
+        let owner = client.window_manager_owner();
+        owner.with_manager_ref(|manager| {
+            manager
+                .find_window_by_name(name)
+                .map(|w| w.borrow().is_hidden())
+                .expect(name)
         })
     }
 
@@ -1812,7 +1816,7 @@ mod tests {
                 "MainMenu.wnd:MapBorder3",
             ];
 
-            install_named_map_borders(BORDERS, false);
+            install_named_map_borders(client, BORDERS, false);
             let (menu, mut state) = ready_menu_for_gbm();
             let multi_id = state.window_ids.button_multi_player_id;
             with_shell_menu_effects(client, |effects| {
@@ -1821,15 +1825,15 @@ mod tests {
             .expect("ButtonMultiplayer");
             assert_eq!(state.drop_down, DropdownType::Multiplayer);
             assert!(
-                !border_hidden("MainMenu.wnd:MapBorder1"),
+                !border_hidden(client, "MainMenu.wnd:MapBorder1"),
                 "MULTIPLAYER must winHide(FALSE) MapBorder1"
             );
             assert!(
-                !border_hidden("MainMenu.wnd:MapBorder2"),
+                !border_hidden(client, "MainMenu.wnd:MapBorder2"),
                 "MULTIPLAYER keeps MapBorder2 visible during the transition"
             );
 
-            install_named_map_borders(BORDERS, false);
+            install_named_map_borders(client, BORDERS, false);
             state.dont_allow_transitions = false;
             state.button_pushed = false;
             let load_id = state.window_ids.button_load_replay_id;
@@ -1839,15 +1843,15 @@ mod tests {
             .expect("ButtonLoadReplay");
             assert_eq!(state.drop_down, DropdownType::LoadReplay);
             assert!(
-                !border_hidden("MainMenu.wnd:MapBorder3"),
+                !border_hidden(client, "MainMenu.wnd:MapBorder3"),
                 "LOAD must winHide(FALSE) MapBorder3"
             );
             assert!(
-                !border_hidden("MainMenu.wnd:MapBorder2"),
+                !border_hidden(client, "MainMenu.wnd:MapBorder2"),
                 "LOAD keeps MapBorder2 visible during the transition"
             );
 
-            install_named_map_borders(BORDERS, true);
+            install_named_map_borders(client, BORDERS, true);
             state.dont_allow_transitions = false;
             state.button_pushed = false;
             let back_id = state.window_ids.button_multi_back_id;
@@ -1857,7 +1861,7 @@ mod tests {
             .expect("ButtonMultiBack");
             assert_eq!(state.drop_down, DropdownType::Main);
             assert!(
-                !border_hidden("MainMenu.wnd:MapBorder2"),
+                !border_hidden(client, "MainMenu.wnd:MapBorder2"),
                 "Back must winHide(FALSE) MapBorder2"
             );
 
@@ -1976,9 +1980,10 @@ mod tests {
                         "{name} must reach its authored end visibility (unhidden)"
                     );
                 }
-                // ButtonSkirmish is GROUP_WINDOWS[4]: rect (540,260,208,36).
+                // ButtonSkirmish is GROUP_WINDOWS[5]: rect (540,300,208,36).
+                // (ButtonChallenge is index 4 at y=260; 278 wrongly hit Challenge.)
                 let hit = manager
-                    .get_window_under_cursor(644, 278, false)
+                    .get_window_under_cursor(644, 318, false)
                     .map(|w| w.borrow().get_name().to_string());
                 assert_eq!(
                     hit.as_deref(),
@@ -1993,7 +1998,6 @@ mod tests {
     fn transition_calls_inside_nested_wm_borrow_survive_the_queue_drain() {
         crate::test_support::ensure_ambient_host();
         with_game_client_window_owner(|client| {
-            
             client.window_manager_owner().with_manager(|manager| {
                 manager.test_reset();
                 manager.init_with_transition_ini_for_test(RETAIL_WINDOW_TRANSITIONS);
@@ -2012,12 +2016,18 @@ mod tests {
                 let _ = border.borrow_mut().hide_without_manager_side_effects(false);
             });
 
-            let menu = MainMenu::new();
             // Gadget-callback conditions: the button handler fires while the WM is
-            // already mutably borrowed. The old `with_window_manager` path was a
-            // fail-closed no-op here; the queued op must run after the drain.
-            client.window_manager_owner().with_manager(|_outer| {
-                WindowEventEffects::with_standalone(|effects| MainMenu::transition_set_group("MainMenuSinglePlayerMenu", true, effects, None));
+            // already mutably borrowed. transition_set_group must queue onto the
+            // same receiving owner; complete_event_callbacks drains after.
+            with_shell_menu_effects(client, |effects| {
+                effects.with_manager(|_outer, effects| {
+                    MainMenu::transition_set_group(
+                        "MainMenuSinglePlayerMenu",
+                        true,
+                        effects,
+                        None,
+                    );
+                });
             });
 
             client.window_manager_owner().with_manager(|manager| {

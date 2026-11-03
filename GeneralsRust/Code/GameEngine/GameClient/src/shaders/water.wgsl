@@ -47,14 +47,9 @@ fn vs_main(vertex: WaterVertex) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // C++ Water.h StandingWaterTexture (TWWater01). Missing/black sample
-    // falls back to a teal-alpha plane so Alpine still shows water.
-    let tex = textureSample(water_texture, water_sampler, in.tex_coords);
-    let tex_luma = dot(tex.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
-    let teal = vec4<f32>(0.13, 0.42, 0.50, 0.70);
-    let use_tex = tex_luma > 0.02 || tex.a > 0.02;
-    let water = select(teal, tex, use_tex);
-    let lit = max(in.color, vec3<f32>(0.35));
-    let alpha = clamp(max(water.a, 0.55) * max(in.alpha, 0.50), 0.0, 1.0);
-    return vec4<f32>(lit * water.rgb, alpha);
+    // C++ HeightMap sea-patch bake puts POINT/global lighting into
+    // SeaPatchVertex.c; the FS must honour that packed colour rather than
+    // inventing a shallow/deep palette.
+    let _tex = textureSample(water_texture, water_sampler, in.tex_coords);
+    return vec4<f32>(in.color, in.alpha);
 }

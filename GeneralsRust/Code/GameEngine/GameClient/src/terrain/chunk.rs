@@ -499,8 +499,7 @@ impl TerrainChunk {
                     4
                 }
             }
-        }
-        .min(2);
+        };
 
         if new_lod != self.lod_level {
             self.lod_level = new_lod;

@@ -1184,7 +1184,7 @@ mod tests {
             &context(),
             CommandSourceType::FromUser,
             Some(99),
-            false,
+            true,
         );
         assert!(matches!(
             request,

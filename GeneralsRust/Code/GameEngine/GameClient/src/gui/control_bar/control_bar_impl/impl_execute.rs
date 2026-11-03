@@ -762,18 +762,28 @@ mod host_bridge_execution_tests {
         transport_ui.admit_native_control_bar_transport();
 
         const RETAIL_MIG_BUTTON: &str = "Command_ChinaJetMIGFireNapalmMissile";
-        // Parse the actual retail CommandButton.ini block, rather than hand
-        // constructing equivalent fields.  The host path must be driven by
-        // the loaded button data, not by a MiG-specific bridge rule.
-        let retail_path = std::env::var_os("GENERALS_ASSETS_DIR")
-            .map(std::path::PathBuf::from)
-            .expect("GENERALS_ASSETS_DIR must name the extracted INIZH asset root")
-            .join("Data/INI/CommandButton.ini");
-        let retail_command_buttons = std::fs::read_to_string(&retail_path)
-            .expect("retail CommandButton.ini is required for this asset-backed test");
-        let header = format!("CommandButton {RETAIL_MIG_BUTTON}");
+        // Parse the actual retail CommandButton block, rather than hand
+        // constructing equivalent fields.  ZH keeps this MiG fire button in
+        // multiplayer.ini (and GameDataDebug.ini), not CommandButton.ini.
+        let assets = std::path::PathBuf::from(
+            std::env::var_os("GENERALS_ASSETS_DIR")
+                .expect("GENERALS_ASSETS_DIR must name the extracted INIZH asset root"),
+        );
+        let header_needle = format!("CommandButton {RETAIL_MIG_BUTTON}");
+        let retail_command_buttons = [
+            "Data/INI/CommandButton.ini",
+            "Data/INI/multiplayer.ini",
+            "Data/INI/GameDataDebug.ini",
+        ]
+        .iter()
+        .find_map(|rel| {
+            let bytes = std::fs::read(assets.join(rel)).ok()?;
+            let text = String::from_utf8_lossy(&bytes).into_owned();
+            text.contains(&header_needle).then_some(text)
+        })
+        .expect("retail MiG command button must be present in INIZH");
         let tail = &retail_command_buttons[retail_command_buttons
-            .find(&header)
+            .find(&header_needle)
             .expect("retail MiG command button must be present")..];
         let end = tail
             .find("\nEnd")

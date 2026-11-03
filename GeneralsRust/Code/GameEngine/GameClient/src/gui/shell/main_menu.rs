@@ -1364,6 +1364,21 @@ impl MainMenu {
         effects: &mut WindowEventEffects<'_>,
         selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
+        // When the receiving manager is already loaned (gadget callback under
+        // with_manager), queue onto the same owner so complete_event_callbacks
+        // drains the transition after the nested borrow ends.
+        if effects.manager.is_none() {
+            let owner = effects
+                .window_manager_owner
+                .expect("WND operation requires receiving manager");
+            if owner.try_with_manager(|_| ()).is_none() {
+                let group = group.to_string();
+                effects.queue_window_operation(move |manager, _effects| {
+                    manager.transition_set_group(&group, immediate, None);
+                });
+                return;
+            }
+        }
         effects.with_manager(|manager, effects| {
             let mut lent: Vec<_> = effects
                 .lent_windows
@@ -1606,6 +1621,18 @@ impl MainMenu {
         effects: &mut WindowEventEffects<'_>,
         selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
+        if effects.manager.is_none() {
+            let owner = effects
+                .window_manager_owner
+                .expect("WND operation requires receiving manager");
+            if owner.try_with_manager(|_| ()).is_none() {
+                let group = group.to_string();
+                effects.queue_window_operation(move |manager, _effects| {
+                    manager.transition_reverse(&group, None);
+                });
+                return;
+            }
+        }
         effects.with_manager(|manager, effects| {
             let mut lent: Vec<_> = effects
                 .lent_windows
@@ -1622,6 +1649,18 @@ impl MainMenu {
         effects: &mut WindowEventEffects<'_>,
         selected: Option<&mut crate::gui::game_window::GameWindow>,
     ) {
+        if effects.manager.is_none() {
+            let owner = effects
+                .window_manager_owner
+                .expect("WND operation requires receiving manager");
+            if owner.try_with_manager(|_| ()).is_none() {
+                let group = group.to_string();
+                effects.queue_window_operation(move |manager, _effects| {
+                    manager.transition_remove(&group, skip_pending, None);
+                });
+                return;
+            }
+        }
         effects.with_manager(|manager, effects| {
             let mut lent: Vec<_> = effects
                 .lent_windows
