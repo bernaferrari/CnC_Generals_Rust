@@ -117,7 +117,7 @@ fn callbacks_run_once_in_order_on_the_driving_thread_even_after_errors() {
         &calls.lock().unwrap()[4..],
         &[("pre error", 0, driver), ("post after error", 0, driver)]
     );
-    assert!(!ww3d_engine::frame_is_active(), "failed frame still ends");
+    assert!(!ww3d_engine::frame_is_active(&ww3d_engine::frame_submit().expect("fs").lock()), "failed frame still ends");
     drop(renderer);
     ww3d_engine::shutdown().expect("shutdown");
 }

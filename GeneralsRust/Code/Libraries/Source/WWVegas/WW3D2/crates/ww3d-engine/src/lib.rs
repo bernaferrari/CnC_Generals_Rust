@@ -24,11 +24,18 @@ use ww3d_core::ensure_class_registry_initialized;
 use ww3d_gpu::{GpuDevice, GpuError, shared_device};
 
 mod frame_submit;
+/// Shared handle for explicit frame-submit ownership.
+pub type FrameSubmitHandle = Arc<Mutex<frame_submit::FrameSubmitState>>;
+
+pub fn new_frame_submit_handle() -> FrameSubmitHandle {
+    Arc::new(Mutex::new(frame_submit::FrameSubmitState::new()))
+}
+
 pub use frame_submit::{
     FrameCommandPhase, FrameSubmitState, OutOfFrameReason, SUBMIT_DEBUG_ENV, frame_is_active,
-    install_frame_submit, last_frame_submit_count, last_out_of_frame_submit_count, on_begin_frame,
+    last_frame_submit_count, last_out_of_frame_submit_count, on_begin_frame,
     reset_submit_debug, submit_out_of_frame, submit_owned_frame, submit_recorded,
-    total_owned_submits, uninstall_frame_submit,
+    total_owned_submits,
 };
 
 // Re-export core types
@@ -1047,6 +1054,11 @@ impl Engine {
     /// - Movie capture frame grabbing
     /// - Viewport setup for clearing
     /// - Scene begin
+    /// Shared frame-submit bookkeeping (explicit ownership; no process bridge).
+    pub fn frame_submit_state(&self) -> FrameSubmitHandle {
+        Arc::clone(&self.frame_submit)
+    }
+
     pub fn begin_render(&mut self) -> EngineResult<RenderFrame> {
         if self.frame_active {
             return Err(EngineError::FrameInProgress);
@@ -2201,7 +2213,6 @@ where
     } // drop lock before await
 
     let engine = Engine::new_windowed(window, config).await?;
-    frame_submit::install_frame_submit(Arc::clone(&engine.frame_submit));
     *global_engine().lock() = Some(engine);
     Ok(())
 }
@@ -2221,7 +2232,6 @@ pub async fn init_headless(config: EngineConfig) -> EngineResult<()> {
     } // drop lock before await
 
     let engine = Engine::new_headless(config).await?;
-    frame_submit::install_frame_submit(Arc::clone(&engine.frame_submit));
     *global_engine().lock() = Some(engine);
     Ok(())
 }
@@ -2248,7 +2258,6 @@ pub fn shutdown() -> EngineResult<()> {
     let Some(engine) = slot.take() else {
         return Err(EngineError::NotInitialised);
     };
-    frame_submit::uninstall_frame_submit(&engine.frame_submit);
     Ok(())
 }
 
@@ -2401,6 +2410,16 @@ pub fn resize(width: u32, height: u32) -> EngineResult<()> {
 }
 
 /// Clone the global wgpu device handle.
+
+/// Engine-owned frame-submit state (requires init). No process bridge.
+pub fn frame_submit() -> EngineResult<FrameSubmitHandle> {
+    let slot = global_engine().lock();
+    match slot.as_ref() {
+        Some(engine) => Ok(engine.frame_submit_state()),
+        None => Err(EngineError::NotInitialised),
+    }
+}
+
 pub fn device() -> EngineResult<Arc<wgpu::Device>> {
     let slot = global_engine().lock();
     match slot.as_ref() {

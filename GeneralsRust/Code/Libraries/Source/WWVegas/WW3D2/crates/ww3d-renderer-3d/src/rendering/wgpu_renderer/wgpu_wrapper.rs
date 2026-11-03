@@ -8,6 +8,7 @@ use crate::rendering::texture_system::texture_base::TextureBaseClass;
 use glam::{Mat4, Vec3, Vec4};
 use pollster::block_on;
 use std::sync::{Arc, Mutex, OnceLock};
+use ww3d_engine::{FrameSubmitHandle, FrameSubmitState, new_frame_submit_handle};
 use wgpu::{
     Adapter, Device, Instance, Queue, Surface, SurfaceConfiguration, SurfaceTexture,
 };
@@ -169,9 +170,17 @@ pub struct WgpuWrapper {
     headless_target: Option<wgpu::Texture>,
 
     cached_shader_resources: Option<ShaderApplyResources>,
+
+    /// Engine/renderer-owned submit bookkeeping (explicit; no process bridge).
+    pub frame_submit: FrameSubmitHandle,
 }
 
 impl WgpuWrapper {
+    /// Share the engine-owned frame-submit state (explicit ownership).
+    pub fn set_frame_submit(&mut self, state: FrameSubmitHandle) {
+        self.frame_submit = state;
+    }
+
     /// Create a wrapper from fully constructed WGPU parts. This is primarily used by higher level
     /// initialization helpers and keeps lifetime management in one place.
     pub fn from_parts(
@@ -231,6 +240,7 @@ impl WgpuWrapper {
             depth: None,
             headless_target: None,
             cached_shader_resources: None,
+            frame_submit: new_frame_submit_handle(),
         };
 
         wrapper.recreate_depth_resources()?;
@@ -505,6 +515,7 @@ impl WgpuWrapper {
             let command_buffer = frame.encoder.finish();
 
             ww3d_engine::submit_recorded(
+                &self.frame_submit.lock(),
                 &self.queue,
                 ww3d_engine::FrameCommandPhase::Overlay,
                 command_buffer,

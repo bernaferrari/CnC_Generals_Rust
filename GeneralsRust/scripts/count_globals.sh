@@ -22,7 +22,8 @@ for i, a in enumerate(sys.argv):
         compare = sys.argv[i + 1]
 
 pat_static = re.compile(
-    r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?static[ \t]+(?:mut[ \t]+)?(\w+)[ \t]*:[ \t]*([^;=]+)"
+    # Type runs to the initializer `=`; must not stop at `;` inside `[T; N]`.
+    r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?static[ \t]+(?:mut[ \t]+)?(\w+)[ \t]*:[ \t]*(.+?)[ \t]*="
 )
 pat_tls = re.compile(r"(?m)^[ \t]*thread_local!\s*\{")
 classic_mut = re.compile(r"\b(Mutex|RwLock|Atomic\w+|RefCell|Cell)\b")
@@ -145,9 +146,15 @@ def init_cell_is_mutable(text, ty):
 def type_is_mutable(text, ty):
     if classic_mut.search(ty):
         return True
+    # OnceLock/Lazy of a pure lookup table (arrays, fn pointers, …) must not be
+    # counted just because a nested type name (e.g. VertexMaterialClass) has
+    # interior mutability in its own definition.
+    if init_cell.search(ty):
+        peeled, inner = strip_init_cell_wrappers(ty)
+        if peeled and immutable_lookup_type(inner):
+            return False
+        return init_cell_is_mutable(text, ty)
     if wrapper_struct_is_mutable(text, ty):
-        return True
-    if init_cell_is_mutable(text, ty):
         return True
     return False
 
