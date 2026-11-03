@@ -313,7 +313,7 @@ impl Renderer {
         let renderer = WW3D::get_current_renderer()
             .ok_or_else(|| Error::NotInitialized("renderer not active".to_string()))?;
         let binding = renderer.handle();
-        let mut backend_guard = binding.borrow_mut();
+        let mut backend_guard = binding.lock().unwrap_or_else(|p| p.into_inner());
 
         let handle = backend_guard
             .as_any_mut()
