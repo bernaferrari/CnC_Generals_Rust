@@ -889,3 +889,44 @@ fn special_power_create_expresses_shared_n_sync_ready_now() {
         "scripted SpecialPowerCreate modules must start ReloadTime recharge"
     );
 }
+
+#[test]
+fn spawned_require_spawner_kills_children_through_their_own_die_modules() {
+    // C++ SpawnBehavior.cpp:150-171: after clearing producers, each still-live
+    // spawn gets Object::kill() (Object.cpp:1930-1944), i.e. a normal damage
+    // request routed through the child's Body/Die modules. A SlowDeath child
+    // must therefore begin its own slow death and stay registered rather than
+    // being zeroed and force-removed.
+    let mut logic = GameLogic::new();
+    logic
+        .admit_object_ini_sources([(
+            "RequiredSpawnLib.ini".into(),
+            "Object Nest\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\n Behavior = SpawnBehavior Spawn\n OneShot = Yes\n SpawnNumber = 2\n SpawnTemplateName = Child\n SpawnedRequireSpawner = Yes\n End\nEnd\nObject Child\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = SlowDeathBehavior Death\n DestructionDelay = 3000\n End\nEnd\n"
+                .into(),
+        )])
+        .expect("ini");
+    logic
+        .players
+        .insert(1, crate::game_logic::Player::new(1, Team::GLA, "Owner", true));
+    let nest = logic
+        .create_object_for_player("Nest", 1, Vec3::ZERO)
+        .expect("nest");
+    let children: Vec<_> = logic
+        .objects
+        .registered_values()
+        .filter(|o| o.producer_id == Some(nest))
+        .map(|o| o.id)
+        .collect();
+    assert_eq!(children.len(), 2);
+
+    logic.apply_host_damage(nest, 1000.0);
+
+    for id in children {
+        let child = logic
+            .host_object(id)
+            .expect("SlowDeath retains the killed child");
+        assert!(child.status.effectively_dead, "child was killed");
+        assert!(child.slow_death.is_some(), "child's own SlowDeath ran");
+        assert!(child.producer_id.is_none(), "producer cleared first");
+    }
+}
