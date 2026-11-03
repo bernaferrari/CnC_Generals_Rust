@@ -122,7 +122,7 @@ pub use particle_system::{Particle, ParticleInfo, ParticleSystem};
 
 pub use ray_effect_system::{
     LiveRayEffect, MAX_RAY_EFFECTS, RayEffectGpuMesh, add_ray_effect,
-    bake_ray_effect_gpu_endpoints, bake_ray_effect_gpu_mesh, create_ray_effect_by_template,
+    bake_ray_effect_gpu_endpoints, bake_ray_effect_gpu_mesh, RayFxState, create_ray_effect_by_template,
     delete_ray_effect, get_ray_effect_data, live_ray_effects, ray_effect_midpoint,
     reset_ray_effects, update_ray_effects,
 };

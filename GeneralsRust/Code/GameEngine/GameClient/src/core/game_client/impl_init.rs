@@ -352,6 +352,7 @@ impl GameClient {
         self.drawables.fx.scene = Default::default();
         self.drawables.tracers = Default::default();
         self.drawables.beacons = Default::default();
+        self.drawables.rays = Default::default();
         self.drawables.owned_laser_order.clear();
         self.drawables.drawable_object_map.clear();
         self.drawables.presentation_direct_drawable_bindings.clear();
