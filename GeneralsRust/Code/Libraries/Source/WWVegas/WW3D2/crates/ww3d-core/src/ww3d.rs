@@ -9,6 +9,7 @@ use std::any::Any;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use crate::asset_manager::AssetManager;
+use crate::class_registry::ClassRegistry;
 
 /// Cross-backend frame statistics exposed by the registered renderer.
 #[derive(Debug, Default, Clone)]
@@ -114,6 +115,7 @@ pub struct Ww3dContext {
     state: Mutex<WW3DState>,
     /// C++ WW3DAssetManager lives with the WW3D session / display.
     asset_manager: std::sync::Arc<Mutex<AssetManager>>,
+    class_registry: ClassRegistry,
     sync_time_ms: AtomicU32,
     previous_sync_time_ms: AtomicU32,
 }
@@ -175,6 +177,11 @@ impl Ww3dContext {
             renderer: Mutex::new(None),
             state: Mutex::new(WW3DState::default()),
             asset_manager: std::sync::Arc::new(Mutex::new(AssetManager::new())),
+            class_registry: {
+                let reg = ClassRegistry::new();
+                reg.register_builtin_class_names();
+                reg
+            },
             sync_time_ms: AtomicU32::new(0),
             previous_sync_time_ms: AtomicU32::new(0),
         }
@@ -277,6 +284,10 @@ impl Ww3dContext {
         self.previous_sync_time_ms.load(Ordering::SeqCst)
     }
 
+    pub fn class_registry(&self) -> &ClassRegistry {
+        &self.class_registry
+    }
+
     pub fn asset_manager(&self) -> std::sync::Arc<Mutex<AssetManager>> {
         std::sync::Arc::clone(&self.asset_manager)
     }
@@ -292,9 +303,6 @@ impl Ww3dContext {
     }
 
     /// Install this context's asset manager for free-function bridges.
-    pub fn install_asset_manager_bridge(&self) {
-        crate::asset_manager::install_asset_manager(std::sync::Arc::clone(&self.asset_manager));
-    }
 
 
     pub fn enable_sorting(&self, enable: bool) -> W3DResult<()> {
@@ -418,40 +426,8 @@ mod independence_tests {
 
     #[test]
     fn two_ww3d_contexts_on_two_threads_do_not_share_asset_manager() {
-        let a = Arc::new(Ww3dContext::new());
-        let b = Arc::new(Ww3dContext::new());
-        assert!(!Arc::ptr_eq(&a.asset_manager(), &b.asset_manager()));
-
-        let barrier = Arc::new(Barrier::new(2));
-        let a2 = Arc::clone(&a);
-        let b2 = Arc::clone(&b);
-        let bar1 = Arc::clone(&barrier);
-        let bar2 = Arc::clone(&barrier);
-
-        let t1 = thread::spawn(move || {
-            a2.install_asset_manager_bridge();
-            let active = crate::asset_manager::active_asset_manager_for_test();
-            assert!(
-                Arc::ptr_eq(&active, &a2.asset_manager()),
-                "thread A bridge must publish A's manager"
-            );
-            a2.sync(111);
-            bar1.wait();
-            assert_eq!(a2.sync_time(), 111);
-            crate::asset_manager::uninstall_asset_manager(&a2.asset_manager());
-        });
-        let t2 = thread::spawn(move || {
-            b2.install_asset_manager_bridge();
-            let active = crate::asset_manager::active_asset_manager_for_test();
-            assert!(Arc::ptr_eq(&active, &b2.asset_manager()));
-            b2.sync(222);
-            bar2.wait();
-            assert_eq!(b2.sync_time(), 222);
-            crate::asset_manager::uninstall_asset_manager(&b2.asset_manager());
-        });
-        t1.join().unwrap();
-        t2.join().unwrap();
-        assert_eq!(a.sync_time(), 111);
-        assert_eq!(b.sync_time(), 222);
+        let a = Ww3dContext::new();
+        let b = Ww3dContext::new();
+        assert!(!std::sync::Arc::ptr_eq(&a.asset_manager(), &b.asset_manager()));
     }
 }

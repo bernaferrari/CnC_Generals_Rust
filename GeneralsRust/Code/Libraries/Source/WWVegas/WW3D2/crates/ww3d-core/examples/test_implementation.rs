@@ -81,7 +81,8 @@ fn main() -> W3DResult<()> {
     // Test 7: Asset manager
     println!("\n7. Testing Asset Manager...");
     let test_mesh = create_quad_mesh("asset_quad".to_string(), 1.0);
-    let (handle, stats) = with_global_asset_manager(|asset_mgr| {
+    let mut asset_mgr = AssetManager::new();
+    let (handle, stats) = {
         let handle = asset_mgr.register_mesh("asset_quad".to_string(), test_mesh);
         let stats = asset_mgr.cache_stats();
         (handle, stats)

@@ -48,7 +48,7 @@ fn show_results() {
     println!("{:<16} {:<10} {}", "Name", "Value", "Unit");
     println!("{:-<40}", "");
 
-    let high_level = Profile::high_level();
+    let high_level = Profile::high_level(&session));
     let mut index = 0;
 
     // Enumerate all profiles - equivalent to C++ ProfileHighLevel::EnumProfile
@@ -62,25 +62,26 @@ fn show_results() {
     }
 
     // Also show frame information
-    let frame_count = Profile::get_frame_count();
+    let frame_count = Profile::get_frame_count(&session));
     println!("\nRecorded {} frames", frame_count);
 
     for frame in 0..frame_count {
-        if let Some(frame_name) = Profile::get_frame_name(frame) {
+        if let Some(frame_name) = Profile::get_frame_name(&session, frame) {
             println!("Frame {}: {}", frame, frame_name);
         }
     }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let session = wwdebug::WwDebugSession::new();
     println!("Profile Test 1 - Basic functionality");
     println!("===================================");
 
     // Initialize profiling patterns - enable all patterns
-    Profile::add_pattern("*", true)?;
+    Profile::add_pattern(&session, "*", true)?;
 
     // Start a profiling range for the main test
-    Profile::start_range(Some("main_test"))?;
+    Profile::start_range(&session, Some("main_test"))?;
 
     // Test basic function calls with profiling
     for k in 0..100 {
@@ -95,7 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     recursion_shell();
 
     // Stop the profiling range
-    Profile::stop_range(Some("main_test"))?;
+    Profile::stop_range(&session, Some("main_test"))?;
 
     // Show the results
     show_results();
@@ -104,7 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nFinal Q value: {}", Q.load(Ordering::Relaxed));
 
     // Generate profiling results
-    Profile::write_results();
+    Profile::write_results(&session));
 
     Ok(())
 }
@@ -135,10 +136,10 @@ mod tests {
 
     #[test]
     fn test_range_profiling() {
-        let result = Profile::start_range(Some("test_range"));
+        let result = Profile::start_range(&session, Some("test_range"));
         assert!(result.is_ok());
 
-        let result = Profile::stop_range(Some("test_range"));
+        let result = Profile::stop_range(&session, Some("test_range"));
         assert!(result.is_ok());
     }
 }

@@ -490,17 +490,23 @@ impl Default for ProfileFuncLevel {
 /// Use this in functions you want to profile manually
 pub struct FunctionProfiler {
     _address: usize,
+    #[cfg(feature = "function-level")]
+    func_level: *const ProfileFuncLevel,
 }
 
 impl FunctionProfiler {
     /// Create a new function profiler
-    pub fn new(source_file: &str, function_name: &str, line_param: u32) -> ProfileResult<Self> {
+    pub fn new(
+        session: &crate::WwDebugSession,
+        source_file: &str,
+        function_name: &str,
+        line_param: u32,
+    ) -> ProfileResult<Self> {
         let address = Self::get_return_address();
 
         #[cfg(feature = "function-level")]
         {
-            let state = &*crate::PROFILER_STATE;
-            state.func_level.function_enter(
+            session.profiler.func_level.function_enter(
                 address,
                 Some(source_file),
                 Some(function_name),
@@ -508,7 +514,11 @@ impl FunctionProfiler {
             )?;
         }
 
-        Ok(Self { _address: address })
+        Ok(Self {
+            _address: address,
+            #[cfg(feature = "function-level")]
+            func_level: &session.profiler.func_level as *const ProfileFuncLevel,
+        })
     }
 
     /// Get approximate return address for profiling
@@ -524,8 +534,9 @@ impl Drop for FunctionProfiler {
     fn drop(&mut self) {
         #[cfg(feature = "function-level")]
         {
-            let state = &*crate::PROFILER_STATE;
-            let _ = state.func_level.function_exit(None);
+            // SAFETY: func_level is valid for the session that created this profiler.
+            let func_level = unsafe { &*self.func_level };
+            let _ = func_level.function_exit(None);
         }
     }
 }
@@ -533,8 +544,9 @@ impl Drop for FunctionProfiler {
 /// Macro to automatically profile a function
 #[macro_export]
 macro_rules! profile_function {
-    () => {
+    ($session:expr) => {
         let _func_profiler = $crate::func_level::FunctionProfiler::new(
+            &$session,
             file!(),
             concat!(module_path!(), "::", line!()),
             line!(),

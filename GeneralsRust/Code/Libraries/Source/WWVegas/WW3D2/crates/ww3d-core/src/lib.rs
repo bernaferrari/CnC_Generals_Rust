@@ -45,8 +45,7 @@ pub use chunks::{
 use once_cell::sync::Lazy;
 
 pub use class_registry::{
-    ClassRegistryError, class_id_for_type, class_name_from_id, is_class_registered,
-    register_builtin_class_names, register_class, register_class_name, type_id_from_class,
+    ClassRegistry, ClassRegistryError,
 };
 pub use classid::{ClassID, RenderObjClassId};
 pub use dllist::{DLListClass, DLListNode};
@@ -63,8 +62,7 @@ pub use animation::{
     HierarchyAnimation, Pivot,
 };
 pub use asset_manager::{
-    AssetHandle, AssetLoader, AssetManager, AssetStatus, with_global_asset_manager,
-    with_global_asset_manager_ref,
+    AssetHandle, AssetLoader, AssetManager, AssetStatus,
 };
 pub use lighting::{Attenuation, Light, LightEnvironment, LightType};
 pub use material::{
@@ -86,7 +84,6 @@ pub use texture::{
 pub use w3d_io::{W3DChunk, W3DReader, W3DWriter, load_w3d_file, save_w3d_file};
 
 static CLASS_REGISTRY_INIT: Lazy<()> = Lazy::new(|| {
-    register_builtin_class_names();
 });
 
 /// Ensures the WW3D class registry has been populated with the builtin tables.
