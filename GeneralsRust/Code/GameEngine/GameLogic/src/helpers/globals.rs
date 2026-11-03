@@ -80,8 +80,6 @@ pub trait GamePauseHooks: Send + Sync {
     fn on_game_pause_state_changed(&self, paused: Bool);
 }
 
-static GAME_PAUSE_HOOKS: OnceLock<Arc<dyn GamePauseHooks>> = OnceLock::new();
-
 /// Borrowed receiving-client callbacks for the synchronous map-load operation.
 ///
 /// These hooks are passed down the active GameLogic call stack; they are never
@@ -126,11 +124,23 @@ static OBSERVER_AUDIO_LOCALITY_HOOKS: OnceLock<Arc<dyn ObserverAudioLocalityHook
 static OBSERVER_AUDIO_VIEW_HOOKS: OnceLock<Arc<dyn ObserverAudioViewHooks>> = OnceLock::new();
 
 pub fn register_game_pause_hooks(hooks: Arc<dyn GamePauseHooks>) -> bool {
-    GAME_PAUSE_HOOKS.set(hooks).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services
+        .game_pause_hooks()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(hooks);
+    true
 }
 
-fn game_pause_hooks() -> Option<&'static Arc<dyn GamePauseHooks>> {
-    GAME_PAUSE_HOOKS.get()
+fn game_pause_hooks() -> Option<Arc<dyn GamePauseHooks>> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services
+        .game_pause_hooks()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 pub fn register_observer_audio_locality_hooks(hooks: Arc<dyn ObserverAudioLocalityHooks>) -> bool {
