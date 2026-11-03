@@ -2492,7 +2492,8 @@ mod tests {
                 "DieselSmoke",
                 CombatParticleKind::ParticleSysBone,
                 None,
-            , &mut ())
+                &mut (),
+            )
             .expect("bone system");
         let entry = reg.get(id).expect("entry");
         assert!((entry.attach_offset - local).length() < 0.01);
@@ -2515,7 +2516,8 @@ mod tests {
                 3,
                 "DisabledEffectBinaryShower0",
                 CombatParticleKind::DisableFx,
-                Some(120, &mut ()),
+                Some(120),
+                &mut (),
             )
             .expect("disable fx");
         assert!(reg.get(id).expect("entry").active);
