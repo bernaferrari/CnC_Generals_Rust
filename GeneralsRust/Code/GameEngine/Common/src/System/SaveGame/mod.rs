@@ -5,7 +5,7 @@
 use super::xfer::{DrawableID, ObjectID};
 use crate::common::ini::ini_game_data::get_global_data;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 pub mod campaign_xfer;
 pub mod game_state;
@@ -42,22 +42,15 @@ type SaveLockGhostObjectsHook = Arc<dyn Fn(bool) + Send + Sync>;
 type CampaignSnapshotHook = Arc<dyn Fn() -> Option<(String, i32, String)> + Send + Sync>;
 
 #[derive(Default)]
-struct RuntimeIdCounterHooks {
+pub(crate) struct RuntimeIdCounterHooks {
     object_getter: Option<ObjectIdCounterGetter>,
     object_setter: Option<ObjectIdCounterSetter>,
     drawable_getter: Option<DrawableIdCounterGetter>,
     drawable_setter: Option<DrawableIdCounterSetter>,
 }
 
-struct RuntimeIdCounterHooksSlot(OnceLock<Mutex<RuntimeIdCounterHooks>>);
-impl std::ops::Deref for RuntimeIdCounterHooksSlot {
-    type Target = OnceLock<Mutex<RuntimeIdCounterHooks>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static RUNTIME_ID_COUNTER_HOOKS: RuntimeIdCounterHooksSlot = RuntimeIdCounterHooksSlot(OnceLock::new());
-
 #[derive(Default)]
-struct SaveLoadLifecycleHooks {
+pub(crate) struct SaveLoadLifecycleHooks {
     begin_load: Option<BeginLoadHook>,
     end_load: Option<EndLoadHook>,
     set_loading_save: Option<SetLoadingSaveHook>,
@@ -73,19 +66,20 @@ struct SaveLoadLifecycleHooks {
     get_campaign_snapshot: Option<CampaignSnapshotHook>,
 }
 
-struct SaveLoadLifecycleHooksSlot(OnceLock<Mutex<SaveLoadLifecycleHooks>>);
-impl std::ops::Deref for SaveLoadLifecycleHooksSlot {
-    type Target = OnceLock<Mutex<SaveLoadLifecycleHooks>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static SAVE_LOAD_LIFECYCLE_HOOKS: SaveLoadLifecycleHooksSlot = SaveLoadLifecycleHooksSlot(OnceLock::new());
-
-fn id_counter_hooks() -> &'static Mutex<RuntimeIdCounterHooks> {
-    RUNTIME_ID_COUNTER_HOOKS.0.get_or_init(|| Mutex::new(RuntimeIdCounterHooks::default()))
+fn id_counter_hooks() -> Arc<Mutex<RuntimeIdCounterHooks>> {
+    Arc::clone(
+        &crate::common::common_services::common_services()
+            .system
+            .save_id_counter_hooks,
+    )
 }
 
-fn save_load_hooks() -> &'static Mutex<SaveLoadLifecycleHooks> {
-    SAVE_LOAD_LIFECYCLE_HOOKS.0.get_or_init(|| Mutex::new(SaveLoadLifecycleHooks::default()))
+fn save_load_hooks() -> Arc<Mutex<SaveLoadLifecycleHooks>> {
+    Arc::clone(
+        &crate::common::common_services::common_services()
+            .system
+            .save_load_lifecycle_hooks,
+    )
 }
 
 pub(crate) fn default_save_directory() -> PathBuf {
@@ -199,7 +193,8 @@ pub fn register_save_load_campaign_hooks(get_campaign_snapshot: Option<CampaignS
 }
 
 pub(crate) fn notify_get_campaign_snapshot() -> Option<(String, i32, String)> {
-    let hooks = save_load_hooks().lock().ok()?;
+    let hooks_arc = save_load_hooks();
+    let hooks = hooks_arc.lock().ok()?;
     hooks
         .get_campaign_snapshot
         .as_ref()
@@ -231,7 +226,8 @@ pub(crate) fn notify_set_loading_save(loading: bool) {
 }
 
 pub(crate) fn notify_get_game_mode() -> Option<i32> {
-    let hooks = save_load_hooks().lock().ok()?;
+    let hooks_arc = save_load_hooks();
+    let hooks = hooks_arc.lock().ok()?;
     hooks.get_game_mode.as_ref().map(|callback| callback())
 }
 
@@ -268,7 +264,8 @@ pub(crate) fn notify_clear_game_data() {
 }
 
 pub(crate) fn notify_get_mission_start_args() -> Option<(i32, i32)> {
-    let hooks = save_load_hooks().lock().ok()?;
+    let hooks_arc = save_load_hooks();
+    let hooks = hooks_arc.lock().ok()?;
     hooks.mission_start_args.as_ref().map(|callback| callback())
 }
 
@@ -281,7 +278,8 @@ pub(crate) fn notify_save_lock_ghost_objects(enable: bool) {
 }
 
 pub(crate) fn notify_get_skirmish_payload() -> Option<Vec<u8>> {
-    let hooks = save_load_hooks().lock().ok()?;
+    let hooks_arc = save_load_hooks();
+    let hooks = hooks_arc.lock().ok()?;
     hooks
         .get_skirmish_payload
         .as_ref()
@@ -297,7 +295,8 @@ pub(crate) fn notify_set_skirmish_payload(payload: Option<Vec<u8>>) {
 }
 
 pub fn get_runtime_object_id_counter() -> Option<ObjectID> {
-    let hooks = id_counter_hooks().lock().ok()?;
+    let hooks_arc = id_counter_hooks();
+    let hooks = hooks_arc.lock().ok()?;
     hooks.object_getter.as_ref().map(|getter| getter())
 }
 
@@ -310,7 +309,8 @@ pub fn set_runtime_object_id_counter(counter: ObjectID) {
 }
 
 pub fn get_runtime_drawable_id_counter() -> Option<DrawableID> {
-    let hooks = id_counter_hooks().lock().ok()?;
+    let hooks_arc = id_counter_hooks();
+    let hooks = hooks_arc.lock().ok()?;
     hooks.drawable_getter.as_ref().map(|getter| getter())
 }
 

@@ -5,6 +5,8 @@
 //! AI data, upgrade masks, file systems, or team factories.
 
 use crate::common::ini::ini_ai_data::AIDataStore;
+use crate::common::language::LanguageId;
+use std::collections::HashMap;
 use crate::common::ini::ini_damage_fx::FxBonePosQuery;
 use crate::common::ini::ini_fx_list::{DispatchedFxNugget, FxListObjRuntime};
 use crate::common::ini::ini_game_data::GlobalData;
@@ -15,10 +17,15 @@ use crate::common::system::cd_manager::CDManagerInterface;
 use crate::common::system::debug::{DebugSystem, Profiler};
 use crate::common::system::game_memory::MemoryPoolFactory;
 use crate::common::system::local_file_system::LocalFileSystem;
-use crate::common::system::radar::RadarSystem;
+use crate::common::system::radar::{
+    RadarDataSink, RadarEventFeedback, RadarMapSource, RadarObjectProvider, RadarSystem,
+    RadarTerrainPaintSource, RadarWindowSource,
+};
 use crate::common::system::registry::Registry;
 use crate::common::system::upgrade::center::UpgradeCenter;
-use crate::System::SaveGame::GameState;
+use crate::System::SaveGame::{
+    GameState, RuntimeIdCounterHooks, SaveLoadLifecycleHooks,
+};
 use parking_lot::RwLock as ParkingRwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -64,6 +71,20 @@ pub struct SystemStores {
     pub game_state: Mutex<GameState>,
     /// C++ `TheRadar`.
     pub radar_system: Mutex<Option<Arc<RwLock<RadarSystem>>>>,
+    /// Language runtime (was process LANGUAGE_RUNTIME).
+    pub language_current: Mutex<LanguageId>,
+    pub language_strings: Mutex<HashMap<String, String>>,
+    /// Radar bridge hooks (was process OnceLocks).
+    pub radar_feedback: Mutex<Option<Arc<dyn RadarEventFeedback>>>,
+    pub radar_object_provider: Mutex<Option<Arc<dyn RadarObjectProvider>>>,
+    pub radar_data_sink: Mutex<Option<Arc<dyn RadarDataSink>>>,
+    pub radar_map_source: Mutex<Option<Arc<dyn RadarMapSource>>>,
+    pub radar_window_source: Mutex<Option<Arc<dyn RadarWindowSource>>>,
+    pub radar_paint_source: Mutex<Option<Arc<dyn RadarTerrainPaintSource>>>,
+    /// SaveGame runtime ID counter hooks.
+    pub save_id_counter_hooks: Arc<Mutex<RuntimeIdCounterHooks>>,
+    /// SaveGame load lifecycle hooks.
+    pub save_load_lifecycle_hooks: Arc<Mutex<SaveLoadLifecycleHooks>>,
 }
 
 impl SystemStores {
@@ -97,6 +118,16 @@ impl SystemStores {
                 Mutex::new(state)
             },
             radar_system: Mutex::new(None),
+            language_current: Mutex::new(LanguageId::Us),
+            language_strings: Mutex::new(HashMap::new()),
+            radar_feedback: Mutex::new(None),
+            radar_object_provider: Mutex::new(None),
+            radar_data_sink: Mutex::new(None),
+            radar_map_source: Mutex::new(None),
+            radar_window_source: Mutex::new(None),
+            radar_paint_source: Mutex::new(None),
+            save_id_counter_hooks: Arc::new(Mutex::new(RuntimeIdCounterHooks::default())),
+            save_load_lifecycle_hooks: Arc::new(Mutex::new(SaveLoadLifecycleHooks::default())),
         }
     }
 }

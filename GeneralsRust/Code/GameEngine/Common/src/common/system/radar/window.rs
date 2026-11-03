@@ -20,10 +20,27 @@ pub trait RadarWindowSource: Send + Sync {
     fn find_left_hud(&self) -> Option<RadarWindowGeom>;
 }
 
-static WINDOW_SOURCE: OnceLock<Arc<dyn RadarWindowSource>> = OnceLock::new();
-
 pub fn register_radar_window_source(source: Arc<dyn RadarWindowSource>) -> bool {
-    WINDOW_SOURCE.set(source).is_ok()
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .radar_window_source
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_some() {
+        return false;
+    }
+    *slot = Some(source);
+    true
+}
+
+fn window_source() -> Option<Arc<dyn RadarWindowSource>> {
+    crate::common::common_services::common_services()
+        .system
+        .radar_window_source
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 pub fn left_hud_name_key() -> i32 {
@@ -34,7 +51,7 @@ impl RadarSystem {
     /// C++ `NAMEKEY("ControlBar.wnd:LeftHUD")` + `winGetWindowFromId`.
     pub fn bind_left_hud_window(&mut self) {
         let _ = left_hud_name_key();
-        if let Some(source) = WINDOW_SOURCE.get() {
+        if let Some(source) = window_source() {
             self.radar_window = source.find_left_hud();
         }
     }
