@@ -219,7 +219,6 @@ fn create_single_file_big(path: &Path, virtual_path: &str, data: &[u8]) {
 }
 
 fn install() -> (GameLogic, Observer) {
-    assert!(ASSET_MANAGER.get().is_none());
     gamelogic::initialize_weapon_store().unwrap();
     let mut weapons = String::new();
     for (name, radius, affects, scatter) in [
@@ -365,7 +364,8 @@ End
     futures::executor::block_on(manager.ww3d_manager.initialize(&mut manager.archive_system))
         .unwrap();
     assert_eq!(manager.get_object_definition_count(), 8);
-    assert!(ASSET_MANAGER.set(Arc::new(Mutex::new(manager))).is_ok());
+    // Keep the AssetManager alive for this test; process ASSET_MANAGER is gone.
+    let _asset_manager = Arc::new(Mutex::new(manager));
     let (sender, receiver) = std::sync::mpsc::channel();
     for rows in ["SplashCompletionRows", "SplashCompletionNestedRows"] {
         for level in ["REGULAR", "VETERAN", "ELITE"] {

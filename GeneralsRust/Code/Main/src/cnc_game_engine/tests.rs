@@ -558,7 +558,6 @@ fn campaign_launch_descriptor_precedes_stale_map_and_hud_faction() {
     use game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDescriptor;
 
     let descriptor = HostCampaignLaunchDescriptor {
-        generation: 7,
         map_name: "Maps\\Campaign\\ExactLaunch.map".to_string(),
         campaign_name: "USA".to_string(),
         // Deliberately differs from the campaign name: C++'s campaign player
@@ -605,7 +604,6 @@ fn challenge_launch_rejects_a_missing_or_unpaired_selected_general() {
     use game_client::gui::campaign_launch_host_bridge::HostCampaignLaunchDescriptor;
 
     let descriptor = HostCampaignLaunchDescriptor {
-        generation: 9,
         map_name: "Maps\\Challenge\\Exact.map".to_string(),
         campaign_name: "CHALLENGE_0".to_string(),
         campaign_player_faction: "FactionAmericaAirForceGeneral".to_string(),
@@ -644,7 +642,6 @@ fn challenge_launch_retains_the_exact_selected_template_name_and_index() {
     };
 
     let descriptor = HostCampaignLaunchDescriptor {
-        generation: 10,
         map_name: "Maps\\Challenge\\ExactTank.map".to_string(),
         campaign_name: "CHALLENGE_0".to_string(),
         campaign_player_faction: "FactionChinaTankGeneral".to_string(),
