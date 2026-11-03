@@ -18,7 +18,7 @@ use game_engine::common::system::upgrade as common_upgrade;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize};
-use std::sync::{Arc, LazyLock, Mutex, RwLock};
+use std::sync::{Arc, LazyLock, Mutex, RwLock, OnceLock};
 
 /// Per-world session flags formerly process atomics on `TheGameLogic` bridge.
 pub struct SessionLogicFlags {
@@ -132,6 +132,10 @@ pub struct WorldServices {
     hlod_live_child_capture_hook: RwLock<Option<crate::object::draw::w3d_model_draw::HlodLiveChildCaptureHook>>,
     committed_live_states: Mutex<std::collections::HashMap<crate::common::ObjectID, Vec<crate::object::draw::w3d_model_draw::HlodLiveChildState>>>,
     model_obj_bounds_hook: RwLock<Option<crate::object::draw::w3d_model_draw::ModelBoundsHook>>,
+    pristine_bone_lookup_hook: RwLock<Option<crate::object::draw::w3d_model_draw::PristineBoneLookupHook>>,
+    sub_object_name_hook: RwLock<Option<crate::object::draw::w3d_model_draw::SubObjectNameHook>>,
+    w3d_ghost_snapshot_capture_hook: RwLock<Option<crate::object::w3d_ghost_object::W3DGhostSnapshotCaptureHook>>,
+    w3d_ghost_snapshot_capture_source_hook: RwLock<Option<crate::object::w3d_ghost_object::W3DGhostSnapshotCaptureSourceHook>>,
 
 
 
@@ -139,6 +143,8 @@ pub struct WorldServices {
     staging_depth: AtomicU32,
     staging_deferred_team_effects:
         Mutex<Vec<crate::team::TeamFactoryDeferredEffects>>,
+    /// Serializes host staging that still touches process-wide wrappers.
+    runtime_transaction_lock: Arc<Mutex<()>>,
 }
 impl WorldServices {
     fn engine_defaults() -> Self {
@@ -188,8 +194,13 @@ impl WorldServices {
             hlod_live_child_capture_hook: RwLock::new(None),
             committed_live_states: Mutex::new(std::collections::HashMap::new()),
             model_obj_bounds_hook: RwLock::new(None),
+            pristine_bone_lookup_hook: RwLock::new(None),
+            sub_object_name_hook: RwLock::new(None),
+            w3d_ghost_snapshot_capture_hook: RwLock::new(None),
+            w3d_ghost_snapshot_capture_source_hook: RwLock::new(None),
             staging_depth: AtomicU32::new(0),
             staging_deferred_team_effects: Mutex::new(Vec::new()),
+            runtime_transaction_lock: Arc::new(Mutex::new(())),
         }
     }
     /// Snapshot engine content; fresh mutable per-world services. Inert.
@@ -242,8 +253,13 @@ impl WorldServices {
             hlod_live_child_capture_hook: RwLock::new(None),
             committed_live_states: Mutex::new(std::collections::HashMap::new()),
             model_obj_bounds_hook: RwLock::new(None),
+            pristine_bone_lookup_hook: RwLock::new(None),
+            sub_object_name_hook: RwLock::new(None),
+            w3d_ghost_snapshot_capture_hook: RwLock::new(None),
+            w3d_ghost_snapshot_capture_source_hook: RwLock::new(None),
             staging_depth: AtomicU32::new(0),
             staging_deferred_team_effects: Mutex::new(Vec::new()),
+            runtime_transaction_lock: Arc::new(Mutex::new(())),
         }
     }
     pub fn terrain(&self) -> &Arc<RwLock<crate::terrain::TerrainLogic>> {
@@ -312,6 +328,9 @@ impl WorldServices {
         &self,
     ) -> &Mutex<Vec<crate::team::TeamFactoryDeferredEffects>> {
         &self.staging_deferred_team_effects
+    }
+    pub(crate) fn runtime_transaction_lock(&self) -> &Arc<Mutex<()>> {
+        &self.runtime_transaction_lock
     }
     pub(crate) fn selection(&self) -> &Arc<RwLock<crate::commands::selection::SelectionManager>> {
         &self.selection
@@ -418,6 +437,27 @@ impl WorldServices {
     ) -> &RwLock<Option<crate::object::draw::w3d_model_draw::ModelBoundsHook>> {
         &self.model_obj_bounds_hook
     }
+
+    pub(crate) fn pristine_bone_lookup_hook(
+        &self,
+    ) -> &RwLock<Option<crate::object::draw::w3d_model_draw::PristineBoneLookupHook>> {
+        &self.pristine_bone_lookup_hook
+    }
+    pub(crate) fn sub_object_name_hook(
+        &self,
+    ) -> &RwLock<Option<crate::object::draw::w3d_model_draw::SubObjectNameHook>> {
+        &self.sub_object_name_hook
+    }
+    pub(crate) fn w3d_ghost_snapshot_capture_hook(
+        &self,
+    ) -> &RwLock<Option<crate::object::w3d_ghost_object::W3DGhostSnapshotCaptureHook>> {
+        &self.w3d_ghost_snapshot_capture_hook
+    }
+    pub(crate) fn w3d_ghost_snapshot_capture_source_hook(
+        &self,
+    ) -> &RwLock<Option<crate::object::w3d_ghost_object::W3DGhostSnapshotCaptureSourceHook>> {
+        &self.w3d_ghost_snapshot_capture_source_hook
+    }
 }
 /// Standalone Core runtime; AI is mandatory, never optional or deferred.
 pub struct EngineStores {
@@ -425,6 +465,8 @@ pub struct EngineStores {
     services: Arc<WorldServices>,
     ai: Arc<RwLock<AI>>,
     ai_data: Arc<RwLock<AIDataStore>>,
+    /// Core `GameLogic` singleton for this runtime (was process OnceLock).
+    core_game_logic: OnceLock<&'static Mutex<crate::system::game_logic::GameLogic>>,
 }
 impl EngineStores {
     /// Receiving owner used by the legacy Core `GameLogic` singleton.
@@ -439,6 +481,7 @@ impl EngineStores {
             services: Arc::clone(&PROCESS_SERVICES),
             ai: Arc::new(RwLock::new(AI::new())),
             ai_data: ini_ai_data::process_lifetime_ai_data_store(),
+            core_game_logic: OnceLock::new(),
         }
     }
     pub fn new_for_world() -> Self {
@@ -456,6 +499,7 @@ impl EngineStores {
             services: new_world_services(),
             ai: Arc::new(RwLock::new(AI::new())),
             ai_data: Arc::new(RwLock::new(snapshot)),
+            core_game_logic: OnceLock::new(),
         }
     }
     pub fn services(&self) -> &Arc<WorldServices> {
@@ -473,6 +517,14 @@ impl EngineStores {
     pub fn ai_data(&self) -> &Arc<RwLock<AIDataStore>> {
         &self.ai_data
     }
+    pub(crate) fn game_logic_mutex(self: &Arc<Self>) -> &'static Mutex<crate::system::game_logic::GameLogic> {
+        self.core_game_logic.get_or_init(|| {
+            let logic = crate::system::game_logic::GameLogic::new_with_engine_stores(Arc::clone(self));
+            // Process-lifetime Core slot: leak so accessors keep `&'static Mutex`.
+            Box::leak(Box::new(Mutex::new(logic)))
+        })
+    }
+
     pub(crate) fn client_visuals(&self) -> &ClientVisualState {
         self.services.client_visuals()
     }
@@ -515,21 +567,19 @@ impl PublishedOwner {
         }
     }
 }
-static ACTIVE: RwLock<Vec<PublishedOwner>> = RwLock::new(Vec::new());
 thread_local! {
-    // Reuses the existing bounded context stack; no new TLS publication.
+    // Thread-local publication stack: parallel game instances never share an
+    // active owner across threads. Nested with_* / install_* push and pop here.
     static SCOPED_ACTIVE: RefCell<Vec<PublishedOwner>> = const { RefCell::new(Vec::new()) };
 }
 fn published_owner() -> Option<PublishedOwner> {
-    SCOPED_ACTIVE
-        .with(|stack| stack.borrow().last().cloned())
-        .or_else(|| {
-            ACTIVE
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .last()
-                .cloned()
-        })
+    SCOPED_ACTIVE.with(|stack| stack.borrow().last().cloned())
+}
+pub(crate) fn published_core_for_game_logic() -> Option<Arc<EngineStores>> {
+    match published_owner() {
+        Some(PublishedOwner::Core(core)) => Some(core),
+        _ => None,
+    }
 }
 pub fn active() -> Arc<EngineStores> {
     match published_owner() {
@@ -546,11 +596,7 @@ pub fn active_services() -> Arc<WorldServices> {
         .unwrap_or_else(|| Arc::clone(&PROCESS_SERVICES))
 }
 fn is_published(owner: &PublishedOwner) -> bool {
-    ACTIVE
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .last()
-        .is_some_and(|head| head.same(owner))
+    SCOPED_ACTIVE.with(|stack| stack.borrow().last().is_some_and(|head| head.same(owner)))
 }
 pub fn is_active(core: &Arc<EngineStores>) -> bool {
     is_published(&PublishedOwner::Core(Arc::clone(core)))
@@ -560,10 +606,12 @@ pub fn is_services_active(services: &Arc<WorldServices>) -> bool {
 }
 fn install(owner: PublishedOwner) -> Option<PublishedOwner> {
     owner.install_common();
-    let mut active = ACTIVE.write().unwrap_or_else(|e| e.into_inner());
-    let prior = active.last().cloned();
-    active.push(owner);
-    prior
+    SCOPED_ACTIVE.with(|stack| {
+        let mut active = stack.borrow_mut();
+        let prior = active.last().cloned();
+        active.push(owner);
+        prior
+    })
 }
 pub fn install_active(core: Arc<EngineStores>) -> Option<Arc<EngineStores>> {
     install(PublishedOwner::Core(core)).and_then(|owner| match owner {
@@ -575,8 +623,8 @@ pub fn install_services(services: Arc<WorldServices>) {
     let _ = install(PublishedOwner::Services(services));
 }
 fn uninstall(owner: &PublishedOwner) -> bool {
-    let (was_head, restored) = {
-        let mut active = ACTIVE.write().unwrap_or_else(|e| e.into_inner());
+    let (was_head, restored) = SCOPED_ACTIVE.with(|stack| {
+        let mut active = stack.borrow_mut();
         if active.last().is_some_and(|head| head.same(owner)) {
             active.pop();
             (true, active.last().cloned())
@@ -584,7 +632,7 @@ fn uninstall(owner: &PublishedOwner) -> bool {
             active.retain(|entry| !entry.same(owner));
             (false, None)
         }
-    };
+    });
     if was_head {
         owner.uninstall_common();
         if let Some(restored) = restored {
@@ -595,15 +643,16 @@ fn uninstall(owner: &PublishedOwner) -> bool {
             if matches!(owner, PublishedOwner::Core(_))
                 && matches!(restored, PublishedOwner::Services(_))
             {
-                let prior_data = ACTIVE
-                    .read()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .iter()
-                    .rev()
-                    .find_map(|entry| match entry {
-                        PublishedOwner::Core(core) => Some(Arc::clone(core.ai_data())),
-                        PublishedOwner::Services(_) => None,
-                    });
+                let prior_data = SCOPED_ACTIVE.with(|stack| {
+                    stack
+                        .borrow()
+                        .iter()
+                        .rev()
+                        .find_map(|entry| match entry {
+                            PublishedOwner::Core(core) => Some(Arc::clone(core.ai_data())),
+                            PublishedOwner::Services(_) => None,
+                        })
+                });
                 if let Some(prior_data) = prior_data {
                     ini_ai_data::install_ai_data_store(prior_data);
                 }
@@ -736,10 +785,7 @@ pub(crate) fn replace_ai_for_world_boundary(bundle: &Arc<EngineStores>, next: AI
 
 #[cfg(test)]
 fn active_stack_depth() -> usize {
-    ACTIVE
-        .read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .len()
+    SCOPED_ACTIVE.with(|stack| stack.borrow().len())
 }
 
 #[cfg(test)]
