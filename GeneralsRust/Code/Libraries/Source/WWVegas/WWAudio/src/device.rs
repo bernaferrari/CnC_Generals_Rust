@@ -1364,7 +1364,7 @@ impl AudioSystem {
                 record.display_name.clone(),
             );
         }
-        LogicalListener::set_global_scale(self.dynamic_save.logical_listener_global_scale());
+        self.sound_scene.set_logical_global_scale(self.dynamic_save.logical_listener_global_scale());
         if let Some(snapshot) = self.dynamic_save.mixer_snapshot() {
             self.mixer.restore_timeline(snapshot);
             self.last_timeline_snapshot = Some(snapshot);

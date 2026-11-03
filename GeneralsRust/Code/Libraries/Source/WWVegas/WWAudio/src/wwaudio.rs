@@ -1130,7 +1130,7 @@ impl WWAudioClass {
                 record.display_name.clone(),
             );
         }
-        LogicalListener::set_global_scale(self.dynamic_save.logical_listener_global_scale());
+        self.sound_scene.set_logical_global_scale(self.dynamic_save.logical_listener_global_scale());
         self.sound_scene.update(0);
         let system = self
             .audio_system

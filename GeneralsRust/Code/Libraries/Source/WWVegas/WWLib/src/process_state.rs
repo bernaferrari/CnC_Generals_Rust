@@ -1,6 +1,6 @@
 //! Owned WWLib session state (argv / mouse / iff / registry lock).
 //! Host constructs [`WwLibRuntime`] and passes `&` / `Arc` — no process LazyLock.
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicIsize};
 use std::sync::{Arc, Mutex};
 
 use crate::ffactory::{RawFileFactory, SimpleFileFactory};
@@ -29,6 +29,9 @@ pub struct WwLibRuntime {
     pub iff_buffer: Mutex<Option<Vec<u8>>>,
     pub simple_file_factory: Arc<SimpleFileFactory>,
     pub writing_file_factory: Arc<RawFileFactory>,
+    pub game_in_focus: AtomicBool,
+    pub program_instance: AtomicIsize,
+    pub main_window: AtomicIsize,
 }
 
 impl Default for WwLibRuntime {
@@ -47,6 +50,9 @@ impl WwLibRuntime {
             iff_buffer: Mutex::new(None),
             simple_file_factory: Arc::new(SimpleFileFactory::new()),
             writing_file_factory: Arc::new(RawFileFactory),
+            game_in_focus: AtomicBool::new(false),
+            program_instance: AtomicIsize::new(0),
+            main_window: AtomicIsize::new(0),
         }
     }
 }

@@ -1179,23 +1179,19 @@ impl AudioStreamer {
     }
 }
 
-/// Initialize global stream manager
-static STREAM_MANAGER: std::sync::OnceLock<StreamManager> = std::sync::OnceLock::new();
-
-/// Get global stream manager instance
-pub fn get_stream_manager() -> &'static StreamManager {
-    STREAM_MANAGER.get_or_init(StreamManager::new)
+/// Construct a session stream manager (host-owned; no process singleton).
+pub fn new_stream_manager() -> StreamManager {
+    StreamManager::new()
 }
 
-/// Initialize the streaming system
-pub fn init_streaming_system() -> Result<()> {
-    get_stream_manager();
+/// Initialize a streaming system for a game session.
+pub fn init_streaming_system(manager: &StreamManager) -> Result<()> {
+    let _ = manager;
     Ok(())
 }
 
-/// Shutdown the streaming system
-pub async fn shutdown_streaming_system() {
-    let manager = get_stream_manager();
+/// Shutdown the streaming system for a session manager.
+pub async fn shutdown_streaming_system(manager: &StreamManager) {
     manager.stop_all_streams().await;
 }
 

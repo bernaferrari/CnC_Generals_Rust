@@ -16,6 +16,43 @@ use crate::rendering::texture_quality::TextureQualitySettings;
 use crate::rendering::texture_system::texfcach::TextureFileCache;
 use crate::rendering::texture_system::texturethumbnail::ThumbnailManagerClass;
 
+
+/// Session shader dirty/cache state (formerly SHADER_STATE_TLS_BAG).
+#[derive(Debug)]
+pub struct ShaderGlobalState {
+    pub dirty: bool,
+    pub current_shader: u32,
+    pub applied_blend_bits: u32,
+    pub applied_fog_bits: u32,
+    pub applied_texture_stage_bits: u32,
+    pub applied_depth_bits: u32,
+    pub applied_cull_bits: u32,
+    pub applied_sec_gradient_bits: u32,
+    pub applied_npatch_bits: u32,
+}
+
+impl ShaderGlobalState {
+    pub fn new() -> Self {
+        Self {
+            dirty: true,
+            current_shader: 0,
+            applied_blend_bits: 0,
+            applied_fog_bits: 0,
+            applied_texture_stage_bits: 0,
+            applied_depth_bits: 0,
+            applied_cull_bits: 0,
+            applied_sec_gradient_bits: 0,
+            applied_npatch_bits: 0,
+        }
+    }
+}
+
+impl Default for ShaderGlobalState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Per-session renderer-3d mutable state (formerly process RENDERER_3D / BOX /
 /// vertex-material id statics).
 pub struct Renderer3dRuntime {
@@ -31,6 +68,7 @@ pub struct Renderer3dRuntime {
     pub texture_decisions: Mutex<Vec<TextureDecisionRecord>>,
     pub thumbnail_manager: Mutex<ThumbnailManagerClass>,
     pub texture_cache: Mutex<Option<TextureFileCache>>,
+    pub shader_state: Mutex<ShaderGlobalState>,
 }
 
 impl Default for Renderer3dRuntime {
@@ -54,6 +92,7 @@ impl Renderer3dRuntime {
             texture_decisions: Mutex::new(Vec::new()),
             thumbnail_manager: Mutex::new(ThumbnailManagerClass::new()),
             texture_cache: Mutex::new(None),
+            shader_state: Mutex::new(ShaderGlobalState::new()),
         }
     }
 }

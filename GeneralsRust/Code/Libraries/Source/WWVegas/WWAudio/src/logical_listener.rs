@@ -5,18 +5,8 @@ use crate::{
     sound_scene_obj::{SoundObjectId, SoundSceneObject},
     sound_types::SoundClassId,
 };
-use std::sync::atomic::{AtomicU32, Ordering};
 
-struct LogicalListenerRuntime {
-    global_scale_bits: AtomicU32,
-    oldest_timestamp: AtomicU32,
-    newest_timestamp: AtomicU32,
-}
-static LOGICAL_LISTENER_RUNTIME: LogicalListenerRuntime = LogicalListenerRuntime {
-    global_scale_bits: AtomicU32::new(1.0f32.to_bits()),
-    oldest_timestamp: AtomicU32::new(0),
-    newest_timestamp: AtomicU32::new(1),
-};
+/// Process-wide logical-listener clock/scale moved onto [`crate::sound_scene::SoundScene`].
 
 #[derive(Debug, Clone)]
 pub struct LogicalListener {
@@ -52,8 +42,8 @@ impl LogicalListener {
         self.scale
     }
 
-    pub fn effective_scale(&self) -> f32 {
-        self.scale * Self::global_scale()
+    pub fn effective_scale(&self, global_scale: f32) -> f32 {
+        self.scale * global_scale
     }
 
     pub fn set_position(&mut self, position: Vector3) {
@@ -80,39 +70,4 @@ impl LogicalListener {
         self.timestamp = timestamp;
     }
 
-    pub fn new_timestamp() -> u32 {
-        LOGICAL_LISTENER_RUNTIME.newest_timestamp.fetch_add(1, Ordering::SeqCst)
-    }
-
-    pub fn newest_timestamp() -> u32 {
-        LOGICAL_LISTENER_RUNTIME.newest_timestamp.load(Ordering::SeqCst).saturating_sub(1)
-    }
-
-    pub fn oldest_timestamp() -> u32 {
-        LOGICAL_LISTENER_RUNTIME.oldest_timestamp.load(Ordering::SeqCst)
-    }
-
-    pub fn set_oldest_timestamp(timestamp: u32) {
-        let mut current = LOGICAL_LISTENER_RUNTIME.oldest_timestamp.load(Ordering::SeqCst);
-        while timestamp > current {
-            match LOGICAL_LISTENER_RUNTIME.oldest_timestamp.compare_exchange(
-                current,
-                timestamp,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            ) {
-                Ok(_) => break,
-                Err(actual) => current = actual,
-            }
-        }
-    }
-
-    pub fn global_scale() -> f32 {
-        f32::from_bits(LOGICAL_LISTENER_RUNTIME.global_scale_bits.load(Ordering::Relaxed))
-    }
-
-    pub fn set_global_scale(scale: f32) {
-        let clamped = scale.max(0.0);
-        LOGICAL_LISTENER_RUNTIME.global_scale_bits.store(clamped.to_bits(), Ordering::Relaxed);
-    }
 }
