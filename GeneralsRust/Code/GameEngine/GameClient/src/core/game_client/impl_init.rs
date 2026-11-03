@@ -1119,7 +1119,7 @@ impl GameClient {
             return;
         }
 
-        match NetworkBridgeHandle::install() {
+        match NetworkBridgeHandle::install(&mut self.load_screen_runtime) {
             Some(handle) => {
                 log::info!("Network command bridge installed");
                 self.network_bridge = Some(handle);

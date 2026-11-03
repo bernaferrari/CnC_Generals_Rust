@@ -26,9 +26,11 @@ pub struct NetworkBridgeHandle;
 
 #[cfg(not(feature = "network"))]
 impl NetworkBridgeHandle {
-    pub fn install() -> Option<Self> {
+    pub fn install(_runtime: &mut crate::gui::load_screen::LoadScreenRuntime) -> Option<Self> {
         None
     }
+
+    pub fn uninstall_hooks(_runtime: &mut crate::gui::load_screen::LoadScreenRuntime) {}
 
     pub fn new() -> Option<Self> {
         None

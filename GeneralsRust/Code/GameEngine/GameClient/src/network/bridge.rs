@@ -44,7 +44,7 @@ pub struct NetworkBridgeHandle {
 impl NetworkBridgeHandle {
     /// Attempt to install the bridge. Returns `None` when the networking layer
     /// has not been initialised (e.g. single-player or early startup).
-    pub fn install() -> Option<Self> {
+    pub fn install(runtime: &mut crate::gui::load_screen::LoadScreenRuntime) -> Option<Self> {
         let network = get_network()?;
 
         let listener: FrameListener = Arc::new(|frame: &ExecutedFrame| {
@@ -55,7 +55,7 @@ impl NetworkBridgeHandle {
         debug!("Registered network frame listener with id {}", listener_id);
 
         let liteupdate_network = Arc::clone(&network);
-        register_map_transfer_liteupdate_hook(move |_mouse| {
+        register_map_transfer_liteupdate_hook(runtime, move |_mouse| {
             if let Err(err) = pollster::block_on(liteupdate_network.update()) {
                 warn!("Map transfer liteupdate failed: {err}");
             }
@@ -66,6 +66,12 @@ impl NetworkBridgeHandle {
             network,
             listener_id,
         })
+    }
+
+    /// Clear the map-transfer liteupdate hook owned by `runtime` (call before drop).
+    pub fn uninstall_hooks(runtime: &mut crate::gui::load_screen::LoadScreenRuntime) {
+        clear_map_transfer_liteupdate_hook(runtime);
+        debug!("Cleared map-transfer liteupdate hook");
     }
 }
 
@@ -82,8 +88,6 @@ impl Drop for NetworkBridgeHandle {
                 self.listener_id
             );
         }
-        clear_map_transfer_liteupdate_hook();
-        debug!("Cleared map-transfer liteupdate hook");
     }
 }
 

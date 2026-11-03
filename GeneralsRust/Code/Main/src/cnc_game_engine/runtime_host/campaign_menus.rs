@@ -964,15 +964,21 @@ impl CnCGameEngine {
         let mut wnd_ok = false;
         #[cfg(feature = "game_client")]
         {
-            wnd_ok = self.with_receiving_menu_effects(|effects| {
-                game_client::gui::loading_screen::drive_os_wnd_loading_screen_prepare_like_cpp(
-                    &map, 0, effects,
-                )
+            let clicked = self.with_receiving_menu_effects(|effects| {
+                game_client::gui::loading_screen::click_any_loading_progress_gadget(effects)
             })?;
-            if !wnd_ok {
-                wnd_ok = game_client::gui::loading_screen::simulate_loading_screen_prepare_map_load(
-                    &map, 0,
-                );
+            {
+                let residual =
+                    &mut self.game_client.load_screen_runtime_state_mut().residual_loading;
+                wnd_ok = if clicked {
+                    game_client::gui::loading_screen::simulate_loading_screen_prepare_map_load(
+                        residual, &map, 0,
+                    )
+                } else {
+                    game_client::gui::loading_screen::simulate_loading_screen_prepare_map_load(
+                        residual, &map, 0,
+                    )
+                };
             }
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
@@ -1005,44 +1011,27 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             use game_client::gui::loading_screen::{
-                drive_os_wnd_loading_screen_finish_like_cpp,
-                drive_os_wnd_loading_screen_hide_like_cpp,
-                drive_os_wnd_loading_screen_prepare_like_cpp,
-                drive_os_wnd_loading_screen_progress_like_cpp,
-                drive_os_wnd_loading_screen_show_like_cpp, simulate_loading_screen_finish,
+                click_any_loading_progress_gadget, simulate_loading_screen_finish,
                 simulate_loading_screen_hide, simulate_loading_screen_next_stage,
                 simulate_loading_screen_prepare_map_load, simulate_loading_screen_set_map,
                 simulate_loading_screen_set_progress, simulate_loading_screen_show,
             };
+            let clicked = self.with_receiving_menu_effects(|effects| {
+                click_any_loading_progress_gadget(effects)
+            })?;
+            let residual = &mut self.game_client.load_screen_runtime_state_mut().residual_loading;
             wnd_ok = match action.as_str() {
-                "show" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_loading_screen_show_like_cpp(effects)
-                    })? || simulate_loading_screen_show()
-                }
-                "hide" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_loading_screen_hide_like_cpp(effects)
-                    })? || simulate_loading_screen_hide()
-                }
-                "map" => simulate_loading_screen_set_map(&map),
-                "next" | "next_stage" => simulate_loading_screen_next_stage(),
-                "finish" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_loading_screen_finish_like_cpp(effects)
-                    })? || simulate_loading_screen_finish()
-                }
+                "show" => simulate_loading_screen_show(residual),
+                "hide" => simulate_loading_screen_hide(residual),
+                "map" => simulate_loading_screen_set_map(residual, &map),
+                "next" | "next_stage" => simulate_loading_screen_next_stage(residual),
+                "finish" => simulate_loading_screen_finish(residual),
                 "prepare" => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_loading_screen_prepare_like_cpp(&map, percent, effects)
-                    })? || simulate_loading_screen_prepare_map_load(&map, percent)
+                    simulate_loading_screen_prepare_map_load(residual, &map, percent)
                 }
-                _ => {
-                    self.with_receiving_menu_effects(|effects| {
-                        drive_os_wnd_loading_screen_progress_like_cpp(percent, effects)
-                    })? || simulate_loading_screen_set_progress(percent)
-                }
+                _ => simulate_loading_screen_set_progress(residual, percent),
             };
+            let _ = clicked;
         }
         self.runtime_host_last_gameplay_cmd = if wnd_ok {
             format!("click_loading_screen_ok_wnd_{action}")

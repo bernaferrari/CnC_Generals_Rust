@@ -193,3 +193,13 @@ path = "Code/GameEngine/GameClient/src/eva.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Eva.cpp"
 note = "Eva + host/residual latches owned on InGameUISubsystem::eva; removed THE_EVA TLS and residual atomics; APIs take &mut Eva."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/load_screen/types.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/LoadScreen"
+note = "Map-transfer/multiplayer progress hooks on LoadScreenRuntime; residual LoadingScreen owned there; production TLS removed."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/loading_screen.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/LoadScreen"
+note = "LoadingScreenResidual on LoadScreenRuntime; removed residual TLS/atomics; simulate/drive take &mut LoadingScreenResidual."
+
