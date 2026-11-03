@@ -54,7 +54,12 @@ thread_local! {
         const { std::cell::OnceCell::new() };
 }
 
-fn popup_host_state() -> Rc<RefCell<PopupHostState>> {
+fn popup_host_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<PopupHostState>> {
+    if let Some(owner) = owner {
+        return owner.popup_host_state_handle();
+    }
     if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
         client.window_manager_owner_ref().popup_host_state_handle()
     }) {
@@ -69,8 +74,13 @@ fn popup_host_state() -> Rc<RefCell<PopupHostState>> {
     }
     #[cfg(not(test))]
     {
+        // No owner / live client: ephemeral scratch (standalone residual without a client).
         Rc::new(RefCell::new(PopupHostState::default()))
     }
+}
+
+fn popup_host_state() -> Rc<RefCell<PopupHostState>> {
+    popup_host_state_on_owner(None)
 }
 
 
@@ -205,7 +215,7 @@ pub fn popup_host_game_init(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_slot = popup_host_state();
+    let state_slot = popup_host_state_on_owner(effects.window_manager_owner);
     let mut state = state_slot.borrow_mut();
 
     state.parent_id = name_to_id("PopupHostGame.wnd:ParentHostPopUp");
@@ -276,7 +286,7 @@ pub fn popup_host_game_init(
 
     let _ = populate_custom_ladder_combo_box(receiving_manager);
 
-    let state_slot = popup_host_state();
+    let state_slot = popup_host_state_on_owner(effects.window_manager_owner);
     let state = state_slot.borrow_mut();
     if let Some(parent) = state.parent.as_ref() {
         (|manager: &mut crate::gui::window_manager::WindowManager| {
@@ -291,7 +301,7 @@ pub fn popup_host_game_update(
     _user_data: Option<&dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_slot = popup_host_state();
+    let state_slot = popup_host_state_on_owner(effects.window_manager_owner);
     let state = state_slot.borrow_mut();
     sync_limit_armies_state(&state, effects);
 }
@@ -314,7 +324,7 @@ pub fn popup_host_game_input(
     }
 
     let (parent, button_id) = {
-        let slot = popup_host_state();
+        let slot = popup_host_state_on_owner(effects.window_manager_owner);
         let state = slot.borrow();
         (state.parent.clone(), state.button_cancel_id)
     };

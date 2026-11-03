@@ -30,7 +30,12 @@ thread_local! {
         const { std::cell::OnceCell::new() };
 }
 
-fn popup_join_state() -> Rc<RefCell<PopupJoinState>> {
+fn popup_join_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<PopupJoinState>> {
+    if let Some(owner) = owner {
+        return owner.popup_join_state_handle();
+    }
     if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
         client.window_manager_owner_ref().popup_join_state_handle()
     }) {
@@ -45,8 +50,13 @@ fn popup_join_state() -> Rc<RefCell<PopupJoinState>> {
     }
     #[cfg(not(test))]
     {
+        // No owner / live client: ephemeral scratch (standalone residual without a client).
         Rc::new(RefCell::new(PopupJoinState::default()))
     }
+}
+
+fn popup_join_state() -> Rc<RefCell<PopupJoinState>> {
+    popup_join_state_on_owner(None)
 }
 
 pub fn popup_join_game_init(
@@ -103,7 +113,7 @@ pub fn popup_join_game_init(
         })(receiving_manager);
     }
 
-    let state_slot = popup_join_state();
+    let state_slot = popup_join_state_on_owner(effects.window_manager_owner);
     let mut state = state_slot.borrow_mut();
     state.parent_id = Some(parent_id);
     state.text_entry_id = Some(text_entry_id);
