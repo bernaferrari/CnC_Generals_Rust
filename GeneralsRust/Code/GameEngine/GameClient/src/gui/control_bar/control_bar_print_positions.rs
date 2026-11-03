@@ -66,29 +66,65 @@ pub enum ResidualControlBarPrintPositionsAction {
     Prepare = 4,
 }
 
-static RESIDUAL_CBPP_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_CBPP_LINE_LEN: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct ControlBarPrintPositionsResidualState {
+    action: u8,
+    line_len: usize,
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_CBPP_RESIDUAL: std::cell::Cell<ControlBarPrintPositionsResidualState> =
+        std::cell::Cell::new(ControlBarPrintPositionsResidualState { action: 0, line_len: 0 });
+}
+
+fn with_cbpp_residual_mut<R>(
+    f: impl FnOnce(&mut ControlBarPrintPositionsResidualState) -> R,
+) -> R {
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_control_bar_print_residual_mut(|state| f.take().expect("cbpp")(state))
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_CBPP_RESIDUAL.with(|slot| {
+            let mut state = slot.get();
+            let out = f.take().expect("cbpp")(&mut state);
+            slot.set(state);
+            out
+        });
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("cbpp")(&mut ControlBarPrintPositionsResidualState::default())
+    }
+}
 
 fn residual_cbpp_action_store(action: ResidualControlBarPrintPositionsAction) {
-    RESIDUAL_CBPP_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+    with_cbpp_residual_mut(|state| {
+        state.action = action as u8;
+    });
 }
 
 /// Residual: last print-positions residual action.
 pub fn residual_control_bar_print_positions_last_action() -> ResidualControlBarPrintPositionsAction
 {
-    match RESIDUAL_CBPP_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+    with_cbpp_residual_mut(|state| match state.action {
         1 => ResidualControlBarPrintPositionsAction::FormatLine,
         2 => ResidualControlBarPrintPositionsAction::ParentKey,
         3 => ResidualControlBarPrintPositionsAction::ScriptName,
         4 => ResidualControlBarPrintPositionsAction::Prepare,
         _ => ResidualControlBarPrintPositionsAction::None,
-    }
+    })
 }
 
 /// Residual: last formatted line length latch.
 pub fn residual_control_bar_print_positions_line_len() -> usize {
-    RESIDUAL_CBPP_LINE_LEN.load(std::sync::atomic::Ordering::Relaxed)
+    with_cbpp_residual_mut(|state| state.line_len)
 }
 
 /// Retail ControlBar parent window name residual.
@@ -112,7 +148,7 @@ pub fn simulate_control_bar_print_positions_format_line(
     let pos = format!("  AltPosition = X:{} Y:{}", pos_x, pos_y);
     let size = format!("  AltSize = X:{} Y:{}", size_x, size_y);
     let block = format!("{}\n{}\n{}\nEND\n", header, pos, size);
-    RESIDUAL_CBPP_LINE_LEN.store(block.len(), std::sync::atomic::Ordering::Relaxed);
+    with_cbpp_residual_mut(|state| { state.line_len = block.len(); });
     residual_cbpp_action_store(ResidualControlBarPrintPositionsAction::FormatLine);
     block
 }
