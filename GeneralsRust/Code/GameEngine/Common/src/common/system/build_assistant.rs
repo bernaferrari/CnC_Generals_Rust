@@ -18,7 +18,6 @@ use crate::common::global_data;
 use crate::common::system::kind_of::KindOfMask;
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use once_cell::sync::OnceCell;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Construction completion constant
@@ -855,30 +854,37 @@ impl BuildAssistant {
     }
 }
 
-/// Global build assistant instance
-struct BuildAssistantSlot(OnceCell<Mutex<BuildAssistant>>);
-impl std::ops::Deref for BuildAssistantSlot {
-    type Target = OnceCell<Mutex<BuildAssistant>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static BUILD_ASSISTANT: BuildAssistantSlot = BuildAssistantSlot(OnceCell::new());
-
-/// Initialize the global build assistant
+/// Initialize the build assistant for the published CommonServices instance.
 pub fn init_build_assistant() {
-    if BUILD_ASSISTANT.0.get().is_none() {
-        let _ = BUILD_ASSISTANT.0.set(Mutex::new(BuildAssistant::new()));
-    } else if let Some(cell) = BUILD_ASSISTANT.0.get() {
-        if let Ok(mut guard) = cell.lock() {
-            *guard = BuildAssistant::new();
-        }
-    }
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .build_assistant
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = BuildAssistant::new();
+    services
+        .system
+        .build_assistant_ready
+        .store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
-/// Get reference to the global build assistant
+/// Get reference to the instance build assistant (C++ `TheBuildAssistant`).
 pub fn get_build_assistant() -> Option<MutexGuard<'static, BuildAssistant>> {
-    BUILD_ASSISTANT
-        .get()
-        .map(|cell| cell.lock().expect("BuildAssistant mutex poisoned"))
+    let services = crate::common::common_services::common_services();
+    if !services
+        .system
+        .build_assistant_ready
+        .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        return None;
+    }
+    let guard = services
+        .system
+        .build_assistant
+        .lock()
+        .expect("BuildAssistant mutex poisoned");
+    // Guard lifetime is bound to the published CommonServices Arc (TLS / WorldServices).
+    Some(unsafe { std::mem::transmute(guard) })
 }
 
 #[cfg(test)]

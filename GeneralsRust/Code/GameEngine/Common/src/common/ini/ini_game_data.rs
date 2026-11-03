@@ -9,7 +9,6 @@
 use crate::common::global_data as runtime_global_data;
 use crate::common::ini::ini::{INI, INIError, INIResult};
 use crate::common::user_preferences::UserPreferences;
-use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1144,26 +1143,23 @@ impl GlobalData {
     }
 }
 
-/// Global GlobalData instance (matches C++ TheWritableGlobalData/TheGlobalData)
-struct WritableGlobalDataSlot(OnceCell<Arc<RwLock<GlobalData>>>);
-impl std::ops::Deref for WritableGlobalDataSlot {
-    type Target = OnceCell<Arc<RwLock<GlobalData>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static WRITABLE_GLOBAL_DATA: WritableGlobalDataSlot = WritableGlobalDataSlot(OnceCell::new());
-
-/// Ensure the global data instance exists and return a handle to it
+/// Ensure the instance GlobalData exists and return a handle to it.
 pub fn ensure_global_data() -> Arc<RwLock<GlobalData>> {
-    WRITABLE_GLOBAL_DATA
-        .get_or_init(|| {
-            let mut data = GlobalData::new();
-            data.init();
-            Arc::new(RwLock::new(data))
-        })
-        .clone()
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .system
+        .global_data
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_none() {
+        let mut data = GlobalData::new();
+        data.init();
+        *slot = Some(Arc::new(RwLock::new(data)));
+    }
+    slot.as_ref().expect("global_data").clone()
 }
 
-/// Initialize the global data instance
+/// Initialize the instance GlobalData.
 pub fn init_global_data() {
     let global_data = ensure_global_data();
     let mut data = global_data.write();
@@ -1171,9 +1167,14 @@ pub fn init_global_data() {
     data.init();
 }
 
-/// Get a handle to the global data (read-only or mutable via locks)
+/// Get a handle to the instance GlobalData (read-only or mutable via locks).
 pub fn get_global_data() -> Option<Arc<RwLock<GlobalData>>> {
-    WRITABLE_GLOBAL_DATA.0.get().cloned()
+    crate::common::common_services::common_services()
+        .system
+        .global_data
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 /// INI parsing function (matches C++ interface)

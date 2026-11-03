@@ -6,7 +6,6 @@
 //! Author: Steven Johnson, November 2001
 //! Rust port: 2025
 
-use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -76,38 +75,32 @@ pub const FX_LIST_AT_BONE_POS_MAX_BONE_POINTS: usize = 40;
 pub type FxBonePosQuery =
     fn(object_id: u32, bone_name: &str, start: i32, max_bones: usize) -> Vec<([f32; 3], [f32; 16])>;
 
-struct FxBonePosRuntimeSlot(OnceCell<RwLock<Option<FxBonePosQuery>>>);
-impl std::ops::Deref for FxBonePosRuntimeSlot {
-    type Target = OnceCell<RwLock<Option<FxBonePosQuery>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static FX_BONE_POS_RUNTIME: FxBonePosRuntimeSlot = FxBonePosRuntimeSlot(OnceCell::new());
-
 /// Register the live client bone-point query (C++ FXList.cpp:711-728).
 pub fn register_fx_bone_pos_runtime(query: FxBonePosQuery) {
-    if let Ok(mut slot) = FX_BONE_POS_RUNTIME
-        .get_or_init(|| RwLock::new(None))
-        .write()
-    {
-        *slot = Some(query);
-    }
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .fx_bone_pos_runtime
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(query);
 }
 
 pub fn clear_fx_bone_pos_runtime() {
-    if let Ok(mut slot) = FX_BONE_POS_RUNTIME
-        .get_or_init(|| RwLock::new(None))
-        .write()
-    {
-        *slot = None;
-    }
+    let services = crate::common::common_services::common_services();
+    *services
+        .system
+        .fx_bone_pos_runtime
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = None;
 }
 
 pub fn fx_bone_pos_runtime() -> Option<FxBonePosQuery> {
-    FX_BONE_POS_RUNTIME
-        .get_or_init(|| RwLock::new(None))
-        .read()
-        .ok()
-        .and_then(|slot| *slot)
+    crate::common::common_services::common_services()
+        .system
+        .fx_bone_pos_runtime
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 pub const DAMAGE_NUM_TYPES: usize = 38;

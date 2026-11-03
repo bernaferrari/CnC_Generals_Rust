@@ -241,18 +241,16 @@ const DEFAULT_REGISTRY_LANGUAGE: &str = "english";
 const DEFAULT_REGISTRY_SKU: &str = "GeneralsMPTest";
 const DEFAULT_REGISTRY_VERSION: u32 = 65536;
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-struct ZhRegistryBag {
-    value: std::sync::Mutex<Registry>,
-}
-static ZH_REGISTRY: std::sync::LazyLock<ZhRegistryBag> = std::sync::LazyLock::new(|| ZhRegistryBag {
-    value: std::sync::Mutex::new(Registry::new()),
-});
-
-
-/// Run `body` with the process-wide ZH config store (JSON-backed, C++ key names).
+/// Run `body` with the instance ZH config store (JSON-backed, C++ key names).
 fn with_zh_registry<R>(body: impl FnOnce(&Registry) -> R) -> R {
-    body(&ZH_REGISTRY.value.lock().unwrap_or_else(|p| p.into_inner()))
+    let services = crate::common::common_services::common_services();
+    body(
+        &services
+            .system
+            .zh_registry
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()),
+    )
 }
 
 fn registry_lookup_keys(path: &str, key: &str) -> Vec<String> {

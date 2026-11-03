@@ -28,6 +28,7 @@ use crate::common::ini::ini_online_chat_colors::OnlineChatColors;
 use crate::common::ini::ini_webpage_url::WebBrowser;
 use crate::common::ini::ini_credits::CreditsManager;
 use crate::common::ini_stores::IniStores;
+use crate::common::system_stores::SystemStores;
 
 use crate::common::system::geometry::Coord3D;
 use crate::common::time::SimulationClock;
@@ -160,6 +161,8 @@ pub struct CommonServices {
     pub credits_manager: Arc<RwLock<CreditsManager>>,
     /// INI definition registries (was process OnceCell stores).
     pub ini: IniStores,
+    /// System managers (AI, Upgrade, FS, team, FX, radar, …).
+    pub system: SystemStores,
 }
 
 impl Default for CommonServices {
@@ -191,6 +194,7 @@ impl Default for CommonServices {
             web_browser: Arc::new(RwLock::new(WebBrowser::new())),
             credits_manager: Arc::new(RwLock::new(CreditsManager::new())),
             ini: IniStores::new(),
+            system: SystemStores::new(),
         }
     }
 }
