@@ -2288,7 +2288,12 @@ impl std::error::Error for GlobalDataError {}
 
 /// Safe read access with panic recovery
 pub fn read_safe() -> Result<RwLockReadGuard<'static, GlobalData>, GlobalDataError> {
-    let services = crate::common::common_services::common_services();
+    let Some(services) = crate::common::common_services::try_common_services() else {
+        // Free/test callers without a published CommonServices: ephemeral bag
+        // for this read only (no process fallback cell).
+        let services = std::sync::Arc::new(crate::common::common_services::CommonServices::new());
+        return crate::common::common_services::with_common_services(&services, read_safe);
+    };
     match services.system.runtime_global_data.read() {
         Ok(guard) => Ok(unsafe { std::mem::transmute(guard) }),
         Err(poisoned) => {
@@ -2300,7 +2305,10 @@ pub fn read_safe() -> Result<RwLockReadGuard<'static, GlobalData>, GlobalDataErr
 
 /// Safe write access with panic recovery
 pub fn write_safe() -> Result<RwLockWriteGuard<'static, GlobalData>, GlobalDataError> {
-    let services = crate::common::common_services::common_services();
+    let Some(services) = crate::common::common_services::try_common_services() else {
+        let services = std::sync::Arc::new(crate::common::common_services::CommonServices::new());
+        return crate::common::common_services::with_common_services(&services, write_safe);
+    };
     match services.system.runtime_global_data.write() {
         Ok(guard) => Ok(unsafe { std::mem::transmute(guard) }),
         Err(poisoned) => {

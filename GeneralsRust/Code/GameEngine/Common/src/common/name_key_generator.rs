@@ -179,11 +179,13 @@ impl NameKeyGenerator {
     }
 
     pub fn name_to_key(name: &str) -> NameKeyType {
-        {
-            let services = crate::common::common_services::common_services();
+        if let Some(services) = crate::common::common_services::try_common_services() {
             let mut state = services.name_key_namespace.lock().unwrap_or_else(|p| p.into_inner());
-            state.name_to_key(name)
+            return state.name_to_key(name);
         }
+        // Free/test callers: ephemeral CommonServices for this intern only.
+        let services = std::sync::Arc::new(crate::common::common_services::CommonServices::new());
+        crate::common::common_services::with_common_services(&services, || Self::name_to_key(name))
     }
 
     /// Convert a name string to a key with case sensitivity explicitly requested.
