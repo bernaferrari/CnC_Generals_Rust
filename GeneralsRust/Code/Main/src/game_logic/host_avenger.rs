@@ -121,12 +121,13 @@ pub const AVENGER_PDL_SCAN_RANGE: f32 = 200.0;
 pub const AVENGER_PDL_ONE: &str = "AvengerPointDefenseLaserOne";
 pub const AVENGER_PDL_TWO: &str = "AvengerPointDefenseLaserTwo";
 
-/// Convert residual milliseconds to logic frames @ 30 FPS (round half-up).
+/// Convert residual milliseconds to logic frames @ 30 FPS.
+/// C++ ConvertDurationFromMsecsToFrames + REAL_TO_INT_CEIL (ActiveBody.cpp:463-464).
 pub fn avenger_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
         return 0;
     }
-    ((ms as f32) * AVENGER_LOGIC_FPS / 1000.0).round() as u32
+    ((ms as f32) * AVENGER_LOGIC_FPS / 1000.0).ceil() as u32
 }
 
 /// Host residual honesty counters for Avenger paint / air laser / ROF grant.
@@ -454,6 +455,9 @@ mod tests {
     #[test]
     fn avenger_residual_pack_honesty_wave66() {
         assert_eq!(avenger_ms_to_frames(200), 6);
+        // 16ms → 0.48 frames; ceil keeps a partial frame (round would drop to 0).
+        assert_eq!(avenger_ms_to_frames(16), 1);
+        assert_eq!(avenger_ms_to_frames(1), 1);
         assert!(honesty_avenger_designator_residual_ok());
         assert!(honesty_avenger_air_laser_residual_ok());
         assert!(honesty_avenger_body_residual_ok());
