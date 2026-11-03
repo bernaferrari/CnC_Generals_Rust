@@ -2415,13 +2415,7 @@ End
 }
 
 #[cfg(feature = "game_client")]
-struct StagedNativeGpuScope;
-#[cfg(feature = "game_client")]
-impl Drop for StagedNativeGpuScope {
-    fn drop(&mut self) {
-        drop(engine);
-    }
-}
+struct StagedNativeGpuScope(ww3d_engine::SharedEngine);
 #[cfg(feature = "game_client")]
 fn staged_native_fixture_gpu() -> (StagedNativeGpuScope, GraphicsSystem, RenderPipeline) {
     let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
@@ -2430,7 +2424,6 @@ fn staged_native_fixture_gpu() -> (StagedNativeGpuScope, GraphicsSystem, RenderP
         ..Default::default()
     })
     .unwrap();
-    let scope = StagedNativeGpuScope;
     let graphics = GraphicsSystem::new(
         engine.lock().device(),
         engine.lock().queue(),
@@ -2439,7 +2432,7 @@ fn staged_native_fixture_gpu() -> (StagedNativeGpuScope, GraphicsSystem, RenderP
     )
     .unwrap();
     let pipeline = RenderPipeline::initialize(&graphics).unwrap();
-    (scope, graphics, pipeline)
+    (StagedNativeGpuScope(engine), graphics, pipeline)
 }
 #[cfg(feature = "game_client")]
 fn discard_staged_native_fixture(

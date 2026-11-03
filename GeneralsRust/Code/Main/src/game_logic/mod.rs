@@ -101,7 +101,7 @@ mod host_mods_logs_c;
 pub use host_mods_logs_c::*;
 
 use host_mods_combat::host_bone_fx_damage;
-use host_mods_combat::host_command_button_hunt;
+pub use host_mods_combat::host_command_button_hunt;
 pub(crate) use host_mods_combat::host_command_button_hunt::{
     HUNT_CMD_FROM_AI, HUNT_CMD_FROM_PLAYER, HUNT_CMD_FROM_SCRIPT,
 };

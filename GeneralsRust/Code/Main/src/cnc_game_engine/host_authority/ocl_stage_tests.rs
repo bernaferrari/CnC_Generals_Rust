@@ -64,8 +64,6 @@ impl OclNativeStageHarness {
     }
     fn finish(self) {
         drop(self);
-        #[cfg(feature = "game_client")]
-        drop(engine);
     }
 }
 fn list(model: &str) -> String {

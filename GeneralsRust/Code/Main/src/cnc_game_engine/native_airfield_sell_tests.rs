@@ -88,14 +88,7 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            drop(engine);
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
+        let mut graphics = GraphicsSystem::new(
         engine.lock().device(),
         engine.lock().queue(),
         engine.lock().color_format(),

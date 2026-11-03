@@ -165,14 +165,7 @@ fn actual_view_backend_uses_current_dirty_source_and_rejects_peer_or_unobserved_
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            drop(engine);
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
+        let mut graphics = GraphicsSystem::new(
         engine.lock().device(),
         engine.lock().queue(),
         engine.lock().color_format(),
@@ -363,14 +356,7 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            drop(engine);
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
+        let mut graphics = GraphicsSystem::new(
         engine.lock().device(),
         engine.lock().queue(),
         engine.lock().color_format(),
@@ -613,14 +599,7 @@ fn detached_no_client_chunk_snapshot_rebuild_removes_absent_actor_and_rejects_ol
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            drop(engine);
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
+        let mut graphics = GraphicsSystem::new(
         engine.lock().device(),
         engine.lock().queue(),
         engine.lock().color_format(),
@@ -824,14 +803,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            drop(engine);
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
+        let mut graphics = GraphicsSystem::new(
         engine.lock().device(),
         engine.lock().queue(),
         engine.lock().color_format(),
@@ -1151,14 +1123,7 @@ fn missing_client_key_with_canonical_constructor_is_not_prebirth_absence() {
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            drop(engine);
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
+        let mut graphics = GraphicsSystem::new(
         engine.lock().device(),
         engine.lock().queue(),
         engine.lock().color_format(),
@@ -1214,14 +1179,7 @@ fn actual_client_reset_retires_renderer_receipts_before_logic_reset_and_preserve
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            drop(engine);
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
+        let mut graphics = GraphicsSystem::new(
         engine.lock().device(),
         engine.lock().queue(),
         engine.lock().color_format(),
@@ -1333,14 +1291,7 @@ fn actual_native_bulk_clear_retires_each_owner_without_touching_peer() {
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            drop(engine);
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
+        let mut graphics = GraphicsSystem::new(
         engine.lock().device(),
         engine.lock().queue(),
         engine.lock().color_format(),
@@ -1450,14 +1401,7 @@ fn actual_tree_prop_render_collection_preserves_constructor_retirement_and_peer(
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            drop(engine);
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
+        let mut graphics = GraphicsSystem::new(
         engine.lock().device(),
         engine.lock().queue(),
         engine.lock().color_format(),
@@ -1642,14 +1586,7 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            drop(engine);
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
+        let mut graphics = GraphicsSystem::new(
         engine.lock().device(),
         engine.lock().queue(),
         engine.lock().color_format(),

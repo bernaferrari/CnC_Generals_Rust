@@ -91,14 +91,7 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            drop(engine);
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
+        let mut graphics = GraphicsSystem::new(
         engine.lock().device(),
         engine.lock().queue(),
         engine.lock().color_format(),
@@ -441,14 +434,7 @@ fn actual_team_creation_panic_retains_exact_team_partial_native_life_and_peer() 
         ..Default::default()
     })
     .unwrap();
-    struct Scope;
-    impl Drop for Scope {
-        fn drop(&mut self) {
-            drop(engine);
-        }
-    }
-    let _scope = Scope;
-    let mut graphics = GraphicsSystem::new(
+        let mut graphics = GraphicsSystem::new(
         engine.lock().device(),
         engine.lock().queue(),
         engine.lock().color_format(),

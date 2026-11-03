@@ -149,7 +149,8 @@ fn do_command_button_dispatches_stop() {
         assert!(exec.execute_do_command_button(&[id], "Command_Stop", None, None).is_ok_and(|r| r == CommandResult::Success));
     }
     let u = logic.host_object(id).unwrap();
-    assert_eq!(matches!(u.ai_state(), AIState::Idle) || u.target.is_none() || !u.status.moving,
+    assert!(
+        matches!(u.ai_state(), AIState::Idle) || u.target.is_none() || !u.status.moving,
         "stop should clear action state={:?} target={:?}",
         u.ai_state(),
         u.target
