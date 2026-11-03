@@ -947,6 +947,82 @@ impl<'effects> WindowEventEffects<'effects> {
             Err(panic) => std::panic::resume_unwind(panic),
         }
     }
+    /// Send a system message to `target`, reusing a lent `&mut` when the
+    /// target is already on this callback chain instead of re-borrowing the
+    /// RefCell (combo→edit→owner focus, PassMessagesToParentSystem, etc.).
+    pub(crate) fn send_system_message_to_rc(
+        &mut self,
+        target: &Rc<RefCell<GameWindow>>,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+    ) -> WindowMsgHandled {
+        let lent_index = self.lent_windows.iter().position(|window| {
+            std::ptr::eq(std::ptr::from_ref(*window), target.as_ptr())
+        });
+        let Some(index) = lent_index else {
+            return target
+                .borrow_mut()
+                .send_system_message(msg, data1, data2, self);
+        };
+        let mut lent = std::mem::take(&mut self.lent_windows);
+        let result = {
+            let (left, right) = lent.split_at_mut(index);
+            let (window, right) = right
+                .split_first_mut()
+                .expect("lent index points at a window");
+            let others: Vec<&mut GameWindow> = left
+                .iter_mut()
+                .map(|window| &mut **window)
+                .chain(right.iter_mut().map(|window| &mut **window))
+                .collect();
+            let mut local = WindowEventEffects {
+                cursor_mouse: self.cursor_mouse.as_deref_mut(),
+                control_bar_observation: self.control_bar_observation.clone(),
+                menu_audio: self
+                    .menu_audio
+                    .as_mut()
+                    .map(|audio| &mut **audio as &mut dyn crate::gui::menu_audio::MenuAudioEffects),
+                input_provenance: self.input_provenance,
+                payloads: std::mem::take(&mut self.payloads),
+                pending_window_callbacks: std::mem::take(&mut self.pending_window_callbacks),
+                diplomacy_world: self.diplomacy_world,
+                ui: self.ui.as_deref_mut(),
+                logic_frame: self.logic_frame,
+                client_frame: self.client_frame,
+                standalone_view: self.standalone_view.as_deref_mut(),
+                manager: self.manager.as_deref_mut(),
+                menus: self.menus.as_mut().map(|menus| menus.reborrow()),
+                ime: self.ime.as_deref_mut(),
+                window_manager_owner: self.window_manager_owner,
+                selected_window: self.selected_window.clone(),
+                lent_windows: others,
+                emitted_messages: &mut *self.emitted_messages,
+                pending_control_bar_clicks: self.pending_control_bar_clicks.as_deref_mut(),
+                campaign_manager: self.campaign_manager.as_deref_mut(),
+                menu_world: self.menu_world,
+                menu_host: self.menu_host.as_deref_mut(),
+                window_videos: self.window_videos.as_deref_mut(),
+                script_display: self.script_display.as_deref_mut(),
+                main_menu: self.main_menu.as_deref_mut(),
+                pending_main_menu_actions: Vec::new(),
+            };
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                window.send_system_message(msg, data1, data2, &mut local)
+            }));
+            self.payloads = std::mem::take(&mut local.payloads);
+            self.pending_window_callbacks = std::mem::take(&mut local.pending_window_callbacks);
+            self.pending_main_menu_actions
+                .append(&mut local.pending_main_menu_actions);
+            match result {
+                Ok(value) => value,
+                Err(panic) => std::panic::resume_unwind(panic),
+            }
+        };
+        self.lent_windows = lent;
+        result
+    }
+
     /// Borrow the supplied manager or this operation's explicit owner. Never
     /// discover an active tree or manufacture a replacement on reentry.
     pub fn with_manager<R>(

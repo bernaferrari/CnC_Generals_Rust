@@ -9,51 +9,48 @@ use crate::gui::shell::Color as ShellColor;
 use super::prelude::*;
 use super::*;
 
-fn combo_fixture() -> (
-    GameWindow,
+fn combo_fixture(
+    manager: &mut crate::gui::window_manager::WindowManager,
+) -> (
+    Rc<RefCell<GameWindow>>,
     Rc<RefCell<GameWindow>>,
     Rc<RefCell<GameWindow>>,
     Rc<RefCell<GameWindow>>,
 ) {
-    let mut payload_messages = Vec::new();
-    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
-    let effects = &mut WindowEventEffects::new(&mut payload_messages);
-    effects.manager = Some(&mut payload_manager);
+    // Combo open/focus paths look the gadget up on the receiving manager; the
+    // fixture must own the same Rc tree the manager walks.
+    let combo = manager
+        .test_create_window_with_id(None, 0, 0, 120, 20, 1)
+        .expect("combo");
+    combo
+        .borrow_mut()
+        .set_widget(WindowWidget::ComboBox(ComboBox::new(1, 0, 0, 120, 20)));
 
-    let mut combo = GameWindow::new();
-    combo.set_id(1);
-    combo.set_size(120, 20, effects).unwrap();
-    combo.set_widget(WindowWidget::ComboBox(ComboBox::new(1, 0, 0, 120, 20)));
+    let edit_box = manager
+        .test_create_window_with_id(Some(&combo), 0, 0, 120, 20, 2)
+        .expect("edit");
+    edit_box
+        .borrow_mut()
+        .set_widget(WindowWidget::TextEntry(TextEntry::new(2, 0, 0, 120, 20)));
 
-    let edit_box = Rc::new(RefCell::new(GameWindow::new()));
-    {
-        let mut edit_box = edit_box.borrow_mut();
-        edit_box.set_id(2);
-        edit_box.set_size(120, 20, effects).unwrap();
-        edit_box.set_widget(WindowWidget::TextEntry(TextEntry::new(2, 0, 0, 120, 20)));
-    }
-
-    let list_box = Rc::new(RefCell::new(GameWindow::new()));
+    let list_box = manager
+        .test_create_window_with_id(Some(&combo), 0, 20, 120, 40, 3)
+        .expect("list");
     {
         let mut list_box = list_box.borrow_mut();
-        list_box.set_id(3);
-        list_box.set_size(120, 40, effects).unwrap();
         list_box.set_widget(WindowWidget::ListBox(ListBox::new(3, 0, 20, 120, 40)));
         list_box.hide_without_manager_side_effects(true).unwrap();
     }
 
-    let drop_down = Rc::new(RefCell::new(GameWindow::new()));
-    drop_down.borrow_mut().set_id(4);
+    let drop_down = manager
+        .test_create_window_with_id(Some(&combo), 100, 0, 20, 20, 4)
+        .expect("drop");
 
-    combo.add_child(edit_box.clone());
-    combo.add_child(list_box.clone());
-    combo.add_child(drop_down.clone());
-    combo.set_combobox_links(ComboBoxLinks {
+    combo.borrow_mut().set_combobox_links(ComboBoxLinks {
         drop_down: 4,
         edit_box: 2,
         list_box: 3,
     });
-
     (combo, edit_box, list_box, drop_down)
 }
 
@@ -608,7 +605,13 @@ fn combo_box_text_color_setters_propagate_to_sub_gadgets_like_cpp() {
 #[test]
 fn combo_box_set_colors_propagates_to_sub_gadgets_like_cpp() {
     crate::test_support::ensure_ambient_host();
-    let (mut combo, edit_box, list_box, drop_down) = combo_fixture();
+    let mut payload_messages = Vec::new();
+    let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let effects = &mut WindowEventEffects::new(&mut payload_messages);
+    effects.manager = Some(&mut payload_manager);
+
+    let (combo, edit_box, list_box, drop_down) =
+        combo_fixture(effects.manager.as_deref_mut().unwrap());
     fn assert_combo_button_colors(window: &GameWindow) {
         assert_eq!(window.get_enabled_draw_data(0).unwrap().color, 0x01020304);
         assert_eq!(
@@ -633,11 +636,11 @@ fn combo_box_set_colors_propagates_to_sub_gadgets_like_cpp() {
     }
 
     gadget_combo_box_set_colors(
-        &mut combo, 0x01020304, 0x05060708, 0x11121314, 0x15161718, 0x21222324, 0x25262728,
+        &mut combo.borrow_mut(), 0x01020304, 0x05060708, 0x11121314, 0x15161718, 0x21222324, 0x25262728,
         0x31323334, 0x35363738, 0x41424344, 0x45464748, 0x51525354, 0x55565758,
     );
 
-    assert_combo_button_colors(&combo);
+    assert_combo_button_colors(&combo.borrow());
     assert_combo_button_colors(&edit_box.borrow());
     assert_combo_button_colors(&drop_down.borrow());
 
@@ -664,9 +667,12 @@ fn combo_box_set_text_uses_edit_child_without_selecting_matching_item_like_cpp()
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
     effects.manager = Some(&mut payload_manager);
 
-    let (mut combo, edit_box, _list_box, _drop_down) = combo_fixture();
+    let (combo, edit_box, _list_box, _drop_down) =
+        combo_fixture(effects.manager.as_deref_mut().unwrap());
     {
-        let combo_widget = combo.combo_box_mut().unwrap();
+        let mut combo_borrow = combo.borrow_mut();
+
+        let combo_widget = combo_borrow.combo_box_mut().unwrap();
         combo_widget.add_item(ComboBoxItem::new(0, "Alpha"));
         combo_widget.add_item(ComboBoxItem::new(1, "Bravo"));
     }
@@ -676,7 +682,7 @@ fn combo_box_set_text_uses_edit_child_without_selecting_matching_item_like_cpp()
             effects,
             WindowMsgPayload::Text("Alpha".to_string()),
             |effects, token| {
-                combo.send_system_message(WindowMessage::User(GCM_SET_TEXT), token, 0, effects)
+                combo.borrow_mut().send_system_message(WindowMessage::User(GCM_SET_TEXT), token, 0, effects)
             }
         ),
         WindowMsgHandled::Handled
@@ -693,10 +699,10 @@ fn combo_box_set_text_uses_edit_child_without_selecting_matching_item_like_cpp()
             .as_deref(),
         Some("Alpha")
     );
-    assert_eq!(combo.combo_box_mut().unwrap().selected_index(), None);
+    assert_eq!(combo.borrow_mut().combo_box_mut().unwrap().selected_index(), None);
 
     let token = push_payload(effects, WindowMsgPayload::Text("stale".to_string()));
-    let _ = combo.send_system_message(WindowMessage::User(GCM_GET_TEXT), 0, token, effects);
+    let _ = combo.borrow_mut().send_system_message(WindowMessage::User(GCM_GET_TEXT), 0, token, effects);
     assert_eq!(
         pop_payload(effects, token),
         Some(WindowMsgPayload::Text("Alpha".to_string()))
@@ -711,23 +717,24 @@ fn combo_box_item_data_round_trips_pointer_sized_values_like_cpp() {
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
     effects.manager = Some(&mut payload_manager);
 
-    let (mut combo, _edit_box, _list_box, _drop_down) = combo_fixture();
+    let (combo, _edit_box, _list_box, _drop_down) =
+        combo_fixture(effects.manager.as_deref_mut().unwrap());
     let _ = with_payload(
         effects,
         WindowMsgPayload::Text("Alpha".to_string()),
         |effects, token| {
-            combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF11_2233, effects)
+            combo.borrow_mut().send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF11_2233, effects)
         },
     );
 
     let raw_data = usize::MAX - 7;
     assert_eq!(
-        combo.send_system_message(WindowMessage::User(GCM_SET_ITEM_DATA), 0, raw_data, effects),
+        combo.borrow_mut().send_system_message(WindowMessage::User(GCM_SET_ITEM_DATA), 0, raw_data, effects),
         WindowMsgHandled::Handled
     );
 
     let token = push_payload(effects, WindowMsgPayload::UInt(0));
-    let _ = combo.send_system_message(WindowMessage::User(GCM_GET_ITEM_DATA), 0, token, effects);
+    let _ = combo.borrow_mut().send_system_message(WindowMessage::User(GCM_GET_ITEM_DATA), 0, token, effects);
     assert_eq!(
         pop_payload(effects, token),
         Some(WindowMsgPayload::UInt(raw_data))
@@ -742,7 +749,8 @@ fn combo_box_selection_hides_list_updates_edit_and_notifies_owner_like_cpp() {
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
     effects.manager = Some(&mut payload_manager);
 
-    let (mut combo, edit_box, list_box, _drop_down) = combo_fixture();
+    let (combo, edit_box, list_box, _drop_down) =
+        combo_fixture(effects.manager.as_deref_mut().unwrap());
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -754,32 +762,32 @@ fn combo_box_selection_hides_list_updates_edit_and_notifies_owner_like_cpp() {
                 WindowMsgHandled::Handled
             });
     }
-    combo.set_owner(Some(&owner));
+    combo.borrow_mut().set_owner(Some(&owner));
 
     let _ = with_payload(
         effects,
         WindowMsgPayload::Text("Alpha".to_string()),
         |effects, token| {
-            combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF11_2233, effects)
+            combo.borrow_mut().send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF11_2233, effects)
         },
     );
     let _ = with_payload(
         effects,
         WindowMsgPayload::Text("Bravo".to_string()),
         |effects, token| {
-            combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF44_5566, effects)
+            combo.borrow_mut().send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF44_5566, effects)
         },
     );
     list_box.borrow_mut().hide_without_manager_side_effects(false).unwrap();
-    combo.set_size(120, 80, effects).unwrap();
+    combo.borrow_mut().set_size(120, 80, effects).unwrap();
 
     assert_eq!(
-        combo.send_system_message(WindowMessage::User(GCM_SET_SELECTION), 1, 0, effects),
+        combo.borrow_mut().send_system_message(WindowMessage::User(GCM_SET_SELECTION), 1, 0, effects),
         WindowMsgHandled::Handled
     );
 
     assert!(list_box.borrow().is_hidden());
-    assert_eq!(combo.get_size(), (120, 20));
+    assert_eq!(combo.borrow().get_size(), (120, 20));
     assert_eq!(
         edit_box
             .borrow()
@@ -805,7 +813,8 @@ fn combo_box_edit_update_clears_selection_hides_list_and_notifies_owner_like_cpp
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
     effects.manager = Some(&mut payload_manager);
 
-    let (mut combo, _edit_box, list_box, _drop_down) = combo_fixture();
+    let (combo, _edit_box, list_box, _drop_down) =
+        combo_fixture(effects.manager.as_deref_mut().unwrap());
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let owner = Rc::new(RefCell::new(GameWindow::new()));
     {
@@ -817,27 +826,27 @@ fn combo_box_edit_update_clears_selection_hides_list_and_notifies_owner_like_cpp
                 WindowMsgHandled::Handled
             });
     }
-    combo.set_owner(Some(&owner));
+    combo.borrow_mut().set_owner(Some(&owner));
 
     let _ = with_payload(
         effects,
         WindowMsgPayload::Text("Alpha".to_string()),
         |effects, token| {
-            combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF11_2233, effects)
+            combo.borrow_mut().send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0xFF11_2233, effects)
         },
     );
-    let _ = combo.send_system_message(WindowMessage::User(GCM_SET_SELECTION), 0, 0, effects);
+    let _ = combo.borrow_mut().send_system_message(WindowMessage::User(GCM_SET_SELECTION), 0, 0, effects);
     list_box.borrow_mut().hide_without_manager_side_effects(false).unwrap();
-    combo.set_size(120, 80, effects).unwrap();
+    combo.borrow_mut().set_size(120, 80, effects).unwrap();
     owner_seen.borrow_mut().clear();
 
     assert_eq!(
-        combo.send_system_message(WindowMessage::GadgetValueChanged, 2, 0, effects),
+        combo.borrow_mut().send_system_message(WindowMessage::GadgetValueChanged, 2, 0, effects),
         WindowMsgHandled::Handled
     );
 
     assert!(list_box.borrow().is_hidden());
-    assert_eq!(combo.combo_box_mut().unwrap().selected_index(), None);
+    assert_eq!(combo.borrow_mut().combo_box_mut().unwrap().selected_index(), None);
     assert_eq!(
         owner_seen.borrow().as_slice(),
         &[(WindowMessage::User(GCM_UPDATE_TEXT), 1, 0)]
@@ -1727,43 +1736,55 @@ fn radio_input_focus_does_not_set_hilite_on_gain_like_cpp() {
 fn text_entry_input_focus_sets_selected_and_hilite_like_cpp() {
     crate::test_support::ensure_ambient_host();
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
-    let owner = Rc::new(RefCell::new(GameWindow::new()));
-    {
-        let owner_seen = owner_seen.clone();
-        owner
-            .borrow_mut()
-            .set_system_callback(move |_, msg, data1, data2| {
-                owner_seen.borrow_mut().push((msg, data1, data2));
+    WindowEventEffects::with_standalone(|effects| {
+        effects.with_manager(|manager, effects| {
+            let owner = manager
+                .test_create_window_with_id(None, 0, 0, 10, 10, 1)
+                .expect("owner");
+            {
+                let owner_seen = owner_seen.clone();
+                owner.borrow_mut().set_system_callback(move |_, msg, data1, data2| {
+                    owner_seen.borrow_mut().push((msg, data1, data2));
+                    WindowMsgHandled::Handled
+                });
+            }
+            let window = manager
+                .test_create_window_with_id(Some(&owner), 0, 0, 100, 20, 33)
+                .expect("text entry");
+            window
+                .borrow_mut()
+                .set_widget(WindowWidget::TextEntry(TextEntry::new(33, 0, 0, 100, 20)));
+            window.borrow_mut().set_owner(Some(&owner));
+
+            assert_eq!(
+                window
+                    .borrow_mut()
+                    .send_system_message(WindowMessage::InputFocus, 1, 0, effects),
                 WindowMsgHandled::Handled
-            });
-    }
+            );
+            assert!(
+                window
+                    .borrow()
+                    .instance_data()
+                    .state
+                    .contains(WindowState::SELECTED | WindowState::HILITED)
+            );
 
-    let mut window = GameWindow::new();
-    window.set_id(33);
-    window.set_owner(Some(&owner));
-    window.set_widget(WindowWidget::TextEntry(TextEntry::new(33, 0, 0, 100, 20)));
-
-    assert_eq!(
-        window.test_send_system_message(WindowMessage::InputFocus, 1, 0),
-        WindowMsgHandled::Handled
-    );
-    assert!(
-        window
-            .instance_data()
-            .state
-            .contains(WindowState::SELECTED | WindowState::HILITED)
-    );
-
-    assert_eq!(
-        window.test_send_system_message(WindowMessage::InputFocus, 0, 0),
-        WindowMsgHandled::Handled
-    );
-    assert!(
-        !window
-            .instance_data()
-            .state
-            .intersects(WindowState::SELECTED | WindowState::HILITED)
-    );
+            assert_eq!(
+                window
+                    .borrow_mut()
+                    .send_system_message(WindowMessage::InputFocus, 0, 0, effects),
+                WindowMsgHandled::Handled
+            );
+            assert!(
+                !window
+                    .borrow()
+                    .instance_data()
+                    .state
+                    .intersects(WindowState::SELECTED | WindowState::HILITED)
+            );
+        });
+    });
 
     assert_eq!(
         owner_seen.borrow().as_slice(),
@@ -2935,30 +2956,36 @@ fn combo_left_up_toggles_child_list_like_cpp() {
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
     effects.manager = Some(&mut payload_manager);
 
-    let (mut combo, _edit_box, list_box, _drop_down) = combo_fixture();
-    combo.enable(true).unwrap();
+    let (combo, _edit_box, list_box, _drop_down) = combo_fixture(effects.manager.as_deref_mut().unwrap());
+    combo.borrow_mut().enable(true).unwrap();
     let _ = with_payload(
         effects,
         WindowMsgPayload::Text("Alpha".to_string()),
         |effects, token| {
-            combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0, effects)
+            combo
+                .borrow_mut()
+                .send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0, effects)
         },
     );
     assert!(list_box.borrow().is_hidden());
 
     assert_eq!(
-        combo.send_input_message(WindowMessage::LeftUp, 0, 0, effects),
+        combo
+            .borrow_mut()
+            .send_input_message(WindowMessage::LeftUp, 0, 0, effects),
         WindowMsgHandled::Handled
     );
     assert!(!list_box.borrow().is_hidden());
-    assert!(combo.get_size().1 > 20);
+    assert!(combo.borrow().get_size().1 > 20);
 
     assert_eq!(
-        combo.send_input_message(WindowMessage::LeftUp, 0, 0, effects),
+        combo
+            .borrow_mut()
+            .send_input_message(WindowMessage::LeftUp, 0, 0, effects),
         WindowMsgHandled::Handled
     );
     assert!(list_box.borrow().is_hidden());
-    assert_eq!(combo.get_size(), (120, 20));
+    assert_eq!(combo.borrow().get_size(), (120, 20));
 }
 
 #[test]
@@ -2969,24 +2996,31 @@ fn combo_drop_down_button_toggles_via_shared_open_path() {
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
     effects.manager = Some(&mut payload_manager);
 
-    let (mut combo, _edit_box, list_box, _drop_down) = combo_fixture();
-    combo.enable(true).unwrap();
+    let (combo, _edit_box, list_box, _drop_down) =
+        combo_fixture(effects.manager.as_deref_mut().unwrap());
+    combo.borrow_mut().enable(true).unwrap();
     let _ = with_payload(
         effects,
         WindowMsgPayload::Text("Alpha".to_string()),
         |effects, token| {
-            combo.send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0, effects)
+            combo
+                .borrow_mut()
+                .send_system_message(WindowMessage::User(GCM_ADD_ENTRY), token, 0, effects)
         },
     );
 
     assert_eq!(
-        combo.send_system_message(WindowMessage::GadgetSelected, 4, 0, effects),
+        combo
+            .borrow_mut()
+            .send_system_message(WindowMessage::GadgetSelected, 4, 0, effects),
         WindowMsgHandled::Handled
     );
     assert!(!list_box.borrow().is_hidden());
 
     assert_eq!(
-        combo.send_system_message(WindowMessage::GadgetSelected, 4, 0, effects),
+        combo
+            .borrow_mut()
+            .send_system_message(WindowMessage::GadgetSelected, 4, 0, effects),
         WindowMsgHandled::Handled
     );
     assert!(list_box.borrow().is_hidden());
@@ -2997,16 +3031,21 @@ fn combo_input_focus_forwards_to_edit_child_like_cpp() {
     crate::test_support::ensure_ambient_host();
     let mut payload_messages = Vec::new();
     let mut payload_manager = crate::gui::window_manager::WindowManager::new();
+    let mut ime = crate::gui::ime_manager::ImeManager::new();
     let effects = &mut WindowEventEffects::new(&mut payload_messages);
     effects.manager = Some(&mut payload_manager);
+    effects.ime = Some(&mut ime);
 
-    let (mut combo, edit_box, _list_box, _drop_down) = combo_fixture();
-    combo.enable(true).unwrap();
+    let (combo, edit_box, _list_box, _drop_down) =
+        combo_fixture(effects.manager.as_deref_mut().unwrap());
+    combo.borrow_mut().enable(true).unwrap();
     edit_box.borrow_mut().enable(true).unwrap();
 
     let token = push_payload(effects, WindowMsgPayload::Bool(false));
     assert_eq!(
-        combo.send_system_message(WindowMessage::InputFocus, 1, token, effects),
+        combo
+            .borrow_mut()
+            .send_system_message(WindowMessage::InputFocus, 1, token, effects),
         WindowMsgHandled::Handled
     );
     assert_eq!(

@@ -712,19 +712,27 @@ impl GameWindow {
         if self.inst_data.decorated_name.eq_ignore_ascii_case(name) {
             if let Some(parent) = self.get_parent() {
                 for child_rc in parent.borrow().children() {
-                    let child = child_rc.borrow();
-                    if child.inst_data.decorated_name.eq_ignore_ascii_case(name) {
+                    let matches = child_rc
+                        .borrow()
+                        .inst_data
+                        .decorated_name
+                        .eq_ignore_ascii_case(name);
+                    if matches {
                         return Some(child_rc.clone());
                     }
                 }
             }
         }
         for child_rc in &self.children {
-            let child = child_rc.borrow();
-            if child.inst_data.decorated_name.eq_ignore_ascii_case(name) {
+            let matches = child_rc
+                .borrow()
+                .inst_data
+                .decorated_name
+                .eq_ignore_ascii_case(name);
+            if matches {
                 return Some(child_rc.clone());
             }
-            if let Some(found) = child.find_child_window(name) {
+            if let Some(found) = child_rc.borrow().find_child_window(name) {
                 return Some(found);
             }
         }
@@ -734,11 +742,13 @@ impl GameWindow {
     /// Find a child window by window id.
     pub fn find_child_by_id(&self, id: WindowId) -> Option<Rc<RefCell<GameWindow>>> {
         for child_rc in &self.children {
-            let child = child_rc.borrow();
-            if child.id == id {
+            // Drop the child Ref before returning the Rc; callers commonly
+            // borrow_mut the result immediately on the same callback chain.
+            let matches = child_rc.borrow().id == id;
+            if matches {
                 return Some(child_rc.clone());
             }
-            if let Some(found) = child.find_child_by_id(id) {
+            if let Some(found) = child_rc.borrow().find_child_by_id(id) {
                 return Some(found);
             }
         }

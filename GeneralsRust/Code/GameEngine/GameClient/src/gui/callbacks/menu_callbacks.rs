@@ -4513,10 +4513,6 @@ mod tests {
     fn options_checkbox_immediate_effects_match_cpp() {
         crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
-        let mut messages = Vec::new();
-        let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
-        let mut effects = WindowEventEffects::new(&mut messages);
-        effects.menu_host = Some(&mut mailbox);
         let original_draw_anchor = ui.get_draw_rmb_scroll_anchor();
         let original_move_anchor = ui.get_move_rmb_scroll_anchor();
         let (original_save_camera, original_use_camera) = {
@@ -4524,6 +4520,11 @@ mod tests {
             (global.save_camera_in_replay, global.use_camera_in_replay)
         };
 
+        let mut messages = Vec::new();
+        let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.menu_host = Some(&mut mailbox);
+        effects.ui = Some(ui);
         let mut menu = OptionsMenu::new();
         menu.check_draw_anchor_id = 11;
         menu.check_move_anchor_id = 12;
@@ -4535,14 +4536,14 @@ mod tests {
             true,
             &mut effects
         ));
-        assert!(ui.get_draw_rmb_scroll_anchor());
+        assert!(effects.ui.as_ref().unwrap().get_draw_rmb_scroll_anchor());
 
         assert!(menu.apply_immediate_checkbox_effect(
             menu.check_move_anchor_id,
             true,
             &mut effects
         ));
-        assert!(ui.get_move_rmb_scroll_anchor());
+        assert!(effects.ui.as_ref().unwrap().get_move_rmb_scroll_anchor());
 
         assert!(menu.apply_immediate_checkbox_effect(
             menu.check_save_camera_id,
@@ -4560,8 +4561,8 @@ mod tests {
 
         assert!(!menu.apply_immediate_checkbox_effect(99, true, &mut effects));
 
-        ui.set_draw_rmb_scroll_anchor(original_draw_anchor);
-        ui.set_move_rmb_scroll_anchor(original_move_anchor);
+        effects.ui.as_mut().unwrap().set_draw_rmb_scroll_anchor(original_draw_anchor);
+        effects.ui.as_mut().unwrap().set_move_rmb_scroll_anchor(original_move_anchor);
         let mut global = runtime_global_data::write();
         global.save_camera_in_replay = original_save_camera;
         global.use_camera_in_replay = original_use_camera;
@@ -4572,14 +4573,15 @@ mod tests {
     fn options_move_rmb_scroll_anchor_publishes_only_to_an_enabled_host() {
         crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
+        let original_move_anchor = ui.get_move_rmb_scroll_anchor();
+
         use crate::gui::options_host_bridge::HostOptionsRequest;
 
         let mut messages = Vec::new();
         let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
         let mut effects = WindowEventEffects::new(&mut messages);
         effects.menu_host = Some(&mut mailbox);
-        let original_move_anchor = ui.get_move_rmb_scroll_anchor();
-        let mut menu = OptionsMenu::new();
+        effects.ui = Some(ui);        let mut menu = OptionsMenu::new();
         menu.check_move_anchor_id = 12;
 
         assert!(menu.apply_immediate_checkbox_effect(
@@ -4595,7 +4597,7 @@ mod tests {
                 .unwrap_or_default(),
             vec![HostOptionsRequest::MoveRmbScrollAnchor { enabled: true }]
         );
-        assert!(ui.get_move_rmb_scroll_anchor());
+        assert!(effects.ui.as_ref().unwrap().get_move_rmb_scroll_anchor());
 
         effects.menu_host = None;
         assert!(menu.apply_immediate_checkbox_effect(
@@ -4612,11 +4614,11 @@ mod tests {
                 .is_empty()
         );
         assert!(
-            !ui.get_move_rmb_scroll_anchor(),
+            !effects.ui.as_ref().unwrap().get_move_rmb_scroll_anchor(),
             "disabled host delivery must retain the standalone legacy callback"
         );
 
-        ui.set_move_rmb_scroll_anchor(original_move_anchor);
+        effects.ui.as_mut().unwrap().set_move_rmb_scroll_anchor(original_move_anchor);
         });
     }
 
@@ -4624,14 +4626,15 @@ mod tests {
     fn options_draw_rmb_scroll_anchor_publishes_only_to_an_enabled_host() {
         crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
+        let original_draw_anchor = ui.get_draw_rmb_scroll_anchor();
+
         use crate::gui::options_host_bridge::HostOptionsRequest;
 
         let mut messages = Vec::new();
         let mut mailbox = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
         let mut effects = WindowEventEffects::new(&mut messages);
         effects.menu_host = Some(&mut mailbox);
-        let original_draw_anchor = ui.get_draw_rmb_scroll_anchor();
-        let mut menu = OptionsMenu::new();
+        effects.ui = Some(ui);        let mut menu = OptionsMenu::new();
         menu.check_draw_anchor_id = 11;
 
         assert!(menu.apply_immediate_checkbox_effect(
@@ -4647,7 +4650,7 @@ mod tests {
                 .unwrap_or_default(),
             vec![HostOptionsRequest::DrawRmbScrollAnchor { enabled: true }]
         );
-        assert!(ui.get_draw_rmb_scroll_anchor());
+        assert!(effects.ui.as_ref().unwrap().get_draw_rmb_scroll_anchor());
 
         effects.menu_host = None;
         assert!(menu.apply_immediate_checkbox_effect(
@@ -4664,11 +4667,11 @@ mod tests {
                 .is_empty()
         );
         assert!(
-            !ui.get_draw_rmb_scroll_anchor(),
+            !effects.ui.as_ref().unwrap().get_draw_rmb_scroll_anchor(),
             "disabled host delivery must retain the standalone legacy callback"
         );
 
-        ui.set_draw_rmb_scroll_anchor(original_draw_anchor);
+        effects.ui.as_mut().unwrap().set_draw_rmb_scroll_anchor(original_draw_anchor);
         });
     }
 

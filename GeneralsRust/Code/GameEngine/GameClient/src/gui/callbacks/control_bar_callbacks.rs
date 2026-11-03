@@ -1534,7 +1534,8 @@ mod tests {
         )
         .unwrap();
         let mut ui = crate::core::subsystems::InGameUISubsystem::default();
-        ui.admit_native_control_bar_transport();
+        // NativeHosted set_in_game_ui_subsystem admits the control-bar transport
+        // once; do not pre-admit or the assert fires.
         let mut radar = game_engine::common::system::radar::RadarSystem::new();
         radar.new_map_owned(
             game_engine::common::system::radar::Coord3D::new(0.0, 0.0, 0.0),
