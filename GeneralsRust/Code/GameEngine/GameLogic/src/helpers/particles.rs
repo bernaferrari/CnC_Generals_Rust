@@ -108,29 +108,54 @@ pub struct HostFxObjectPose {
     pub is_shrouded: bool,
 }
 
-fn with_host_fx_poses_mut<R>(f: impl FnOnce(&mut HashMap<ObjectID, HostFxObjectPose>) -> R) -> Option<R> {
-    let services = crate::system::engine_stores::active_services();
+fn with_host_fx_poses_mut_on<R>(
+    services: &crate::system::engine_stores::WorldServices,
+    f: impl FnOnce(&mut HashMap<ObjectID, HostFxObjectPose>) -> R,
+) -> R {
     let mut map = services
         .client_visuals()
         .host_fx_poses
         .lock()
         .unwrap_or_else(|p| p.into_inner());
-    Some(f(&mut map))
+    f(&mut map)
 }
 
-fn with_host_fx_poses<R>(f: impl FnOnce(&HashMap<ObjectID, HostFxObjectPose>) -> R) -> Option<R> {
-    let services = crate::system::engine_stores::active_services();
+fn with_host_fx_poses_on<R>(
+    services: &crate::system::engine_stores::WorldServices,
+    f: impl FnOnce(&HashMap<ObjectID, HostFxObjectPose>) -> R,
+) -> R {
     let map = services
         .client_visuals()
         .host_fx_poses
         .lock()
         .unwrap_or_else(|p| p.into_inner());
-    Some(f(&map))
+    f(&map)
+}
+
+fn with_host_fx_poses_mut<R>(f: impl FnOnce(&mut HashMap<ObjectID, HostFxObjectPose>) -> R) -> Option<R> {
+    // Transitional ambient: prefer set_host_fx_object_pose_on / replace_*_on.
+    let services = crate::system::engine_stores::try_active_services()?;
+    Some(with_host_fx_poses_mut_on(&services, f))
+}
+
+fn with_host_fx_poses<R>(f: impl FnOnce(&HashMap<ObjectID, HostFxObjectPose>) -> R) -> Option<R> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    Some(with_host_fx_poses_on(&services, f))
 }
 
 /// Stamp a live host object's leftover-space pose for object-form FX.
+/// Prefer [`set_host_fx_object_pose_on`] with the driving WorldServices.
 pub fn set_host_fx_object_pose(pose: HostFxObjectPose) {
     let _ = with_host_fx_poses_mut(|map| insert_host_fx_object_pose(map, pose));
+}
+
+/// hq-spb88j: write host-FX pose into the owning WorldServices without
+/// requiring a whole-operation with_world_services publish.
+pub fn set_host_fx_object_pose_on(
+    services: &crate::system::engine_stores::WorldServices,
+    pose: HostFxObjectPose,
+) {
+    with_host_fx_poses_mut_on(services, |map| insert_host_fx_object_pose(map, pose));
 }
 
 fn insert_host_fx_object_pose(
@@ -164,6 +189,7 @@ mod host_fx_pose_publication_tests {
     use super::{
         HostFxObjectPose, apply_host_fx_pose_frame, host_fx_object_pose,
         insert_host_fx_object_pose, set_host_fx_object_pose,
+        set_host_fx_object_pose_on,
     };
     use crate::common::{Matrix3D, ObjectID};
     use std::collections::HashMap;
@@ -207,6 +233,22 @@ mod host_fx_pose_publication_tests {
     }
 
     #[test]
+    #[test]
+    fn set_on_ignores_foreign_active_world_services() {
+        use crate::system::engine_stores::{new_world_services, with_world_services};
+
+        let owner = new_world_services();
+        let foreign = new_world_services();
+        with_world_services(&foreign, || {
+            set_host_fx_object_pose_on(&owner, pose(42, 9.0));
+            // Ambient still sees foreign (empty).
+            assert!(host_fx_object_pose(42).is_none());
+        });
+        with_world_services(&owner, || {
+            assert_eq!(host_fx_object_pose(42).map(|p| p.position.x), Some(9.0));
+        });
+    }
+
     fn parallel_worlds_keep_independent_host_fx_poses() {
         use crate::system::engine_stores::{new_world_services, with_world_services};
         use std::sync::{Arc, Barrier, Mutex};
@@ -245,6 +287,16 @@ mod host_fx_pose_publication_tests {
 /// matching the former upsert-then-retain sequence.
 pub fn replace_host_fx_object_poses_for_frame(poses: impl IntoIterator<Item = HostFxObjectPose>) {
     let _ = with_host_fx_poses_mut(|current| {
+        apply_host_fx_pose_frame(current, poses);
+    });
+}
+
+/// hq-spb88j: frame pose replace on an explicit WorldServices owner.
+pub fn replace_host_fx_object_poses_for_frame_on(
+    services: &crate::system::engine_stores::WorldServices,
+    poses: impl IntoIterator<Item = HostFxObjectPose>,
+) {
+    with_host_fx_poses_mut_on(services, |current| {
         apply_host_fx_pose_frame(current, poses);
     });
 }

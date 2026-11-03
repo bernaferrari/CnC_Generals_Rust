@@ -1203,8 +1203,16 @@ impl Default for SelectionManager {
 }
 
 /// Get per-world selection manager (C++ TheInGameUI selection lives with the match).
+/// Prefer [`get_selection_manager_on`] with the driving WorldServices.
 pub fn get_selection_manager() -> Arc<RwLock<SelectionManager>> {
     Arc::clone(crate::system::engine_stores::active_services().selection())
+}
+
+/// hq-spb88j / hq-lfke6: selection from an explicit WorldServices owner.
+pub fn get_selection_manager_on(
+    services: &crate::system::engine_stores::WorldServices,
+) -> Arc<RwLock<SelectionManager>> {
+    Arc::clone(services.selection())
 }
 
 /// Selection lookup backed by the global `OBJECT_REGISTRY`.

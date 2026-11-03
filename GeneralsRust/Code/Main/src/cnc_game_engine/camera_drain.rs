@@ -1971,7 +1971,10 @@ impl CnCGameEngine {
         let Some(pres) = self.last_presentation_frame.as_ref() else {
             return Ok(());
         };
-        crate::game_logic::refresh_host_fx_object_poses_from_presentation(pres);
+        crate::game_logic::refresh_host_fx_object_poses_from_presentation_on(
+            &self.game_logic.world_services,
+            pres,
+        );
 
         let logic_frame = pres.frame.0;
         let host_epoch = self.host_direct_visual_world_epoch;

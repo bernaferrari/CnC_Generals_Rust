@@ -270,6 +270,18 @@ pub(crate) fn host_object_is_shrouded_for_local(id: u32) -> bool {
 pub fn refresh_host_fx_object_poses_from_presentation(
     frame: &crate::presentation_frame::PresentationFrame,
 ) {
+    // Transitional: ambient active WorldServices. Prefer *_on with an owner.
+    let Some(services) = gamelogic::system::engine_stores::try_active_services() else {
+        return;
+    };
+    refresh_host_fx_object_poses_from_presentation_on(&services, frame);
+}
+
+/// hq-spb88j: publish presentation FX poses into the owning WorldServices.
+pub fn refresh_host_fx_object_poses_from_presentation_on(
+    services: &gamelogic::system::engine_stores::WorldServices,
+    frame: &crate::presentation_frame::PresentationFrame,
+) {
     let poses = frame.objects.iter().map(|object| {
         let is_shrouded = (object.drawable_shroud.raw_status as u8)
             >= (crate::presentation_frame::PresentationObjectShroudStatus::Fogged as u8);
@@ -285,7 +297,7 @@ pub fn refresh_host_fx_object_poses_from_presentation(
             is_shrouded,
         )
     });
-    gamelogic::helpers::replace_host_fx_object_poses_for_frame(poses);
+    gamelogic::helpers::replace_host_fx_object_poses_for_frame_on(services, poses);
 }
 
 fn host_object_fx_radius(obj: &crate::game_logic::Object) -> f32 {
@@ -679,10 +691,10 @@ impl crate::game_logic::GameLogic {
             // Attached systems still use the published scene poses between logic
             // callbacks. Immediate FX receives these owned values directly.
             if let Some(primary) = primary {
-                gamelogic::helpers::set_host_fx_object_pose(primary);
+                gamelogic::helpers::set_host_fx_object_pose_on(&self.world_services, primary);
             }
             if let Some(secondary) = secondary {
-                gamelogic::helpers::set_host_fx_object_pose(secondary);
+                gamelogic::helpers::set_host_fx_object_pose_on(&self.world_services, secondary);
             }
             let Some(primary) = primary else {
                 return false;
