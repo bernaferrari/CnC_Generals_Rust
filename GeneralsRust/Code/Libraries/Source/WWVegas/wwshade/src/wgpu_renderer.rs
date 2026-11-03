@@ -249,14 +249,18 @@ impl WgpuRenderer {
             self.render_pass(&mut render_pass)?;
         }
 
-        ww3d_engine::submit_recorded(
-            &self.queue,
-            ww3d_engine::FrameCommandPhase::Overlay,
-            encoder.finish(),
-            ww3d_engine::OutOfFrameReason::StandaloneShade,
-        );
-        if !ww3d_engine::frame_is_active() {
-            present_surface_texture(&self.queue, output);
+        {
+            let local = ww3d_engine::FrameSubmitState::new();
+            ww3d_engine::submit_recorded(
+                &local,
+                &self.queue,
+                ww3d_engine::FrameCommandPhase::Overlay,
+                encoder.finish(),
+                ww3d_engine::OutOfFrameReason::StandaloneShade,
+            );
+            if !ww3d_engine::frame_is_active(&local) {
+                present_surface_texture(&self.queue, output);
+            }
         }
 
         Ok(())

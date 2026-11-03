@@ -18,18 +18,18 @@ fn repeated_native_post_frame_failures_finish_and_submit_each_frame() {
             "expected missing effect frame".into(),
         ))
     };
-    let initial_submits = ww3d_engine::total_owned_submits();
+    let initial_submits = ww3d_engine::total_owned_submits(&ww3d_engine::frame_submit().expect("fs").lock());
     for _ in 0..4100 {
         renderer.enqueue_scoped_post_frame_pass(ScopedNativePass::ClientEffects);
         renderer.begin_frame().unwrap();
         renderer
             .end_frame_with_scoped_native_passes(false, None, Some(&mut native))
             .unwrap();
-        assert!(!ww3d_engine::frame_is_active());
+        assert!(!ww3d_engine::frame_is_active(&ww3d_engine::frame_submit().expect("fs").lock()));
     }
     drop(native);
     assert_eq!(failures, 4100);
-    assert_eq!(ww3d_engine::total_owned_submits() - initial_submits, 4100);
+    assert_eq!(ww3d_engine::total_owned_submits(&ww3d_engine::frame_submit().expect("fs").lock()) - initial_submits, 4100);
     drop(renderer);
     ww3d_engine::shutdown().unwrap();
 }
@@ -180,7 +180,7 @@ fn scoped_native_passes_keep_callback_positions_and_borrow_only_the_driving_fram
         renderer.end_frame().is_err(),
         "required native pass has no substitute global owner"
     );
-    assert!(!ww3d_engine::frame_is_active());
+    assert!(!ww3d_engine::frame_is_active(&ww3d_engine::frame_submit().expect("fs").lock()));
     drop(renderer);
     ww3d_engine::shutdown().unwrap();
 }

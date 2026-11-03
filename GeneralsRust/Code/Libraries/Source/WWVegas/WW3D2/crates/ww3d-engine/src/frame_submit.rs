@@ -5,13 +5,12 @@
 //! render encoder, overlays after). [`FrameSubmitState::submit_owned_frame`]
 //! issues **one** `queue.submit` at `end_render`.
 //!
-//! State lives on the owning [`crate::Engine`] (`frame_submit: Arc<Mutex<…>>`).
-//! Free-function façades resolve the installed engine arc (or a process
-//! standalone arc for out-of-engine screenshot/demo paths).
+//! State lives on the owning [`crate::Engine`] / renderer (`Arc<Mutex<FrameSubmitState>>`).
+//! Helpers take an explicit `&FrameSubmitState` — no process-wide bridge.
 
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use wgpu::{CommandBuffer, Queue};
 
 /// Env var: when `1`/`true`/`yes`, log per-frame owned submit count.
@@ -207,113 +206,65 @@ fn submit_debug_enabled() -> bool {
     }
 }
 
-/// Installed engine (or standalone) frame-submit arc for free-function façades.
-///
-/// `Engine` installs its owned arc at init; shutdown clears this so façades
-/// fall back to the standalone process arc (out-of-engine demos/tests).
-struct FrameSubmitBridgeRuntime {
-    installed: Mutex<Option<Arc<Mutex<FrameSubmitState>>>>,
-    standalone: OnceLock<Arc<Mutex<FrameSubmitState>>>,
+/// Helpers that operate on an explicitly owned [`FrameSubmitState`].
+/// Call sites pass the engine/renderer-owned state — there is no process bridge.
+
+pub fn on_begin_frame(state: &FrameSubmitState) {
+    state.on_begin_frame();
 }
 
-static FRAME_SUBMIT_BRIDGE: FrameSubmitBridgeRuntime = FrameSubmitBridgeRuntime {
-    installed: Mutex::new(None),
-    standalone: OnceLock::new(),
-};
-
-fn standalone_frame_submit() -> &'static Arc<Mutex<FrameSubmitState>> {
-    FRAME_SUBMIT_BRIDGE
-        .standalone
-        .get_or_init(|| Arc::new(Mutex::new(FrameSubmitState::new())))
+pub fn frame_is_active(state: &FrameSubmitState) -> bool {
+    state.frame_is_active()
 }
 
-fn active_frame_submit() -> Arc<Mutex<FrameSubmitState>> {
-    FRAME_SUBMIT_BRIDGE
-        .installed
-        .lock()
-        .clone()
-        .unwrap_or_else(|| Arc::clone(standalone_frame_submit()))
-}
-
-/// Install the engine-owned frame-submit state for free-function bridges.
-pub fn install_frame_submit(state: Arc<Mutex<FrameSubmitState>>) {
-    *FRAME_SUBMIT_BRIDGE.installed.lock() = Some(state);
-}
-
-/// Clear the engine install (shutdown). Free functions fall back to standalone.
-pub fn uninstall_frame_submit(state: &Arc<Mutex<FrameSubmitState>>) {
-    let mut slot = FRAME_SUBMIT_BRIDGE.installed.lock();
-    if slot.as_ref().is_some_and(|active| Arc::ptr_eq(active, state)) {
-        *slot = None;
-    }
-}
-
-fn with_active<R>(f: impl FnOnce(&FrameSubmitState) -> R) -> R {
-    let arc = active_frame_submit();
-    let guard = arc.lock();
-    f(&guard)
-}
-
-/// Mark the engine frame open. Pending overlays from a previous leaked frame are dropped.
-pub fn on_begin_frame() {
-    with_active(|s| s.on_begin_frame());
-}
-
-/// True between a successful `begin_render` and `submit_owned_frame`.
-pub fn frame_is_active() -> bool {
-    with_active(|s| s.frame_is_active())
-}
-
-/// Record a command buffer into the open frame, or submit immediately if none is open.
 pub fn submit_recorded(
+    state: &FrameSubmitState,
     queue: &Queue,
     phase: FrameCommandPhase,
     buffer: CommandBuffer,
     out_of_frame: OutOfFrameReason,
 ) {
-    with_active(|s| s.submit_recorded(queue, phase, buffer, out_of_frame));
+    state.submit_recorded(queue, phase, buffer, out_of_frame);
 }
 
-/// Out-of-frame submit. Each call is one `queue.submit` and is counted separately.
 pub fn submit_out_of_frame(
+    state: &FrameSubmitState,
     queue: &Queue,
     buffers: impl IntoIterator<Item = CommandBuffer>,
     reason: OutOfFrameReason,
 ) {
-    with_active(|s| s.submit_out_of_frame(queue, buffers, reason));
+    state.submit_out_of_frame(queue, buffers, reason);
 }
 
-/// The single in-frame submit: uploads, then the engine encoder, then overlay/post.
-pub fn submit_owned_frame(queue: &Queue, frame_encoder: CommandBuffer, frame_index: u64) {
-    with_active(|s| s.submit_owned_frame(queue, frame_encoder, frame_index));
+pub fn submit_owned_frame(
+    state: &FrameSubmitState,
+    queue: &Queue,
+    frame_encoder: CommandBuffer,
+    frame_index: u64,
+) {
+    state.submit_owned_frame(queue, frame_encoder, frame_index);
 }
 
-/// Owned `queue.submit` count for the frame that just ended (0 or 1).
-pub fn last_frame_submit_count() -> u64 {
-    with_active(|s| s.last_frame_submit_count())
+pub fn last_frame_submit_count(state: &FrameSubmitState) -> u64 {
+    state.last_frame_submit_count()
 }
 
-/// Out-of-frame submits observed since the last `on_begin_frame`.
-pub fn last_out_of_frame_submit_count() -> u64 {
-    with_active(|s| s.last_out_of_frame_submit_count())
+pub fn last_out_of_frame_submit_count(state: &FrameSubmitState) -> u64 {
+    state.last_out_of_frame_submit_count()
 }
 
-/// Lifetime count of engine-owned frame submits (test hook).
-pub fn total_owned_submits() -> u64 {
-    with_active(|s| s.total_owned_submits())
+pub fn total_owned_submits(state: &FrameSubmitState) -> u64 {
+    state.total_owned_submits()
 }
 
-/// Reset counters (tests).
-pub fn reset_submit_debug() {
-    with_active(|s| s.reset_submit_debug());
+pub fn reset_submit_debug(state: &FrameSubmitState) {
+    state.reset_submit_debug();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex as StdMutex;
-
-    static TEST_LOCK: StdMutex<()> = StdMutex::new(());
+    use std::sync::Arc;
 
     #[test]
     fn debug_env_name_is_stable() {
@@ -327,34 +278,16 @@ mod tests {
     }
 
     #[test]
-    fn noop_begin_end_bookkeeping_without_gpu() {
-        let _guard = TEST_LOCK.lock().unwrap();
-        // Ensure install bridge is clear so we exercise standalone.
-        *FRAME_SUBMIT_BRIDGE.installed.lock() = None;
-        reset_submit_debug();
-        assert!(!frame_is_active());
-        assert_eq!(last_frame_submit_count(), 0);
-        assert_eq!(last_out_of_frame_submit_count(), 0);
-
-        on_begin_frame();
-        assert!(frame_is_active());
-        assert_eq!(last_frame_submit_count(), 0);
-
-        reset_submit_debug();
-        assert!(!frame_is_active());
-        assert_eq!(last_frame_submit_count(), 0);
-    }
-
-    #[test]
-    fn engine_owned_state_is_what_free_functions_see() {
-        let _guard = TEST_LOCK.lock().unwrap();
-        let owned = Arc::new(Mutex::new(FrameSubmitState::new()));
-        install_frame_submit(Arc::clone(&owned));
-        owned.lock().on_begin_frame();
-        assert!(frame_is_active());
-        assert!(owned.lock().frame_is_active());
-        uninstall_frame_submit(&owned);
-        // Standalone must not inherit the engine frame_active bit.
-        assert!(!frame_is_active());
+    fn owned_states_on_two_arcs_are_independent() {
+        let a = Arc::new(Mutex::new(FrameSubmitState::new()));
+        let b = Arc::new(Mutex::new(FrameSubmitState::new()));
+        a.lock().on_begin_frame();
+        assert!(a.lock().frame_is_active());
+        assert!(!b.lock().frame_is_active());
+        b.lock().on_begin_frame();
+        assert!(b.lock().frame_is_active());
+        a.lock().reset_submit_debug();
+        assert!(!a.lock().frame_is_active());
+        assert!(b.lock().frame_is_active());
     }
 }
