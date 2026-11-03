@@ -86,6 +86,7 @@ impl GameClient {
             ime: crate::gui::ime_manager::ImeManager::new(),
             script_display: crate::core::script_action_handler::ScriptDisplayReceiver::default(),
             script_runtime: crate::core::script_action_runtime::ScriptActionRuntime::new(),
+            draw_schedule: crate::display::client_draw_schedule::ClientDrawScheduleState::default(),
             message_stream: crate::message_stream::message_stream::MessageStream::new(),
             input_authority,
             shell_game_first_load: true,

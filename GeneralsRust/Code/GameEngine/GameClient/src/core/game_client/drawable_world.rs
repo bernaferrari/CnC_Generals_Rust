@@ -331,4 +331,10 @@ impl GameClient {
     pub fn beacons_mut(&mut self) -> &mut crate::system::beacon_display::BeaconDisplayState {
         &mut self.drawables.beacons
     }
+
+    pub fn draw_schedule_mut(
+        &mut self,
+    ) -> &mut crate::display::client_draw_schedule::ClientDrawScheduleState {
+        &mut self.draw_schedule
+    }
 }
