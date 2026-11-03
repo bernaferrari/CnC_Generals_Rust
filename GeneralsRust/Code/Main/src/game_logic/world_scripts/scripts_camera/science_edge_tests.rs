@@ -110,7 +110,7 @@ impl Drop for ScienceStoreRestore {
         let Some(prev) = self.0.take() else {
             return;
         };
-        if let Some(slot) = get_science_store_mut() {
+        if let Some(mut slot) = get_science_store_mut() {
             *slot = prev;
         }
     }
