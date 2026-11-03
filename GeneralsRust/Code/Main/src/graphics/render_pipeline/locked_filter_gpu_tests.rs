@@ -107,27 +107,21 @@ fn brightness(rgb: [u8; 3]) -> u8 {
 #[test]
 #[ignore = "requires native WGPU; run explicit isolated GPU acceptance"]
 fn locked_drawable_is_excluded_from_capture_redrawn_with_post_filter_camera_before_overlay() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .expect("actual ForwardPass GPU witness requires a native device");
-    struct EngineScope;
-    impl Drop for EngineScope {
-        fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
-        }
-    }
-    let _scope = EngineScope;
-    let device = ww3d_engine::device().unwrap();
-    let queue = ww3d_engine::queue().unwrap();
-    let format = ww3d_engine::color_format().unwrap();
+    let _engine_scope = engine.clone();
+    let device = engine.lock().device();
+    let queue = engine.lock().queue();
+    let format = engine.lock().color_format();
     let mut graphics = GraphicsSystem::new(
         device.clone(),
         queue.clone(),
         format,
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     let mut forward = ForwardPass::initialize(&graphics).unwrap();

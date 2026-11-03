@@ -9,17 +9,17 @@ fn visual(raw: u8) -> game_client::terrain::terrain_visual::TerrainVisualImpl {
 #[test]
 #[ignore = "requires native GPU for actual RenderPipeline construction"]
 fn two_actual_pipeline_terrain_owners_accept_canonical_bytes_without_global_selection() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 16,
         height: 16,
         ..Default::default()
     })
     .unwrap();
     let graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     let mut a = RenderPipeline::initialize(&graphics).unwrap();
@@ -111,5 +111,5 @@ fn two_actual_pipeline_terrain_owners_accept_canonical_bytes_without_global_sele
     drop(a);
     drop(b);
     drop(graphics);
-    ww3d_engine::shutdown().unwrap();
+    drop(engine);
 }

@@ -159,7 +159,7 @@ fn pose(sample: SlaveCameraSample) -> Mat4 {
 #[ignore = "requires native WGPU; run explicit isolated strict-backend acceptance"]
 fn actual_view_backend_uses_current_dirty_source_and_rejects_peer_or_unobserved_client_replacement()
 {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
@@ -168,15 +168,15 @@ fn actual_view_backend_uses_current_dirty_source_and_rejects_peer_or_unobserved_
     struct Scope;
     impl Drop for Scope {
         fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
+            drop(engine);
         }
     }
     let _scope = Scope;
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     for (name, x) in [("CameraModel", 0.), ("MovingModel", 10.)] {
@@ -357,7 +357,7 @@ fn receiving_factory_world() -> GameLogic {
 #[ignore = "requires native WGPU; run explicit isolated strict-backend acceptance"]
 fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_isolates_same_id_peer()
  {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
@@ -366,15 +366,15 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
     struct Scope;
     impl Drop for Scope {
         fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
+            drop(engine);
         }
     }
     let _scope = Scope;
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
@@ -607,7 +607,7 @@ fn actual_factory_birth_installs_receiving_drawable_before_immediate_query_and_i
 #[ignore = "requires native WGPU; run explicit isolated strict-backend acceptance"]
 fn detached_no_client_chunk_snapshot_rebuild_removes_absent_actor_and_rejects_old_generation() {
     use crate::game_logic::NativeMapAdmission;
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
@@ -616,15 +616,15 @@ fn detached_no_client_chunk_snapshot_rebuild_removes_absent_actor_and_rejects_ol
     struct Scope;
     impl Drop for Scope {
         fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
+            drop(engine);
         }
     }
     let _scope = Scope;
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
@@ -818,7 +818,7 @@ fn birth_physical_retirement_actor(
 #[ignore = "requires native WGPU; run explicit isolated physical-retirement acceptance"]
 fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects_stale_rebirth_including_no_draw()
  {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
@@ -827,15 +827,15 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
     struct Scope;
     impl Drop for Scope {
         fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
+            drop(engine);
         }
     }
     let _scope = Scope;
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
@@ -1145,7 +1145,7 @@ fn actual_physical_delete_retires_semantic_receiver_only_after_queue_and_rejects
 #[test]
 #[ignore = "requires native WGPU; run explicit isolated missing-binding acceptance"]
 fn missing_client_key_with_canonical_constructor_is_not_prebirth_absence() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
@@ -1154,15 +1154,15 @@ fn missing_client_key_with_canonical_constructor_is_not_prebirth_absence() {
     struct Scope;
     impl Drop for Scope {
         fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
+            drop(engine);
         }
     }
     let _scope = Scope;
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     let mut pipeline = RenderPipeline::initialize(&graphics).unwrap();
@@ -1208,7 +1208,7 @@ fn missing_client_key_with_canonical_constructor_is_not_prebirth_absence() {
 #[test]
 #[ignore = "requires native WGPU; exercises the production Client-before-GameLogic reset phase"]
 fn actual_client_reset_retires_renderer_receipts_before_logic_reset_and_preserves_peer() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
@@ -1217,15 +1217,15 @@ fn actual_client_reset_retires_renderer_receipts_before_logic_reset_and_preserve
     struct Scope;
     impl Drop for Scope {
         fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
+            drop(engine);
         }
     }
     let _scope = Scope;
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
@@ -1327,7 +1327,7 @@ mod native_airfield_sell_tests;
 #[test]
 #[ignore = "requires native WGPU; run isolated actual bulk receiving-owner acceptance"]
 fn actual_native_bulk_clear_retires_each_owner_without_touching_peer() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
@@ -1336,15 +1336,15 @@ fn actual_native_bulk_clear_retires_each_owner_without_touching_peer() {
     struct Scope;
     impl Drop for Scope {
         fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
+            drop(engine);
         }
     }
     let _scope = Scope;
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
@@ -1444,7 +1444,7 @@ fn actual_native_bulk_clear_retires_each_owner_without_touching_peer() {
 #[test]
 #[ignore = "requires native WGPU; actual Tree/Prop collection and physical retirement"]
 fn actual_tree_prop_render_collection_preserves_constructor_retirement_and_peer() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
@@ -1453,15 +1453,15 @@ fn actual_tree_prop_render_collection_preserves_constructor_retirement_and_peer(
     struct Scope;
     impl Drop for Scope {
         fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
+            drop(engine);
         }
     }
     let _scope = Scope;
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
@@ -1636,7 +1636,7 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
     use game_client::system::TimeOfDay;
     use game_engine::common::audio::{AC_LOOP, AudioEventInfo, AudioManager, ST_GLOBAL};
     use gamelogic::common::types::BodyDamageType;
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
@@ -1645,15 +1645,15 @@ fn actual_early_body_bridge_uses_real_native_actor_and_captured_local_audio() {
     struct Scope;
     impl Drop for Scope {
         fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
+            drop(engine);
         }
     }
     let _scope = Scope;
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(

@@ -3,13 +3,13 @@ use super::*;
 #[test]
 #[ignore = "requires a native GPU; run explicitly with --include-ignored"]
 fn callbacks_run_once_in_order_on_the_driving_thread_even_after_errors() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 16,
         height: 16,
         ..Default::default()
     })
     .expect("headless engine");
-    let mut renderer = WgpuMainRenderer::from_engine(Default::default()).expect("renderer");
+    let mut renderer = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).expect("renderer");
     renderer
         .ww3d
         .with_renderer(|backend| {
@@ -117,7 +117,7 @@ fn callbacks_run_once_in_order_on_the_driving_thread_even_after_errors() {
         &calls.lock().unwrap()[4..],
         &[("pre error", 0, driver), ("post after error", 0, driver)]
     );
-    assert!(!ww3d_engine::frame_is_active(&ww3d_engine::frame_submit().expect("fs").lock()), "failed frame still ends");
+    assert!(!ww3d_engine::frame_is_active(&engine.lock().frame_submit_state().lock()), "failed frame still ends");
     drop(renderer);
-    ww3d_engine::shutdown().expect("shutdown");
+    drop(engine);
 }

@@ -1550,15 +1550,9 @@ impl CnCGameEngine {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         let path = dir.join(format!("screenshot_{stamp}.png"));
-        match ww3d_engine::make_screenshot(&path) {
-            Ok(()) => {
-                // C++ CommandXlat MSG_META_TAKE_SCREENSHOT only takeScreenShot().
-                info!("screenshot written to {}", path.display());
-            }
-            Err(err) => {
-                warn!("screenshot failed: {err:?}");
-            }
-        }
+        self.ww3d.lock().make_screenshot(&path);
+        // C++ CommandXlat MSG_META_TAKE_SCREENSHOT only takeScreenShot().
+        info!("screenshot queued to {}", path.display());
     }
 
     /// Retail DIPLOMACY (KEY_TAB) residual.

@@ -159,17 +159,17 @@ mod tests {
     #[test]
     #[ignore = "requires a native GPU; run explicitly with --include-ignored"]
     fn post_filter_batch_loads_color_and_depth_without_advancing_animation() {
-        ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+        let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
             width: 32,
             height: 32,
             ..Default::default()
         })
         .expect("headless renderer");
-        let device = ww3d_engine::device().unwrap();
-        let mut renderer = Renderer::new(ww3d_engine::gpu_device().unwrap());
+        let device = engine.lock().device();
+        let mut renderer = Renderer::new(engine.lock().gpu_device());
         renderer.mesh_render_manager.set_render_formats(
-            ww3d_engine::color_format().unwrap(),
-            ww3d_engine::depth_format().unwrap(),
+            engine.lock().color_format(),
+            engine.lock().depth_format(),
         );
         let mut model = MeshModelClass::new("post-filter-load-witness");
         model.vertices = [(-0.8, -0.8), (0.8, -0.8), (0.0, 0.8)]
@@ -200,7 +200,7 @@ mod tests {
             camera.set_view_matrix(glam::Mat4::IDENTITY);
             camera.set_projection_matrix(glam::Mat4::IDENTITY);
             renderer.set_camera(camera);
-            let mut frame = ww3d_engine::begin_render().unwrap();
+            let mut frame = engine.lock().begin_render().unwrap();
             renderer
                 .render_frame(&mut frame, Some(wgpu::Color::RED), None)
                 .unwrap();
@@ -265,7 +265,7 @@ mod tests {
                     depth_or_array_layers: 1,
                 },
             );
-            ww3d_engine::end_render(frame).unwrap();
+            engine.lock().end_render(frame).unwrap();
             let slice = readback.slice(..);
             let (tx, rx) = std::sync::mpsc::channel();
             slice.map_async(wgpu::MapMode::Read, move |result| {

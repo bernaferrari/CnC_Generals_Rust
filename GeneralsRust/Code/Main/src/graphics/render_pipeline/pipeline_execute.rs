@@ -572,8 +572,12 @@ impl RenderPipeline {
         let skip_filter_scene = native_receiver.view_filter().filter()
             == game_client::display::view::FilterType::MotionBlur
             && native_receiver.view_filter().skip_render()
-            && ww3d_engine::surface_size()
-                .ok()
+            && self
+                .forward_pass
+                .renderer
+                .engine
+                .as_ref()
+                .map(|eng| eng.lock().surface_size())
                 .is_some_and(|(width, height)| {
                     self.view_filter_resources.has_scene_capture_for(
                         width,

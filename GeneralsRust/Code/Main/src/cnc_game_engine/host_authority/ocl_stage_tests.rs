@@ -13,17 +13,17 @@ impl OclNativeStageHarness {
     fn new() -> Self {
         #[cfg(feature = "game_client")]
         {
-            ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+            let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
                 width: 32,
                 height: 32,
                 ..Default::default()
             })
             .unwrap();
             let graphics = GraphicsSystem::new(
-                ww3d_engine::device().unwrap(),
-                ww3d_engine::queue().unwrap(),
-                ww3d_engine::color_format().unwrap(),
-                ww3d_engine::depth_format().unwrap(),
+                engine.lock().device(),
+                engine.lock().queue(),
+                engine.lock().color_format(),
+                engine.lock().depth_format(),
             )
             .unwrap();
             let pipeline = RenderPipeline::initialize(&graphics).unwrap();
@@ -65,7 +65,7 @@ impl OclNativeStageHarness {
     fn finish(self) {
         drop(self);
         #[cfg(feature = "game_client")]
-        ww3d_engine::shutdown().unwrap();
+        drop(engine);
     }
 }
 fn list(model: &str) -> String {

@@ -42,7 +42,7 @@ use ww3d_assets::AssetManager;
 use ww3d_core::errors::{W3DError, W3DResult};
 use ww3d_core::ww3d::{FrameStats, RendererBackend, Ww3dContext};
 use crate::process_state::{install_renderer_3d, Renderer3dRuntime};
-use ww3d_engine::{self, EngineError};
+use ww3d_engine::{self, EngineError, SharedEngine};
 use ww3d_gpu::device::GpuDevice;
 
 /// Configuration for the main renderer. Mirrors the intent of the original DX8 renderer while
@@ -110,6 +110,9 @@ pub struct WgpuMainRenderer {
     pub ww3d: Arc<Ww3dContext>,
     /// Owned renderer-3d session bag (config / texture / id counters).
     pub renderer_3d: Arc<Renderer3dRuntime>,
+    /// Host-owned WW3D engine (explicit; no process singleton).
+    /// `None` only for legacy `from_backend` paths that drive `WgpuWrapper` directly.
+    pub engine: Option<SharedEngine>,
     pending_frame: Option<ww3d_engine::RenderFrame>,
     last_surface_presented: bool,
     pre_scene_callbacks: Vec<FrameCallback>,
@@ -255,6 +258,7 @@ impl WgpuMainRenderer {
         Self {
             backend: Some(backend),
             renderer,
+            engine: None,
             config,
             stats: MainRendererStats::default(),
             frame_start: Instant::now(),
@@ -298,17 +302,15 @@ impl WgpuMainRenderer {
         ))
     }
 
-    /// Construct the renderer using the global WW3D engine lifecycle.
-    pub fn from_engine(config: WgpuMainRendererConfig) -> RendererResult<Self> {
-        let gpu_device =
-            ww3d_engine::gpu_device().map_err(|err| RendererError::RenderError(err.to_string()))?;
+    /// Construct the renderer from an explicit host-owned engine handle.
+    pub fn from_engine(engine: SharedEngine, config: WgpuMainRendererConfig) -> RendererResult<Self> {
+        let (gpu_device, color_format, depth_format) = {
+            let eng = engine.lock();
+            (eng.gpu_device(), eng.color_format(), eng.depth_format())
+        };
         let renderer = Arc::new(Mutex::new(Renderer::new(gpu_device)));
 
         if let Ok(mut guard) = renderer.lock() {
-            let color_format = ww3d_engine::color_format()
-                .map_err(|err| RendererError::RenderError(err.to_string()))?;
-            let depth_format = ww3d_engine::depth_format()
-                .map_err(|err| RendererError::RenderError(err.to_string()))?;
             guard
                 .mesh_render_manager
                 .set_render_formats(color_format, depth_format);
@@ -341,6 +343,7 @@ impl WgpuMainRenderer {
         Ok(Self {
             backend: None,
             renderer,
+            engine: Some(engine),
             config,
             stats: MainRendererStats::default(),
             frame_start: Instant::now(),
@@ -410,8 +413,8 @@ impl WgpuMainRenderer {
     /// Begin a new frame.
     ///
     /// FRAME CLOCK: the logic frame clock (`ww3d_engine` `last_frame_start`) is
-    /// owned by `ww3d_engine::update()`, which opens every game frame. This
-    /// call used to re-stamp it via `ww3d_engine::begin_render()`, excluding
+    /// owned by `engine.lock().update()`, which opens every game frame. This
+    /// call used to re-stamp it via `engine.lock().begin_render()`, excluding
     /// frame N's WW3D-update + logic-batch from frame N+1's dt and holding the
     /// sim at ~16-17 fps instead of 30 (C++ anchor: GameEngine::execute,
     /// GameEngine.cpp:774-884 — one clock per iteration). begin_render() now
@@ -429,48 +432,55 @@ impl WgpuMainRenderer {
         self.shadow_caster_submissions.clear();
         self.shadow_caster_count_hint = 0;
 
-        let result = (|| match ww3d_engine::begin_render() {
-            Ok(frame) => {
-                if let Err(err) = Self::prepare_renderer_frame(&self.renderer) {
-                    if let Err(end_err) = ww3d_engine::end_render(frame) {
-                        eprintln!(
-                            "Failed to unwind render frame after renderer init error: {end_err:?}"
-                        );
+        let result = (|| {
+            if let Some(engine) = self.engine.clone() {
+                match engine.lock().begin_render() {
+                    Ok(frame) => {
+                        if let Err(err) = Self::prepare_renderer_frame(&self.renderer) {
+                            if let Err(end_err) = engine.lock().end_render(frame) {
+                                eprintln!(
+                                    "Failed to unwind render frame after renderer init error: {end_err:?}"
+                                );
+                            }
+                            return Err(err);
+                        }
+
+                        self.pending_frame = Some(frame);
+                        self.ready_flag.store(true, Ordering::Release);
+                        return Ok(());
                     }
-                    return Err(err);
-                }
-
-                self.pending_frame = Some(frame);
-                self.ready_flag.store(true, Ordering::Release);
-                Ok(())
-            }
-            Err(EngineError::NotInitialised) => {
-                let backend = self.backend.as_mut().ok_or_else(|| {
-                    RendererError::NotInitialized(
-                        "WW3D engine not initialised and no legacy backend configured".into(),
-                    )
-                })?;
-
-                backend.begin_scene()?;
-                let clear = self.config.clear_color;
-                backend.clear(true, true, clear.truncate(), clear.w, 1.0, 0);
-
-                if let Err(err) = Self::prepare_renderer_frame(&self.renderer) {
-                    if let Err(end_err) = backend.end_scene(false) {
-                        eprintln!(
-                            "Failed to abort legacy backend frame after renderer init error: {end_err:?}"
-                        );
+                    Err(EngineError::FrameInProgress) => {
+                        return Err(RendererError::InvalidOperation(
+                            "engine frame already active".into(),
+                        ));
                     }
-                    return Err(err);
+                    Err(err) => {
+                        return Err(RendererError::RenderError(err.to_string()));
+                    }
                 }
-
-                self.ready_flag.store(true, Ordering::Release);
-                Ok(())
             }
-            Err(EngineError::FrameInProgress) => Err(RendererError::InvalidOperation(
-                "engine frame already active".into(),
-            )),
-            Err(err) => Err(RendererError::RenderError(err.to_string())),
+
+            let backend = self.backend.as_mut().ok_or_else(|| {
+                RendererError::NotInitialized(
+                    "WW3D engine not initialised and no legacy backend configured".into(),
+                )
+            })?;
+
+            backend.begin_scene()?;
+            let clear = self.config.clear_color;
+            backend.clear(true, true, clear.truncate(), clear.w, 1.0, 0);
+
+            if let Err(err) = Self::prepare_renderer_frame(&self.renderer) {
+                if let Err(end_err) = backend.end_scene(false) {
+                    eprintln!(
+                        "Failed to abort legacy backend frame after renderer init error: {end_err:?}"
+                    );
+                }
+                return Err(err);
+            }
+
+            self.ready_flag.store(true, Ordering::Release);
+            Ok(())
         })();
         if result.is_err() {
             self.discard_queued_frame_callbacks();
@@ -581,7 +591,7 @@ impl WgpuMainRenderer {
                     Ok(())
                 });
             let has_window_surface = frame.has_gpu_color_target();
-            let end_result = ww3d_engine::end_render(frame)
+            let end_result = self.engine.as_ref().expect("engine").lock().end_render(frame)
                 .map_err(|err| RendererError::RenderError(err.to_string()));
             let frame_work_result = match (frame_work_result, callback_result) {
                 (Ok(stats), Ok(())) => Ok(stats),
@@ -788,14 +798,9 @@ impl WgpuMainRenderer {
 
     /// Resize the underlying surface/headless target.
     pub fn resize(&mut self, width: u32, height: u32) -> RendererResult<()> {
-        match ww3d_engine::resize(width, height) {
-            Ok(()) => return Ok(()),
-            Err(EngineError::NotInitialised) => {
-                // fall through to the legacy path
-            }
-            Err(err) => {
-                return Err(RendererError::RenderError(err.to_string()));
-            }
+        if let Some(engine) = self.engine.clone() {
+            engine.lock().resize(width, height);
+            return Ok(());
         }
 
         let backend = self.backend.as_mut().ok_or_else(|| {
@@ -829,7 +834,11 @@ impl WgpuMainRenderer {
         if let Some(backend) = &self.backend {
             backend.device()
         } else {
-            ww3d_engine::device().expect("WW3D engine not initialised")
+            self.engine
+                .as_ref()
+                .expect("WW3D engine not initialised")
+                .lock()
+                .device()
         }
     }
 
@@ -838,7 +847,11 @@ impl WgpuMainRenderer {
         if let Some(backend) = &self.backend {
             backend.queue()
         } else {
-            ww3d_engine::queue().expect("WW3D engine not initialised")
+            self.engine
+                .as_ref()
+                .expect("WW3D engine not initialised")
+                .lock()
+                .queue()
         }
     }
 

@@ -82,7 +82,7 @@ End
 #[test]
 #[ignore = "requires native WGPU; explicit isolated airfield sale phase acceptance"]
 fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_endphase_owner() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
@@ -91,15 +91,15 @@ fn actual_airfield_sale_runs_body_die_before_native_retirement_and_checks_the_en
     struct Scope;
     impl Drop for Scope {
         fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
+            drop(engine);
         }
     }
     let _scope = Scope;
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(

@@ -3,13 +3,13 @@ use super::*;
 #[test]
 #[ignore = "requires a native GPU; run explicitly with --include-ignored"]
 fn repeated_native_post_frame_failures_finish_and_submit_each_frame() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 16,
         height: 16,
         ..Default::default()
     })
     .unwrap();
-    let mut renderer = WgpuMainRenderer::from_engine(Default::default()).unwrap();
+    let mut renderer = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).unwrap();
     let mut failures = 0;
     let mut native = |kind, _: &mut ww3d_engine::RenderFrame| {
         assert_eq!(kind, ScopedNativePass::ClientEffects);
@@ -18,33 +18,33 @@ fn repeated_native_post_frame_failures_finish_and_submit_each_frame() {
             "expected missing effect frame".into(),
         ))
     };
-    let initial_submits = ww3d_engine::total_owned_submits(&ww3d_engine::frame_submit().expect("fs").lock());
+    let initial_submits = ww3d_engine::total_owned_submits(&engine.lock().frame_submit_state().lock());
     for _ in 0..4100 {
         renderer.enqueue_scoped_post_frame_pass(ScopedNativePass::ClientEffects);
         renderer.begin_frame().unwrap();
         renderer
             .end_frame_with_scoped_native_passes(false, None, Some(&mut native))
             .unwrap();
-        assert!(!ww3d_engine::frame_is_active(&ww3d_engine::frame_submit().expect("fs").lock()));
+        assert!(!ww3d_engine::frame_is_active(&engine.lock().frame_submit_state().lock()));
     }
     drop(native);
     assert_eq!(failures, 4100);
-    assert_eq!(ww3d_engine::total_owned_submits(&ww3d_engine::frame_submit().expect("fs").lock()) - initial_submits, 4100);
+    assert_eq!(ww3d_engine::total_owned_submits(&engine.lock().frame_submit_state().lock()) - initial_submits, 4100);
     drop(renderer);
-    ww3d_engine::shutdown().unwrap();
+    drop(engine);
 }
 
 #[test]
 #[ignore = "requires a native GPU; run explicitly with --include-ignored"]
 fn failed_frame_acquisition_discards_the_unsubmitted_callbacks() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 16,
         height: 16,
         ..Default::default()
     })
     .unwrap();
-    let mut owner = WgpuMainRenderer::from_engine(Default::default()).unwrap();
-    let mut peer = WgpuMainRenderer::from_engine(Default::default()).unwrap();
+    let mut owner = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).unwrap();
+    let mut peer = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).unwrap();
     owner.enqueue_scoped_post_frame_pass(ScopedNativePass::TerrainWater);
     owner.begin_frame().unwrap();
     owner.discard_queued_frame_callbacks();
@@ -93,18 +93,18 @@ fn failed_frame_acquisition_discards_the_unsubmitted_callbacks() {
     );
     drop(peer);
     drop(owner);
-    ww3d_engine::shutdown().unwrap();
+    drop(engine);
 }
 #[test]
 #[ignore = "requires a native GPU; run explicitly with --include-ignored"]
 fn scoped_native_passes_keep_callback_positions_and_borrow_only_the_driving_frame() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 16,
         height: 16,
         ..Default::default()
     })
     .unwrap();
-    let mut renderer = WgpuMainRenderer::from_engine(Default::default()).unwrap();
+    let mut renderer = WgpuMainRenderer::from_engine(engine.clone(), Default::default()).unwrap();
     let (send, recv) = std::sync::mpsc::channel();
     let first = send.clone();
     renderer.enqueue_pre_scene_callback(move |_| {
@@ -180,7 +180,7 @@ fn scoped_native_passes_keep_callback_positions_and_borrow_only_the_driving_fram
         renderer.end_frame().is_err(),
         "required native pass has no substitute global owner"
     );
-    assert!(!ww3d_engine::frame_is_active(&ww3d_engine::frame_submit().expect("fs").lock()));
+    assert!(!ww3d_engine::frame_is_active(&engine.lock().frame_submit_state().lock()));
     drop(renderer);
-    ww3d_engine::shutdown().unwrap();
+    drop(engine);
 }

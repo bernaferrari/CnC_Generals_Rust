@@ -124,7 +124,7 @@ impl ForwardPass {
             })
     }
 
-    pub(super) fn initialize(graphics_system: &GraphicsSystem) -> Result<Self> {
+    pub(super) fn initialize(engine: ww3d_engine::SharedEngine, graphics_system: &GraphicsSystem) -> Result<Self> {
         // Initialize WW3D renderer - this may fail if engine is not initialized
         let clear_color = if std::env::var_os("GENERALS_DEBUG_WW3D_CLEAR_COLOR").is_some() {
             Vec4::new(0.0, 0.55, 0.0, 1.0)
@@ -135,14 +135,12 @@ impl ForwardPass {
             clear_color,
             ..WgpuMainRendererConfig::default()
         };
-        let renderer = WgpuMainRenderer::from_engine(renderer_config)
+        let renderer = WgpuMainRenderer::from_engine(engine.clone(), renderer_config)
             .map_err(|e| anyhow::anyhow!("Failed to initialize WW3D renderer: {e:?}"))?;
 
         // Get engine device and queue - these are Arc clones of the global engine resources
-        let device =
-            ww3d_engine::device().map_err(|e| anyhow::anyhow!("WW3D device unavailable: {e:?}"))?;
-        let queue =
-            ww3d_engine::queue().map_err(|e| anyhow::anyhow!("WW3D queue unavailable: {e:?}"))?;
+        let device = engine.lock().device();
+        let queue = engine.lock().queue();
 
         #[cfg(feature = "game_client")]
         let particle_renderer = match graphics_system.depth_format() {
@@ -449,7 +447,7 @@ impl ForwardPass {
     pub(super) fn is_ready(&self) -> bool {
         // Verify engine is still initialized by checking if we can get device/queue
         // The Arc references we hold should still be valid, but engine might have shut down
-        ww3d_engine::device().is_ok() && ww3d_engine::queue().is_ok()
+        true /* SharedEngine always exposes device/queue */
     }
 
     #[allow(unused_assignments)]
@@ -606,13 +604,23 @@ impl ForwardPass {
             let message = err.to_string();
             if message.contains("surface occluded") || message.contains("surface timeout") {
                 if std::env::var_os("GENERALS_CAMERA_GATE_REQUEST").is_some() {
-                    let handle = ww3d_engine::frame_submit().expect("WW3D frame submit state");
-                    let fs = handle.lock();
                     warn!(
                         "ForwardPass::render skipped surface acquisition: {message}; total_owned_submits={} last_frame_submit_count={} frame_is_active={}",
-                        ww3d_engine::total_owned_submits(&fs),
-                        ww3d_engine::last_frame_submit_count(&fs),
-                        ww3d_engine::frame_is_active(&fs)
+                        {
+                            let eng = self.renderer.engine.as_ref().expect("ww3d");
+                            let fs = eng.lock().frame_submit_state();
+                            ww3d_engine::total_owned_submits(&fs.lock())
+                        },
+                        {
+                            let eng = self.renderer.engine.as_ref().expect("ww3d");
+                            let fs = eng.lock().frame_submit_state();
+                            ww3d_engine::last_frame_submit_count(&fs.lock())
+                        },
+                        {
+                            let eng = self.renderer.engine.as_ref().expect("ww3d");
+                            let fs = eng.lock().frame_submit_state();
+                            ww3d_engine::frame_is_active(&fs.lock())
+                        }
                     );
                 }
                 return Ok(());

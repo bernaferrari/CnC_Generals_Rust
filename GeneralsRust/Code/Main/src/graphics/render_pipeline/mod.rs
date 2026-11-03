@@ -684,7 +684,7 @@ pub struct RenderPipeline {
     native_terrain: Option<game_client::terrain::terrain_visual::TerrainVisualImpl>,
 
     // WW3D renderer bridge
-    forward_pass: ForwardPass,
+    pub(crate) forward_pass: ForwardPass,
     #[cfg(feature = "game_client")]
     view_filter_resources: game_client::display::shader_filter::ShaderFilterResources,
     #[cfg(feature = "game_client")]
@@ -899,7 +899,7 @@ fn clear_visual_world_state_components<T>(
 
 /// Forward rendering pass powered by the WW3D renderer backend.
 pub struct ForwardPass {
-    renderer: WgpuMainRenderer,
+    pub(crate) renderer: WgpuMainRenderer,
     mesh_cache: HashMap<String, Arc<MeshModelClass>>,
     texture_cache: HashMap<String, Arc<TextureClass>>,
     pending_texture_stream: VecDeque<String>,

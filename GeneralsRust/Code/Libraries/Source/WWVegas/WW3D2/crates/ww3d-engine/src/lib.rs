@@ -12,7 +12,6 @@
 //! with proper frame timing, update phases, and rendering.
 
 use log::info;
-use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::fs::{self, File};
@@ -853,6 +852,9 @@ unsafe impl Send for Engine {}
 // unreachable.
 unsafe impl Sync for Engine {}
 
+/// Host-owned WW3D engine handle (no process singleton).
+pub type SharedEngine = Arc<Mutex<Engine>>;
+
 impl Engine {
     /// Create a windowed engine instance using the supplied surface target.
     /// Reference: ww3d.cpp:185-234 (WW3D::Init)
@@ -872,6 +874,21 @@ impl Engine {
     /// - Async device initialization
     /// - Thread-safe resource management
     /// - Cross-platform compatibility
+    pub fn new_windowed_blocking<W>(window: W, config: EngineConfig) -> EngineResult<Self>
+    where
+        W: Into<wgpu::SurfaceTarget<'static>> + Send + Sync + 'static,
+    {
+        pollster::block_on(Self::new_windowed(window, config))
+    }
+
+    pub fn new_headless_blocking(config: EngineConfig) -> EngineResult<Self> {
+        pollster::block_on(Self::new_headless(config))
+    }
+
+    pub fn into_shared(self) -> SharedEngine {
+        Arc::new(Mutex::new(self))
+    }
+
     pub async fn new_windowed<W>(window: W, config: EngineConfig) -> EngineResult<Self>
     where
         W: Into<wgpu::SurfaceTarget<'static>> + Send + Sync + 'static,
@@ -1475,6 +1492,11 @@ impl Engine {
     /// Depth-stencil format currently configured, if any.
     pub fn depth_format(&self) -> Option<wgpu::TextureFormat> {
         self._depth_format
+    }
+
+    /// Schedule a screenshot captured on the next completed frame.
+    pub fn make_screenshot<P: AsRef<Path>>(&mut self, path: P) {
+        self.queue_screenshot(path.as_ref().to_path_buf());
     }
 
     fn queue_screenshot(&mut self, path: PathBuf) {
@@ -2165,324 +2187,34 @@ fn select_alpha_mode(supported: &[wgpu::CompositeAlphaMode]) -> wgpu::CompositeA
         .unwrap_or(supported[0])
 }
 
-/// Global engine singleton mirroring the original static WW3D API.
-struct EngineRuntime(OnceCell<Mutex<Option<Engine>>>);
-impl std::ops::Deref for EngineRuntime {
-    type Target = OnceCell<Mutex<Option<Engine>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static ENGINE: EngineRuntime = EngineRuntime(OnceCell::new());
 
-fn global_engine() -> &'static Mutex<Option<Engine>> {
-    ENGINE.get_or_init(|| Mutex::new(None))
-}
-
-/// Initialise the engine with a window surface (blocking variant).
-/// Reference: ww3d.cpp:185-234 (WW3D::Init)
-///
-/// This is a blocking wrapper around the async init_with_window function.
-/// Use this when you're not in an async context.
-pub fn init_with_window_blocking<W>(window: W, config: EngineConfig) -> EngineResult<()>
+/// Initialise a windowed engine (blocking). Caller owns the returned handle.
+pub fn init_with_window_blocking<W>(window: W, config: EngineConfig) -> EngineResult<SharedEngine>
 where
     W: Into<wgpu::SurfaceTarget<'static>> + Send + Sync + 'static,
 {
-    pollster::block_on(init_with_window(window, config))
+    Ok(Engine::new_windowed_blocking(window, config)?.into_shared())
 }
 
-/// Initialise the engine with a window surface (matches WW3D::Init).
-/// Reference: ww3d.cpp:185-234, ww3d.h:72
-///
-/// This function initializes the global WW3D engine instance with a window
-/// for rendering. It must be called before any other WW3D functions.
-///
-/// # Arguments
-/// * `window` - Window surface target (platform-specific)
-/// * `config` - Engine configuration settings
-///
-/// # Errors
-/// Returns `EngineError::AlreadyInitialised` if the engine is already initialized.
-pub async fn init_with_window<W>(window: W, config: EngineConfig) -> EngineResult<()>
+/// Initialise a windowed engine. Caller owns the returned handle.
+pub async fn init_with_window<W>(window: W, config: EngineConfig) -> EngineResult<SharedEngine>
 where
     W: Into<wgpu::SurfaceTarget<'static>> + Send + Sync + 'static,
 {
-    {
-        let slot = global_engine().lock();
-        if slot.is_some() {
-            return Err(EngineError::AlreadyInitialised);
-        }
-    } // drop lock before await
-
-    let engine = Engine::new_windowed(window, config).await?;
-    *global_engine().lock() = Some(engine);
-    Ok(())
+    Ok(Engine::new_windowed(window, config).await?.into_shared())
 }
 
-/// Initialise the engine without a surface (headless).
-pub fn init_headless_blocking(config: EngineConfig) -> EngineResult<()> {
-    pollster::block_on(init_headless(config))
+/// Initialise a headless engine (blocking). Caller owns the returned handle.
+pub fn init_headless_blocking(config: EngineConfig) -> EngineResult<SharedEngine> {
+    Ok(Engine::new_headless_blocking(config)?.into_shared())
 }
 
-/// Initialise the engine without a surface (headless).
-pub async fn init_headless(config: EngineConfig) -> EngineResult<()> {
-    {
-        let slot = global_engine().lock();
-        if slot.is_some() {
-            return Err(EngineError::AlreadyInitialised);
-        }
-    } // drop lock before await
-
-    let engine = Engine::new_headless(config).await?;
-    *global_engine().lock() = Some(engine);
-    Ok(())
+/// Initialise a headless engine. Caller owns the returned handle.
+pub async fn init_headless(config: EngineConfig) -> EngineResult<SharedEngine> {
+    Ok(Engine::new_headless(config).await?.into_shared())
 }
 
-/// Shut the engine down, releasing GPU resources (matches WW3D::Shutdown).
-/// Reference: ww3d.cpp:249-300, ww3d.h:73
-///
-/// This function cleanly shuts down the WW3D engine and releases all GPU resources.
-/// After calling this, you can call init again if needed.
-///
-/// The C++ version performs:
-/// - Movie capture stop (if active)
-/// - Timer resolution restoration
-/// - Predictive LOD optimizer memory freeing
-/// - Dazzle system deinitialization
-/// - Debug resource release
-/// - Asset manager cleanup
-/// - DX8 texture manager shutdown
-/// - DX8 wrapper shutdown
-/// - Static sort lists deletion
-/// - Animation sound manager shutdown
-pub fn shutdown() -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    let Some(engine) = slot.take() else {
-        return Err(EngineError::NotInitialised);
-    };
-    Ok(())
-}
-
-/// Begin rendering a frame using the global engine singleton (matches WW3D::Begin_Render).
-/// Reference: ww3d.cpp:708-779, ww3d.h:115
-///
-/// This function must be called at the start of each frame, before any rendering.
-/// It returns a RenderFrame which must be passed to end_render().
-///
-/// # Example
-/// ```no_run
-/// # use ww3d_engine::*;
-/// # pollster::block_on(async {
-/// let mut frame = begin_render()?;
-/// // ... record rendering commands ...
-/// end_render(frame)?;
-/// # Ok::<(), EngineError>(())
-/// # });
-/// ```
-pub fn begin_render() -> EngineResult<RenderFrame> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => engine.begin_render(),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Finish rendering the current frame (matches WW3D::End_Render).
-/// Reference: ww3d.cpp:999-1041, ww3d.h:122
-///
-/// This function must be called after begin_render() to complete the frame.
-/// It submits all rendering commands and presents the result.
-///
-/// # Arguments
-/// * `frame` - The RenderFrame returned by begin_render()
-pub fn end_render(frame: RenderFrame) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => engine.end_render(frame),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Adjust the global swap interval (VSync) setting.
-pub fn set_swap_interval(interval: i32) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.set_swap_interval(interval);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Retrieve the global swap interval.
-pub fn swap_interval() -> EngineResult<i32> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.swap_interval()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Global texture reduction setter.
-pub fn set_texture_reduction(reduction: u32) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.set_texture_reduction(reduction);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Global texture reduction getter.
-pub fn texture_reduction() -> EngineResult<u32> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.texture_reduction()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Enable or disable movie capture globally.
-pub fn set_movie_capture_enabled(enabled: bool) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.set_movie_capture_enabled(enabled);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Queue a one-off movie capture frame using the global engine.
-pub fn request_single_frame_capture() -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.request_single_frame_capture();
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Configure the directory and base filename used for movie capture frames.
-pub fn set_movie_capture_output<P, S>(directory: P, base_name: S) -> EngineResult<()>
-where
-    P: AsRef<Path>,
-    S: Into<String>,
-{
-    let dir_buf = directory.as_ref().to_path_buf();
-    let name_string = base_name.into();
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.set_movie_capture_output(dir_buf, name_string);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Schedule a screenshot that will be captured on the next completed frame.
-pub fn make_screenshot<P: AsRef<Path>>(path: P) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.queue_screenshot(path.as_ref().to_path_buf());
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Notify the engine about a window resize event.
-pub fn resize(width: u32, height: u32) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.resize(width, height);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Clone the global wgpu device handle.
-
-/// Engine-owned frame-submit state (requires init). No process bridge.
-pub fn frame_submit() -> EngineResult<FrameSubmitHandle> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.frame_submit_state()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-pub fn device() -> EngineResult<Arc<wgpu::Device>> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.device()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Clone the global wgpu queue handle.
-pub fn queue() -> EngineResult<Arc<wgpu::Queue>> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.queue()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Clone the higher-level GPU device wrapper.
-pub fn gpu_device() -> EngineResult<Arc<GpuDevice>> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.gpu_device()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Fetch the current back buffer format used by the engine.
-pub fn color_format() -> EngineResult<wgpu::TextureFormat> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.color_format()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Query the global depth format if depth is enabled.
-pub fn depth_format() -> EngineResult<Option<wgpu::TextureFormat>> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.depth_format()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Report the current render surface size.
-pub fn surface_size() -> EngineResult<(u32, u32)> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.surface_size()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Query adapter information for diagnostics/UI.
-pub fn adapter_info() -> EngineResult<wgpu::AdapterInfo> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.adapter_info().clone()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Enumerate adapters matching the provided backend mask.
+/// Enumerate GPU adapters without a live engine instance.
 pub fn enumerate_adapters(backends: wgpu::Backends) -> Vec<wgpu::AdapterInfo> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends,
@@ -2498,142 +2230,6 @@ pub fn enumerate_adapters(backends: wgpu::Backends) -> Vec<wgpu::AdapterInfo> {
         .collect()
 }
 
-/// Update all engine subsystems (call before begin_render each frame)
-pub fn update() -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => engine.update(),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Get current frame timing information
-pub fn timing() -> EngineResult<FrameTiming> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.timing()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Get current FPS
-pub fn fps() -> EngineResult<f32> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.fps()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Queue an input event for processing
-pub fn queue_input(event: InputEvent) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.queue_input(event);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Set an input handler
-pub fn set_input_handler(handler: Box<dyn InputHandler>) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.set_input_handler(handler);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Register a subsystem with the global engine
-pub fn register_subsystem(subsystem: Box<dyn Subsystem>) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.register_subsystem(subsystem);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Access subsystems with a closure
-pub fn with_subsystems<F, R>(f: F) -> EngineResult<R>
-where
-    F: FnOnce(&EngineSubsystems) -> R,
-{
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(f(engine.subsystems())),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Access subsystems mutably with a closure
-pub fn with_subsystems_mut<F, R>(f: F) -> EngineResult<R>
-where
-    F: FnOnce(&mut EngineSubsystems) -> R,
-{
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => Ok(f(engine.subsystems_mut())),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Set the sync time for the current frame (matches WW3D::Sync())
-/// Reference: ww3d.cpp:1097-1101, ww3d.h:134
-///
-/// This function synchronizes the engine's internal time with the game's logical time.
-/// The application should call this at the start of every frame with the current game
-/// time in milliseconds.
-///
-/// # Arguments
-/// * `sync_time` - Current game time in milliseconds
-pub fn sync(sync_time: u32) -> EngineResult<()> {
-    let mut slot = global_engine().lock();
-    match slot.as_mut() {
-        Some(engine) => {
-            engine.sync(sync_time);
-            Ok(())
-        }
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Get the current sync time in milliseconds (matches WW3D::Get_Sync_Time())
-/// Reference: ww3d.h:135
-pub fn get_sync_time() -> EngineResult<u32> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.get_sync_time()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Get the frame time (delta) in milliseconds (matches WW3D::Get_Frame_Time())
-/// Reference: ww3d.h:136
-pub fn get_frame_time() -> EngineResult<u32> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.get_frame_time()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
-
-/// Get the current frame count (matches WW3D::Get_Frame_Count())
-/// Reference: ww3d.h:137
-pub fn get_frame_count() -> EngineResult<u64> {
-    let slot = global_engine().lock();
-    match slot.as_ref() {
-        Some(engine) => Ok(engine.get_frame_count()),
-        None => Err(EngineError::NotInitialised),
-    }
-}
 
 #[cfg(test)]
 mod tests {

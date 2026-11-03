@@ -265,12 +265,12 @@ async fn run_demo(asset_manager: AssetManager) -> Result<(), Box<dyn std::error:
     engine_config.width = initial_size.width.max(1);
     engine_config.height = initial_size.height.max(1);
 
-    ww3d_engine::init_with_window(window.clone(), engine_config).await?;
+    let engine = ww3d_engine::init_with_window(window.clone(), engine_config).await?;
 
-    let device = ww3d_engine::device()?;
-    let queue = ww3d_engine::queue()?;
-    let color_format = ww3d_engine::color_format()?;
-    let adapter_info = ww3d_engine::adapter_info()?;
+    let device = engine.lock().device()?;
+    let queue = engine.lock().queue()?;
+    let color_format = engine.lock().color_format()?;
+    let adapter_info = engine.lock().adapter_info().clone()?;
 
     println!("✅ WW3D Engine initialized successfully!");
     println!("🪟 Window: {}x{}", initial_size.width, initial_size.height);
@@ -362,7 +362,7 @@ async fn run_demo(asset_manager: AssetManager) -> Result<(), Box<dyn std::error:
     let start_time = std::time::Instant::now();
     let mut last_update = std::time::Instant::now();
 
-    if let Err(err) = ww3d_engine::set_movie_capture_output("captures", "ww3d_capture") {
+    if let Err(err) = engine.lock().set_movie_capture_output("captures", "ww3d_capture") {
         eprintln!("⚠️ Unable to configure movie capture output: {err:?}");
     }
 
@@ -378,7 +378,7 @@ async fn run_demo(asset_manager: AssetManager) -> Result<(), Box<dyn std::error:
                     ..
                 } => {
                     println!("Window close requested, exiting...");
-                    let _ = ww3d_engine::shutdown();
+                    let _ = Ok::<(), ww3d_engine::EngineError>(()) /* engine drop */;
                     elwt.exit();
                 }
                 Event::WindowEvent {
@@ -392,12 +392,12 @@ async fn run_demo(asset_manager: AssetManager) -> Result<(), Box<dyn std::error:
                         match key_event.physical_key {
                             PhysicalKey::Code(KeyCode::Escape) => {
                                 println!("Escape pressed, exiting...");
-                                let _ = ww3d_engine::shutdown();
+                                let _ = Ok::<(), ww3d_engine::EngineError>(()) /* engine drop */;
                                 elwt.exit();
                             }
                             PhysicalKey::Code(KeyCode::F10) => {
                                 movie_capture_enabled = !movie_capture_enabled;
-                                if let Err(err) = ww3d_engine::set_movie_capture_enabled(movie_capture_enabled) {
+                                if let Err(err) = engine.lock().set_movie_capture_enabled(movie_capture_enabled) {
                                     eprintln!("Failed to toggle movie capture: {err:?}");
                                 } else if movie_capture_enabled {
                                     println!(
@@ -414,7 +414,7 @@ async fn run_demo(asset_manager: AssetManager) -> Result<(), Box<dyn std::error:
                                     .as_millis();
                                 let path =
                                     PathBuf::from(format!("screenshots/ww3d_{timestamp}.png"));
-                                match ww3d_engine::make_screenshot(&path) {
+                                match engine.lock().make_screenshot(&path) {
                                     Ok(()) => println!("📸 Screenshot scheduled: {:?}", path),
                                     Err(err) => eprintln!("Failed to schedule screenshot: {err:?}"),
                                 }
@@ -427,7 +427,7 @@ async fn run_demo(asset_manager: AssetManager) -> Result<(), Box<dyn std::error:
                     event: WindowEvent::Resized(size),
                     ..
                 } => {
-                    let _ = ww3d_engine::resize(size.width, size.height);
+                    let _ = engine.lock().resize(size.width, size.height);
                 }
                 Event::AboutToWait => {
                     window.request_redraw();
@@ -445,7 +445,7 @@ async fn run_demo(asset_manager: AssetManager) -> Result<(), Box<dyn std::error:
                     // Current demo focuses on rendering pipeline and asset loading validation.
                     // C++ equivalent: SceneClass::Update and ParticleSystem::Emit
 
-                    match ww3d_engine::begin_render() {
+                    match engine.lock().begin_render() {
                         Ok(mut frame) => {
                             let color_view = frame.color_view_arc();
                             let depth_view = frame.depth_view_arc();
@@ -496,18 +496,18 @@ async fn run_demo(asset_manager: AssetManager) -> Result<(), Box<dyn std::error:
                                 render_pass.draw(0..3, 0..1);
                             }
 
-                            if let Err(err) = ww3d_engine::end_render(frame) {
+                            if let Err(err) = engine.lock().end_render(frame) {
                                 eprintln!("Failed to end render frame: {err:?}");
                             }
                         }
                         Err(err) => match err {
                             EngineError::Gpu(ww3d_gpu::GpuError::SurfaceLost) => {
                                 let size = window.inner_size();
-                                let _ = ww3d_engine::resize(size.width, size.height);
+                                let _ = engine.lock().resize(size.width, size.height);
                             }
                             EngineError::Gpu(ww3d_gpu::GpuError::OutOfMemory) => {
                                 eprintln!("GPU out of memory, shutting down.");
-                                let _ = ww3d_engine::shutdown();
+                                let _ = Ok::<(), ww3d_engine::EngineError>(()) /* engine drop */;
                                 elwt.exit();
                             }
                             other => {

@@ -31,11 +31,11 @@ impl RenderPipeline {
     }
 
     /// Initialize render pipeline - equivalent to C++ RenderPipeline::Initialize()
-    pub fn initialize(graphics_system: &GraphicsSystem) -> Result<Self> {
+    pub fn initialize(engine: ww3d_engine::SharedEngine, graphics_system: &GraphicsSystem) -> Result<Self> {
         info!("Initializing RenderPipeline (C++ SAGE equivalent)");
 
         // Initialize forward pass
-        let forward_pass = ForwardPass::initialize(graphics_system)?;
+        let forward_pass = ForwardPass::initialize(engine, graphics_system)?;
         let (ambient_light, sun_color, sun_direction) = graphics_system.current_lighting();
         let initial_lighting = CachedLighting {
             #[cfg(feature = "game_client")]
