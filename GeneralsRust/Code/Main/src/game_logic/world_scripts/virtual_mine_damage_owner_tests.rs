@@ -468,3 +468,43 @@ fn authored_mine_deadlines_wrap_without_treating_zero_as_uninitialized() {
         "next authored pulse uses unsigned arithmetic too"
     );
 }
+
+#[test]
+fn land_mine_splash_uses_land_mine_type_not_unresistable() {
+    // MinefieldBehavior.cpp:254 fires detonationWeapon (StructureMineWeapon =
+    // DAMAGE_LAND_MINE). Body drain after detonation is DAMAGE_UNRESISTABLE.
+    let (mut world, id) = mine_world();
+    let victim_id = ObjectId(77101);
+    let mut template = ThingTemplate::new("MineSplashTypeVictim");
+    template.set_health(500.0).add_kind_of(KindOf::Infantry);
+    let mut victim = Object::new(template, victim_id, Team::USA);
+    victim.set_position(Vec3::X);
+    world.objects.insert(victim_id, victim);
+    {
+        let mine = world.objects.get_mut(&id).unwrap();
+        let data = mine.mine_data.as_mut().unwrap();
+        data.regenerates = true;
+        data.num_virtual_mines = 5;
+        data.virtual_mines_remaining = 5;
+        data.detonation_damage = 40.0;
+        data.detonation_radius = 25.0;
+    }
+    world.frame = 44;
+    assert!(world.trip_virtual_land_mine(id, Vec3::ZERO));
+    let victim = &world.objects[&victim_id];
+    assert!(
+        victim.health.current < 500.0,
+        "infantry must take authored mine splash"
+    );
+    assert_eq!(
+        victim.last_damage_info_type,
+        Some(crate::game_logic::combat::DamageType::LandMine),
+        "splash must carry weapon LandMine type, not Unresistable"
+    );
+    let mine = &world.objects[&id];
+    assert_eq!(
+        mine.last_damage_info_type,
+        Some(crate::game_logic::combat::DamageType::Unresistable),
+        "virtual-charge Body drain stays Unresistable (MinefieldBehavior.cpp:284)"
+    );
+}
