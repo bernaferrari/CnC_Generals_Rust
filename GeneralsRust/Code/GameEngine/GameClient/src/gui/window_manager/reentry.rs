@@ -76,6 +76,10 @@ struct WindowManagerOwnerState {
     >,
     /// Skirmish map-select layout slot (was process TLS).
     skirmish_map_select_layout: RefCell<Option<Rc<RefCell<crate::gui::WindowLayout>>>>,
+    /// Skirmish map-select menu state (was process TLS).
+    skirmish_map_select_state: std::sync::Arc<
+        std::sync::Mutex<crate::gui::callbacks::skirmish_map_select_menu::SkirmishMapSelectState>,
+    >,
     /// LAN game options menu state (was process TLS).
     lan_game_options: RefCell<crate::gui::callbacks::lan_game_options_menu::LanGameOptionsState>,
     /// LAN map-select layout slot (was process TLS).
@@ -177,6 +181,9 @@ impl WindowManagerOwner {
                     crate::gui::callbacks::skirmish_game_options_menu::SkirmishGameOptionsState::default(),
                 ),
                 skirmish_map_select_layout: RefCell::new(None),
+                skirmish_map_select_state: std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::gui::callbacks::skirmish_map_select_menu::SkirmishMapSelectState::default(),
+                )),
                 lan_game_options: RefCell::new(
                     crate::gui::callbacks::lan_game_options_menu::LanGameOptionsState::default(),
                 ),
@@ -296,6 +303,14 @@ impl WindowManagerOwner {
         f: impl FnOnce(&mut Option<Rc<RefCell<crate::gui::WindowLayout>>>) -> R,
     ) -> R {
         f(&mut self.state.skirmish_map_select_layout.borrow_mut())
+    }
+
+    pub(crate) fn skirmish_map_select_state_handle(
+        &self,
+    ) -> std::sync::Arc<
+        std::sync::Mutex<crate::gui::callbacks::skirmish_map_select_menu::SkirmishMapSelectState>,
+    > {
+        self.state.skirmish_map_select_state.clone()
     }
 
     pub(crate) fn with_lan_game_options_mut<R>(

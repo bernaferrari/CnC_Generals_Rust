@@ -369,3 +369,8 @@ note = "DisplayStringManager on WindowManagerOwner; removed process TLS; peels u
 path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-core/src/ww3d.rs"
 cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/ww3d.h"
 note = "RENDERER_STORAGE off TLS onto Arc<Mutex> RendererStorageSlot; RendererBackend: Send; WgpuCoreBridge FrameStats Arc<Mutex>; old-style WWVegas TLS 2→0."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/skirmish_map_select_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/SkirmishMapSelectMenu.cpp"
+note = "SkirmishMapSelectState on WindowManagerOwner; removed process TLS; peels use live-client loan / cfg(test) TLS fallback."
