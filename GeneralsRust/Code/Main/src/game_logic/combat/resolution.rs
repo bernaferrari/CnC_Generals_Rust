@@ -336,6 +336,17 @@ impl CombatSystem {
         // firing owner accepted the shot. A moving detonation's self-position
         // rule is resolved later from this world's effective weapon content.
         let primary_victim = projectile.target_id;
+        // Launch-time source_team is authoritative when set. Fixture/direct
+        // fire_projectile_ex paths leave Neutral; fall back to the live launcher
+        // so radius relationship masks still match C++ getRelationship.
+        let launcher_team = live.map(|o| o.team).unwrap_or(projectile.source_team);
+        let shooter_team = if moving_projectile
+            && projectile.source_team != crate::game_logic::Team::Neutral
+        {
+            projectile.source_team
+        } else {
+            launcher_team
+        };
         DamageEvent::Area {
             position,
             damage: projectile.damage,
@@ -350,11 +361,7 @@ impl CombatSystem {
             shock_wave_radius: projectile.shock_wave_radius,
             shock_wave_taper_off: projectile.shock_wave_taper_off,
             radius_damage_affects: projectile.radius_damage_affects,
-            shooter_team: if moving_projectile {
-                projectile.source_team
-            } else {
-                live.map(|o| o.team).unwrap_or(projectile.source_team)
-            },
+            shooter_team,
             shooter_owner_player_id: if moving_projectile {
                 projectile.source_owner_player_id
             } else {
@@ -760,10 +767,13 @@ impl CombatSystem {
                             continue;
                         }
                         let is_primary = *primary_victim == Some(*vid);
-                        let kills_self = *radius_source_present && (*radius_damage_affects
-                            & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF)
-                            != 0
-                            && *vid == *radius_source_id;
+                        // C++ WEAPON_KILLS_SELF destroys the firing Object
+                        // (launcher), never the transient projectile identity.
+                        let kills_self = *radius_source_present
+                            && (*radius_damage_affects
+                                & crate::game_logic::host_ai_path_combat_residual_wave105::WEAPON_KILLS_SELF)
+                                != 0
+                            && *vid == *shooter_id;
                         if *radius_source_present && !is_primary && !kills_self {
                             let airborne = obj.is_significantly_above_terrain();
                             let same_tmpl =

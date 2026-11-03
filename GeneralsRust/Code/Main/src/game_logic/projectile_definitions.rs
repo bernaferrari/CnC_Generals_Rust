@@ -639,10 +639,13 @@ mod tests {
 /// never seeds named projectiles or reads disk during queue/materialization.
 #[cfg(test)]
 pub(in crate::game_logic) fn fixture_projectile_definitions() -> ProjectileDefinitions {
-    let mut parser = crate::assets::IniParser::new();
-    parser
-        .parse_ini_content(
-            r#"
+    use std::sync::Arc;
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let mut parser = crate::assets::IniParser::new();
+        parser
+            .parse_ini_content(
+                r#"
 Object RangerFlashBangGrenade
  Behavior = DumbProjectileBehavior AuthoredGrenade
  MaxLifespan = 10000
@@ -674,13 +677,14 @@ Object StingerMissile
  End
 End
 "#,
-            "explicit-projectile-fixture.ini",
-        )
-        .unwrap();
-    let mut definitions = ProjectileDefinitions::default();
-    let gravity = crate::game_logic::physics_rules::default_host_physics_rules().gravity;
-    for (name, row) in parser.get_all_definitions() {
-        definitions.admit_definition(name, row, gravity).unwrap();
-    }
-    definitions
+                "explicit-projectile-fixture.ini",
+            )
+            .unwrap();
+        let mut definitions = ProjectileDefinitions::default();
+        let gravity = crate::game_logic::physics_rules::default_host_physics_rules().gravity;
+        for (name, row) in parser.get_all_definitions() {
+            definitions.admit_definition(name, row, gravity).unwrap();
+        }
+        definitions
+    })
 }

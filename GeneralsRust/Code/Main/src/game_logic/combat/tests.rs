@@ -322,8 +322,8 @@ pub(in crate::game_logic) mod tests {
         projectile.missile_kill_self_started_frame = Some(0);
         projectile.lifetime = 2.0 / 30.0;
         owner.frame = 2;
-        let mut projection = GameWorldShadow::new(64);
-        projection.sync_from_host(&owner);
+        let mut projection = owner.with_own_services(|| GameWorldShadow::new(64));
+        owner.with_own_services_mut(|owner| projection.sync_from_host(owner));
         let observed = projection
             .world()
             .projectiles()

@@ -243,7 +243,10 @@ pub(crate) fn host_object_is_shrouded_for_local(id: u32) -> bool {
     // C++ PartitionManager.cpp:3017-3023 fails closed: a negative player index
     // or a missing cell reports SHROUDED. An unanswerable query here must
     // suppress host FX, never leak it.
-    let player = gamelogic::player::player_list()
+    let Some(list) = gamelogic::player::try_player_list() else {
+        return true;
+    };
+    let player = list
         .read()
         .ok()
         .map(|list| list.get_local_player_index())

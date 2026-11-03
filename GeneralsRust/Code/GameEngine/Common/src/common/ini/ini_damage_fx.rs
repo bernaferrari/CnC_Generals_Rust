@@ -825,27 +825,31 @@ impl DamageFXStore {
 /// Get reference to global damage FX store
 /// Get mutable reference to global damage FX store
 
-fn ini_damage_fx_cell() -> std::sync::Arc<std::sync::RwLock<DamageFXStore>> {
-    std::sync::Arc::clone(&crate::common::common_services::common_services().ini.damage_fx)
+fn ini_damage_fx_cell() -> Option<std::sync::Arc<std::sync::RwLock<DamageFXStore>>> {
+    // Fail closed when CommonServices is unbound (unit combat paths).
+    crate::common::common_services::try_common_services()
+        .map(|services| std::sync::Arc::clone(&services.ini.damage_fx))
 }
 
 /// Initialize the damage FX store on the published CommonServices.
 pub fn init_global_damage_fx_store() {
-    let cell = ini_damage_fx_cell();
+    let Some(cell) = ini_damage_fx_cell() else {
+        return;
+    };
     let mut guard = cell.write().expect("DamageFXStore poisoned");
     guard.init();
 }
 
 /// Get reference to the instance damage FX store
 pub fn get_damage_fx_store() -> Option<RwLockReadGuard<'static, DamageFXStore>> {
-    let cell = ini_damage_fx_cell();
+    let cell = ini_damage_fx_cell()?;
     let guard = cell.read().expect("DamageFXStore poisoned");
     Some(unsafe { std::mem::transmute(guard) })
 }
 
 /// Get mutable reference to the instance damage FX store
 pub fn get_damage_fx_store_mut() -> Option<RwLockWriteGuard<'static, DamageFXStore>> {
-    let cell = ini_damage_fx_cell();
+    let cell = ini_damage_fx_cell()?;
     let guard = cell.write().expect("DamageFXStore poisoned");
     Some(unsafe { std::mem::transmute(guard) })
 }
