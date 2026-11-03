@@ -302,3 +302,8 @@ path = "Code/GameEngine/GameClient/src/gui/callbacks/popup_communicator.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupCommunicator.cpp"
 note = "PopupCommunicatorState + residuals on WindowManagerOwner; removed process TLS/atomics; peels use owner or live-client loan."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/generals_exp_points.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/GeneralsExpPoints.cpp"
+note = "GeneralsExp residual peels on WindowManagerOwner; removed process residual atomics."
+

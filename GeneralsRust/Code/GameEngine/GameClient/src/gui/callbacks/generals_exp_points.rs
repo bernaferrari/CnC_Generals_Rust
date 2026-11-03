@@ -72,56 +72,102 @@ pub enum ResidualGeneralsExpAction {
     Esc = 4,
 }
 
-static RESIDUAL_GENEXP_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_GENEXP_VISIBLE: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct GeneralsExpResidualState {
+    action: u8,
+    visible: bool,
+}
 
-fn residual_genexp_action_store(action: ResidualGeneralsExpAction) {
-    RESIDUAL_GENEXP_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+#[cfg(test)]
+thread_local! {
+    static TEST_GENEXP_RESIDUAL: std::cell::Cell<GeneralsExpResidualState> =
+        std::cell::Cell::new(GeneralsExpResidualState { action: 0, visible: false });
+}
+
+fn with_genexp_residual_mut<R>(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+    f: impl FnOnce(&mut GeneralsExpResidualState) -> R,
+) -> R {
+    let mut f = Some(f);
+    if let Some(owner) = owner {
+        return owner.with_generals_exp_residual_mut(|state| f.take().expect("genexp")(state));
+    }
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_generals_exp_residual_mut(|state| f.take().expect("genexp")(state))
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_GENEXP_RESIDUAL.with(|slot| {
+            let mut state = slot.get();
+            let out = f.take().expect("genexp")(&mut state);
+            slot.set(state);
+            out
+        });
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("genexp")(&mut GeneralsExpResidualState::default())
+    }
+}
+
+fn residual_genexp_action_store(state: &mut GeneralsExpResidualState, action: ResidualGeneralsExpAction) {
+    state.action = action as u8;
 }
 
 /// Residual: last GeneralsExp residual action.
 pub fn residual_generals_exp_last_action() -> ResidualGeneralsExpAction {
-    match RESIDUAL_GENEXP_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+    with_genexp_residual_mut(None, |state| match state.action {
         1 => ResidualGeneralsExpAction::Bind,
         2 => ResidualGeneralsExpAction::Exit,
         3 => ResidualGeneralsExpAction::ScienceClick,
         4 => ResidualGeneralsExpAction::Esc,
         _ => ResidualGeneralsExpAction::None,
-    }
+    })
 }
 
 /// Residual: GeneralsExp / purchase-science visibility latch.
 pub fn residual_generals_exp_is_visible() -> bool {
-    RESIDUAL_GENEXP_VISIBLE.load(std::sync::atomic::Ordering::Relaxed)
+    with_genexp_residual_mut(None, |state| state.visible)
 }
 
 /// Residual: bind GeneralsExpPoints control IDs (no layout load).
 pub fn simulate_generals_exp_bind_controls() -> bool {
     let _ = NameKeyGenerator::name_to_key("GeneralsExpPoints.wnd:ButtonExit");
-    residual_genexp_action_store(ResidualGeneralsExpAction::Bind);
+    with_genexp_residual_mut(None, |state| {
+        residual_genexp_action_store(state, ResidualGeneralsExpAction::Bind);
+    });
     true
 }
 
 /// Residual: show purchase-science residual without ControlBar layout create.
 pub fn simulate_generals_exp_show() -> bool {
     let _ = simulate_generals_exp_bind_controls();
-    RESIDUAL_GENEXP_VISIBLE.store(true, std::sync::atomic::Ordering::Relaxed);
+    with_genexp_residual_mut(None, |state| {
+        state.visible = true;
+    });
     residual_generals_exp_is_visible()
 }
 
 /// Residual: fire ButtonExit without hide_purchase_science side effects.
 pub fn simulate_generals_exp_exit_button_gadget_selected() -> bool {
     let _ = simulate_generals_exp_bind_controls();
-    RESIDUAL_GENEXP_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
-    residual_genexp_action_store(ResidualGeneralsExpAction::Exit);
+    with_genexp_residual_mut(None, |state| {
+        state.visible = false;
+        residual_genexp_action_store(state, ResidualGeneralsExpAction::Exit);
+    });
     !residual_generals_exp_is_visible()
 }
 
 /// Residual: ESC hide residual (same exit path).
 pub fn simulate_generals_exp_esc() -> bool {
-    RESIDUAL_GENEXP_VISIBLE.store(false, std::sync::atomic::Ordering::Relaxed);
-    residual_genexp_action_store(ResidualGeneralsExpAction::Esc);
+    with_genexp_residual_mut(None, |state| {
+        state.visible = false;
+        residual_genexp_action_store(state, ResidualGeneralsExpAction::Esc);
+    });
     !residual_generals_exp_is_visible()
 }
 
@@ -129,7 +175,9 @@ pub fn simulate_generals_exp_esc() -> bool {
 pub fn simulate_generals_exp_science_button_gadget_selected(control_id: u32) -> bool {
     let _ = control_id;
     let _ = simulate_generals_exp_bind_controls();
-    residual_genexp_action_store(ResidualGeneralsExpAction::ScienceClick);
+    with_genexp_residual_mut(None, |state| {
+        residual_genexp_action_store(state, ResidualGeneralsExpAction::ScienceClick);
+    });
     true
 }
 

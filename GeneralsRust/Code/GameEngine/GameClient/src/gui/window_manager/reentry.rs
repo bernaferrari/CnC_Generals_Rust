@@ -58,6 +58,10 @@ struct WindowManagerOwnerState {
     >,
     /// PopupCommunicator menu + residual peels (was process TLS/atomics).
     popup_communicator: RefCell<crate::gui::callbacks::popup_communicator::PopupCommunicatorState>,
+    /// GeneralsExpPoints residual peels (was process atomics).
+    generals_exp_residual: std::cell::Cell<
+        crate::gui::callbacks::generals_exp_points::GeneralsExpResidualState,
+    >,
     /// Offline network stub queues / facade (not(feature = "network")).
     #[cfg(not(feature = "network"))]
     network_compat: crate::game_network_compat::NetworkCompatState,
@@ -130,6 +134,9 @@ impl WindowManagerOwner {
                 popup_communicator: RefCell::new(
                     crate::gui::callbacks::popup_communicator::PopupCommunicatorState::default(),
                 ),
+                generals_exp_residual: std::cell::Cell::new(
+                    crate::gui::callbacks::generals_exp_points::GeneralsExpResidualState::default(),
+                ),
                 #[cfg(not(feature = "network"))]
                 network_compat: crate::game_network_compat::NetworkCompatState::new(),
             }),
@@ -161,6 +168,18 @@ impl WindowManagerOwner {
         f: impl FnOnce(&mut crate::gui::callbacks::popup_communicator::PopupCommunicatorState) -> R,
     ) -> R {
         f(&mut self.state.popup_communicator.borrow_mut())
+    }
+
+    pub(crate) fn with_generals_exp_residual_mut<R>(
+        &self,
+        f: impl FnOnce(
+            &mut crate::gui::callbacks::generals_exp_points::GeneralsExpResidualState,
+        ) -> R,
+    ) -> R {
+        let mut state = self.state.generals_exp_residual.get();
+        let out = f(&mut state);
+        self.state.generals_exp_residual.set(state);
+        out
     }
 
     /// Offline network stub state for this client (`not(feature = "network")`).
