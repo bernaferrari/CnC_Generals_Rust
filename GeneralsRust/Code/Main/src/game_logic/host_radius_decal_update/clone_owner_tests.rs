@@ -17,11 +17,12 @@ fn world() -> (GameLogic, ObjectId) {
 }
 
 fn rendered_at(position: Vec3) -> bool {
-    game_client::radius_decal::get_projected_shadow_manager()
-        .read()
-        .collect_render_items()
-        .iter()
-        .any(|item| item.position == position && item.texture_name == SCUD_STORM_DECAL_TEXTURE)
+    game_client::radius_decal::with_projected_shadow_manager(|m| {
+        m.collect_render_items()
+            .iter()
+            .any(|item| item.position == position && item.texture_name == SCUD_STORM_DECAL_TEXTURE)
+    })
+    .unwrap_or(false)
 }
 
 #[test]

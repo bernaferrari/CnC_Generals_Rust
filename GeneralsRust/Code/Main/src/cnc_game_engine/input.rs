@@ -165,9 +165,7 @@ impl CnCGameEngine {
             // (Retina) backbuffer leaves them painting the top-left quadrant.
             let (logical_w, logical_h) =
                 super::types::logical_surface_extent(new_size, self.window.scale_factor());
-            if let Err(err) = ww3d_engine::resize(logical_w, logical_h) {
-                warn!("WW3D resize failed: {err:?}");
-            }
+            self.ww3d.lock().resize(logical_w, logical_h);
 
             if let Err(error) = self
                 .game_logic
@@ -2460,10 +2458,7 @@ impl CnCGameEngine {
             return;
         };
         // C++ WW3D::Set_Device_Resolution + Render2DClass::Set_Screen_Resolution.
-        if let Err(err) = ww3d_engine::resize(mode.xres.max(1), mode.yres.max(1)) {
-            warn!("W3DDisplay setDisplayMode device resize failed: {err:?}");
-            return;
-        }
+        self.ww3d.lock().resize(mode.xres.max(1), mode.yres.max(1));
         // C++ TheDisplay width/height is the logical client size; winit maps it
         // to the physical backbuffer via scale_factor, so request LogicalSize.
         let logical = winit::dpi::LogicalSize::new(f64::from(mode.xres), f64::from(mode.yres));
@@ -2505,13 +2500,7 @@ impl CnCGameEngine {
                 .fx_mut()
                 .write_backbuffer_screenshot(&path)
             {
-                if let Err(err) = ww3d_engine::make_screenshot(&path) {
-                    warn!("W3DDisplay takeScreenShot failed: {err:?}");
-                    self.game_client
-                        .script_display_receiver()
-                        .fx_mut()
-                        .queue_screenshot(path);
-                }
+                self.ww3d.lock().make_screenshot(&path);
             }
         }
         // C++ WW3D::Toggle_Movie_Capture("Movie", 30) dumps the presented framebuffer.
@@ -2528,11 +2517,11 @@ impl CnCGameEngine {
                 .write_backbuffer_movie_frame()
             {
                 let dir = game_client::display::display_fx::movie_capture_dir();
-                let _ = ww3d_engine::set_movie_capture_output(&dir, "Movie");
-                let _ = ww3d_engine::set_movie_capture_enabled(true);
+                self.ww3d.lock().set_movie_capture_output(dir.clone(), "Movie".to_string());
+                self.ww3d.lock().set_movie_capture_enabled(true);
             }
         } else {
-            let _ = ww3d_engine::set_movie_capture_enabled(false);
+            self.ww3d.lock().set_movie_capture_enabled(false);
         }
     }
 

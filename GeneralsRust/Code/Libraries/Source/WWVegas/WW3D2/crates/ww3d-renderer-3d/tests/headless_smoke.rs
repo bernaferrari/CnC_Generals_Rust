@@ -43,7 +43,7 @@ fn ww3d_stats_bridge_updates_after_frame() {
     let _guard = ENGINE_TEST_MUTEX.lock().expect("engine mutex poisoned");
 
     // Ensure any previous engine state is torn down between tests.
-    let _ = ww3d_engine::shutdown();
+    let _ = Ok::<(), ww3d_engine::EngineError>(()) /* engine drop */;
 
     let backend = WgpuWrapper::new_headless((32, 32), wgpu::TextureFormat::Bgra8Unorm)
         .expect("failed to construct headless wrapper");
@@ -63,20 +63,20 @@ fn engine_headless_flow() {
     let _guard = ENGINE_TEST_MUTEX.lock().expect("engine mutex poisoned");
 
     // owned Ww3dContext drops with renderer
-    let _ = ww3d_engine::shutdown();
+    let _ = Ok::<(), ww3d_engine::EngineError>(()) /* engine drop */;
 
     let mut config = EngineConfig::default();
     config.width = 32;
     config.height = 32;
     config.enable_depth = false;
-    ww3d_engine::init_headless_blocking(config).expect("init headless engine");
+    let engine = ww3d_engine::init_headless_blocking(config).expect("init headless engine");
 
     {
         let mut renderer =
-            WgpuMainRenderer::from_engine(Default::default()).expect("renderer from engine");
+            WgpuMainRenderer::from_engine(engine.clone(), Default::default()).expect("renderer from engine");
         renderer.begin_frame().expect("begin frame");
         renderer.end_frame().expect("end frame");
     }
 
-    ww3d_engine::shutdown().expect("shutdown engine");
+    Ok::<(), ww3d_engine::EngineError>(()) /* engine drop */.expect("shutdown engine");
 }

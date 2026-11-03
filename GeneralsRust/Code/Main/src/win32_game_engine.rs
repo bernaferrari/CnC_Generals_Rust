@@ -429,10 +429,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             self.render_game_objects(&mut render_pass);
         }
 
-        let handle = ww3d_engine::frame_submit().expect("WW3D frame submit state");
-        let fs = handle.lock();
+        let submit_state = ww3d_engine::FrameSubmitState::new();
         ww3d_engine::submit_recorded(
-            &fs,
+            &submit_state,
             &self.queue,
             ww3d_engine::FrameCommandPhase::Overlay,
             encoder.finish(),

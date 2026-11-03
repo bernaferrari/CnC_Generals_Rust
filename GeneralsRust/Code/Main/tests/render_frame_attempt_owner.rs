@@ -122,17 +122,17 @@ fn execute(
 #[test]
 #[ignore = "requires a native GPU; run explicitly with --ignored"]
 fn failed_collection_discards_only_its_frame_work_before_retry() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
     })
     .unwrap();
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     let mut owner = RenderPipeline::initialize(&graphics).unwrap();
@@ -188,5 +188,5 @@ fn failed_collection_discards_only_its_frame_work_before_retry() {
     );
     drop(peer);
     drop(owner);
-    ww3d_engine::shutdown().unwrap();
+    drop(engine);
 }

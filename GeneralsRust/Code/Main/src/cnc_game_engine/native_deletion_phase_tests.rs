@@ -14,7 +14,7 @@ fn actual_observer_preserves_pending_native_deletion_without_a_physical_owner() 
 }
 
 fn deletion_phase_scene(recrew: bool) {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
@@ -23,15 +23,15 @@ fn deletion_phase_scene(recrew: bool) {
     struct Scope;
     impl Drop for Scope {
         fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
+            drop(engine);
         }
     }
     let _scope = Scope;
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
@@ -226,7 +226,7 @@ fn deletion_phase_scene(recrew: bool) {
 #[test]
 #[ignore = "requires native WGPU; explicit isolated AI startup deletion phase acceptance"]
 fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_checked_endphase() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
@@ -235,15 +235,15 @@ fn actual_ai_startup_build_callbacks_keep_map_cc_and_unrelated_drawables_until_c
     struct Scope;
     impl Drop for Scope {
         fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
+            drop(engine);
         }
     }
     let _scope = Scope;
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(

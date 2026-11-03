@@ -254,12 +254,12 @@ unsafe impl Send for OcclusionOverlayRenderer {}
 unsafe impl Sync for OcclusionOverlayRenderer {}
 
 impl OcclusionOverlayRenderer {
-    fn new() -> Option<Self> {
-        let device = ww3d_engine::device().ok()?;
-        let queue = ww3d_engine::queue().ok()?;
-        let depth_format = ww3d_engine::depth_format()
-            .ok()
-            .flatten()
+    fn new(engine: &ww3d_engine::SharedEngine) -> Option<Self> {
+        let eng = engine.lock();
+        let device = eng.device();
+        let queue = eng.queue();
+        let depth_format = eng
+            .depth_format()
             .unwrap_or(wgpu::TextureFormat::Depth32Float);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -462,7 +462,8 @@ pub fn enqueue_occluded_player_color_pass(
     if overlays.is_empty() {
         return;
     }
-    let Some(renderer) = OcclusionOverlayRenderer::new() else {
+    let Some(engine) = pipeline.forward_pass.renderer.engine.clone() else { return; };
+    let Some(renderer) = OcclusionOverlayRenderer::new(&engine) else {
         return;
     };
     let renderer = Arc::new(renderer);

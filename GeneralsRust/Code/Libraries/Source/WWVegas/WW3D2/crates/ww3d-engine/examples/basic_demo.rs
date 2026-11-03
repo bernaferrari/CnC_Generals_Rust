@@ -56,13 +56,7 @@ impl InputHandler for DemoInputHandler {
 
                 // Take screenshot on 'S' key
                 if key == "S" || key == "s" {
-                    let screenshot_path =
-                        format!("screenshot_{}.png", Instant::now().elapsed().as_millis());
-                    if let Err(e) = make_screenshot(&screenshot_path) {
-                        eprintln!("Failed to queue screenshot: {:?}", e);
-                    } else {
-                        println!("Screenshot queued: {}", screenshot_path);
-                    }
+                    println!("Screenshot key pressed (host queues via SharedEngine)");
                 }
             }
             InputEvent::KeyReleased { key } => {
@@ -97,25 +91,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
 
-    // Initialize headless engine (can also use init_with_window for windowed mode)
-    init_headless_blocking(config)?;
+    // Initialize headless engine (caller owns the handle; no process singleton).
+    let engine = init_headless_blocking(config)?;
 
     println!("Engine initialized successfully!");
 
     // Print adapter info
-    let adapter = adapter_info()?;
+    let adapter = engine.lock().adapter_info().clone();
     println!("GPU Adapter: {} ({:?})", adapter.name, adapter.backend);
 
     // Register subsystems
     println!("\nRegistering subsystems...");
 
     let game_subsystem = Box::new(GameSubsystem::new());
-    register_subsystem(game_subsystem)?;
+    engine.lock().register_subsystem(game_subsystem);
     println!("- Game subsystem registered");
 
     // Set input handler
     let input_handler = Box::new(DemoInputHandler);
-    set_input_handler(input_handler)?;
+    engine.lock().set_input_handler(input_handler);
     println!("- Input handler registered");
 
     println!("\nStarting main loop (will run 300 frames)...");
@@ -126,30 +120,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for frame_num in 0..MAX_FRAMES {
         // Simulate some input events periodically
         if frame_num == 60 {
-            queue_input(InputEvent::KeyPressed {
+            engine.lock().queue_input(InputEvent::KeyPressed {
                 key: "A".to_string(),
-            })?;
+            });
         }
 
         if frame_num == 120 {
-            queue_input(InputEvent::MousePressed {
+            engine.lock().queue_input(InputEvent::MousePressed {
                 button: 0,
                 x: 640.0,
                 y: 360.0,
-            })?;
+            });
         }
 
         if frame_num == 180 {
-            queue_input(InputEvent::KeyPressed {
+            engine.lock().queue_input(InputEvent::KeyPressed {
                 key: "S".to_string(), // Trigger screenshot
-            })?;
+            });
+            let screenshot_path =
+                format!("screenshot_{}.png", Instant::now().elapsed().as_millis());
+            engine.lock().make_screenshot(&screenshot_path);
+            println!("Screenshot queued: {}", screenshot_path);
         }
 
         // Update all subsystems
-        update()?;
+        engine.lock().update()?;
 
         // Begin rendering
-        let mut frame = begin_render()?;
+        let mut frame = engine.lock().begin_render()?;
 
         // Clear the screen to a blue color
         {
@@ -189,11 +187,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // End rendering (presents the frame)
-        end_render(frame)?;
+        engine.lock().end_render(frame)?;
 
         // Display progress
         if frame_num % 60 == 0 {
-            let timing = timing()?;
+            let timing = engine.lock().timing();
             println!(
                 "Frame {}/{}, FPS: {:.1}, Delta: {:.2}ms",
                 frame_num,
@@ -206,15 +204,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Get final stats
     println!("\n=== Final Statistics ===");
-    let final_timing = timing()?;
+    let final_timing = engine.lock().timing();
     println!("Total frames: {}", final_timing.frame_number);
     println!("Total time: {:.2}s", final_timing.total_seconds());
     println!("Final FPS: {:.1}", final_timing.fps);
-    println!("Surface size: {:?}", surface_size()?);
+    println!("Surface size: {:?}", engine.lock().surface_size());
 
-    // Shutdown
+    // Drop the shared handle (no process shutdown façade).
     println!("\nShutting down...");
-    shutdown()?;
+    drop(engine);
 
     println!("Demo completed successfully!");
     Ok(())

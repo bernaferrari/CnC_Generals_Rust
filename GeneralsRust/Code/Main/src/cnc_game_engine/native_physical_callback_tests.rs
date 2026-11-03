@@ -85,7 +85,7 @@ impl NativeViewEffects for DestructionProbe<'_, '_> {
 #[test]
 #[ignore = "requires native WGPU; explicit isolated physical callback acceptance"]
 fn actual_native_destructor_observes_unregistered_object_and_terminal_service_failure() {
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
@@ -94,15 +94,15 @@ fn actual_native_destructor_observes_unregistered_object_and_terminal_service_fa
     struct Scope;
     impl Drop for Scope {
         fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
+            drop(engine);
         }
     }
     let _scope = Scope;
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(
@@ -435,7 +435,7 @@ fn actual_team_creation_panic_retains_exact_team_partial_native_life_and_peer() 
     use gamelogic::scripting::core::{
         Parameter, ParameterType, Script, ScriptAction, ScriptActionType, ScriptList,
     };
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
@@ -444,15 +444,15 @@ fn actual_team_creation_panic_retains_exact_team_partial_native_life_and_peer() 
     struct Scope;
     impl Drop for Scope {
         fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
+            drop(engine);
         }
     }
     let _scope = Scope;
     let mut graphics = GraphicsSystem::new(
-        ww3d_engine::device().unwrap(),
-        ww3d_engine::queue().unwrap(),
-        ww3d_engine::color_format().unwrap(),
-        ww3d_engine::depth_format().unwrap(),
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )
     .unwrap();
     graphics.cache_model(

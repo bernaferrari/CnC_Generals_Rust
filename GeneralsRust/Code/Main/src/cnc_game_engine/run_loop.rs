@@ -169,7 +169,7 @@ pub async fn run_cnc_game(
     let mut next_redraw_at = Instant::now();
     let mut last_slow_frame_log = None::<Instant>;
     /// Frame-start Instant of the previous drive_frame that fed the logic dt
-    /// chain (ww3d_engine::update() + update_with_timing). Anchors the
+    /// chain (engine.ww3d.lock().update() + update_with_timing). Anchors the
     /// DT-CHAIN GUARD inside drive_frame: engine.update_with_timing must
     /// receive the true elapsed since the PREVIOUS frame start, never a span
     /// cut short by a mid-frame clock stamp. C++ anchor: GameEngine::execute
@@ -233,7 +233,7 @@ pub async fn run_cnc_game(
                     bridge.publish_status(&snapshot);
                 }
                 if engine.take_runtime_host_pending_capture() {
-                    bridge.force_capture_request();
+                    bridge.force_capture_request(&engine.ww3d);
                 }
                 let _ = applied;
             }
@@ -252,14 +252,8 @@ pub async fn run_cnc_game(
                 if matches!(engine.get_state(), GameState::Menu) {
                     log::trace!("drive_frame: pre ww3d_engine::update Menu");
                 }
-                let timing = match ww3d_engine::update() {
-                    Ok(_) => match ww3d_engine::timing() {
-                        Ok(timing) => Some(timing),
-                        Err(err) => {
-                            error!("Failed to fetch WW3D frame timing: {err:?}");
-                            None
-                        }
-                    },
+                let timing = match engine.ww3d.lock().update() {
+                    Ok(_) => Some(engine.ww3d.lock().timing()),
                     Err(err) => {
                         error!("WW3D engine update failed: {err:?}");
                         None
@@ -457,7 +451,7 @@ pub async fn run_cnc_game(
 
             if let Some(bridge) = runtime_host_bridge.as_mut() {
                 let snapshot = engine.runtime_host_status_snapshot();
-                bridge.publish_runtime(&snapshot);
+                bridge.publish_runtime(&engine.ww3d, &snapshot);
             }
             Ok(())
         };
@@ -628,7 +622,7 @@ pub async fn run_cnc_game(
                                 startup_focus = None;
                                 if let Some(bridge) = runtime_host_bridge.as_mut() {
                                     let snapshot = new_engine.runtime_host_status_snapshot();
-                                    bridge.publish_runtime(&snapshot);
+                                    bridge.publish_runtime(&new_engine.ww3d, &snapshot);
                                 }
                                 *services = Some(application_services);
                                 *engine = Some(new_engine);
@@ -694,7 +688,7 @@ pub async fn run_cnc_game(
             }
             if let Some(bridge) = runtime_host_bridge.as_mut() {
                 let snapshot = engine.runtime_host_status_snapshot();
-                bridge.publish_runtime(&snapshot);
+                bridge.publish_runtime(&engine.ww3d, &snapshot);
             }
             elwt.exit();
             return Ok(());

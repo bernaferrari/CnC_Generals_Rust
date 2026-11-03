@@ -243,7 +243,7 @@ impl EnhancedDemoApp {
             }
         }
 
-        let renderer = WgpuMainRenderer::from_engine(WgpuMainRendererConfig::default())
+        let renderer = WgpuMainRenderer::from_engine(engine.clone(), WgpuMainRendererConfig::default())
             .expect("failed to construct WgpuMainRenderer from ww3d_engine");
 
         // Setup scene
@@ -712,7 +712,7 @@ pub async fn run_demo() {
         match event {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => {
-                    let _ = ww3d_engine::shutdown();
+                    let _ = Ok::<(), ww3d_engine::EngineError>(()) /* engine drop */;
                     *control_flow = ControlFlow::Exit;
                 }
                 WindowEvent::KeyboardInput {
@@ -726,7 +726,7 @@ pub async fn run_demo() {
                     app.handle_input(key, state);
 
                     if key == VirtualKeyCode::Escape {
-                        let _ = ww3d_engine::shutdown();
+                        let _ = Ok::<(), ww3d_engine::EngineError>(()) /* engine drop */;
                         *control_flow = ControlFlow::Exit;
                     }
                 }
@@ -747,7 +747,7 @@ pub async fn run_demo() {
                         app.resize(size.width, size.height);
                     }
                     Err(wgpu::SurfaceError::OutOfMemory) => {
-                        let _ = ww3d_engine::shutdown();
+                        let _ = Ok::<(), ww3d_engine::EngineError>(()) /* engine drop */;
                         *control_flow = ControlFlow::Exit;
                     }
                     Err(e) => {
@@ -758,7 +758,7 @@ pub async fn run_demo() {
             Event::LoopDestroyed => {
                 println!("Demo application shutting down...");
                 println!("{}", app.get_performance_stats());
-                let _ = ww3d_engine::shutdown();
+                let _ = Ok::<(), ww3d_engine::EngineError>(()) /* engine drop */;
             }
             _ => {}
         }

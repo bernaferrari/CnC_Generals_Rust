@@ -149,7 +149,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("requires installed game content root"))?;
     std::env::set_current_dir(content_root)?;
 
-    ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
+    let engine = ww3d_engine::init_headless_blocking(ww3d_engine::EngineConfig {
         width: 32,
         height: 32,
         ..Default::default()
@@ -158,15 +158,15 @@ pub(crate) fn run() -> anyhow::Result<()> {
     struct Scope;
     impl Drop for Scope {
         fn drop(&mut self) {
-            let _ = ww3d_engine::shutdown();
+            drop(engine);
         }
     }
     let _scope = Scope;
     let mut graphics = crate::graphics::GraphicsSystem::new(
-        ww3d_engine::device()?,
-        ww3d_engine::queue()?,
-        ww3d_engine::color_format()?,
-        ww3d_engine::depth_format()?,
+        engine.lock().device()?,
+        engine.lock().queue()?,
+        engine.lock().color_format()?,
+        engine.lock().depth_format()?,
     )?;
     graphics.cache_model(
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),

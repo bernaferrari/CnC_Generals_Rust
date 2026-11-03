@@ -365,13 +365,13 @@ impl CnCGameEngine {
             "later camera save/load changed terrain continuation",
         )?;
         let observe = |engine: &Self| {
-            let handle = ww3d_engine::frame_submit().expect("WW3D frame submit state");
-            let fs = handle.lock();
+            let fs = engine.ww3d.lock().frame_submit_state();
+            let guard = fs.lock();
             NativeFrameWitness {
                 frame: engine.graphics_system.get_statistics().frame_count,
-                total: ww3d_engine::total_owned_submits(&fs),
-                last: ww3d_engine::last_frame_submit_count(&fs),
-                active: ww3d_engine::frame_is_active(&fs),
+                total: ww3d_engine::total_owned_submits(&guard),
+                last: ww3d_engine::last_frame_submit_count(&guard),
+                active: ww3d_engine::frame_is_active(&guard),
             }
         };
         let prior = observe(self);

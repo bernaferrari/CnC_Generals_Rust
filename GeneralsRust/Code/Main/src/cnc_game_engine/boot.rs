@@ -423,39 +423,35 @@ impl CnCGameEngine {
         engine_config.width = surface_w;
         engine_config.height = surface_h;
         let size = winit::dpi::LogicalSize::new(surface_w, surface_h);
-        if runtime_host_headless {
-            if let Err(err) = ww3d_engine::init_headless(engine_config).await {
-                if !matches!(err, EngineError::AlreadyInitialised) {
-                    return Err(anyhow::anyhow!(
-                        "Failed to initialize WW3D headless engine: {err:?}"
-                    ));
-                }
-            }
-        } else if let Err(err) = ww3d_engine::init_with_window(window.clone(), engine_config).await
-        {
-            if !matches!(err, EngineError::AlreadyInitialised) {
-                return Err(anyhow::anyhow!("Failed to initialize WW3D engine: {err:?}"));
-            }
-        }
+        let ww3d = if runtime_host_headless {
+            ww3d_engine::init_headless(engine_config)
+                .await
+                .map_err(|err| anyhow::anyhow!("Failed to initialize WW3D headless engine: {err:?}"))?
+        } else {
+            ww3d_engine::init_with_window(window.clone(), engine_config)
+                .await
+                .map_err(|err| anyhow::anyhow!("Failed to initialize WW3D engine: {err:?}"))?
+        };
 
         // Initialize C++ SAGE equivalent graphics system
         info!("🎨 Initializing GraphicsSystem (C++ SAGE equivalent)...");
         let graphics_timer = InitTimer::new("✅ GraphicsSystem initialized");
-        let device =
-            ww3d_engine::device().map_err(|e| anyhow::anyhow!("WW3D device unavailable: {e:?}"))?;
-        let queue =
-            ww3d_engine::queue().map_err(|e| anyhow::anyhow!("WW3D queue unavailable: {e:?}"))?;
-        let color_format = ww3d_engine::color_format()
-            .map_err(|e| anyhow::anyhow!("WW3D color format unavailable: {e:?}"))?;
-        let depth_format = ww3d_engine::depth_format()
-            .map_err(|e| anyhow::anyhow!("WW3D depth format unavailable: {e:?}"))?;
+        let (device, queue, color_format, depth_format) = {
+            let eng = ww3d.lock();
+            (
+                eng.device(),
+                eng.queue(),
+                eng.color_format(),
+                eng.depth_format(),
+            )
+        };
         let graphics_system = GraphicsSystem::new(device, queue, color_format, depth_format)?;
         graphics_timer.finish();
 
         // Initialize render pipeline
         info!("🔧 Initializing RenderPipeline (C++ SAGE equivalent)...");
         let pipeline_timer = InitTimer::new("✅ RenderPipeline initialized");
-        let mut render_pipeline = RenderPipeline::initialize(&graphics_system)?;
+        let mut render_pipeline = RenderPipeline::initialize(ww3d.clone(), &graphics_system)?;
         pipeline_timer.finish();
 
         // C++ parity: BIG archives MUST be initialized BEFORE asset manager so textures/INI can be read
@@ -962,6 +958,7 @@ impl CnCGameEngine {
             command_line,
 
             // C++ SAGE equivalent rendering subsystems
+            ww3d,
             graphics_system,
             render_pipeline,
 

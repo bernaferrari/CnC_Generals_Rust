@@ -216,22 +216,16 @@ impl RuntimeHostBridge {
     pub(super) const CAPTURE_REQUEST_INTERVAL_INTERACTIVE: Duration = Duration::from_millis(500);
     pub(super) const CAPTURE_REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 
-    pub(super) fn force_capture_request(&mut self) {
+    pub(super) fn force_capture_request(&mut self, ww3d: &ww3d_engine::SharedEngine) {
         // Drop interval gate so next publish_frame requests a screenshot immediately.
         self.last_capture_request_at = None;
         self.capture_request_in_flight = false;
         self.capture_request_started_at = None;
         // Best-effort immediate request.
-        match ww3d_engine::make_screenshot(&self.capture_path) {
-            Ok(()) => {
-                self.last_capture_request_at = Some(Instant::now());
-                self.capture_request_in_flight = true;
-                self.capture_request_started_at = Some(Instant::now());
-            }
-            Err(err) => {
-                log::trace!("force_capture_request screenshot failed: {err:?}");
-            }
-        }
+        ww3d.lock().make_screenshot(&self.capture_path);
+        self.last_capture_request_at = Some(Instant::now());
+        self.capture_request_in_flight = true;
+        self.capture_request_started_at = Some(Instant::now());
     }
 
     /// Latch live_frame_ok after a real windowed wgpu surface present.
@@ -425,9 +419,9 @@ impl RuntimeHostBridge {
         self.publish_status(&snapshot);
     }
 
-    pub(super) fn publish_runtime(&mut self, snapshot: &RuntimeHostSnapshot) {
+    pub(super) fn publish_runtime(&mut self, ww3d: &ww3d_engine::SharedEngine, snapshot: &RuntimeHostSnapshot) {
         // Promote capture before status so live_frame_ok reflects this frame.
-        self.publish_frame(snapshot.frame, &snapshot.state);
+        self.publish_frame(ww3d, snapshot.frame, &snapshot.state);
         self.publish_status(snapshot);
     }
 
@@ -631,7 +625,7 @@ impl RuntimeHostBridge {
         let _ = fs::write(&self.status_path, payload);
     }
 
-    pub(super) fn publish_frame(&mut self, frame: u32, state: &str) {
+    pub(super) fn publish_frame(&mut self, ww3d: &ww3d_engine::SharedEngine, frame: u32, state: &str) {
         if frame <= self.last_published_frame {
             return;
         }
@@ -667,22 +661,12 @@ impl RuntimeHostBridge {
                 .unwrap_or(true);
         if should_request_capture {
             let requested_at = Instant::now();
-            match ww3d_engine::make_screenshot(&self.capture_path) {
-                Ok(()) => {
-                    self.last_capture_request_at = Some(requested_at);
-                    self.capture_request_in_flight = true;
-                    self.capture_request_started_at = Some(requested_at);
-                    self.screenshot_enqueue_failed = false;
-                }
-                Err(err) => {
-                    if !self.screenshot_enqueue_failed {
-                        warn!(
-                            "Runtime host frame capture unavailable ({err:?}); falling back to static frame"
-                        );
-                        self.screenshot_enqueue_failed = true;
-                    }
-                }
-            }
+            // Caller must have passed ww3d into publish_frame; see signature update below.
+            ww3d.lock().make_screenshot(&self.capture_path);
+            self.last_capture_request_at = Some(requested_at);
+            self.capture_request_in_flight = true;
+            self.capture_request_started_at = Some(requested_at);
+            self.screenshot_enqueue_failed = false;
         }
 
         self.promote_capture_frame_if_ready();

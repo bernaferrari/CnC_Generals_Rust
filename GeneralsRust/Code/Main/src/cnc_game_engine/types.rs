@@ -1046,6 +1046,8 @@ pub struct CnCGameEngine {
     pub(crate) command_line: Arc<CommandLineArgs>,
 
     // C++ SAGE equivalent rendering subsystems
+    /// Host-owned WW3D engine (no process singleton).
+    pub(crate) ww3d: ww3d_engine::SharedEngine,
     pub(crate) graphics_system: GraphicsSystem,
     pub(crate) render_pipeline: RenderPipeline,
 
