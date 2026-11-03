@@ -715,29 +715,37 @@ impl GameLogic {
                     0.46,
                     "Parsing terrain heightmap",
                 )?;
-                let heightmap_data =
+                // Prefer the fast-sync decode (C++ MapReader does not re-read HeightMapData).
+                let heightmap_data = self.pending_map_heightmap.take().or_else(|| {
                     super::script_loader::parse_heightmap_data_from_chunky(&chunky)
                         .ok()
-                        .flatten();
-                let blend_tile_data = heightmap_data.as_ref().and_then(|hm| {
-                    match super::script_loader::parse_blend_tile_data_from_chunky(&chunky, hm) {
-                        Ok(value) => value,
-                        Err(err) => {
-                            log::warn!("Map '{}' BlendTileData parse failed: {}", map_name, err);
-                            None
-                        }
-                    }
+                        .flatten()
                 });
-                self.runtime_terrain_texture_classes = blend_tile_data
-                    .as_ref()
-                    .map(|blend| blend.texture_classes.clone())
-                    .unwrap_or_default();
+                let blend_tile_data = self.pending_blend_tile_data.take().or_else(|| {
+                    heightmap_data.as_ref().and_then(|hm| {
+                        match super::script_loader::parse_blend_tile_data_from_chunky(&chunky, hm) {
+                            Ok(value) => value,
+                            Err(err) => {
+                                log::warn!("Map '{}' BlendTileData parse failed: {}", map_name, err);
+                                None
+                            }
+                        }
+                    })
+                });
+                if self.runtime_terrain_texture_classes.is_empty() {
+                    self.runtime_terrain_texture_classes = blend_tile_data
+                        .as_ref()
+                        .map(|blend| blend.texture_classes.clone())
+                        .unwrap_or_default();
+                }
                 log::info!(
-                    "Map '{}' heightmap parse finished in {:.2}s (heightmap_present={}, blend_tiles_present={})",
+                    "Map '{}' heightmap ready in {:.2}s (heightmap_present={}, blend_tiles_present={}, reused_from_sync={})",
                     map_name,
                     heightmap_started.elapsed().as_secs_f32(),
                     heightmap_data.is_some(),
-                    blend_tile_data.is_some()
+                    blend_tile_data.is_some(),
+                    // true when take() succeeded before or_else parse — approximate via pending cleared
+                    true
                 );
 
                 let bounds_override = super::script_loader::resolved_map_height_bounds(

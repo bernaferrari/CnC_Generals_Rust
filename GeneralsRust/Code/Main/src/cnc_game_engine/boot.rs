@@ -312,6 +312,15 @@ impl CnCGameEngine {
         // GameLogic ambient TLS hooks must exist before ObjectCreationListStore
         // (and later subsystems) touch EngineStores::active during bootstrap.
         crate::game_logic::ensure_world_ambient();
+        // NameKey / INI free functions now resolve through CommonServices TLS.
+        // Install a bootstrap bag before PlayerTemplateStore (and later) init;
+        // WorldServices later pushes the match-owned bag via install_common_services.
+        let bootstrap_common = std::sync::Arc::new(
+            game_engine::common::common_services::CommonServices::new(),
+        );
+        game_engine::common::common_services::install_common_services(std::sync::Arc::clone(
+            &bootstrap_common,
+        ));
         // Publish that accepted root around callbacks that still read common preferences.
         let mut subsystem_manager = crate::subsystem_manager::SubsystemManager::new();
         application_paths
