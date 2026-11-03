@@ -38,7 +38,7 @@ use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Sink, Source, Spat
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Cursor;
-use std::sync::{Arc, LazyLock, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Instant;
 use ww3d_animation::{initialize_animated_sound_mgr, set_sound_library, SoundLibraryBridge};
 use ww3d_core::errors::{W3DError, W3DResult};
@@ -671,6 +671,8 @@ pub struct AudioManager {
 
     // Audio event registry
     all_audio_event_info: HashMap<AsciiString, Arc<AudioEventInfo>>,
+    /// Per-manager audio file duration cache (was process FILE_LENGTH_CACHE).
+    file_length_cache: Mutex<HashMap<AsciiString, Real>>,
     audio_handle_pool: AudioHandle,
     adjusted_volumes: Vec<(AsciiString, Real)>,
     /// C++ `MilesAudioManager::m_audioForcePlayed` (briefing HAUDIO list).
@@ -728,6 +730,7 @@ impl AudioManager {
             music_tracks: Vec::new(),
             current_music_track: String::new(),
             all_audio_event_info: HashMap::new(),
+            file_length_cache: Mutex::new(HashMap::new()),
             audio_handle_pool: 1000, // Start at some reasonable value
             adjusted_volumes: Vec::new(),
             audio_force_played: Vec::new(),
@@ -1236,12 +1239,8 @@ impl AudioManager {
             return 0.0;
         }
 
-        struct FileLengthCache(std::sync::Mutex<HashMap<AsciiString, Real>>);
-        static FILE_LENGTH_CACHE: LazyLock<FileLengthCache> =
-            LazyLock::new(|| FileLengthCache(std::sync::Mutex::new(HashMap::new())));
-
-        if let Some(length) = FILE_LENGTH_CACHE
-            .0
+        if let Some(length) = self
+            .file_length_cache
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .get(normalized)
@@ -1254,8 +1253,7 @@ impl AudioManager {
             .and_then(|bytes| Self::duration_ms_from_audio_data(&bytes))
             .unwrap_or(0.0);
 
-        FILE_LENGTH_CACHE
-            .0
+        self.file_length_cache
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .insert(normalized.to_string(), length);

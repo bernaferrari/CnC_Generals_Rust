@@ -124,6 +124,33 @@ seal it and do not return until the whole port is done.
 After the checklist passes: add the `[[module]]` row to `sealed_modules.toml`,
 lower `scripts/globals_baseline.json` if globals fell, commit, and push.
 
+### Instance binding / allowlisted TLS
+
+`scripts/count_globals.sh` (and `GameClient/tests/globals_budget.rs`) keep every
+crate at **0** mutable process statics. The only intentional exceptions:
+
+**thread_local! ACTIVE_STACK / SCOPED_ACTIVE** (scoped Arc publish — not game
+state). Rust has no other way to bind a per-thread instance bag without a
+process-wide static; the payload is `Arc<…Services>`, not the simulation:
+
+| File | Stack | Holds |
+|------|-------|-------|
+| `Code/GameEngine/Common/src/common/common_services.rs` | `ACTIVE_STACK` | `Arc<CommonServices>` |
+| `Code/Main/src/main_services.rs` | `ACTIVE_STACK` | `Arc<MainServices>` |
+| `Code/GameEngine/GameLogic/src/system/engine_stores.rs` | `SCOPED_ACTIVE` | `PublishedOwner` → `WorldServices` / `EngineStores` |
+
+**Static allowlist (debug-only instrumentation, not game state):**
+
+| Name | Reason |
+|------|--------|
+| `CRC_DEBUG_BAG` | `cfg(feature=debug_crc)` instrumentation bag |
+| `PERF_GATHER_REGISTRY` | `cfg(feature=perf_timers)` instrumentation bag |
+
+Do **not** add TLS or process statics for gameplay. Put fields on the owning
+`CommonServices` / `WorldServices` / `MainServices` / `GameClient` / `AudioManager`
+instance. See `docs/instance_binding.md`.
+
+
 ## Standard for Completion
 A subsystem is not done because it "works".
 It is done when:

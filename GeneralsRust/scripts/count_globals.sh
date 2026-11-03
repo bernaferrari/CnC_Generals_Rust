@@ -289,6 +289,10 @@ ALLOWED_STATIC_EXCEPTIONS = {
 # thread_local! ACTIVE_STACK for scoped Arc publish. Rust has no other way to
 # bind a per-thread game-instance services bag without a process-wide static;
 # the payload is Arc, not the game state itself.
+# ONLY these three scoped Arc stacks may remain as thread_local!. Documented in
+# AGENTS.md ("Instance binding / allowlisted TLS") and docs/instance_binding.md.
+# Adding another TLS here without migrating state onto an owning instance is a
+# regression — prefer WorldServices / CommonServices / MainServices fields.
 ALLOWED_TLS_EXCEPTIONS = {
     # rel_path from GeneralsRust root: reason
     "Code/GameEngine/Common/src/common/common_services.rs":

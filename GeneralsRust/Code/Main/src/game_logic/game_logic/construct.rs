@@ -1680,6 +1680,57 @@ mod ownership_tests {
     }
 
     #[test]
+    fn two_game_logic_instances_interleaved_on_one_thread_stay_isolated() {
+        // Nested with_own_services: inner world wins; outer restored after.
+        let a = GameLogic::new();
+        let b = GameLogic::new();
+        let a_epoch = 11u32;
+        let b_epoch = 22u32;
+        a.world_services
+            .session_flags()
+            .world_epoch
+            .store(a_epoch, std::sync::atomic::Ordering::Relaxed);
+        b.world_services
+            .session_flags()
+            .world_epoch
+            .store(b_epoch, std::sync::atomic::Ordering::Relaxed);
+
+        a.with_own_services(|| {
+            assert_eq!(
+                gamelogic::system::engine_stores::active_services()
+                    .session_flags()
+                    .world_epoch
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                a_epoch
+            );
+            b.with_own_services(|| {
+                assert_eq!(
+                    gamelogic::system::engine_stores::active_services()
+                        .session_flags()
+                        .world_epoch
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                    b_epoch
+                );
+                assert!(std::sync::Arc::ptr_eq(
+                    &gamelogic::system::engine_stores::active_services(),
+                    &b.world_services
+                ));
+            });
+            assert_eq!(
+                gamelogic::system::engine_stores::active_services()
+                    .session_flags()
+                    .world_epoch
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                a_epoch
+            );
+            assert!(std::sync::Arc::ptr_eq(
+                &gamelogic::system::engine_stores::active_services(),
+                &a.world_services
+            ));
+        });
+    }
+
+    #[test]
     fn constructing_candidate_does_not_publish_it() {
         let live = GameLogic::initialize();
         live.install_as_active_stores();

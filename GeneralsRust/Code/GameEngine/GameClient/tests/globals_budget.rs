@@ -1,4 +1,5 @@
-//! Fails CI if GameClient (or peer crates tracked by the counter) gain mutable process statics.
+//! Fails CI if any tracked crate gains a mutable process static.
+//! Baseline is all zeros — see AGENTS.md and docs/instance_binding.md.
 #[test]
 fn mutable_process_statics_do_not_rise() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -19,6 +20,6 @@ fn mutable_process_statics_do_not_rise() {
         .expect("run count_globals.sh");
     assert!(
         status.success(),
-        "mutable process-wide static count rose; see scripts/count_globals.sh output"
+        "mutable process-wide static count rose above the all-zero baseline; migrate onto an owning instance (AGENTS.md / docs/instance_binding.md)"
     );
 }

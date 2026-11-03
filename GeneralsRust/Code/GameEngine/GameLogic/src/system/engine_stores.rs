@@ -126,6 +126,9 @@ pub struct WorldServices {
     locomotor_store: std::sync::Arc<crate::locomotor::LocomotorStore>,
     /// Main world-services GameLogic slot (was process PROCESS_LIFETIME Core).
     main_game_logic: OnceLock<&'static Mutex<crate::system::game_logic::GameLogic>>,
+    /// Headless GameClient ImageCollection when no live client is registered
+    /// (type-erased `Arc<RwLock<ImageCollection>>` owned by the GameClient crate).
+    client_image_collection: Mutex<Option<std::sync::Arc<dyn std::any::Any + Send + Sync>>>,
     control_bar_bridge: RwLock<Option<std::sync::Arc<crate::control_bar::ControlBarBridge>>>,
     damage_over_time_fields: Mutex<Vec<DamageOverTimeField>>,
     damage_over_time_next_id: AtomicU32,
@@ -202,6 +205,7 @@ impl WorldServices {
             legacy_object_registry: crate::ai::object_registry::new_legacy_object_registry(),
             locomotor_store: crate::locomotor::new_locomotor_store(),
             main_game_logic: OnceLock::new(),
+            client_image_collection: Mutex::new(None),
             control_bar_bridge: RwLock::new(None),
             damage_over_time_fields: Mutex::new(Vec::new()),
             damage_over_time_next_id: AtomicU32::new(50000),
@@ -279,6 +283,7 @@ impl WorldServices {
             legacy_object_registry: crate::ai::object_registry::new_legacy_object_registry(),
             locomotor_store: crate::locomotor::new_locomotor_store(),
             main_game_logic: OnceLock::new(),
+            client_image_collection: Mutex::new(None),
             control_bar_bridge: RwLock::new(None),
             damage_over_time_fields: Mutex::new(Vec::new()),
             damage_over_time_next_id: AtomicU32::new(50000),
@@ -444,6 +449,11 @@ impl WorldServices {
                 crate::system::game_logic::GameLogic::new(),
             )))
         })
+    }
+    pub fn client_image_collection(
+        &self,
+    ) -> &Mutex<Option<std::sync::Arc<dyn std::any::Any + Send + Sync>>> {
+        &self.client_image_collection
     }
     pub(crate) fn control_bar_bridge(
         &self,
