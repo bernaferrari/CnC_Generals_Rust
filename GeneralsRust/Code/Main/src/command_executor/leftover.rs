@@ -1648,7 +1648,11 @@ impl GameLogic {
                     dozer.set_locomotor_goal_none();
                 }
             }
-            self.set_ai_state_decision_aware_for_test(dozer_id, AIState::Repairing);
+            let _ = self.set_ai_state_decision_aware_with_effects(
+                dozer_id,
+                AIState::Repairing,
+                &mut crate::game_logic::ScriptPresentationEffects::default(),
+            );
             if !at_dock {
                 self.path_approach_with_state_ignoring(
                     dozer_id,
@@ -1688,7 +1692,11 @@ impl GameLogic {
                 dozer.set_locomotor_goal_none();
             }
         }
-        self.set_ai_state_decision_aware_for_test(dozer_id, AIState::Constructing);
+        let _ = self.set_ai_state_decision_aware_with_effects(
+            dozer_id,
+            AIState::Constructing,
+            &mut crate::game_logic::ScriptPresentationEffects::default(),
+        );
 
         let dozer_radius = self
             .objects

@@ -1255,7 +1255,8 @@ impl_bootstrap_subsystem!(MetaMapSubsystem, "MetaMap", {
 });
 
 impl_bootstrap_subsystem!(ActionManagerSubsystem, "ActionManager", {
-    let _ = gamelogic::action_manager::get_rts_action_manager();
+    // get_rts_action_manager requires WorldServices TLS. Constructed when the
+    // match world is admitted; early subsystem registration stays a no-op.
     Ok(())
 });
 
