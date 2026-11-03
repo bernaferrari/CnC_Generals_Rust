@@ -137,14 +137,6 @@ impl NameKeyNamespace {
     }
 }
 
-// Shared state for the generator.
-// THREAD: C++ plain static; driven only by the single game/client thread.
-struct NameKeyStateBag {
-    value: std::sync::Mutex<NameKeyNamespace>,
-}
-static NAME_KEY_STATE: std::sync::LazyLock<NameKeyStateBag> = std::sync::LazyLock::new(|| NameKeyStateBag {
-    value: std::sync::Mutex::new(NameKeyNamespace::new()),
-});
 
 
 /// Name key generator mirroring the original C++ behaviour.
@@ -153,7 +145,11 @@ pub struct NameKeyGenerator;
 impl NameKeyGenerator {
     /// Reset the generator to its initial state (`init` in the legacy engine).
     pub fn init() {
-        { let mut state = NAME_KEY_STATE.value.lock().unwrap_or_else(|p| p.into_inner()); state.reset( ) };
+        {
+            let services = crate::common::common_services::common_services();
+            let mut state = services.name_key_namespace.lock().unwrap_or_else(|p| p.into_inner());
+            state.reset();
+        }
     }
 
     /// Convert a name string to a key (case-sensitive, matches C++
@@ -174,15 +170,20 @@ impl NameKeyGenerator {
     /// C++ NameKeyGenerator is a plain static used on the game thread; locking
     /// once per dict/map parse matches that cost model instead of Mutex/key.
     pub fn with_namespace<R>(f: impl FnOnce(&mut NameKeyNamespace) -> R) -> R {
-        let mut state = NAME_KEY_STATE
-            .value
+        let services = crate::common::common_services::common_services();
+        let mut state = services
+            .name_key_namespace
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         f(&mut state)
     }
 
     pub fn name_to_key(name: &str) -> NameKeyType {
-        { let mut state = NAME_KEY_STATE.value.lock().unwrap_or_else(|p| p.into_inner()); state.name_to_key(name ) }
+        {
+            let services = crate::common::common_services::common_services();
+            let mut state = services.name_key_namespace.lock().unwrap_or_else(|p| p.into_inner());
+            state.name_to_key(name)
+        }
     }
 
     /// Convert a name string to a key with case sensitivity explicitly requested.
@@ -195,12 +196,20 @@ impl NameKeyGenerator {
     /// Convert a name to a key using case-insensitive comparison
     /// (matches `nameToLowercaseKey`).
     pub fn name_to_key_lowercase(name: &str) -> NameKeyType {
-        { let mut state = NAME_KEY_STATE.value.lock().unwrap_or_else(|p| p.into_inner()); state.name_to_lowercase_key(name ) }
+        {
+            let services = crate::common::common_services::common_services();
+            let mut state = services.name_key_namespace.lock().unwrap_or_else(|p| p.into_inner());
+            state.name_to_lowercase_key(name)
+        }
     }
 
     /// Resolve a key back to the string that first produced it.
     pub fn key_to_name(key: NameKeyType) -> Option<String> {
-        { let state = NAME_KEY_STATE.value.lock().unwrap_or_else(|p| p.into_inner()); state.key_to_name(key) }
+        {
+            let services = crate::common::common_services::common_services();
+            let state = services.name_key_namespace.lock().unwrap_or_else(|p| p.into_inner());
+            state.key_to_name(key)
+        }
     }
 
     /// Clear all registered names (used by save/load and tests).
@@ -230,6 +239,11 @@ fn calc_hash(name: &str, lowercase: bool) -> usize {
 
 #[cfg(test)]
 mod tests {
+    fn with_services<R>(f: impl FnOnce() -> R) -> R {
+        let services = std::sync::Arc::new(crate::common::common_services::CommonServices::new());
+        crate::common::common_services::with_common_services(&services, f)
+    }
+
     use super::*;
 
     fn reset() {
@@ -238,88 +252,111 @@ mod tests {
 
     #[test]
     fn same_name_same_key() {
-        reset();
-        let key1 = NameKeyGenerator::name_to_key("ActiveShroudUpgrade");
-        let key2 = NameKeyGenerator::name_to_key("ActiveShroudUpgrade");
-        assert_eq!(key1, key2);
-        assert_ne!(key1, NAMEKEY_INVALID);
+        with_services(|| {
+
+            reset();
+            let key1 = NameKeyGenerator::name_to_key("ActiveShroudUpgrade");
+            let key2 = NameKeyGenerator::name_to_key("ActiveShroudUpgrade");
+            assert_eq!(key1, key2);
+            assert_ne!(key1, NAMEKEY_INVALID);
+            });
     }
 
     #[test]
     fn different_names_unique_keys() {
-        reset();
-        let key1 = NameKeyGenerator::name_to_key("ActiveShroudUpgrade");
-        let key2 = NameKeyGenerator::name_to_key("ArmorUpgrade");
-        assert_ne!(key1, key2);
+        with_services(|| {
+
+            reset();
+            let key1 = NameKeyGenerator::name_to_key("ActiveShroudUpgrade");
+            let key2 = NameKeyGenerator::name_to_key("ArmorUpgrade");
+            assert_ne!(key1, key2);
+            });
     }
 
     #[test]
     fn lowercase_lookup_ignores_case() {
-        reset();
-        let key1 = NameKeyGenerator::name_to_key_lowercase("ControlBar.wnd:MoneyDisplay");
-        let key2 = NameKeyGenerator::name_to_key_lowercase("controlbar.wnd:moneydisplay");
-        assert_eq!(key1, key2);
+        with_services(|| {
+
+            reset();
+            let key1 = NameKeyGenerator::name_to_key_lowercase("ControlBar.wnd:MoneyDisplay");
+            let key2 = NameKeyGenerator::name_to_key_lowercase("controlbar.wnd:moneydisplay");
+            assert_eq!(key1, key2);
+            });
     }
 
     #[test]
     fn lowercase_lookup_matches_lowercase_inserted_with_sensitive_api() {
-        reset();
-        let key_sensitive = NameKeyGenerator::name_to_key("controlbar.wnd:moneydisplay");
-        let key_lookup = NameKeyGenerator::name_to_key_lowercase("ControlBar.wnd:MoneyDisplay");
-        assert_eq!(key_sensitive, key_lookup);
+        with_services(|| {
+
+            reset();
+            let key_sensitive = NameKeyGenerator::name_to_key("controlbar.wnd:moneydisplay");
+            let key_lookup = NameKeyGenerator::name_to_key_lowercase("ControlBar.wnd:MoneyDisplay");
+            assert_eq!(key_sensitive, key_lookup);
+            });
     }
 
     #[test]
     fn key_to_name_round_trips() {
-        reset();
-        let key = NameKeyGenerator::name_to_key("SpectreGunshipUpdate");
-        let name = NameKeyGenerator::key_to_name(key).unwrap();
-        assert_eq!(name, "SpectreGunshipUpdate");
+        with_services(|| {
+
+            reset();
+            let key = NameKeyGenerator::name_to_key("SpectreGunshipUpdate");
+            let name = NameKeyGenerator::key_to_name(key).unwrap();
+            assert_eq!(name, "SpectreGunshipUpdate");
+            });
     }
 
     #[test]
     fn reset_allocates_sequential_ids_from_one() {
         // C++ NameKeyGenerator::init/reset sets m_nextID = 1; nameToKey increments.
-        // Borrow the thread-local state for the whole assertion block.
-        let mut state = NAME_KEY_STATE.value.lock().unwrap_or_else(|p| p.into_inner());
-        state.reset();
-        assert_eq!(state.name_to_key("First"), 1);
-        assert_eq!(state.name_to_key("Second"), 2);
-        assert_eq!(state.name_to_key("Third"), 3);
-        assert_eq!(state.name_to_key("First"), 1);
-        assert!(state.key_to_name(0).is_none());
-        assert!(state.key_to_name(999999).is_none());
+        with_services(|| {
+            NameKeyGenerator::with_namespace(|state| {
+                state.reset();
+                assert_eq!(state.name_to_key("First"), 1);
+                assert_eq!(state.name_to_key("Second"), 2);
+                assert_eq!(state.name_to_key("Third"), 3);
+                assert_eq!(state.name_to_key("First"), 1);
+                assert!(state.key_to_name(0).is_none());
+                assert!(state.key_to_name(999999).is_none());
+            });
+        });
     }
 
     #[test]
     fn name_to_key_is_case_sensitive_unlike_lowercase_api() {
-        // C++ nameToKey uses strcmp; nameToLowercaseKey uses _stricmp
-        // and a lowercase hash, so mixed-case and lower usually differ.
-        reset();
-        let foo = NameKeyGenerator::name_to_key("Foo");
-        let foo_lower = NameKeyGenerator::name_to_key("foo");
-        assert_ne!(foo, foo_lower);
-        assert_eq!(
-            NameKeyGenerator::name_to_key_lowercase("Foo"),
-            NameKeyGenerator::name_to_key_lowercase("foo")
-        );
-        assert_ne!(
-            NameKeyGenerator::name_to_key("ControlBar"),
-            NameKeyGenerator::name_to_key_lowercase("controlbar")
-        );
+        with_services(|| {
+
+            // C++ nameToKey uses strcmp; nameToLowercaseKey uses _stricmp
+            // and a lowercase hash, so mixed-case and lower usually differ.
+            reset();
+            let foo = NameKeyGenerator::name_to_key("Foo");
+            let foo_lower = NameKeyGenerator::name_to_key("foo");
+            assert_ne!(foo, foo_lower);
+            assert_eq!(
+                NameKeyGenerator::name_to_key_lowercase("Foo"),
+                NameKeyGenerator::name_to_key_lowercase("foo")
+            );
+            assert_ne!(
+                NameKeyGenerator::name_to_key("ControlBar"),
+                NameKeyGenerator::name_to_key_lowercase("controlbar")
+            );
+            });
     }
 
     #[test]
     fn lowercase_lookup_prefers_newest_head_collision_like_cpp() {
-        reset();
-        let lower = "aaaaaaaaaaaaaaa";
-        let variant = "AAaAAaaAAAAAAAA";
-        assert_eq!(calc_hash(lower, false), calc_hash(variant, false));
-        assert_eq!(calc_hash(lower, true), calc_hash(variant, false));
-        let first = NameKeyGenerator::name_to_key_lowercase(lower);
-        let newest = NameKeyGenerator::name_to_key(variant);
-        assert_ne!(first, newest);
-        assert_eq!(NameKeyGenerator::name_to_key_lowercase(lower), newest);
+        with_services(|| {
+
+            reset();
+            let lower = "aaaaaaaaaaaaaaa";
+            let variant = "AAaAAaaAAAAAAAA";
+            assert_eq!(calc_hash(lower, false), calc_hash(variant, false));
+            assert_eq!(calc_hash(lower, true), calc_hash(variant, false));
+            let first = NameKeyGenerator::name_to_key_lowercase(lower);
+            let newest = NameKeyGenerator::name_to_key(variant);
+            assert_ne!(first, newest);
+            assert_eq!(NameKeyGenerator::name_to_key_lowercase(lower), newest);
+            });
     }
     #[test]
     fn owned_namespaces_keep_original_case_allocation_and_worker_handoff() {

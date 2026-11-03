@@ -13,6 +13,7 @@
 use crate::common::random_value::{RandomState, SessionRandom};
 use crate::common::thing::thing_factory::ThingFactory;
 use crate::common::thing::module_factory::ModuleFactory;
+use crate::common::name_key_generator::NameKeyNamespace;
 use crate::common::rts::player::PlayerObjectWorld;
 use crate::common::rts::academy_stats::AcademyTemplateContextProvider;
 use crate::common::rts::action_manager::ObjectDataProvider;
@@ -104,6 +105,8 @@ pub struct CommonServices {
     pub thing_factory: Arc<Mutex<Option<ThingFactory>>>,
     /// ModuleFactory slot for this instance (C++ `TheModuleFactory`).
     pub module_factory: Arc<Mutex<Option<ModuleFactory>>>,
+    /// NameKeyGenerator namespace (was process NAME_KEY_STATE bag).
+    pub name_key_namespace: Mutex<NameKeyNamespace>,
     /// Session logic RNG publish slot for this instance.
     logic_rng_owner: Mutex<Option<SessionRandom>>,
     /// Simulation clock for this instance (was process SimClockBag).
@@ -131,6 +134,7 @@ impl Default for CommonServices {
             crc_flags: CrcRuntimeFlags::default(),
             thing_factory: Arc::new(Mutex::new(None)),
             module_factory: Arc::new(Mutex::new(None)),
+            name_key_namespace: Mutex::new(NameKeyNamespace::new()),
             logic_rng_owner: Mutex::new(None),
             sim_clock: Mutex::new(SimulationClock::default()),
             pending_income: Mutex::new(HashSet::new()),
