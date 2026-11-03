@@ -183,14 +183,24 @@ use game_engine::common::system::scene_submission::{
     SceneLineDesc, SceneLineId, SceneModelDesc, SceneProjectileStreamDesc, SceneSubmission,
 };
 
-static SCENE_SUBMISSION: OnceLock<Arc<dyn SceneSubmission>> = OnceLock::new();
-
 pub fn register_scene_submission(impl_: Arc<dyn SceneSubmission>) -> bool {
-    SCENE_SUBMISSION.set(impl_).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services
+        .scene_submission()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(impl_);
+    true
 }
 
-fn get_scene_submission() -> Option<&'static Arc<dyn SceneSubmission>> {
-    SCENE_SUBMISSION.get()
+fn get_scene_submission() -> Option<Arc<dyn SceneSubmission>> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services
+        .scene_submission()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 pub fn submit_scene_line(drawable_id: u32, desc: &SceneLineDesc) -> Option<SceneLineId> {

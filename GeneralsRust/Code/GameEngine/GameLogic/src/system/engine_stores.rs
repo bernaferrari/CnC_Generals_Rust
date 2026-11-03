@@ -111,6 +111,7 @@ pub struct WorldServices {
     game_pause_hooks: Mutex<Option<std::sync::Arc<dyn crate::helpers::GamePauseHooks>>>,
     observer_audio_locality_hooks: Mutex<Option<std::sync::Arc<dyn crate::helpers::ObserverAudioLocalityHooks>>>,
     observer_audio_view_hooks: Mutex<Option<std::sync::Arc<dyn crate::helpers::ObserverAudioViewHooks>>>,
+    scene_submission: Mutex<Option<std::sync::Arc<dyn game_engine::common::system::scene_submission::SceneSubmission>>>,
     control_bar_bridge: RwLock<Option<std::sync::Arc<crate::control_bar::ControlBarBridge>>>,
     damage_over_time_fields: Mutex<Vec<DamageOverTimeField>>,
     damage_over_time_next_id: AtomicU32,
@@ -173,6 +174,7 @@ impl WorldServices {
             game_pause_hooks: Mutex::new(None),
             observer_audio_locality_hooks: Mutex::new(None),
             observer_audio_view_hooks: Mutex::new(None),
+            scene_submission: Mutex::new(None),
             control_bar_bridge: RwLock::new(None),
             damage_over_time_fields: Mutex::new(Vec::new()),
             damage_over_time_next_id: AtomicU32::new(50000),
@@ -236,6 +238,7 @@ impl WorldServices {
             game_pause_hooks: Mutex::new(None),
             observer_audio_locality_hooks: Mutex::new(None),
             observer_audio_view_hooks: Mutex::new(None),
+            scene_submission: Mutex::new(None),
             control_bar_bridge: RwLock::new(None),
             damage_over_time_fields: Mutex::new(Vec::new()),
             damage_over_time_next_id: AtomicU32::new(50000),
@@ -333,6 +336,11 @@ impl WorldServices {
         &self,
     ) -> &Mutex<Option<std::sync::Arc<dyn crate::helpers::ObserverAudioViewHooks>>> {
         &self.observer_audio_view_hooks
+    }
+    pub(crate) fn scene_submission(
+        &self,
+    ) -> &Mutex<Option<std::sync::Arc<dyn game_engine::common::system::scene_submission::SceneSubmission>>> {
+        &self.scene_submission
     }
     pub(crate) fn control_bar_bridge(
         &self,
