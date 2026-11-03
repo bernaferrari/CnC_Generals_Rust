@@ -1,7 +1,6 @@
 use super::*;
 use glam::{Mat4, Vec3};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 
 mod template_metadata;
 pub(crate) use template_metadata::RallyPointExitOwner;

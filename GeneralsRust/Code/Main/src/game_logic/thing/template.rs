@@ -396,7 +396,7 @@ impl ReceivingClientTemplate {
 pub struct ThingTemplate {
     pub name: String,
     pub display_name: String,
-    pub kind_of: HashSet<KindOf>,
+    pub kind_of: crate::game_logic::KindOfSet,
     /// C++ PartitionData::attachToObject excludes authored W3DDefaultDraw.
     #[serde(default)]
     pub(crate) default_draw_without_fog_memory: bool,
@@ -1096,7 +1096,7 @@ impl ThingTemplate {
         Self {
             name: name.to_string(),
             display_name: name.to_string(),
-            kind_of: HashSet::new(),
+            kind_of: crate::game_logic::KindOfSet::new(),
             default_draw_without_fog_memory: false,
             max_health: 100.0,
             client_module_declarations: None,
