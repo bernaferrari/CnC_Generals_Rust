@@ -626,6 +626,10 @@ impl TerrainVisualImpl {
         self.scorches.marks()
     }
 
+    pub fn scorches_mut(&mut self) -> &mut crate::terrain::scorch_mesh::TerrainScorchBuffer {
+        &mut self.scorches
+    }
+
     pub fn add_scorch(&mut self, location: [f32; 3], radius: f32, scorch_type: i32) -> bool {
         self.scorches.add_scorch(location, radius, scorch_type)
     }

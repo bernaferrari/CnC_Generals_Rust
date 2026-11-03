@@ -291,15 +291,33 @@ impl TerrainScorchBuffer {
     }
 }
 
-// THREAD: main thread only — scorch marks are added by FX execution and baked
-// by the terrain draw pass on the same game thread.
-thread_local! {
-    static SCORCH_BUFFER: RefCell<TerrainScorchBuffer> = RefCell::new(TerrainScorchBuffer::new());
+// Scorch marks belong to the receiving TerrainVisualSystem. Free helpers route
+// through that owner (or a cfg(test) fallback when no visual is published).
+fn with_scorch_buffer<R>(f: impl FnOnce(&mut TerrainScorchBuffer) -> R) -> R {
+    if let Ok(mut guard) = crate::terrain::terrain_visual::get_terrain_visual() {
+        if let Some(visual) = guard.as_mut() {
+            return f(visual.scorches_mut());
+        }
+    }
+    #[cfg(test)]
+    {
+        return TEST_SCORCH_BUFFER.with(|slot| f(&mut slot.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        // No published visual yet — operate on an ephemeral buffer so callers
+        // fail closed without resurrecting process TLS game state.
+        let mut ephemeral = TerrainScorchBuffer::new();
+        f(&mut ephemeral)
+    }
 }
 
-fn with_scorch_buffer<R>(f: impl FnOnce(&mut TerrainScorchBuffer) -> R) -> R {
-    SCORCH_BUFFER.with_borrow_mut(f)
+#[cfg(test)]
+thread_local! {
+    static TEST_SCORCH_BUFFER: RefCell<TerrainScorchBuffer> =
+        RefCell::new(TerrainScorchBuffer::new());
 }
+
 
 /// C++ `GameClientRandomValue(SCORCH_1, SCORCH_4)` when FX type is `RANDOM` / `< 0`.
 pub fn resolve_scorch_type(scorch: i32) -> i32 {
