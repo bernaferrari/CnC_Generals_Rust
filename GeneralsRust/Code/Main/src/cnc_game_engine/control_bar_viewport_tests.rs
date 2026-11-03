@@ -1,5 +1,6 @@
 //! Synchronous native UI adapter on independent authored window trees.
 use super::NativeScriptUi;
+use crate::game_logic::ScriptUiEffects;
 use game_client::gui::control_bar::ControlBar;
 use game_client::gui::game_window::WindowEventEffects;
 use game_client::gui::window_manager::WindowManager;

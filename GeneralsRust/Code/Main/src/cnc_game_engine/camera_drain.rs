@@ -1252,11 +1252,16 @@ impl CnCGameEngine {
         pending: &mut crate::command_system::ReplayPendingState,
     ) -> Result<(), String> {
         client
-            .pump_message_stream_to_receiving_owner(pending.recorder_owned(), &mut |messages| {
-                pending
-                    .receive_client_messages(messages)
-                    .map_err(game_client::core::GameClientError::InvalidOperation)
-            })
+            .pump_message_stream_to_receiving_owner(
+                pending.recorder_owned(),
+                &mut |messages| {
+                    pending
+                        .receive_client_messages(messages)
+                        .map_err(game_client::core::GameClientError::InvalidOperation)
+                },
+                0,
+                0,
+            )
             .map_err(|error| error.to_string())
     }
 

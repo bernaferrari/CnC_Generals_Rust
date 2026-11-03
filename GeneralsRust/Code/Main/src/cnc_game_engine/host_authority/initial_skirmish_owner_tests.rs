@@ -121,6 +121,7 @@ fn stage(
         &w.ocl_application_definitions(),
         w.ai_definitions.baseline(),
         w.production_energy_baseline(),
+        w.combat_system.historic_damage_limit(),
         w.physics_rules_baseline(),
         w.effective_terrain_definitions(),
         w.current_armor_definitions(),
