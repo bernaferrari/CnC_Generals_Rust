@@ -20,7 +20,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Mutex, OnceLock, RwLock};
+use std::sync::Mutex;
 
 /// Errors that can occur during save/load operations
 #[derive(Debug)]
@@ -241,71 +241,45 @@ impl DefinitionManager {
     }
 }
 
-/// Global definition manager instance
-struct DefinitionMgrRuntime {
-    mgr: OnceLock<Mutex<DefinitionManager>>,
-    lock: RwLock<()>,
-}
-impl DefinitionMgrRuntime {
-    const fn new() -> Self {
-        Self {
-            mgr: OnceLock::new(),
-            lock: RwLock::new(()),
-        }
-    }
-}
-static DEFINITION_MGR: DefinitionMgrRuntime = DefinitionMgrRuntime::new();
-
-/// Get a reference to the global definition manager
-fn get_definition_manager() -> std::sync::MutexGuard<'static, DefinitionManager> {
-    DEFINITION_MGR.mgr
-        .get_or_init(|| Mutex::new(DefinitionManager::new()))
-        .lock()
-        .unwrap()
-}
-
 /**
 ** WWSaveLoad
-** The Init and Shutdown functions should be called once by the App.
+** Host-owned save/load session (definition manager + lifecycle).
+** Construct once per game instance; pass `&` / `Arc` — no process-wide static.
 */
-pub struct WWSaveLoad;
+pub struct WWSaveLoad {
+    definitions: Mutex<DefinitionManager>,
+}
+
+impl Default for WWSaveLoad {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl WWSaveLoad {
-    /// Initialize the WWSaveLoad system
-    ///
-    /// This function should be called once by the application during startup.
-    /// It initializes the global definition manager and prepares the save/load system.
-    pub fn init() {
-        let _lock = DEFINITION_MGR.lock.write();
+    /// Create a new WWSaveLoad session with an empty definition manager.
+    pub fn new() -> Self {
+        Self {
+            definitions: Mutex::new(DefinitionManager::new()),
+        }
+    }
 
-        // Initialize the definition manager if not already done
-        let _mgr = get_definition_manager();
-
-        // Additional initialization logic would go here
+    /// Initialize the session (idempotent; definitions already constructed).
+    pub fn init(&self) {
+        let _mgr = self.definitions.lock().unwrap();
         println!("WWSaveLoad system initialized");
     }
 
-    /// Shutdown the WWSaveLoad system
-    ///
-    /// This function should be called once by the application during shutdown.
-    /// It frees all definitions and cleans up the save/load system resources.
-    pub fn shutdown() {
-        let _lock = DEFINITION_MGR.lock.write();
-
-        // Free all definitions from the global definition manager
-        let mut def_mgr = get_definition_manager();
+    /// Free all definitions and clean up session resources.
+    pub fn shutdown(&self) {
+        let mut def_mgr = self.definitions.lock().unwrap();
         def_mgr.free_definitions();
-
         println!("WWSaveLoad system shutdown complete");
     }
 
-    /// Get a reference to the global definition manager
-    ///
-    /// This provides access to the definition manager for registration and lookup operations.
-    ///
-    /// This function should only be called after WWSaveLoad::init() has been called.
-    pub fn get_definition_manager_ref() -> std::sync::MutexGuard<'static, DefinitionManager> {
-        get_definition_manager()
+    /// Borrow the session definition manager.
+    pub fn get_definition_manager_ref(&self) -> std::sync::MutexGuard<'_, DefinitionManager> {
+        self.definitions.lock().unwrap()
     }
 }
 
@@ -315,8 +289,24 @@ mod tests {
 
     #[test]
     fn test_ww_save_load_init_shutdown() {
-        WWSaveLoad::init();
-        WWSaveLoad::shutdown();
+        let session = WWSaveLoad::new();
+        session.init();
+        session.shutdown();
+    }
+
+    #[test]
+    fn two_ww_save_load_sessions_are_independent() {
+        let a = WWSaveLoad::new();
+        let b = WWSaveLoad::new();
+        {
+            let mut ma = a.get_definition_manager_ref();
+            ma.register_definition(Definition::new(1, "A".into(), 10)).unwrap();
+            assert_eq!(ma.definition_count(), 1);
+        }
+        {
+            let mb = b.get_definition_manager_ref();
+            assert_eq!(mb.definition_count(), 0);
+        }
     }
 
     #[test]

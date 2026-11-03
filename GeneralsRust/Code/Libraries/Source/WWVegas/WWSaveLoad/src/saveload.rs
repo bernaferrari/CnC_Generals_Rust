@@ -66,7 +66,7 @@ use std::time::Instant;
 ///     }
 ///     
 ///     fn get_factory(&self) -> Arc<dyn PersistFactory> {
-///         Arc::new(SimplePersistFactory::<GameEntity>::new(0x12340000))
+///         Arc::new(SimplePersistFactory::<GameEntity>::new(0x12340000, new_save_load_system()))
 ///     }
 ///     
 ///     fn get_remap_id(&self) -> RemapId { self.id }
@@ -80,10 +80,10 @@ use std::time::Instant;
 /// ```rust
 /// use ww_save_load::saveload::*;
 ///
-/// let system = get_save_load_system();
+/// let system = new_save_load_system();
 ///
 /// // Register factory
-/// let factory = Arc::new(SimplePersistFactory::<GameEntity>::new(0x12340000));
+/// let factory = Arc::new(SimplePersistFactory::<GameEntity>::new(0x12340000, new_save_load_system()));
 /// system.register_persist_factory(factory);
 ///
 /// // Save and load operations would use ChunkSave/ChunkLoad implementations
@@ -94,7 +94,7 @@ use std::time::Instant;
 /// ```rust
 /// use ww_save_load::saveload::*;
 ///
-/// let system = get_save_load_system();
+/// let system = new_save_load_system();
 ///
 /// // During load, request pointer remapping
 /// system.request_pointer_remap(old_object_id, |remapped_obj| {
@@ -681,12 +681,12 @@ impl Default for SaveLoadSystem {
     }
 }
 
-/// Global save/load system instance
-static SAVE_LOAD_SYSTEM: std::sync::OnceLock<SaveLoadSystem> = std::sync::OnceLock::new();
+/// Shared owned save/load system (one per game instance).
+pub type SharedSaveLoadSystem = Arc<SaveLoadSystem>;
 
-/// Get the global save/load system instance
-pub fn get_save_load_system() -> &'static SaveLoadSystem {
-    SAVE_LOAD_SYSTEM.get_or_init(SaveLoadSystem::new)
+/// Construct a new shared save/load system for a game session.
+pub fn new_save_load_system() -> SharedSaveLoadSystem {
+    Arc::new(SaveLoadSystem::new())
 }
 
 /// Simple implementation of a persist factory using generics
@@ -696,6 +696,7 @@ where
     T: Persist + Default + 'static,
 {
     chunk_id: ChunkId,
+    system: SharedSaveLoadSystem,
     _phantom: std::marker::PhantomData<T>,
 }
 
@@ -703,10 +704,11 @@ impl<T> SimplePersistFactory<T>
 where
     T: Persist + Default + 'static,
 {
-    /// Create a new simple persist factory
-    pub fn new(chunk_id: ChunkId) -> Self {
+    /// Create a new simple persist factory bound to a session save/load system
+    pub fn new(chunk_id: ChunkId, system: SharedSaveLoadSystem) -> Self {
         Self {
             chunk_id,
+            system,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -748,7 +750,7 @@ where
         // Create Arc and register pointer mapping
         let new_obj_arc = Arc::new(new_obj) as Arc<dyn Persist>;
         let weak_ref = Arc::downgrade(&new_obj_arc);
-        get_save_load_system().register_pointer(old_id, weak_ref);
+        self.system.register_pointer(old_id, weak_ref);
 
         Ok(new_obj_arc)
     }
@@ -774,16 +776,16 @@ where
 #[cfg(debug_assertions)]
 #[macro_export]
 macro_rules! request_pointer_remap {
-    ($target_id:expr, $callback:expr) => {
-        get_save_load_system().request_pointer_remap_debug($target_id, $callback, file!(), line!())
+    ($sys:expr, $target_id:expr, $callback:expr) => {
+        ($sys).request_pointer_remap_debug($target_id, $callback, file!(), line!())
     };
 }
 
 #[cfg(debug_assertions)]
 #[macro_export]
 macro_rules! request_ref_counted_pointer_remap {
-    ($target_id:expr, $callback:expr) => {
-        get_save_load_system().request_ref_counted_pointer_remap_debug(
+    ($sys:expr, $target_id:expr, $callback:expr) => {
+        ($sys).request_ref_counted_pointer_remap_debug(
             $target_id,
             $callback,
             file!(),
@@ -795,16 +797,16 @@ macro_rules! request_ref_counted_pointer_remap {
 #[cfg(not(debug_assertions))]
 #[macro_export]
 macro_rules! request_pointer_remap {
-    ($target_id:expr, $callback:expr) => {
-        get_save_load_system().request_pointer_remap($target_id, $callback)
+    ($sys:expr, $target_id:expr, $callback:expr) => {
+        ($sys).request_pointer_remap($target_id, $callback)
     };
 }
 
 #[cfg(not(debug_assertions))]
 #[macro_export]
 macro_rules! request_ref_counted_pointer_remap {
-    ($target_id:expr, $callback:expr) => {
-        get_save_load_system().request_ref_counted_pointer_remap($target_id, $callback)
+    ($sys:expr, $target_id:expr, $callback:expr) => {
+        ($sys).request_ref_counted_pointer_remap($target_id, $callback)
     };
 }
 
@@ -851,7 +853,7 @@ mod tests {
         }
 
         fn get_factory(&self) -> Arc<dyn PersistFactory> {
-            Arc::new(SimplePersistFactory::<TestObject>::new(0x12345678))
+            Arc::new(SimplePersistFactory::<TestObject>::new(0x12345678, new_save_load_system()))
         }
 
         fn get_remap_id(&self) -> RemapId {
@@ -998,7 +1000,7 @@ mod tests {
     #[test]
     fn test_persist_factory_registration() {
         let system = SaveLoadSystem::new();
-        let factory = Arc::new(SimplePersistFactory::<TestObject>::new(0x12345678));
+        let factory = Arc::new(SimplePersistFactory::<TestObject>::new(0x12345678, new_save_load_system()));
 
         system.register_persist_factory(factory.clone());
         let found = system.find_persist_factory(0x12345678);
@@ -1011,7 +1013,7 @@ mod tests {
 
     #[test]
     fn test_simple_persist_factory() {
-        let factory = SimplePersistFactory::<TestObject>::new(0x12345678);
+        let factory = SimplePersistFactory::<TestObject>::new(0x12345678, new_save_load_system());
         assert_eq!(factory.chunk_id(), 0x12345678);
 
         // Test save

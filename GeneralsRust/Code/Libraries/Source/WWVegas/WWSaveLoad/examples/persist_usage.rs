@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use ww_save_load::saveload::{SaveLoadError, SaveLoadResult};
 use ww_save_load::{
     ChunkLoad, ChunkLoadExt, ChunkSave, ChunkSaveExt, Persist, PersistFactory,
-    PersistFactoryRegistry, PostLoadable, RemapId, SimplePersistFactory, get_save_load_system,
+    PersistFactoryRegistry, PostLoadable, RemapId, SimplePersistFactory, new_save_load_system,
 };
 
 /// Example game entity that can be persisted
@@ -104,7 +104,7 @@ impl Persist for GameEntity {
     }
 
     fn get_factory(&self) -> Arc<dyn PersistFactory> {
-        Arc::new(SimplePersistFactory::<GameEntity>::new(0x47414D45)) // "GAME" in hex
+        Arc::new(SimplePersistFactory::<GameEntity>::new(0x47414D45, new_save_load_system())) // "GAME" in hex
     }
 
     fn get_remap_id(&self) -> RemapId {
@@ -134,13 +134,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Entity 3: {:?}", entity3);
 
     // Register factory with the save/load system
-    let factory = Arc::new(SimplePersistFactory::<GameEntity>::new(0x47414D45));
-    get_save_load_system().register_persist_factory(factory);
+    let system = new_save_load_system();
+    let factory = Arc::new(SimplePersistFactory::<GameEntity>::new(0x47414D45, Arc::clone(&system)));
+    system.register_persist_factory(factory);
     println!("\n--- Registered factory for GameEntity (chunk ID: 0x47414D45) ---");
 
     // Demonstrate factory registry
     let registry = PersistFactoryRegistry::new();
-    let factory_clone = Arc::new(SimplePersistFactory::<GameEntity>::new(0x47414D45));
+    let factory_clone = Arc::new(SimplePersistFactory::<GameEntity>::new(0x47414D45, Arc::clone(&system)));
 
     registry.register_factory(factory_clone)?;
     println!("Factory registered in local registry");

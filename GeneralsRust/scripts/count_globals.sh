@@ -404,7 +404,6 @@ ALLOW_OPAQUE_WRAPPERS = {
     "DecisionsBag",
     "DefaultRemoveOnCompleteSlot",
     "DefinitionMgrLockSlot",
-    "DefinitionMgrRuntime",
     "DeliveredSlot",
     "DevelopmentModeSlot",
     "DisabledColorMaskWarningsSlot",
