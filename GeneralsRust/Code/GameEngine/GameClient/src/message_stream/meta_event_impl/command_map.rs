@@ -528,9 +528,8 @@ mod command_map_parity_tests {
         crate::test_support::ensure_ambient_host();
         // C++ MetaEventTranslator walks TheMetaMap after Keyboard Options writes.
         ensure_meta_map_loaded();
-        {
-            let mut guard = get_meta_map().write().unwrap_or_else(|e| e.into_inner());
-            guard.add_record(MetaMapRec {
+        with_meta_map(|map| {
+            map.add_record(MetaMapRec {
                 name: "TOGGLE_LOWER_DETAILS".to_string(),
                 meta: None,
                 key: 0x4C,
@@ -541,7 +540,7 @@ mod command_map_parity_tests {
                 description: String::new(),
                 display_name: "Lower Details".to_string(),
             });
-        }
+        });
         assert_eq!(
             lookup_command_map_name(0x4C, 0).as_deref(),
             Some("TOGGLE_LOWER_DETAILS")

@@ -46,8 +46,8 @@ pub struct CommandMapEntry {
 }
 
 #[derive(Default)]
-pub(crate) struct MetaMap {
-    records: Vec<MetaMapRec>,
+pub struct MetaMap {
+    pub(crate) records: Vec<MetaMapRec>,
 }
 
 impl MetaMap {
@@ -68,18 +68,13 @@ impl MetaMap {
         }
     }
 
-    fn iter(&self) -> impl Iterator<Item = &MetaMapRec> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &MetaMapRec> {
         self.records.iter()
     }
 }
 
-// THREAD: producer -> consumer across the host's startup worker. The host parses
-// CommandMap.ini on a background startup thread (`Main::spawn_startup_map_load`), and
-// the registered "CommandMap" INI block parser writes straight into this table, so
-// the map itself has to stay a process-wide lock; the meta-event toggles/cheat state
-// that is only ever touched by GUI-thread handlers lives on
-// `InGameUISubsystem::meta_demo` (`crate::meta_demo_state`).
-static META_MAP: OnceLock<RwLock<MetaMap>> = OnceLock::new();
+// Parser registration is a process-wide one-shot (idempotent). The CommandMap
+// table itself lives on `GameClient::meta_map` (live client / test TLS).
 static META_PARSER_REGISTERED: OnceLock<()> = OnceLock::new();
 
 const DROPPED_MAX_PARTICLE_COUNT: i32 = 1000;

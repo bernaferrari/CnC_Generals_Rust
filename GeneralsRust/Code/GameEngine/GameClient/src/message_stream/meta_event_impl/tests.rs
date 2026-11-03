@@ -133,8 +133,7 @@ mod tests {
     fn test_keyboard_options_remap_reaches_lookup() {
         crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
-        {
-            let mut map = get_meta_map().write().unwrap_or_else(|e| e.into_inner());
+        with_meta_map(|map| {
             map.add_record(MetaMapRec {
                 name: "SELECT_ALL".to_string(),
                 meta: Some(GameMessageType::MetaSelectAll),
@@ -146,7 +145,7 @@ mod tests {
                 description: "GUI:SelectAllDesc".to_string(),
                 display_name: "GUI:SelectAll".to_string(),
             });
-        }
+        });
         assert_eq!(
             lookup_command_map_name(0x51, 0).as_deref(),
             Some("SELECT_ALL")
