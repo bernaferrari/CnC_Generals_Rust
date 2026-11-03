@@ -303,3 +303,35 @@ fn retained_mark_adapter_does_not_fabricate_current_input_from_body_history() {
     assert_eq!(object.last_damage_info_type, Some(DamageType::Flame));
     assert_eq!(object.last_damage_source, Some(preferred));
 }
+
+#[test]
+fn authored_body_subclass_binds_immortal_floor_not_template_name() {
+    // CPP ImmortalBody.cpp:31-37: the authored Body subclass owns the floor.
+    // A neutral-name ImmortalBody floors at 1; an ActiveBody whose name merely
+    // contains SupplyWarehouse dies like any ActiveBody.
+    let mut owner = GameLogic::new();
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "authored-immortal-subclass.ini".to_string(),
+        format!(
+            "{}\n{}",
+            authored("NeutralImmortalPeer", "ImmortalBody", "INERT", ""),
+            authored("SupplyWarehouseActivePeer", "ActiveBody", "INERT", "")
+        ),
+    )])
+    .unwrap();
+    owner.admit_receiving_module_content(content).unwrap();
+    let immortal = owner
+        .create_object("NeutralImmortalPeer", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
+    let active = owner
+        .create_object("SupplyWarehouseActivePeer", Team::USA, glam::Vec3::new(200.0, 0.0, 0.0))
+        .unwrap();
+    assert!(!hit(&mut owner, immortal, None, 100.0, DamageType::Unresistable, HostDeathType::Detonated));
+    assert_eq!(owner.host_object(immortal).unwrap().health.current, 1.0);
+    assert!(!owner.host_object(immortal).unwrap().status.on_die_started);
+    assert!(!owner.apply_owned_kill(immortal, DamageType::Unresistable, HostDeathType::Detonated).unwrap().destroyed);
+    assert_eq!(owner.host_object(immortal).unwrap().health.current, 1.0);
+    hit(&mut owner, active, None, 100.0, DamageType::Unresistable, HostDeathType::Detonated);
+    let active_obj = owner.host_object(active);
+    assert!(active_obj.map_or(true, |o| o.health.current <= 0.0 || o.status.on_die_started));
+}

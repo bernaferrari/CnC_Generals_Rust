@@ -6,17 +6,20 @@ use super::*;
 pub(crate) enum BodyKind {
     Active,
     Inactive,
+    /// ActiveBody-family ImmortalBody (ImmortalBody.cpp:31-37 health floor).
+    Immortal,
 }
 
 impl BodyKind {
     pub(crate) fn from_module_class(name: &str) -> Option<Self> {
         if name.eq_ignore_ascii_case("InactiveBody") {
             Some(Self::Inactive)
+        } else if name.eq_ignore_ascii_case("ImmortalBody") {
+            Some(Self::Immortal)
         } else if [
             "ActiveBody",
             "StructureBody",
             "HighlanderBody",
-            "ImmortalBody",
             "HiveStructureBody",
             "UndeadBody",
         ]
