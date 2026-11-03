@@ -91,8 +91,14 @@ fn bootstrap_smoke_child(
         .arg("-runtime_host_private_profile=1")
         .arg(format!("-userdata={}", user_data_path.display()))
         .arg("-windowed")
-        .arg("-width=640")
-        .arg("-height=480")
+        .arg(format!(
+            "-width={}",
+            std::env::var("GENERALS_WIDTH").unwrap_or_else(|_| "640".into())
+        ))
+        .arg(format!(
+            "-height={}",
+            std::env::var("GENERALS_HEIGHT").unwrap_or_else(|_| "480".into())
+        ))
         .arg(format!("-gpui_control={}", control_path.display()))
         .arg(format!("-gpui_status={}", status_path.display()))
         .arg(format!("-gpui_frame={}", frame_path.display()))

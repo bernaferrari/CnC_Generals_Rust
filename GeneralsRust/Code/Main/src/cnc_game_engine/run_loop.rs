@@ -1072,6 +1072,25 @@ impl CnCGameEngine {
         if let Some(ui) = self.game_client.in_game_ui_subsystem_mut() {
             admit_radar_presentations(&mut self.game_logic, ui.take_radar_acknowledgments());
         }
+        // C++ W3DRadar::refreshTerrain after WorldHeightMap tiles arrive.
+        // Source tiles may hydrate after newMap's first black band admit.
+        #[cfg(feature = "game_client")]
+        {
+            let colors_gen = self.render_pipeline.radar_terrain_colors_generation();
+            if colors_gen != self.render_pipeline.radar_terrain_colors_admitted_generation {
+                let colors = self
+                    .render_pipeline
+                    .frozen_radar_terrain_colors(self.game_logic.radar());
+                if colors.iter().any(Option::is_some)
+                    && self.game_logic.admit_radar_terrain_colors(
+                        colors,
+                        self.game_logic.radar_water_color(),
+                    )
+                {
+                    self.render_pipeline.radar_terrain_colors_admitted_generation = colors_gen;
+                }
+            }
+        }
         let frame = self.game_logic.frame;
         if self.game_logic.radar_mut().update_owned(frame) {
             self.game_logic.host_radar_refresh_terrain();

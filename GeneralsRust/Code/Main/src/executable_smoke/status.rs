@@ -48,6 +48,11 @@ struct StatusSnap {
     render_alive_objects: u32,
     render_fow_filtered: u32,
     render_frustum_culled: u32,
+    radar_pixels: u32,
+    present_ms: f32,
+    present_collect_ms: f32,
+    present_terrain_ms: f32,
+    present_forward_ms: f32,
 }
 
 fn parse_status(path: &Path) -> Option<StatusSnap> {
@@ -190,6 +195,21 @@ fn parse_status(path: &Path) -> Option<StatusSnap> {
             }
             "render_frustum_culled" => {
                 snap.render_frustum_culled = v.trim().parse().unwrap_or(0);
+            }
+            "radar_pixels" => {
+                snap.radar_pixels = v.trim().parse().unwrap_or(0);
+            }
+            "present_ms" => {
+                snap.present_ms = v.trim().parse().unwrap_or(0.0);
+            }
+            "present_collect_ms" => {
+                snap.present_collect_ms = v.trim().parse().unwrap_or(0.0);
+            }
+            "present_terrain_ms" => {
+                snap.present_terrain_ms = v.trim().parse().unwrap_or(0.0);
+            }
+            "present_forward_ms" => {
+                snap.present_forward_ms = v.trim().parse().unwrap_or(0.0);
             }
             "match_over" => snap.match_over = matches!(v.trim(), "true" | "1" | "True"),
             "victory_label" => snap.victory_label = v.trim().to_string(),

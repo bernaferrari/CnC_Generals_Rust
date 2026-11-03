@@ -69,6 +69,10 @@ impl RenderPipeline {
             heightmap_world_size: None,
             #[cfg(feature = "game_client")]
             radar_terrain_colors: None,
+            #[cfg(feature = "game_client")]
+            radar_terrain_colors_generation: 0,
+            #[cfg(feature = "game_client")]
+            radar_terrain_colors_admitted_generation: 0,
             cached_lighting: Some(initial_lighting.clone()),
             cached_terrain_lighting: Some(initial_lighting),
             last_startup_model_prewarm_signature: None,
@@ -90,6 +94,10 @@ impl RenderPipeline {
             debug_last_presentation_live_fallback_reads: 0,
             debug_last_fow_filtered: 0,
             debug_last_frustum_culled: 0,
+            debug_last_present_ms: 0.0,
+            debug_last_collect_ms: 0.0,
+            debug_last_terrain_ms: 0.0,
+            debug_last_forward_ms: 0.0,
             debug_last_model_missing: 0,
             debug_last_deferred_model_loads: 0,
             debug_last_deferred_model_load_budget: 0,

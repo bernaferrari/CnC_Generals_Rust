@@ -608,6 +608,7 @@ impl GameLogic {
             receiving_object_definitions: None,
             receiving_template_baseline: None,
             templates: HashMap::new(),
+            build_facility_template_names_cache: std::cell::RefCell::new(None),
             unresolved_spawn_templates: HashSet::new(),
 
             map_name: String::new(),
@@ -961,6 +962,7 @@ impl GameLogic {
         self.locomotor_definitions = self.locomotor_definition_base.clone();
         if let Some(baseline) = &self.receiving_template_baseline {
             self.templates = baseline.clone();
+        self.invalidate_build_facility_template_names_cache();
         }
         if let Some(content) = &mut self.receiving_module_content {
             content.reset_map_overrides();

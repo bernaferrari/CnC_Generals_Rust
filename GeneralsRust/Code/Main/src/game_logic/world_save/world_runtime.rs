@@ -404,6 +404,7 @@ impl GameLogic {
                 return;
             };
             self.templates = baseline.clone();
+        self.invalidate_build_facility_template_names_cache();
             self.refresh_receiving_client_templates();
         } else {
             self.setup_templates();

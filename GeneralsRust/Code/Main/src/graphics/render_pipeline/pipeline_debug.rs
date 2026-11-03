@@ -120,6 +120,22 @@ impl RenderPipeline {
         self.debug_last_frustum_culled
     }
 
+    pub fn debug_last_present_ms(&self) -> f32 {
+        self.debug_last_present_ms
+    }
+
+    pub fn debug_last_collect_ms(&self) -> f32 {
+        self.debug_last_collect_ms
+    }
+
+    pub fn debug_last_terrain_ms(&self) -> f32 {
+        self.debug_last_terrain_ms
+    }
+
+    pub fn debug_last_forward_ms(&self) -> f32 {
+        self.debug_last_forward_ms
+    }
+
     pub fn debug_last_model_missing(&self) -> usize {
         self.debug_last_model_missing
     }

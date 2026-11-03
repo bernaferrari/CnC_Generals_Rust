@@ -104,6 +104,7 @@ impl GameLogic {
         self.receiving_object_definitions = Some(projection_candidate);
         self.projectile_definitions = projectile_candidate;
         self.templates = templates;
+        self.invalidate_build_facility_template_names_cache();
         self.refresh_receiving_client_templates();
         Ok(())
     }

@@ -734,6 +734,10 @@ impl RenderPipeline {
 
         // Removed excessive logging
         let execute_elapsed = execute_started.elapsed();
+        self.debug_last_present_ms = execute_elapsed.as_secs_f32() * 1000.0;
+        self.debug_last_collect_ms = collect_elapsed.as_secs_f32() * 1000.0;
+        self.debug_last_terrain_ms = terrain_elapsed.as_secs_f32() * 1000.0;
+        self.debug_last_forward_ms = forward_elapsed.as_secs_f32() * 1000.0;
         if execute_elapsed >= std::time::Duration::from_millis(200) {
             warn!(
                 "RenderPipeline breakdown: total={:?} collect={:?} sort={:?} terrain={:?} forward={:?} render_world_scene={} render_items={} model_missing={} deferred_loads={}/{}",

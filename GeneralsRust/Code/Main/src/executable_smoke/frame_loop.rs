@@ -174,6 +174,12 @@ struct SmokeRunState {
     max_render_models: u32,
     max_render_ui: u32,
     max_render_selection: u32,
+    max_radar_pixels: u32,
+    sum_present_ms: f64,
+    sum_collect_ms: f64,
+    sum_terrain_ms: f64,
+    sum_forward_ms: f64,
+    present_timing_samples: u32,
     present_image_ok: bool,
     phase: u8, // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     last_snap: StatusSnap,

@@ -383,6 +383,7 @@ impl GameLogic {
         if self.receiving_module_content.is_some() {
             if let Some(baseline) = &self.receiving_template_baseline {
                 self.templates = baseline.clone();
+        self.invalidate_build_facility_template_names_cache();
             }
         }
         // Direct map admission also enters without the broader engine reset.
