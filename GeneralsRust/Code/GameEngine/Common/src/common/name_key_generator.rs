@@ -25,7 +25,7 @@ struct BucketEntry {
 /// Move this value across content-loading threads; numeric keys are meaningful
 /// only with this same namespace. Construction never installs ambient state.
 #[derive(Debug, Clone)]
-pub pub struct NameKeyNamespace {
+pub struct NameKeyNamespace {
     buckets: Vec<Vec<BucketEntry>>,
     next_id: NameKeyType,
     reverse_lookup: HashMap<NameKeyType, String>,
