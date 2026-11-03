@@ -56,6 +56,48 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn low_stage_truncates_complete_subtraction_for_odd_heights() {
+        // ControlBar.cpp:3041: y = height - 0.1*height, then (Int). For 481:
+        // 481 - 48.1 = 432.9 → 432. Truncating 10% first yields 433.
+        crate::test_support::ensure_ambient_host();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        {
+            owner.with_manager(|wm| {
+                wm.test_destroy_all_windows();
+                wm.set_screen_size(640, 481);
+                let parent = wm.test_create_window(None, 0, 332, 640, 148).unwrap();
+                parent.borrow_mut().set_name(CONTROL_BAR_PARENT);
+            });
+            let parent = owner
+                .with_manager_ref(|wm| wm.find_window_by_name(CONTROL_BAR_PARENT).unwrap());
+            let mut bar = ControlBar::new();
+            owner.with_manager(|wm| {
+                let mut viewport = OwnedViewport {
+                    display: (
+                        wm.screen_size().0.max(0) as u32,
+                        wm.screen_size().1.max(0) as u32,
+                    ),
+                    height: wm.screen_size().1,
+                };
+                let parent = leftover_find_window(CONTROL_BAR_PARENT, wm);
+                bar.switch_control_bar_stage_on_window_owned(
+                    ControlBarStage::Low,
+                    &mut viewport,
+                    false,
+                    parent,
+                    wm,
+                );
+            });
+            assert_eq!(
+                parent.borrow().get_position(),
+                (0, 432),
+                "C++ truncates the full double subtraction"
+            );
+        }
+    }
+
     #[test]
     fn low_stage_keeps_cpp_default_marker_base_before_first_draw() {
         crate::test_support::ensure_ambient_host();
