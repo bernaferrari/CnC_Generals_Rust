@@ -895,61 +895,64 @@ fn apply_skirmish_config_for_mode_with_settings(
     multiplayer: Option<&game_engine::common::ini::ini_multiplayer::MultiplayerSettings>,
     mut effects: Option<&mut crate::game_logic::ScriptPresentationEffects<'_>>,
 ) -> Result<(), String> {
-    // Validate/resolve the candidate without changing an existing match on
-    // error. Replay admission uses the same GameInfo seed in this config.
-    let mut selection = game_engine::common::random_value::RandomState::default();
-    selection.seed_random(config.random_seed);
-    let resolved_slots = resolve_skirmish_slots_for_owner_with_settings(
-        config,
-        logic.player_template_definitions.as_ref(),
-        &mut selection,
-        multiplayer,
-    )?;
-    // New admission metadata must reject before reset/seed side effects. This
-    // scratch validation does not perform start selection or retain a second owner.
-    saved_admission::SavedSkirmishAdmission::capture_with_settings(
-        config,
-        &config.slots,
-        &resolved_slots,
-        multiplayer,
-    )?;
-    if let Some(effects) = effects.as_deref_mut() {
-        logic
-            .validate_reset_with_effects(effects)
-            .map_err(|error| error.to_string())?;
-    }
-    logic.set_logic_random_seed(config.random_seed);
-    let stream = logic.logic_random.clone();
-    game_engine::common::random_value::with_session_random(&stream, || {
-        if let Some(effects) = effects {
-            logic
-                .start_new_game_for_resolved_players_with_effects(mode, effects)
-                .map_err(|error| error.to_string())?;
-        } else {
-            logic.start_new_game_for_resolved_players(mode);
-        }
-        // Carry faction-selection draws into the admitted match stream before
-        // the subsequent start-position selection.
-        logic.logic_random.set_seed_words(selection.seed_words());
-
-        let mut assigned = config.slots.clone();
-        populate_random_start_position(&mut assigned, &config.map, &logic.logic_random);
-
-        let admission = saved_admission::SavedSkirmishAdmission::capture_with_settings(
+    // Bind this world's Common/World/Main for player-template resolve and start.
+    logic.with_own_services_mut(|logic| {
+        // Validate/resolve the candidate without changing an existing match on
+        // error. Replay admission uses the same GameInfo seed in this config.
+        let mut selection = game_engine::common::random_value::RandomState::default();
+        selection.seed_random(config.random_seed);
+        let resolved_slots = resolve_skirmish_slots_for_owner_with_settings(
             config,
-            &assigned,
+            logic.player_template_definitions.as_ref(),
+            &mut selection,
+            multiplayer,
+        )?;
+        // New admission metadata must reject before reset/seed side effects. This
+        // scratch validation does not perform start selection or retain a second owner.
+        saved_admission::SavedSkirmishAdmission::capture_with_settings(
+            config,
+            &config.slots,
             &resolved_slots,
             multiplayer,
         )?;
-        admit_resolved_slots(logic, config, &assigned, resolved_slots, multiplayer)?;
-        admission.admit_local_selection(logic);
-        logic.initial_skirmish_admission = Some(Box::new(admission));
-        logic.multiplayer_definitions =
-            multiplayer.map(|settings| std::sync::Arc::new(settings.clone()));
-        if mode == GameMode::Replay {
-            logic.apply_replay_observer_as_local_player();
+        if let Some(effects) = effects.as_deref_mut() {
+            logic
+                .validate_reset_with_effects(effects)
+                .map_err(|error| error.to_string())?;
         }
-        Ok(())
+        logic.set_logic_random_seed(config.random_seed);
+        let stream = logic.logic_random.clone();
+        game_engine::common::random_value::with_session_random(&stream, || {
+            if let Some(effects) = effects {
+                logic
+                    .start_new_game_for_resolved_players_with_effects(mode, effects)
+                    .map_err(|error| error.to_string())?;
+            } else {
+                logic.start_new_game_for_resolved_players(mode);
+            }
+            // Carry faction-selection draws into the admitted match stream before
+            // the subsequent start-position selection.
+            logic.logic_random.set_seed_words(selection.seed_words());
+
+            let mut assigned = config.slots.clone();
+            populate_random_start_position(&mut assigned, &config.map, &logic.logic_random);
+
+            let admission = saved_admission::SavedSkirmishAdmission::capture_with_settings(
+                config,
+                &assigned,
+                &resolved_slots,
+                multiplayer,
+            )?;
+            admit_resolved_slots(logic, config, &assigned, resolved_slots, multiplayer)?;
+            admission.admit_local_selection(logic);
+            logic.initial_skirmish_admission = Some(Box::new(admission));
+            logic.multiplayer_definitions =
+                multiplayer.map(|settings| std::sync::Arc::new(settings.clone()));
+            if mode == GameMode::Replay {
+                logic.apply_replay_observer_as_local_player();
+            }
+            Ok(())
+        })
     })
 }
 
