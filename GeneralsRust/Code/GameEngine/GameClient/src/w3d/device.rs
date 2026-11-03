@@ -372,7 +372,7 @@ impl W3DDevice {
             adapter_info.vendor
         );
 
-        let (device, queue) = ww3d_gpu::acquire_device(
+        let (device, queue) = ww3d_gpu::DeviceAuthority::new().acquire_device(
             &adapter,
             &DeviceDescriptor {
                 required_features: settings.required_features,

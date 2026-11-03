@@ -37,6 +37,7 @@ use crate::common::audio::gameplay_audio_dispatch::GameplayAudioDispatch;
 use crate::common::audio::audio_event_rts::AudioEventOwnerResolver;
 use crate::common::audio::game_sounds::AudioShroudResolver;
 use parking_lot::Mutex as ParkingMutex;
+use ww3d_animation::AnimatedSoundMgr;
 use crate::System::SaveGame::{
     GameState, RuntimeIdCounterHooks, SaveLoadLifecycleHooks,
 };
@@ -140,6 +141,7 @@ pub struct SystemStores {
     pub audio_shroud_resolver: Mutex<Option<Arc<dyn AudioShroudResolver>>>,
     pub speech_registry: RwLock<std::collections::HashMap<String, crate::common::audio::game_speech::Speech>>,
     pub effects_next_handle: std::sync::atomic::AtomicU32,
+    pub animated_sound_mgr: Arc<AnimatedSoundMgr>,
 }
 
 impl SystemStores {
@@ -212,6 +214,7 @@ impl SystemStores {
             audio_shroud_resolver: Mutex::new(None),
             speech_registry: RwLock::new(std::collections::HashMap::new()),
             effects_next_handle: std::sync::atomic::AtomicU32::new(10000),
+            animated_sound_mgr: Arc::new(AnimatedSoundMgr::new()),
         }
     }
 

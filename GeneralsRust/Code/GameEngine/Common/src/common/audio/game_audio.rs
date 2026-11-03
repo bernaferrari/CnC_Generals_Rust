@@ -4018,12 +4018,16 @@ impl SoundLibraryBridge for AnimatedSoundBridge {
 
 /// Register the audio manager with the ww3d animated sound system.
 pub fn register_animation_sound_library(manager: Arc<Mutex<AudioManager>>) {
-    if let Err(err) = initialize_animated_sound_mgr::<&str>(None) {
+    let anim_mgr = crate::common::common_services::common_services()
+        .system
+        .animated_sound_mgr
+        .clone();
+    if let Err(err) = initialize_animated_sound_mgr::<&str>(&anim_mgr, None) {
         log::debug!("Animated sound metadata not available: {err:?}");
     }
 
     let bridge: Arc<dyn SoundLibraryBridge> = Arc::new(AnimatedSoundBridge::new(manager));
-    set_sound_library(bridge);
+    set_sound_library(&anim_mgr, bridge);
 }
 
 /// Initialize the global audio manager singleton.
