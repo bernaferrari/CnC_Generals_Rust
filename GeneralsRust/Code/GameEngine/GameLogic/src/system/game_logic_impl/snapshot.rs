@@ -276,7 +276,10 @@ impl XferSnapshotTrait for TerrainLogicSnapshotBridge {
 }
 
 fn register_game_logic_snapshot_block() {
-    let logic = get_game_logic();
+    // Direct Core slot: must not call get_game_logic() here — that re-enters
+    // SAVE_GAME_COUNTER_HOOKS OnceLock while install_save_game_counter runs.
+    let logic = crate::system::engine_stores::EngineStores::process_lifetime()
+        .game_logic_mutex();
     let script_engine = get_script_engine();
     let mut state = game_engine::System::get_game_state();
     state.add_snapshot_block(
