@@ -76,6 +76,8 @@ pub struct GameClient {
     fx_list_store: Option<std::sync::Arc<std::sync::RwLock<crate::fx_list::FXListStore>>>,
     weather_setting: Option<std::sync::Arc<std::sync::RwLock<crate::snow::WeatherSetting>>>,
     snow_manager: Option<std::sync::Arc<std::sync::Mutex<crate::snow::SnowManager>>>,
+    supply_and_tech_images: Option<std::sync::Arc<std::sync::Mutex<crate::map_util::TechAndSupplyImages>>>,
+    map_cache_manager: Option<std::sync::Arc<std::sync::Mutex<crate::map_util::MapCache>>>,
     startup_shell_image_reported: std::collections::HashSet<String>,
     /// DrawIconUI admitted from the driving Main session before native draw.
     receiving_draw_icon_ui: bool,
