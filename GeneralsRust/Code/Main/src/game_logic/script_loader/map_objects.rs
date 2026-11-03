@@ -153,17 +153,66 @@ pub fn parse_runtime_roads_from_chunky(
     Ok(roads_from_object_stubs(&objects, definitions))
 }
 
+/// Combined waypoints+bridges+roads from one ObjectsList decode (C++ MapObject walk).
+pub fn parse_runtime_map_objects_bundle_from_chunky(
+    chunky: &ChunkyMap,
+    templates: &HashMap<String, super::ThingTemplate>,
+    definitions: &TerrainRoadCollection,
+) -> LoaderResult<(
+    Vec<RuntimeWaypoint>,
+    Vec<(u32, u32)>,
+    Vec<BridgeData>,
+    Vec<RuntimeRoadSegment>,
+)> {
+    let body = &chunky.bytes[chunky.body_offset..];
+    let mut stubs = Vec::new();
+    let mut waypoints = Vec::new();
+    if let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, OBJECTS_LIST_LABEL)? {
+        parse_chunk_sequence(payload, &chunky.toc, |label, child_version, data| {
+            if label != OBJECT_LABEL {
+                return Ok(());
+            }
+            let ver = child_version.max(version);
+            // Waypoints need the property dict; stubs are flag/geometry only.
+            if let Some(waypoint) = parse_waypoint_object_chunk(data, ver, &chunky.toc)? {
+                waypoints.push(waypoint);
+            }
+            if let Some(map_object) = parse_runtime_map_object_stub_chunk(data, ver)? {
+                stubs.push(map_object);
+            }
+            Ok(())
+        })?;
+    }
+    let mut links = Vec::new();
+    if let Some((_ver, payload)) = find_chunk_by_label(body, &chunky.toc, "WaypointsList")? {
+        let mut reader = BinaryReader::new(payload);
+        let count = reader.read_i32()?.max(0) as usize;
+        for _ in 0..count {
+            if reader.remaining() < 8 {
+                break;
+            }
+            let id1 = reader.read_i32()? as u32;
+            let id2 = reader.read_i32()? as u32;
+            links.push((id1, id2));
+        }
+    }
+    Ok((
+        waypoints,
+        links,
+        bridges_from_object_stubs(&stubs, templates),
+        roads_from_object_stubs(&stubs, definitions),
+    ))
+}
+
 /// Combined bridges+roads from a single ObjectsList decode (preferred hot path).
 pub fn parse_runtime_bridges_and_roads_from_chunky(
     chunky: &ChunkyMap,
     templates: &HashMap<String, super::ThingTemplate>,
     definitions: &TerrainRoadCollection,
 ) -> LoaderResult<(Vec<BridgeData>, Vec<RuntimeRoadSegment>)> {
-    let objects = parse_runtime_object_stubs_from_chunky(chunky)?;
-    Ok((
-        bridges_from_object_stubs(&objects, templates),
-        roads_from_object_stubs(&objects, definitions),
-    ))
+    let (_wp, _links, bridges, roads) =
+        parse_runtime_map_objects_bundle_from_chunky(chunky, templates, definitions)?;
+    Ok((bridges, roads))
 }
 
 pub fn parse_runtime_sides_from_chunky(chunky: &ChunkyMap) -> LoaderResult<RuntimeSidesData> {

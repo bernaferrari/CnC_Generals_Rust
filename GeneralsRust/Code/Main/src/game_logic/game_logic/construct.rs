@@ -780,6 +780,8 @@ impl GameLogic {
             runtime_road_segments: Vec::new(),
             runtime_water_triggers: Vec::new(),
             runtime_terrain_texture_classes: Vec::new(),
+            pending_map_heightmap: None,
+            pending_blend_tile_data: None,
             pathfinding_height_samples: None,
             weather_state: RuntimeWeatherState::default(),
             host_sleepy: super::world_tick::HostSleepyHeap::new(),

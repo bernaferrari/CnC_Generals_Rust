@@ -2067,6 +2067,13 @@ impl CnCGameEngine {
                     )
                     .map_err(anyhow::Error::msg)?
                     .with_pristine_bones(self.application_assets.as_ref());
+                // C++ updates the load bar without a full present on every MapReader
+                // stage. Throttle GPU presents — under load each present was ~2–13s
+                // and dominated Lone Eagle "Fast legacy sync" stage timers.
+                let mut last_load_present = Instant::now()
+                    .checked_sub(std::time::Duration::from_secs(1))
+                    .unwrap_or_else(Instant::now);
+                let mut last_load_progress = -1.0f32;
                 let loaded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     game_logic.load_map_with_progress_and_native_checked(
                         &map_to_load,
@@ -2076,23 +2083,30 @@ impl CnCGameEngine {
                                 "Command & Conquer Generals Zero Hour - Loading {phase} ({:.0}%)",
                                 progress * 100.0
                             ));
+                            let progress_jumped = (progress - last_load_progress).abs() >= 0.02;
+                            let present_due = last_load_present.elapsed()
+                                >= std::time::Duration::from_millis(100);
                             if let Some(kind) = load_kind {
-                                let mut audio = menu_audio.lend(
-                                    audio_random,
-                                    audio_policy,
-                                    audio_locality,
-                                    audio_view,
-                                );
-                                let (mut load_owner, _default_pump) =
-                                    game_client.split_load_screen_services(&mut audio);
-                                Self::pump_cpp_load_screen_progress(
-                                    &mut pump,
-                                    kind,
-                                    progress,
-                                    load_owner.runtime_mut(),
-                                )?;
+                                if progress_jumped || present_due {
+                                    let mut audio = menu_audio.lend(
+                                        audio_random,
+                                        audio_policy,
+                                        audio_locality,
+                                        audio_view,
+                                    );
+                                    let (mut load_owner, _default_pump) =
+                                        game_client.split_load_screen_services(&mut audio);
+                                    Self::pump_cpp_load_screen_progress(
+                                        &mut pump,
+                                        kind,
+                                        progress,
+                                        load_owner.runtime_mut(),
+                                    )?;
+                                    last_load_present = Instant::now();
+                                    last_load_progress = progress;
+                                    window.request_redraw();
+                                }
                             }
-                            window.request_redraw();
                             Ok(())
                         },
                         Some(&mut attempt),

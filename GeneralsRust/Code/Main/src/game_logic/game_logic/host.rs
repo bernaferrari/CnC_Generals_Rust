@@ -1490,6 +1490,9 @@ pub struct GameLogic {
     /// presentation freeze (C++ PolygonTrigger water areas).
     pub(super) runtime_water_triggers: Vec<gamelogic::polygon_trigger::PolygonTrigger>,
     pub(super) runtime_terrain_texture_classes: Vec<super::script_loader::BlendTileTextureClass>,
+    /// HeightMapData/BlendTileData from fast sync — world_load must not re-parse.
+    pub(super) pending_map_heightmap: Option<super::script_loader::HeightMapData>,
+    pub(super) pending_blend_tile_data: Option<super::script_loader::BlendTileData>,
     pub(super) pathfinding_height_samples: Option<PathfindingHeightSamples>,
     pub(super) weather_state: RuntimeWeatherState,
     /// C++ `m_sleepyUpdates` host residual (`GameLogic.cpp:3699-3740`).
