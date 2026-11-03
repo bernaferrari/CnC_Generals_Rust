@@ -200,13 +200,28 @@ impl AIPlayer {
         })
     }
 
-    pub(super) fn faction_dozer_template(team: Team) -> Option<&'static str> {
-        match team {
-            Team::USA => Some("AmericaVehicleDozer"),
-            Team::China => Some("ChinaVehicleDozer"),
-            Team::GLA => Some("GLAInfantryWorker"),
-            _ => None,
+    /// C++ `AIPlayer::queueDozer` walks TheThingFactory for KINDOF_DOZER and
+    /// queues the first template that has a busyOK factory. There is no
+    /// faction name fallback: an empty catalog queues nothing.
+    pub(super) fn first_dozer_template_with_factory(
+        world: &GameLogic,
+        team: Team,
+    ) -> Option<(String, crate::game_logic::ObjectId)> {
+        let mut names: Vec<String> = world
+            .templates
+            .iter()
+            .filter(|(_, template)| template.is_kind_of(KindOf::Dozer))
+            .map(|(name, _)| name.clone())
+            .collect();
+        // HashMap has no INI chain; name order keeps the empty/present outcome
+        // stable across runs when several Dozer kinds share one catalog.
+        names.sort();
+        for name in names {
+            if let Some(factory) = Self::find_factory_for_unit_ex(world, &name, team, true) {
+                return Some((name, factory));
+            }
         }
+        None
     }
 
     /// C++ `AIPlayer::queueDozer` (AIPlayer.cpp:3128-3171): prepend a priority
@@ -225,22 +240,21 @@ impl AIPlayer {
         if self.dozer_already_queued() {
             return None;
         }
-        let template = Self::faction_dozer_template(self.team)?;
-        let factory = Self::find_factory_for_unit_ex(world, template, self.team, true)?;
+        let (template, factory) = Self::first_dozer_template_with_factory(world, self.team)?;
         let mut preexisting: Vec<_> = world
             .host_objects()
             .registered()
             .filter_map(|(&id, object)| {
                 (world.object_owned_by_player(object, self.player_id)
                     && object.producer_id == Some(factory)
-                    && object.template_name.eq_ignore_ascii_case(template))
+                    && object.template_name.eq_ignore_ascii_case(&template))
                 .then_some(id)
             })
             .collect();
         preexisting.sort_by_key(|id| id.0);
         Some(super::economic_owner::DozerQueueAttempt {
             player: self.player_id,
-            template: template.into(),
+            template,
             factory,
             preexisting,
         })

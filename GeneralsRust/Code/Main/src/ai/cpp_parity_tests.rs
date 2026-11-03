@@ -1156,6 +1156,39 @@ fn lost_dozer_queues_priority_command_center_replacement() {
     );
 }
 
+/// C++ queueDozer with no KINDOF_DOZER template queues nothing (AIPlayer.cpp:3138-3170).
+#[test]
+fn empty_dozer_catalog_queues_nothing() {
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut player = crate::game_logic::Player::new(1, Team::USA, "USA AI", false);
+    player.resources.supplies = 5_000;
+    logic.add_player(player);
+
+    let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+    cc.add_kind_of(crate::game_logic::KindOf::Structure)
+        .add_kind_of(crate::game_logic::KindOf::CommandCenter)
+        .set_cost(2000, 0);
+    logic.templates.insert("AmericaCommandCenter".into(), cc);
+    // Intentionally no KindOf::Dozer template in the catalog.
+
+    let cc_id = logic
+        .create_object("AmericaCommandCenter", Team::USA, Vec3::ZERO)
+        .expect("command center");
+    if let Some(obj) = logic.host_object_mut(cc_id) {
+        obj.owner_player_id = Some(1);
+        if let Some(bd) = obj.building_data.as_mut() {
+            bd.building_type = crate::game_logic::BuildingType::CommandCenter;
+        }
+    }
+
+    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    ai.queue_dozer(&mut logic, 0.0);
+    assert!(
+        ai.team_queue.is_empty(),
+        "C++ queueDozer must not invent a faction dozer when the catalog has none"
+    );
+}
+
 #[test]
 fn aidata_rebuild_delay_gates_destroyed_structure() {
     assert!((AIPlayer::REBUILD_DELAY_SECONDS - 30.0).abs() < 1e-5);
