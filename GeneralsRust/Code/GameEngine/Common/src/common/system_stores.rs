@@ -41,8 +41,11 @@ use ww3d_animation::AnimatedSoundMgr;
 use crate::System::SaveGame::{
     GameState, RuntimeIdCounterHooks, SaveLoadLifecycleHooks,
 };
+use crate::System::SaveGame::game_state::PostLoadHooks;
+use crate::common::thing::thing::ThingTerrainProviders;
+use crate::common::thing::thing_factory::ThingBridgeSlots;
 use parking_lot::RwLock as ParkingRwLock;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread::ThreadId;
 
@@ -159,6 +162,15 @@ pub struct SystemStores {
     pub effects_next_handle: std::sync::atomic::AtomicU32,
     /// Live GameClient snapshot bridge (same-thread exclusive borrow).
     pub live_game_client: Mutex<LiveGameClientBridge>,
+    /// SaveGame post-load partition / world-dict hooks.
+    pub post_load_hooks: Arc<Mutex<PostLoadHooks>>,
+    /// C++ ThePlayerList academy peer counters (advice #31/#32).
+    pub academy_local_player_mines: AtomicU32,
+    pub academy_neutral_vehicles_sniped: AtomicU32,
+    /// Thing terrain provider bridges (GameLogic registration).
+    pub thing_terrain: Arc<ThingTerrainProviders>,
+    /// ThingFactory object/drawable create bridges + ObjectCreateOverride leftovers.
+    pub thing_bridge: Arc<ThingBridgeSlots>,
 }
 
 impl SystemStores {
@@ -233,6 +245,11 @@ impl SystemStores {
             speech_registry: RwLock::new(std::collections::HashMap::new()),
             effects_next_handle: std::sync::atomic::AtomicU32::new(10000),
             live_game_client: Mutex::new(LiveGameClientBridge::default()),
+            post_load_hooks: Arc::new(Mutex::new(PostLoadHooks::default())),
+            academy_local_player_mines: AtomicU32::new(0),
+            academy_neutral_vehicles_sniped: AtomicU32::new(0),
+            thing_terrain: Arc::new(ThingTerrainProviders::default()),
+            thing_bridge: Arc::new(ThingBridgeSlots::default()),
         }
     }
 

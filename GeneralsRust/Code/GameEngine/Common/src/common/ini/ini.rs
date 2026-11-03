@@ -109,38 +109,24 @@ pub struct BlockParse {
     pub parse: INIBlockParse,
 }
 
-struct ExtraBlockParsersSlot(OnceLock<RwLock<Vec<BlockParse>>>);
-impl std::ops::Deref for ExtraBlockParsersSlot {
-    type Target = OnceLock<RwLock<Vec<BlockParse>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static EXTRA_BLOCK_PARSERS: ExtraBlockParsersSlot = ExtraBlockParsersSlot(OnceLock::new());
-
 /// C++ INIParticleSys.cpp overlays `TheParticleSystemManager`. Common's
 /// own registry is not the live GameClient manager; GameClient registers
 /// this hook so map.ini / INI::load ParticleSystem blocks reach the live path.
 pub type ParticleSystemLiveOverlay =
     fn(name: &str, properties: &HashMap<String, String>, load_type: INILoadType);
 
-struct ParticleSystemLiveOverlaySlot(LazyLock<RwLock<Option<ParticleSystemLiveOverlay>>>);
-impl std::ops::Deref for ParticleSystemLiveOverlaySlot {
-    type Target = LazyLock<RwLock<Option<ParticleSystemLiveOverlay>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static PARTICLE_SYSTEM_LIVE_OVERLAY: ParticleSystemLiveOverlaySlot = ParticleSystemLiveOverlaySlot(LazyLock::new(|| RwLock::new(None)));
-
-fn particle_system_live_overlay_slot() -> &'static RwLock<Option<ParticleSystemLiveOverlay>> {
-    &PARTICLE_SYSTEM_LIVE_OVERLAY
-}
-
 pub fn register_particle_system_live_overlay(overlay: ParticleSystemLiveOverlay) {
-    if let Ok(mut guard) = particle_system_live_overlay_slot().write() {
+    let services = crate::common::common_services::common_services();
+    if let Ok(mut guard) = services.ini.particle_system_live_overlay.write() {
         *guard = Some(overlay);
     }
 }
 
 fn particle_system_live_overlay() -> Option<ParticleSystemLiveOverlay> {
-    particle_system_live_overlay_slot()
+    let services = crate::common::common_services::common_services();
+    services
+        .ini
+        .particle_system_live_overlay
         .read()
         .ok()
         .and_then(|guard| *guard)
@@ -148,8 +134,10 @@ fn particle_system_live_overlay() -> Option<ParticleSystemLiveOverlay> {
 
 /// Register an additional INI block parser at runtime (used by client-side modules).
 pub fn register_block_parser(token: &'static str, parse: INIBlockParse) -> bool {
-    let registry = EXTRA_BLOCK_PARSERS.0.get_or_init(|| RwLock::new(Vec::new()));
-    let mut guard = registry
+    let services = crate::common::common_services::common_services();
+    let mut guard = services
+        .ini
+        .extra_block_parsers
         .write()
         .expect("INI block parser registry poisoned");
     if guard
@@ -163,9 +151,12 @@ pub fn register_block_parser(token: &'static str, parse: INIBlockParse) -> bool 
 }
 
 fn get_extra_block_parser(token: &str) -> Option<INIBlockParse> {
-    EXTRA_BLOCK_PARSERS
-        .get()
-        .and_then(|registry| registry.read().ok())
+    let services = crate::common::common_services::common_services();
+    services
+        .ini
+        .extra_block_parsers
+        .read()
+        .ok()
         .and_then(|guard| {
             guard
                 .iter()

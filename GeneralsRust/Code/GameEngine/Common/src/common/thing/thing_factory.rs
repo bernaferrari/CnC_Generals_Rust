@@ -124,11 +124,13 @@ pub trait DrawableCreator: Send + Sync {
 }
 
 pub fn set_object_creator(creator: Option<Arc<dyn ObjectCreator>>) {
-    *bridge().object_creator.lock().unwrap_or_else(|p| p.into_inner()) = creator;
+    let bridge = bridge();
+    *bridge.object_creator.lock().unwrap_or_else(|p| p.into_inner()) = creator;
 }
 
 pub fn set_drawable_creator(creator: Option<Arc<dyn DrawableCreator>>) {
-    *bridge().drawable_creator.lock().unwrap_or_else(|p| p.into_inner()) = creator;
+    let bridge = bridge();
+    *bridge.drawable_creator.lock().unwrap_or_else(|p| p.into_inner()) = creator;
 }
 
 /// Map.ini / solo.ini `Object` CREATE_OVERRIDES captured from leftover
@@ -145,7 +147,7 @@ pub type ObjectCreateOverridesLiveOverlay =
     fn(name: &str, reskin_from: &str, properties: &HashMap<String, String>);
 
 /// Bridge slots owned once per process; LazyLock type hides interior Mutex from globals count.
-struct ThingBridgeSlots {
+pub(crate) struct ThingBridgeSlots {
     object_creator: Mutex<Option<Arc<dyn ObjectCreator>>>,
     drawable_creator: Mutex<Option<Arc<dyn DrawableCreator>>>,
     overrides: Mutex<Vec<ObjectCreateOverride>>,
@@ -163,23 +165,27 @@ impl Default for ThingBridgeSlots {
     }
 }
 
-static THING_BRIDGE: std::sync::LazyLock<ThingBridgeSlots> =
-    std::sync::LazyLock::new(ThingBridgeSlots::default);
-
-fn bridge() -> &'static ThingBridgeSlots {
-    &THING_BRIDGE
+fn bridge() -> std::sync::Arc<ThingBridgeSlots> {
+    std::sync::Arc::clone(
+        &crate::common::common_services::common_services()
+            .system
+            .thing_bridge,
+    )
 }
 
 pub fn register_object_create_overrides_live_overlay(overlay: ObjectCreateOverridesLiveOverlay) {
-    *bridge().overlay.lock().unwrap_or_else(|p| p.into_inner()) = Some(overlay);
+    let bridge = bridge();
+    *bridge.overlay.lock().unwrap_or_else(|p| p.into_inner()) = Some(overlay);
 }
 
 pub fn leftover_object_create_overrides() -> Vec<ObjectCreateOverride> {
-    bridge().overrides.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    let bridge = bridge();
+    bridge.overrides.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 pub fn leftover_object_create_override(name: &str) -> Option<ObjectCreateOverride> {
-    bridge()
+    let bridge = bridge();
+    bridge
         .overrides
         .lock()
         .unwrap_or_else(|p| p.into_inner())
@@ -190,7 +196,8 @@ pub fn leftover_object_create_override(name: &str) -> Option<ObjectCreateOverrid
 }
 
 pub fn clear_object_create_overrides() {
-    bridge().overrides.lock().unwrap_or_else(|p| p.into_inner()).clear();
+    let bridge = bridge();
+    bridge.overrides.lock().unwrap_or_else(|p| p.into_inner()).clear();
 }
 
 fn record_object_create_override(
@@ -198,8 +205,9 @@ fn record_object_create_override(
     reskin_from: &str,
     properties: &HashMap<String, String>,
 ) {
+    let bridge_slots = bridge();
     {
-        let mut guard = bridge().overrides.lock().unwrap_or_else(|p| p.into_inner());
+        let mut guard = bridge_slots.overrides.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(existing) = guard
             .iter_mut()
             .find(|entry| entry.name.eq_ignore_ascii_case(name))
@@ -216,7 +224,7 @@ fn record_object_create_override(
     }
     // The overlay may re-enter the override store, so release the store lock
     // above before invoking it.
-    let overlay = *bridge().overlay.lock().unwrap_or_else(|p| p.into_inner());
+    let overlay = *bridge_slots.overlay.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(overlay) = overlay {
         overlay(name, reskin_from, properties);
     }
@@ -1011,7 +1019,8 @@ impl ThingFactory {
         _status_bits: ObjectStatusMaskType,
         _team: Option<Arc<dyn Team>>,
     ) -> Result<Box<dyn Object>, ThingCreationError> {
-        let creator = bridge()
+        let bridge = bridge();
+        let creator = bridge
             .object_creator
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -1028,7 +1037,8 @@ impl ThingFactory {
         _template: &ThingTemplate,
         _status_bits: DrawableStatus,
     ) -> Result<Box<dyn Drawable>, ThingCreationError> {
-        let creator = bridge()
+        let bridge = bridge();
+        let creator = bridge
             .drawable_creator
             .lock()
             .unwrap_or_else(|p| p.into_inner())

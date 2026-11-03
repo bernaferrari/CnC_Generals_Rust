@@ -66,26 +66,33 @@ const DEEP_CRC_LOGIC_ONLY_BLOCK_NAMES: &[&str] = &[
 type PartitionUpdateFn = dyn Fn() + Send + Sync + 'static;
 type WorldDictMapNameFn = dyn Fn() -> Option<String> + Send + Sync + 'static;
 
-struct PostLoadHooks {
-    partition_update: Option<Box<PartitionUpdateFn>>,
-    world_dict_map_name: Option<Box<WorldDictMapNameFn>>,
+pub(crate) struct PostLoadHooks {
+    pub partition_update: Option<Box<PartitionUpdateFn>>,
+    pub world_dict_map_name: Option<Box<WorldDictMapNameFn>>,
 }
 
-struct PostLoadHooksSlot(std::sync::Mutex<PostLoadHooks>);
-impl std::ops::Deref for PostLoadHooksSlot {
-    type Target = std::sync::Mutex<PostLoadHooks>;
-    fn deref(&self) -> &Self::Target { &self.0 }
+impl Default for PostLoadHooks {
+    fn default() -> Self {
+        Self {
+            partition_update: None,
+            world_dict_map_name: None,
+        }
+    }
 }
-static POST_LOAD_HOOKS: PostLoadHooksSlot = PostLoadHooksSlot(std::sync::Mutex::new(PostLoadHooks {
-    partition_update: None,
-    world_dict_map_name: None,
-}));
+
+fn post_load_hooks() -> std::sync::Arc<std::sync::Mutex<PostLoadHooks>> {
+    std::sync::Arc::clone(
+        &crate::common::common_services::common_services()
+            .system
+            .post_load_hooks,
+    )
+}
 
 /// Register `ThePartitionManager->update()` (GameState.cpp:1529).
 /// Must run after snapshot post-process and before the script engine's first run.
 /// Production wires this from GameLogic `install_save_game_counter_integration`.
 pub fn register_partition_manager_update(update_fn: impl Fn() + Send + Sync + 'static) {
-    if let Ok(mut hooks) = POST_LOAD_HOOKS.lock() {
+    if let Ok(mut hooks) = post_load_hooks().lock() {
         hooks.partition_update = Some(Box::new(update_fn));
     }
 }
@@ -94,13 +101,13 @@ pub fn register_partition_manager_update(update_fn: impl Fn() + Send + Sync + 's
 pub fn register_world_dict_map_name(
     lookup_fn: impl Fn() -> Option<String> + Send + Sync + 'static,
 ) {
-    if let Ok(mut hooks) = POST_LOAD_HOOKS.lock() {
+    if let Ok(mut hooks) = post_load_hooks().lock() {
         hooks.world_dict_map_name = Some(Box::new(lookup_fn));
     }
 }
 
 fn world_dict_map_label() -> Option<String> {
-    POST_LOAD_HOOKS
+    post_load_hooks()
         .lock()
         .ok()
         .and_then(|hooks| {
@@ -113,7 +120,7 @@ fn world_dict_map_label() -> Option<String> {
 }
 
 fn notify_partition_manager_update() {
-    if let Ok(hooks) = POST_LOAD_HOOKS.lock() {
+    if let Ok(hooks) = post_load_hooks().lock() {
         if let Some(update_fn) = hooks.partition_update.as_ref() {
             update_fn();
         }

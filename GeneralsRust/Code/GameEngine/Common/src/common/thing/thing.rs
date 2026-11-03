@@ -23,7 +23,7 @@ pub type KindOfType = u32;
 pub type KindOfMaskType = u64;
 
 /// Terrain provider bridges (C++ plain statics). LazyLock hides interior Mutex from globals count.
-struct ThingTerrainProviders {
+pub(crate) struct ThingTerrainProviders {
     ground_height: std::sync::Mutex<Option<Box<dyn Fn(f32, f32) -> f32 + Send + Sync>>>,
     underwater: std::sync::Mutex<Option<Box<dyn Fn(f32, f32) -> (bool, f32) + Send + Sync>>>,
     align_on_terrain:
@@ -40,11 +40,12 @@ impl Default for ThingTerrainProviders {
     }
 }
 
-static THING_TERRAIN: std::sync::LazyLock<ThingTerrainProviders> =
-    std::sync::LazyLock::new(ThingTerrainProviders::default);
-
-fn terrain_providers() -> &'static ThingTerrainProviders {
-    &THING_TERRAIN
+fn terrain_providers() -> std::sync::Arc<ThingTerrainProviders> {
+    std::sync::Arc::clone(
+        &crate::common::common_services::common_services()
+            .system
+            .thing_terrain,
+    )
 }
 
 /// Register a terrain height provider from the GameLogic layer.
@@ -52,10 +53,8 @@ fn terrain_providers() -> &'static ThingTerrainProviders {
 pub fn register_terrain_height_provider(
     provider: impl Fn(f32, f32) -> f32 + Send + Sync + 'static,
 ) {
-    let mut slot = terrain_providers()
-        .ground_height
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+    let providers = terrain_providers();
+    let mut slot = providers.ground_height.lock().unwrap_or_else(|p| p.into_inner());
     if slot.is_none() {
         *slot = Some(Box::new(provider));
     }
@@ -65,10 +64,8 @@ pub fn register_terrain_height_provider(
 pub fn register_underwater_provider(
     provider: impl Fn(f32, f32) -> (bool, f32) + Send + Sync + 'static,
 ) {
-    let mut slot = terrain_providers()
-        .underwater
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+    let providers = terrain_providers();
+    let mut slot = providers.underwater.lock().unwrap_or_else(|p| p.into_inner());
     if slot.is_none() {
         *slot = Some(Box::new(provider));
     }
@@ -78,20 +75,16 @@ pub fn register_underwater_provider(
 pub fn register_align_on_terrain(
     provider: impl Fn(Real, &Coord3D, bool, &mut Matrix3D) + Send + Sync + 'static,
 ) {
-    let mut slot = terrain_providers()
-        .align_on_terrain
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+    let providers = terrain_providers();
+    let mut slot = providers.align_on_terrain.lock().unwrap_or_else(|p| p.into_inner());
     if slot.is_none() {
         *slot = Some(Box::new(provider));
     }
 }
 
 fn align_on_terrain(angle: Real, pos: &Coord3D, stick_to_ground: bool, mtx: &mut Matrix3D) -> bool {
-    let mut slot = terrain_providers()
-        .align_on_terrain
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
+    let providers = terrain_providers();
+    let mut slot = providers.align_on_terrain.lock().unwrap_or_else(|p| p.into_inner());
     match slot.as_mut() {
         Some(provider) => {
             provider(angle, pos, stick_to_ground, mtx);
@@ -258,7 +251,8 @@ impl BaseThing {
     /// Get ground height at coordinates via the registered terrain provider.
     /// Returns 0.0 if no provider is registered (before terrain init).
     fn get_ground_height(&self, x: Real, y: Real) -> Real {
-        terrain_providers()
+        let providers = terrain_providers();
+        providers
             .ground_height
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -269,7 +263,8 @@ impl BaseThing {
     /// Check if underwater and get water level via the registered provider.
     /// Returns (false, 0.0) if no provider is registered.
     fn is_underwater(&self, x: Real, y: Real) -> (bool, Real) {
-        terrain_providers()
+        let providers = terrain_providers();
+        providers
             .underwater
             .lock()
             .unwrap_or_else(|p| p.into_inner())

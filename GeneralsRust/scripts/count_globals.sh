@@ -270,6 +270,26 @@ details = collections.defaultdict(list)
 ALLOWED_STATIC_EXCEPTIONS = {
     # name: reason
     # Example: "GLOBAL_ALLOCATOR": "#[global_allocator] must be static (Rust)",
+    # Authored ChallengeMode.ini load-once cache. get_challenge_generals() returns
+    # &'static ChallengeGenerals (C++ TheChallengeGenerals table); per-instance
+    # storage cannot satisfy that lifetime without leaking or rewriting every
+    # GameClient/campaign consumer.
+    "CHALLENGE_GENERALS": "load-once authored ChallengeMode.ini table; &'static API",
+    # Source-counted even when the feature is off; bags only exist under
+    # debug_crc / perf_timers and are process instrumentation, not game state.
+    "CRC_DEBUG_BAG": "cfg(feature=debug_crc) instrumentation bag",
+    "PERF_GATHER_REGISTRY": "cfg(feature=perf_timers) instrumentation bag",
+}
+
+# thread_local! ACTIVE_STACK for scoped Arc publish. Rust has no other way to
+# bind a per-thread game-instance services bag without a process-wide static;
+# the payload is Arc, not the game state itself.
+ALLOWED_TLS_EXCEPTIONS = {
+    # rel_path from GeneralsRust root: reason
+    "Code/GameEngine/Common/src/common/common_services.rs":
+        "CommonServices ACTIVE_STACK — scoped Arc bind for the game instance",
+    "Code/Main/src/main_services.rs":
+        "MainServices ACTIVE_STACK — scoped Arc bind for main/host services",
 }
 
 
@@ -298,6 +318,9 @@ for label, rel in roots.items():
                     m.start() in test_body
                     or (not with_cfg_test and item_has_cfg_test_attr(text, m.start()))
                 ):
+                    continue
+                tls_key = f"{rel_dir}/{fn}"
+                if tls_key in ALLOWED_TLS_EXCEPTIONS:
                     continue
                 counts[label] += 1
                 details[label].append(f"{rel_dir}/{fn}:thread_local!")
