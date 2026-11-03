@@ -77,8 +77,8 @@ use std::sync::{Arc, Mutex};
 
 pub use crate::core::error::{Error, RendererResult};
 pub use ww3d_assets::AssetManager;
-pub use ww3d_core::errors::{W3DError, W3DResult};
-pub use ww3d_core::ww3d::WW3D;
+pub use ww3d_core::ww3d::Ww3dContext;
+use ww3d_core::errors::{W3DError, W3DResult};
 
 const FRAME_UNIFORM_ARENA_SIZE: usize = 512 * 1024;
 const FRAME_IN_FLIGHT: usize = 3;
@@ -93,7 +93,7 @@ pub use rendering::camera_system::frustum::{
 };
 pub use rendering::camera_system::viewport::ViewportClass;
 pub use rendering::mesh_system::*;
-pub use ww3d_core::*;
+use ww3d_core::*;
 pub use ww3d_geometry::*;
 // THE_DX8_MESH_RENDERER removed with DX8 path
 pub use lod_system::*;
@@ -254,6 +254,8 @@ pub struct Renderer {
 
     /// Animation frame coordinator - synchronizes all animation systems
     animation_coordinator: animation_synchronization::AnimationFrameCoordinator,
+    /// Session WW3D context (owned by display/WgpuMainRenderer).
+    ww3d: Option<std::sync::Arc<Ww3dContext>>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -270,6 +272,14 @@ unsafe impl Send for Renderer {}
 unsafe impl Sync for Renderer {}
 
 impl Renderer {
+    pub fn set_ww3d(&mut self, ww3d: std::sync::Arc<Ww3dContext>) {
+        self.ww3d = Some(ww3d);
+    }
+
+    pub fn ww3d(&self) -> Option<&Ww3dContext> {
+        self.ww3d.as_deref()
+    }
+
     /// Create a new renderer with GPU integration
     pub fn new(gpu_device: std::sync::Arc<ww3d_gpu::device::GpuDevice>) -> Self {
         let pipeline_manager = ww3d_gpu::pipeline::PipelineManager::new(gpu_device.clone());
@@ -302,15 +312,16 @@ impl Renderer {
             pending_attachments: Vec::new(),
             pending_shadow_caster_submissions: Vec::new(),
             animation_coordinator: animation_synchronization::AnimationFrameCoordinator::new(),
+            ww3d: None,
         }
     }
 
     /// Execute a closure with mutable access to the active renderer.
-    pub fn with_active_mut<F, R>(f: F) -> RendererResult<R>
+    pub fn with_active_mut<F, R>(ww3d: &Ww3dContext, f: F) -> RendererResult<R>
     where
         F: FnOnce(&mut Renderer) -> RendererResult<R>,
     {
-        let renderer = WW3D::get_current_renderer()
+        let renderer = ww3d.get_current_renderer()
             .ok_or_else(|| Error::NotInitialized("renderer not active".to_string()))?;
         let binding = renderer.handle();
         let mut backend_guard = binding.lock().unwrap_or_else(|p| p.into_inner());
@@ -332,11 +343,11 @@ impl Renderer {
     }
 
     /// Backwards-compatible alias used by legacy call sites.
-    pub fn with_global_mut<F, R>(f: F) -> RendererResult<R>
+    pub fn with_global_mut<F, R>(ww3d: &Ww3dContext, f: F) -> RendererResult<R>
     where
         F: FnOnce(&mut Renderer) -> RendererResult<R>,
     {
-        Self::with_active_mut(f)
+        Self::with_active_mut(ww3d, f)
     }
 
     /// Prepare renderer state for a new frame.
@@ -927,6 +938,7 @@ impl Renderer {
         })?;
         let mut render_info = RendererRenderInfoClass::new(Arc::new(camera.clone()));
         render_info.viewport = *camera.get_viewport();
+        render_info.ww3d = self.ww3d.clone();
         if let Some(environment) = self.light_environment.clone() {
             render_info.set_lighting_environment(environment);
         }

@@ -18,6 +18,7 @@ pub(super) struct StaticSortState {
     sort_levels: Vec<u32>,
     enabled: bool,
     decals_enabled: bool,
+    sorting_enabled: bool,
     flush_depth: u32,
 }
 
@@ -31,6 +32,7 @@ static STATIC_SORT_STATE_TLS_BAG: std::sync::LazyLock<StaticSortStateBag> = std:
         sort_levels: Vec::new(),
         enabled: true,
         decals_enabled: true,
+        sorting_enabled: true,
         flush_depth: 0,
     }),
 });
@@ -81,7 +83,6 @@ pub struct StaticSortManager;
 
 impl StaticSortManager {
     pub fn set_static_sort_lists_enabled(enabled: bool) {
-        let _ = ww3d_core::WW3D::set_static_sort_lists_enabled(enabled);
         with_sort_state(|state| {
             state.enabled = enabled;
             if !enabled {
@@ -93,8 +94,23 @@ impl StaticSortManager {
     }
 
     pub fn set_decals_enabled(enabled: bool) {
-        let _ = ww3d_core::WW3D::set_decals_enabled(enabled);
         with_sort_state(|state| state.decals_enabled = enabled);
+    }
+
+    pub fn set_sorting_enabled(enabled: bool) {
+        with_sort_state(|state| state.sorting_enabled = enabled);
+    }
+
+    pub fn are_static_sort_lists_enabled() -> bool {
+        with_sort_state(|state| state.enabled)
+    }
+
+    pub fn are_decals_enabled() -> bool {
+        with_sort_state(|state| state.decals_enabled)
+    }
+
+    pub fn is_sorting_enabled() -> bool {
+        with_sort_state(|state| state.sorting_enabled)
     }
 
     pub fn add_to_static_sort_list(handle: Arc<StaticSortRenderObject>, sort_level: u32) {
@@ -106,9 +122,6 @@ impl StaticSortManager {
         sort_level: u32,
         mesh: Option<Arc<MeshClass>>,
     ) {
-        if !ww3d_core::WW3D::are_static_sort_lists_enabled() {
-            return;
-        }
         with_sort_state(|state| {
             if !state.enabled {
                 return;

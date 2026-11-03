@@ -2,7 +2,6 @@
 
 use glam::{Mat4, Vec3, Vec4};
 use std::sync::Arc;
-use ww3d_core::WW3D;
 use ww3d_renderer_3d::Renderer;
 use ww3d_renderer_3d::core::error::RendererResult;
 use ww3d_renderer_3d::math_utilities::Vector4;
@@ -12,7 +11,7 @@ use ww3d_renderer_3d::render_object_system::{
     RenderInfoClass, RenderObjClass, RenderObjClassId, SpecialRenderInfoClass, SphereClass,
     StaticSortRenderObject,
 };
-use ww3d_renderer_3d::rendering::mesh_system::{MeshClass, SORT_LEVEL_NONE};
+use ww3d_renderer_3d::rendering::mesh_system::{MeshClass, SORT_LEVEL_NONE, StaticSortManager};
 use ww3d_renderer_3d::rendering::shader_system::shader::ShaderClass;
 use ww3d_renderer_3d::seglinerenderer::SegLineRenderer;
 
@@ -166,18 +165,20 @@ impl RenderObjClass for SegLineRenderObj {
     fn render(&self, rinfo: &RenderInfoClass) -> RendererResult<()> {
         // C++ segline.cpp:302-312. Guess only while polygon sorting is off.
         let mut sort_level = SORT_LEVEL_NONE;
-        if !WW3D::is_sorting_enabled() {
+        if !StaticSortManager::is_sorting_enabled() {
             sort_level = self.renderer.shader().guess_sort_level();
         }
-        if WW3D::are_static_sort_lists_enabled() && sort_level != SORT_LEVEL_NONE {
+        if StaticSortManager::are_static_sort_lists_enabled() && sort_level != SORT_LEVEL_NONE {
             let sort_object = StaticSortRenderObject::from_arc(Arc::new(self.clone()));
-            if WW3D::add_to_static_sort_list(sort_object, sort_level).is_ok() {
-                return Ok(());
-            }
+            StaticSortManager::add_to_static_sort_list(sort_object, sort_level);
+            return Ok(());
         }
 
         if let Some(mesh) = self.build_render_mesh(rinfo) {
-            Renderer::with_global_mut(|renderer| {
+            let Some(ww3d) = rinfo.ww3d.as_deref() else {
+                return Ok(());
+            };
+            Renderer::with_global_mut(ww3d, |renderer| {
                 renderer.queue_mesh(mesh.clone())?;
                 Ok(())
             })?;

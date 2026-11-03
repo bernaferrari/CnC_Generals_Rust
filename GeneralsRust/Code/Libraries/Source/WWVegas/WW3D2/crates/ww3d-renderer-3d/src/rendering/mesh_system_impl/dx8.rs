@@ -189,7 +189,7 @@ impl DX8FVFCategoryContainer {
     /// `dx8renderer.cpp` Register_Mesh_Type: SORT, sorting enabled, and sort level none.
     pub fn sorting_for_mesh(flags: u32, sort_level: u32) -> bool {
         (flags & MeshGeometryClass::SORT as u32) != 0
-            && ww3d_core::WW3D::is_sorting_enabled()
+            && StaticSortManager::is_sorting_enabled()
             && sort_level == SORT_LEVEL_NONE
     }
 

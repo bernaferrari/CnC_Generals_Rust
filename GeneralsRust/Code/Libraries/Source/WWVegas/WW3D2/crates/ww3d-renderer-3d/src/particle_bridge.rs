@@ -7,6 +7,7 @@ use crate::Renderer;
 use crate::core::error::RendererResult;
 use crate::pointgr::PointGroupMode;
 use std::sync::Arc;
+use ww3d_core::ww3d::Ww3dContext;
 use ww3d_particles::buffer::{ParticleBuffer, RenderMode};
 use ww3d_particles::emitter::ParticleEmitter;
 use ww3d_particles::line_renderer::LineGroupRenderer;
@@ -14,14 +15,20 @@ use ww3d_particles::manager::ParticleSystemManager;
 use ww3d_particles::point_group::{PointGroup, PointMode as ParticlePointMode};
 use ww3d_particles::streak::SegmentedLineRenderer;
 
-fn renderer_device_queue() -> RendererResult<(Arc<wgpu::Device>, Arc<wgpu::Queue>)> {
-    Renderer::with_global_mut(|renderer| {
+fn renderer_device_queue(
+    ww3d: &Ww3dContext,
+) -> RendererResult<(Arc<wgpu::Device>, Arc<wgpu::Queue>)> {
+    Renderer::with_global_mut(ww3d, |renderer| {
         let gpu = renderer.gpu_device();
         Ok((gpu.device_arc(), gpu.queue_arc()))
     })
 }
 
-fn ensure_point_group(buffer: &mut ParticleBuffer, mode: PointGroupMode) -> RendererResult<()> {
+fn ensure_point_group(
+    ww3d: &Ww3dContext,
+    buffer: &mut ParticleBuffer,
+    mode: PointGroupMode,
+) -> RendererResult<()> {
     if buffer.point_group.is_none() {
         let particle_mode = match mode {
             PointGroupMode::Tris => ParticlePointMode::Triangles,
@@ -29,7 +36,7 @@ fn ensure_point_group(buffer: &mut ParticleBuffer, mode: PointGroupMode) -> Rend
             PointGroupMode::ScreenSpace => ParticlePointMode::Screenspace,
         };
 
-        let (device, queue) = renderer_device_queue()?;
+        let (device, queue) = renderer_device_queue(ww3d)?;
         let mut group = PointGroup::new(device, queue);
         group.point_mode = particle_mode;
         group.init_gpu_resources();
@@ -38,53 +45,54 @@ fn ensure_point_group(buffer: &mut ParticleBuffer, mode: PointGroupMode) -> Rend
     Ok(())
 }
 
-fn ensure_line_renderer(buffer: &mut ParticleBuffer) -> RendererResult<()> {
+fn ensure_line_renderer(ww3d: &Ww3dContext, buffer: &mut ParticleBuffer) -> RendererResult<()> {
     if buffer.line_renderer.is_none() {
-        let (device, queue) = renderer_device_queue()?;
+        let (device, queue) = renderer_device_queue(ww3d)?;
         buffer.line_renderer = Some(SegmentedLineRenderer::new(device, queue));
     }
     Ok(())
 }
 
-fn ensure_line_group_renderer(buffer: &mut ParticleBuffer) -> RendererResult<()> {
+fn ensure_line_group_renderer(ww3d: &Ww3dContext, buffer: &mut ParticleBuffer) -> RendererResult<()> {
     if buffer.line_group_renderer.is_none() {
-        let (device, queue) = renderer_device_queue()?;
+        let (device, queue) = renderer_device_queue(ww3d)?;
         buffer.line_group_renderer = Some(LineGroupRenderer::new(device, queue));
     }
     Ok(())
 }
 
 /// Ensure that a particle buffer has all GPU-backed resources configured.
-pub fn setup_particle_buffer(buffer: &mut ParticleBuffer) -> RendererResult<()> {
+pub fn setup_particle_buffer(ww3d: &Ww3dContext, buffer: &mut ParticleBuffer) -> RendererResult<()> {
     match buffer.render_mode {
-        RenderMode::TriParticles => ensure_point_group(buffer, PointGroupMode::Tris)?,
-        RenderMode::QuadParticles => ensure_point_group(buffer, PointGroupMode::Quads)?,
-        RenderMode::Line => ensure_line_renderer(buffer)?,
-        RenderMode::LineGroup => ensure_line_group_renderer(buffer)?,
+        RenderMode::TriParticles => ensure_point_group(ww3d, buffer, PointGroupMode::Tris)?,
+        RenderMode::QuadParticles => ensure_point_group(ww3d, buffer, PointGroupMode::Quads)?,
+        RenderMode::Line => ensure_line_renderer(ww3d, buffer)?,
+        RenderMode::LineGroup => ensure_line_group_renderer(ww3d, buffer)?,
     }
     Ok(())
 }
 
 /// Configure an emitter so its internal buffer is ready for rendering.
-pub fn setup_particle_emitter(emitter: &mut ParticleEmitter) -> RendererResult<()> {
+pub fn setup_particle_emitter(ww3d: &Ww3dContext, emitter: &mut ParticleEmitter) -> RendererResult<()> {
     if let Some(buffer) = emitter.get_buffer_mut() {
-        setup_particle_buffer(buffer)?;
+        setup_particle_buffer(ww3d, buffer)?;
     }
     Ok(())
 }
 
 /// Add an emitter to the system while automatically wiring GPU resources.
 pub fn add_emitter_with_renderer_resources(
+    ww3d: &Ww3dContext,
     manager: &mut ParticleSystemManager,
     mut emitter: ParticleEmitter,
 ) -> RendererResult<()> {
-    setup_particle_emitter(&mut emitter)?;
+    setup_particle_emitter(ww3d, &mut emitter)?;
     manager.add_emitter(emitter);
     Ok(())
 }
 
 /// Construct a particle system manager backed by the renderer's GPU device.
-pub fn create_particle_system_manager() -> RendererResult<ParticleSystemManager> {
-    let (device, queue) = renderer_device_queue()?;
+pub fn create_particle_system_manager(ww3d: &Ww3dContext) -> RendererResult<ParticleSystemManager> {
+    let (device, queue) = renderer_device_queue(ww3d)?;
     Ok(ParticleSystemManager::new(device, queue))
 }
