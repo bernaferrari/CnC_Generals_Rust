@@ -172,26 +172,29 @@ impl GameLogic {
             0.42,
             "Fast sync bridges",
         )?;
-        let bridges = match super::script_loader::parse_runtime_bridges_from_chunky(
+        // One ObjectsList walk for bridges+roads (roads assigned after polygons below).
+        let (bridges, parsed_roads) = match super::script_loader::parse_runtime_bridges_and_roads_from_chunky(
             chunky,
             &self.templates,
+            self.effective_terrain_roads(),
         ) {
             Ok(value) => value,
             Err(err) => {
                 log::warn!(
-                    "Fast legacy runtime sync bridge parse failed for '{}': {}",
+                    "Fast legacy runtime sync bridge/road parse failed for '{}': {}",
                     map_path.display(),
                     err
                 );
-                Vec::new()
+                (Vec::new(), Vec::new())
             }
         };
         log::info!(
-            "Fast legacy runtime sync bridges parsed for '{}' in {:.2}s (stage={:.2}s, bridges={})",
+            "Fast legacy runtime sync bridges parsed for '{}' in {:.2}s (stage={:.2}s, bridges={}, roads_pending={})",
             map_path.display(),
             sync_started.elapsed().as_secs_f32(),
             stage_started.elapsed().as_secs_f32(),
-            bridges.len()
+            bridges.len(),
+            parsed_roads.len()
         );
         stage_started = Instant::now();
         report_progress(
@@ -282,22 +285,10 @@ impl GameLogic {
             0.435,
             "Fast sync roads",
         )?;
-        self.runtime_road_segments = match super::script_loader::parse_runtime_roads_from_chunky(
-            chunky,
-            self.effective_terrain_roads(),
-        ) {
-            Ok(value) => value,
-            Err(err) => {
-                log::warn!(
-                    "Fast legacy runtime sync road parse failed for '{}': {}",
-                    map_path.display(),
-                    err
-                );
-                Vec::new()
-            }
-        };
+        // Roads already decoded with bridges (single ObjectsList pass).
+        self.runtime_road_segments = parsed_roads;
         log::info!(
-            "Fast legacy runtime sync roads parsed for '{}' in {:.2}s (stage={:.2}s, roads={})",
+            "Fast legacy runtime sync roads installed for '{}' in {:.2}s (stage={:.2}s, roads={})",
             map_path.display(),
             sync_started.elapsed().as_secs_f32(),
             stage_started.elapsed().as_secs_f32(),

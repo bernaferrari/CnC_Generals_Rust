@@ -54,43 +54,18 @@ pub fn parse_runtime_waypoints_from_chunky(
     Ok((waypoints, links))
 }
 
-pub fn parse_runtime_bridges_from_chunky(
-    chunky: &ChunkyMap,
-    templates: &HashMap<String, super::ThingTemplate>,
-) -> LoaderResult<Vec<BridgeData>> {
-    let body = &chunky.bytes[chunky.body_offset..];
-    let mut bridges = Vec::new();
-    let mut pending: HashMap<String, Vec<PendingRuntimeBridge>> = HashMap::new();
 
-    if let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, OBJECTS_LIST_LABEL)? {
-        parse_chunk_sequence(payload, &chunky.toc, |label, child_version, data| {
-            if label != OBJECT_LABEL {
-                return Ok(());
-            }
-            if let Some(endpoint) =
-                parse_bridge_endpoint_object_chunk(data, child_version.max(version))?
-            {
-                add_runtime_bridge_point(&mut bridges, &mut pending, endpoint, templates);
-            }
-            Ok(())
-        })?;
-    }
-
-    Ok(bridges)
-}
-
-/// Parse runtime terrain-road segments from map objects.
-///
-/// This mirrors C++ `W3DRoadBuffer::addMapObjects` pairing semantics:
+/// One ObjectsList walk for bridge endpoints + road stubs.
+/// Road pairing mirrors C++ `W3DRoadBuffer::addMapObjects`:
 /// only `ROAD_POINT1` objects whose immediate next object is `ROAD_POINT2`
 /// produce a segment.
-pub fn parse_runtime_roads_from_chunky(
+/// C++ reads map objects once; Rust previously re-parsed the full ObjectsList
+/// for bridges and again for roads (~13s each on Lone Eagle release).
+fn parse_runtime_object_stubs_from_chunky(
     chunky: &ChunkyMap,
-    definitions: &TerrainRoadCollection,
-) -> LoaderResult<Vec<RuntimeRoadSegment>> {
+) -> LoaderResult<Vec<RuntimeMapObjectStub>> {
     let body = &chunky.bytes[chunky.body_offset..];
     let mut objects = Vec::new();
-
     if let Some((version, payload)) = find_chunk_by_label(body, &chunky.toc, OBJECTS_LIST_LABEL)? {
         parse_chunk_sequence(payload, &chunky.toc, |label, child_version, data| {
             if label != OBJECT_LABEL {
@@ -104,7 +79,36 @@ pub fn parse_runtime_roads_from_chunky(
             Ok(())
         })?;
     }
+    Ok(objects)
+}
 
+fn bridges_from_object_stubs(
+    objects: &[RuntimeMapObjectStub],
+    templates: &HashMap<String, super::ThingTemplate>,
+) -> Vec<BridgeData> {
+    let mut bridges = Vec::new();
+    let mut pending: HashMap<String, Vec<PendingRuntimeBridge>> = HashMap::new();
+    for obj in objects {
+        if (obj.flags & (FLAG_BRIDGE_POINT1 | FLAG_BRIDGE_POINT2)) == 0 {
+            continue;
+        }
+        if obj.template_name.trim().is_empty() {
+            continue;
+        }
+        let endpoint = RuntimeBridgeEndpoint {
+            template_name: obj.template_name.clone(),
+            location: obj.location,
+            is_point1: (obj.flags & FLAG_BRIDGE_POINT1) != 0,
+        };
+        add_runtime_bridge_point(&mut bridges, &mut pending, endpoint, templates);
+    }
+    bridges
+}
+
+fn roads_from_object_stubs(
+    objects: &[RuntimeMapObjectStub],
+    definitions: &TerrainRoadCollection,
+) -> Vec<RuntimeRoadSegment> {
     let mut roads = Vec::new();
     let mut index = 0usize;
     while index < objects.len() {
@@ -113,7 +117,6 @@ pub fn parse_runtime_roads_from_chunky(
             index += 1;
             continue;
         }
-
         let Some(next) = objects.get(index + 1) else {
             break;
         };
@@ -121,7 +124,6 @@ pub fn parse_runtime_roads_from_chunky(
             index += 1;
             continue;
         }
-
         roads.push(build_runtime_road_data(
             definitions,
             current.template_name.as_str(),
@@ -132,8 +134,36 @@ pub fn parse_runtime_roads_from_chunky(
         ));
         index += 2;
     }
+    roads
+}
 
-    Ok(roads)
+pub fn parse_runtime_bridges_from_chunky(
+    chunky: &ChunkyMap,
+    templates: &HashMap<String, super::ThingTemplate>,
+) -> LoaderResult<Vec<BridgeData>> {
+    let objects = parse_runtime_object_stubs_from_chunky(chunky)?;
+    Ok(bridges_from_object_stubs(&objects, templates))
+}
+
+pub fn parse_runtime_roads_from_chunky(
+    chunky: &ChunkyMap,
+    definitions: &TerrainRoadCollection,
+) -> LoaderResult<Vec<RuntimeRoadSegment>> {
+    let objects = parse_runtime_object_stubs_from_chunky(chunky)?;
+    Ok(roads_from_object_stubs(&objects, definitions))
+}
+
+/// Combined bridges+roads from a single ObjectsList decode (preferred hot path).
+pub fn parse_runtime_bridges_and_roads_from_chunky(
+    chunky: &ChunkyMap,
+    templates: &HashMap<String, super::ThingTemplate>,
+    definitions: &TerrainRoadCollection,
+) -> LoaderResult<(Vec<BridgeData>, Vec<RuntimeRoadSegment>)> {
+    let objects = parse_runtime_object_stubs_from_chunky(chunky)?;
+    Ok((
+        bridges_from_object_stubs(&objects, templates),
+        roads_from_object_stubs(&objects, definitions),
+    ))
 }
 
 pub fn parse_runtime_sides_from_chunky(chunky: &ChunkyMap) -> LoaderResult<RuntimeSidesData> {
