@@ -781,6 +781,8 @@ fn propaganda_tower_residual_recovers_hp_and_sets_enthusiastic() {
     assert!(!game_logic.honesty_propaganda_ok());
 
     // Several logic frames of residual pulse (no command — continuous AoE).
+    // C++ attemptHealingFromSoleBenefactor needs now > expiration (0) to claim.
+    game_logic.frame = 1;
     for _ in 0..30 {
         game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     }
@@ -817,6 +819,62 @@ fn propaganda_tower_residual_recovers_hp_and_sets_enthusiastic() {
             .map(|t| t.is_alive())
             .unwrap_or(false),
         "tower must remain alive"
+    );
+}
+
+#[test]
+fn propaganda_two_towers_heal_through_sole_benefactor_claim() {
+    // C++ PropagandaTowerBehavior.cpp:313 attemptHealingFromSoleBenefactor
+    // (amount, tower, scanDelay) + Object.cpp:1883-1910: the first tower to
+    // reach the unit claims it; the second cannot heal until the claim expires.
+    let mut game_logic = GameLogic::new();
+    ensure_test_infantry_template(&mut game_logic);
+    let mut tower_tpl = crate::game_logic::ThingTemplate::new("ChinaSpeakerTower");
+    tower_tpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(300.0)
+        .set_cost(500, 0);
+    game_logic
+        .templates
+        .insert("ChinaSpeakerTower".to_string(), tower_tpl);
+    let a = game_logic
+        .create_object("ChinaSpeakerTower", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("tower a");
+    let b = game_logic
+        .create_object("ChinaSpeakerTower", Team::China, Vec3::new(60.0, 0.0, 0.0))
+        .expect("tower b");
+    let unit_id = game_logic
+        .create_object("TestInfantry", Team::China, Vec3::new(30.0, 0.0, 0.0))
+        .expect("unit");
+    {
+        let (unit, health_events) = game_logic
+            .host_object_and_health_events_mut(unit_id)
+            .expect("unit");
+        let _ = unit.take_damage(60.0, 0, health_events);
+    }
+    let before = game_logic.host_object(unit_id).unwrap().health.current;
+    // C++ attemptHealingFromSoleBenefactor needs now > expiration (0) to claim.
+    game_logic.frame = 1;
+    game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
+    let unit = game_logic.host_object(unit_id).unwrap();
+    let claimant = unit.sole_healing_benefactor;
+    assert!(
+        claimant == Some(a) || claimant == Some(b),
+        "propaganda heal must claim a tower as sole benefactor, got {claimant:?}"
+    );
+    assert!(unit.sole_healing_benefactor_expiration_frame > 0);
+    let one_frame = unit.health.current - before;
+    let max_hp = unit.health.maximum.max(unit.max_health);
+    let single = crate::game_logic::host_propaganda::propaganda_heal_amount(
+        max_hp,
+        false,
+        1.0 / 30.0,
+    );
+    assert!(one_frame > 0.0);
+    assert!(
+        (one_frame - single).abs() < 1e-3,
+        "two towers must not stack: healed {one_frame}, single-tower {single}"
     );
 }
 
@@ -1090,6 +1148,8 @@ fn propaganda_tower_name_residual_helix_propaganda_heals() {
         .health
         .current;
 
+    // C++ attemptHealingFromSoleBenefactor needs now > expiration (0) to claim.
+    game_logic.frame = 1;
     for _ in 0..30 {
         game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     }

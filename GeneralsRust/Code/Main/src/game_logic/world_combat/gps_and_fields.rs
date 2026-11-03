@@ -1327,8 +1327,9 @@ impl GameLogic {
 
         let mut heal_ticks: u32 = 0;
         let mut buff_ticks: u32 = 0;
-        for (target_id, (upgraded, overlord_style)) in &coverage {
-            let heal_amt = {
+        // Weapon bonus grant (effectLogic:280-292) stays per covered object.
+        for (target_id, (upgraded, _overlord_style)) in &coverage {
+            {
                 let Some(target) = self.objects.get_mut(target_id) else {
                     continue;
                 };
@@ -1376,30 +1377,59 @@ impl GameLogic {
                     }
                 }
 
-                let max_hp = target.health.maximum.max(target.max_health);
-                let heal_amt = if *overlord_style {
-                    overlord_propaganda_heal_amount(max_hp, *upgraded, dt)
-                } else {
-                    propaganda_heal_amount(max_hp, *upgraded, dt)
+            }
+        }
+
+        // C++ PropagandaTowerBehavior::effectLogic:296-313 — each tower, in
+        // its own inside-list order, heals with ITS upgrade state through
+        // Object::attemptHealingFromSoleBenefactor(amount, tower, scanDelay).
+        // The claim is taken before (and independent of) the Body clip, and a
+        // second tower cannot heal until the first claim expires.
+        for tower in &towers {
+            let inside: Vec<ObjectId> = self.propaganda_scan.inside(tower.id).to_vec();
+            for target_id in inside {
+                let heal = {
+                    let Some(target) = self.objects.get_mut(&target_id) else {
+                        continue;
+                    };
+                    if !target.is_alive()
+                        || !is_propaganda_score_kind(
+                            target.is_kind_of(KindOf::Score),
+                            target.is_kind_of(KindOf::ScoreCreate),
+                            target.is_kind_of(KindOf::ScoreDestroy),
+                            target.is_kind_of(KindOf::MpCountForVictory),
+                        )
+                    {
+                        continue;
+                    }
+                    let max_hp = target.health.maximum.max(target.max_health);
+                    let heal_amt = if tower.overlord_style {
+                        overlord_propaganda_heal_amount(max_hp, tower.upgraded, dt)
+                    } else {
+                        propaganda_heal_amount(max_hp, tower.upgraded, dt)
+                    };
+                    if !target.claim_healing_benefactor(tower.id, delay, frame) {
+                        continue;
+                    }
+                    (heal_amt > 0.0 && target.health.current + 0.01 < target.health.maximum)
+                        .then_some((heal_amt, target.health.current))
                 };
-                (heal_amt > 0.0 && target.health.current + 0.01 < target.health.maximum)
-                    .then_some((heal_amt, target.health.current))
-            };
-            if let Some((heal_amt, before)) = heal_amt {
-                let healed = self
-                    .apply_owned_healing_with_effects(
-                        *target_id,
-                        heal_amt,
-                        None,
-                        presentation_effects,
-                    )
-                    .is_some()
-                    && self
-                        .objects
-                        .get(target_id)
-                        .is_some_and(|target| target.health.current > before + 0.0001);
-                if healed {
-                    heal_ticks = heal_ticks.saturating_add(1);
+                if let Some((heal_amt, before)) = heal {
+                    let healed = self
+                        .apply_owned_healing_with_effects(
+                            target_id,
+                            heal_amt,
+                            Some(tower.id),
+                            presentation_effects,
+                        )
+                        .is_some()
+                        && self
+                            .objects
+                            .get(&target_id)
+                            .is_some_and(|target| target.health.current > before + 0.0001);
+                    if healed {
+                        heal_ticks = heal_ticks.saturating_add(1);
+                    }
                 }
             }
         }
@@ -2067,6 +2097,7 @@ mod tests {
             let _ = d.take_damage(80.0, 0, &mut health_events);
         }
         let dozer_before = logic.host_object(dozer_id).unwrap().health.current;
+        logic.frame = 1;
         logic.update_propaganda_tower_pulse(1.0 / 30.0);
         assert!(
             !logic

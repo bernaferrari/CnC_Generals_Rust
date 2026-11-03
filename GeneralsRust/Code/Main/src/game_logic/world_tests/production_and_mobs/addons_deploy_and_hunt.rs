@@ -1207,6 +1207,8 @@ fn emperor_innate_propaganda_and_helix_transport_residual() {
         a.health.current = a.health.maximum * 0.5;
     }
     let hp_before = game_logic.host_object(ally_id).unwrap().health.current;
+    // C++ attemptHealingFromSoleBenefactor needs now > expiration (0) to claim.
+    game_logic.frame = 1;
     for _ in 0..30 {
         game_logic.update_propaganda_tower_pulse(1.0 / 30.0);
     }
