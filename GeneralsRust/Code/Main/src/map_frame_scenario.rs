@@ -267,6 +267,8 @@ pub fn run_lone_eagle_skirmish(
 ) -> Option<LoneEagleSkirmishFingerprint> {
     let map = lone_eagle_map_path()?;
     let mut logic = GameLogic::new();
+    // Publish this instance before start/load/update — no process-bag fallback.
+    logic.install_as_active_stores();
     logic.start_new_game(GameMode::Skirmish);
     let services = std::sync::Arc::clone(&logic.world_services);
     gamelogic::system::engine_stores::with_world_services(&services, || {
