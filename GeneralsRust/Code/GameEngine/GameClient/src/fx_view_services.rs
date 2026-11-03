@@ -1,6 +1,7 @@
 //! Camera effects at the existing FXList.cpp nugget observation point.
 //! These are synchronous loans, never a published active-view selection.
 use super::*;
+use crate::message_stream::game_message::Coord3D as MessageCoord3D;
 
 /// The driving client supplies camera, drawable and visibility observations.
 /// Catalog lookups return owned definitions so no catalog guard survives a
@@ -11,6 +12,8 @@ pub struct FxViewServices<'a> {
     pub find_list: &'a mut dyn FnMut(&str) -> Option<Arc<FXList>>,
     pub bone_transforms: &'a mut dyn FnMut(u32, &str, i32, usize) -> Vec<Matrix3D>,
     pub position_visible: &'a mut dyn FnMut(Option<&Coord3D>) -> bool,
+    pub create_light_pulse: &'a mut dyn FnMut(DisplayLightPulse) -> bool,
+    pub play_fx_audio: &'a mut dyn FnMut(&str, Option<MessageCoord3D>) -> bool,
 }
 
 /// Retained Core entrypoints still use their own tactical driver. The adapter
@@ -31,12 +34,31 @@ pub(super) fn with_tactical_fx_view_services<R>(
     let mut add_scorch = |position, radius, kind| {
         crate::terrain::scorch_mesh::add_terrain_scorch(position, radius, kind);
     };
+    // Ephemeral scene for Core callers without a live GameClient; live clients
+    // admit pulses onto their owned FxClientState via with_live_game_client_mut.
+    let mut ephemeral = DisplayLightScene::default();
+    let mut create_light_pulse = |pulse: DisplayLightPulse| {
+        if let Some(ok) = crate::core::game_client::with_live_game_client_mut(|client| {
+            client.fx_mut().create_display_light_pulse(pulse.clone())
+        }) {
+            return ok;
+        }
+        ephemeral.create_pulse(pulse)
+    };
+    let mut play_fx_audio = |name: &str, position: Option<MessageCoord3D>| {
+        crate::core::game_client::with_live_game_client_mut(|client| {
+            client.fx_mut().with_audio(|hook| hook(name, position))
+        })
+        .unwrap_or(false)
+    };
     run(&mut FxViewServices {
         add_scorch: &mut add_scorch,
         shake: &mut shake,
         find_list: &mut find_list,
         bone_transforms: &mut bones,
         position_visible: &mut fx_pos_cell_is_clear,
+        create_light_pulse: &mut create_light_pulse,
+        play_fx_audio: &mut play_fx_audio,
     })
 }
 

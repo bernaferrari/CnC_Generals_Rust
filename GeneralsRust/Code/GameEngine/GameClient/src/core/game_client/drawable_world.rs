@@ -45,7 +45,7 @@ impl std::ops::DerefMut for DrawableWorld {
 /// Drawable-only loan permits particle callbacks to borrow the same world's
 /// manager without taking either owner out of its lifetime.
 pub struct DrawableState {
-    pub(super) light_scene: crate::fx_list::DisplayLightScene,
+    pub(super) fx: crate::fx_list::FxClientState,
     pub(super) next_drawable_id: DrawableId,
     pub(super) ray_effects: crate::effects::ray_effect_registry::RayEffectSystem,
     /// C++ GameClient.cpp480 prepends each newly constructed Drawable.
@@ -70,7 +70,7 @@ pub struct DrawableState {
 impl DrawableState {
     pub fn new() -> Self {
         Self {
-            light_scene: Default::default(),
+            fx: Default::default(),
             next_drawable_id: DrawableId(1),
             ray_effects: Default::default(),
             native_drawable_order: Vec::new(),
@@ -282,15 +282,23 @@ impl GameClient {
 
 impl NativeDrawableOwner<'_> {
     pub fn create_light_pulse(&mut self, pulse: crate::fx_list::DisplayLightPulse) -> bool {
-        let admitted = self.drawables.light_scene.create_pulse(pulse);
+        let admitted = self.drawables.fx.create_display_light_pulse(pulse);
         // The native scene consumes the light directly; legacy pulse receipts
         // are not another growing writable presentation stream.
-        self.drawables.light_scene.drain_pulses();
+        self.drawables.fx.drain_display_light_pulses();
         admitted
     }
 }
 impl GameClient {
     pub fn dynamic_lights(&self) -> &[crate::fx_list::DisplayDynamicLight] {
-        self.drawables.light_scene.lights()
+        self.drawables.fx.scene.lights()
+    }
+
+    pub fn fx(&self) -> &crate::fx_list::FxClientState {
+        &self.drawables.fx
+    }
+
+    pub fn fx_mut(&mut self) -> &mut crate::fx_list::FxClientState {
+        &mut self.drawables.fx
     }
 }

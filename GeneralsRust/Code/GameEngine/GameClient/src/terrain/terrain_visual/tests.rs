@@ -671,13 +671,14 @@ mod tests {
     #[test]
     fn live_chunk_upload_bakes_do_the_dynamic_light() {
         use crate::fx_list::{
-            DisplayLightPulse, clear_scene_dynamic_lights, create_display_light_pulse,
+            DisplayLightPulse, DisplayLightScene, clear_scene_dynamic_lights, create_display_light_pulse,
             do_the_dynamic_light, drain_display_light_pulses, scene_dynamic_lights,
         };
 
-        let _ = drain_display_light_pulses();
-        clear_scene_dynamic_lights();
-        assert!(create_display_light_pulse(DisplayLightPulse {
+        let mut scene = DisplayLightScene::default();
+        let _ = drain_display_light_pulses(&mut scene);
+        clear_scene_dynamic_lights(&mut scene);
+        assert!(create_display_light_pulse(&mut scene, DisplayLightPulse {
             pos: [0.0, 0.0, 3.0],
             color: [1.0, 0.0, 0.0],
             inner_radius: 10.0,
@@ -685,7 +686,7 @@ mod tests {
             increase_frames: 1,
             decay_frames: 1,
         }));
-        let lights = scene_dynamic_lights();
+        let lights = scene_dynamic_lights(&scene);
         let static_rgba = [0.2, 0.2, 0.2, 1.0];
         let baked = TerrainVisualImpl::bake_terrain_vertex_dynamic_light(
             [0.0, 0.0, 0.0],
@@ -712,7 +713,7 @@ mod tests {
             "pulse must change sun-lit terrain color"
         );
 
-        clear_scene_dynamic_lights();
+        clear_scene_dynamic_lights(&mut scene);
     }
 
     #[test]

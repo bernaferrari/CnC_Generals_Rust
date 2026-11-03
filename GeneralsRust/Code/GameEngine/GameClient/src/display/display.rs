@@ -17,7 +17,7 @@ use crate::effects::particle_manager::get_particle_system_manager;
 use crate::effects::particle_renderer::{
     ParticleRenderer as GpuParticleRenderer, ParticleUniforms,
 };
-use crate::fx_list::get_decal_manager;
+use crate::core::game_client::with_live_game_client_mut;
 use crate::game_text::GameText;
 use crate::gui::display_string::{DisplayStringHandle, get_display_string_manager};
 use crate::gui::font::{FontDesc, get_font_library};
@@ -1254,7 +1254,7 @@ impl Display {
 
         // Decal rendering pass (retail snow is drawn by terrain overlays).
         if let Some(renderer) = self.particle_renderer.as_ref() {
-            let mut decals = if let Some(manager) = get_decal_manager() {
+            let mut decals = if let Some(manager) = with_live_game_client_mut(|c| c.fx().decal_manager()).flatten() {
                 manager
                     .lock()
                     .map(|guard| guard.collect_render_items())

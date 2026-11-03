@@ -70,8 +70,10 @@ pub mod weather_complete;
 pub(crate) fn clear_live_effects_after_drawables() {
     ray_effect_system::clear_ray_effects_after_drawables();
     tracer_fx::clear_tracer_fx();
-    crate::fx_list::clear_scene_dynamic_lights();
-    let _ = crate::fx_list::drain_display_light_pulses();
+    let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.fx_mut().clear_scene_dynamic_lights();
+        let _ = client.fx_mut().drain_display_light_pulses();
+    });
 }
 
 use std::time::{Duration, Instant};

@@ -2348,7 +2348,7 @@ impl GameClient {
 
     fn update_scene_lights(&mut self, delta_time: f32) {
         if delta_time > 0.0 {
-            self.drawables.light_scene.update();
+            self.drawables.fx.scene.update();
         }
     }
 

@@ -510,7 +510,7 @@ mod live_slot_tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let _tracer_serial = crate::effects::tracer_fx::lock_tracer_fx_tests();
 
-        fn seed_effects() {
+        fn seed_effects(client: &mut GameClient) {
             assert!(crate::effects::ray_effect_system::add_ray_effect(
                 901,
                 [0.0, 0.0, 0.0],
@@ -530,7 +530,7 @@ mod live_slot_tests {
                 )
                 .is_some()
             );
-            assert!(crate::fx_list::create_display_light_pulse(
+            assert!(client.fx_mut().create_display_light_pulse(
                 crate::fx_list::DisplayLightPulse {
                     pos: [0.0, 0.0, 0.0],
                     color: [1.0, 0.5, 0.25],
@@ -542,13 +542,13 @@ mod live_slot_tests {
             ));
         }
 
-        fn assert_effect_count(count: usize) {
+        fn assert_effect_count(client: &GameClient, count: usize) {
             assert_eq!(
                 crate::effects::ray_effect_system::live_ray_effects().len(),
                 count
             );
             assert_eq!(crate::effects::tracer_fx::live_tracer_fx().len(), count);
-            assert_eq!(crate::fx_list::scene_dynamic_lights().len(), count);
+            assert_eq!(client.fx().scene_dynamic_lights().len(), count);
         }
 
         crate::effects::clear_live_effects_after_drawables();
@@ -556,29 +556,32 @@ mod live_slot_tests {
         old_client.mark_initialized();
         let mut live_client = Box::new(GameClient::new().expect("live client"));
         live_client.mark_initialized();
-        seed_effects();
-        assert_effect_count(1);
+        seed_effects(&mut live_client);
+        assert_effect_count(&live_client, 1);
 
         let mut candidate = GameClient::new().expect("unpublished staged client");
         candidate.reset().expect("unpublished candidate reset");
-        assert_effect_count(1);
+        assert_effect_count(&live_client, 1);
         drop(candidate);
-        assert_effect_count(1);
+        assert_effect_count(&live_client, 1);
 
         old_client.reset().expect("staged candidate reset");
-        assert_effect_count(1);
+        assert_effect_count(&live_client, 1);
         drop(old_client);
-        assert_effect_count(1);
+        assert_effect_count(&live_client, 1);
 
         live_client.reset().expect("next match reset");
-        assert_effect_count(0);
-        seed_effects();
+        assert_effect_count(&live_client, 0);
+        seed_effects(&mut live_client);
+        assert_effect_count(&live_client, 1);
         drop(live_client);
-        assert_effect_count(0);
-        assert!(crate::fx_list::drain_display_light_pulses().is_empty());
 
+        // After the live owner drops, process ray/tracer globals are cleared by Drop
+        // hooks; a fresh client starts with an empty owned light scene.
+        assert_eq!(crate::effects::ray_effect_system::live_ray_effects().len(), 0);
+        assert_eq!(crate::effects::tracer_fx::live_tracer_fx().len(), 0);
         let next_client = GameClient::new().expect("next client");
-        assert_effect_count(0);
+        assert_eq!(next_client.fx().scene_dynamic_lights().len(), 0);
         drop(next_client);
     }
 }

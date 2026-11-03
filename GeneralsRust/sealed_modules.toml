@@ -208,3 +208,13 @@ path = "Code/GameEngine/GameClient/src/bink_audio.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Video/BinkVideoPlayer.cpp"
 note = "BinkAudioState owns Miles/kira soundtrack binding; removed SOUNDTRACK_BOUND/BINK_MILES/KIRA TLS; APIs take &mut BinkAudioState on BinkDecoder."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/fx_client_state.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/FXList.cpp"
+note = "FxClientState owns light scene + audio/decal/pulse hooks on GameClient::drawables.fx; TLS FX_* removed; free APIs take &mut owner."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/fx_owned_light_scene.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Display/W3DDisplay.cpp"
+note = "DisplayLightScene owns pulse admission and dynamic light fade; 0 process globals."
+

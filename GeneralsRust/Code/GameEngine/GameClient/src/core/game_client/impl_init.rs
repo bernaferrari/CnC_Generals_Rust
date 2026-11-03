@@ -347,7 +347,7 @@ impl GameClient {
         self.drawables.drawable_map.clear();
         self.drawables.native_drawable_order.clear();
         self.drawables.ray_effects.reset();
-        self.drawables.light_scene = Default::default();
+        self.drawables.fx.scene = Default::default();
         self.drawables.owned_laser_order.clear();
         self.drawables.drawable_object_map.clear();
         self.drawables.presentation_direct_drawable_bindings.clear();
@@ -866,7 +866,7 @@ impl GameClient {
             audio.init()?;
             let audio_arc = Arc::new(Mutex::new(audio));
             let hook_audio = Arc::clone(&audio_arc);
-            register_fx_audio(Box::new(move |event, position| {
+            self.fx_mut().register_audio(Box::new(move |event, position| {
                 if let Ok(mut guard) = hook_audio.lock() {
                     let _ = guard.play_event(event, position);
                 }
@@ -962,7 +962,7 @@ impl GameClient {
 
         if self.subsystem_manager.decal_manager.is_none() {
             let decals = Arc::new(Mutex::new(DecalManager::default()));
-            register_decal_manager(Arc::clone(&decals));
+            self.fx_mut().register_decal_manager(Arc::clone(&decals));
             let _ = register_scorch_hook(Arc::new(move |position, size, type_id| {
                 // C++ W3DGameClient::addScorch → terrain scorch only, no decal.
                 let _ = crate::terrain::scorch_mesh::add_terrain_scorch(

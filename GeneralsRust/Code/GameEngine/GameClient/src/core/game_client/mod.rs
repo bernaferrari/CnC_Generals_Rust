@@ -66,7 +66,7 @@ use crate::display::image::{get_mapped_image_collection, sync_mapped_images_from
 use crate::display::view::with_tactical_view_ref;
 use crate::drawable::*;
 use crate::effects::{DecalManager, EffectsConfig};
-use crate::fx_list::{init_fx_list_store, register_decal_manager, register_fx_audio};
+use crate::fx_list::init_fx_list_store;
 use crate::game_text::GameText;
 
 use crate::gui::gadgets::register_button_audio_hook;

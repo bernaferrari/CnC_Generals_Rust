@@ -306,13 +306,16 @@ impl FXNugget for LightPulseFXNugget {
         _context: &mut FXContext,
     ) {
         // C++ LightPulseFXNugget::doFXPos → TheDisplay->createLightPulse(pos, color, 1, radius, ...)
-        let _ = crate::fx_list::create_display_light_pulse(crate::fx_list::DisplayLightPulse {
+        let pulse = crate::fx_list::DisplayLightPulse {
             pos: [primary.x, primary.y, primary.z],
             color: self.color,
             inner_radius: 1.0,
             outer_radius: self.radius,
             increase_frames: self.increase_frames,
             decay_frames: self.decrease_frames,
+        };
+        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+            client.fx_mut().create_display_light_pulse(pulse.clone())
         });
     }
 }
