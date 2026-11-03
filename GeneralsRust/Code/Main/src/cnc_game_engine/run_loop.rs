@@ -625,6 +625,18 @@ pub async fn run_cnc_game(
                                 }
                                 *services = Some(application_services);
                                 *engine = Some(new_engine);
+                                // Startup worker can block on ApplyFpsLimit replies;
+                                // keep Polling so AboutToWait drains the channel after
+                                // macOS focus-loss stops WaitUntil wakes.
+                                if matches!(
+                                    engine
+                                        .as_ref()
+                                        .map(|e| &e.startup_load_state),
+                                    Some(super::StartupLoadState::InProgress { .. })
+                                ) {
+                                    next_redraw_at = Instant::now();
+                                    elwt.set_control_flow(ControlFlow::Poll);
+                                }
                                 #[cfg(feature = "integration-diagnostics")]
                                 if cmd_args.wants_integration_diagnostics() {
                                     match pollster::block_on(IntegrationTelemetryBridge::new(
@@ -962,10 +974,13 @@ pub async fn run_cnc_game(
                             execute_wait_deadline(prev_time, engine.live_present_interval());
                     }
                 }
-                if engine.live_present_interval().is_none()
+                if matches!(
+                    engine.startup_load_state,
+                    super::StartupLoadState::InProgress { .. }
+                ) || (engine.live_present_interval().is_none()
                     && !runtime_headless_mode
                     && !cmd_args.wants_smoke_test()
-                    && !runtime_window_minimized
+                    && !runtime_window_minimized)
                 {
                     elwt.set_control_flow(ControlFlow::Poll);
                 } else {
