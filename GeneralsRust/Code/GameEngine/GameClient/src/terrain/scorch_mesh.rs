@@ -294,19 +294,17 @@ impl TerrainScorchBuffer {
 // Scorch marks belong to the receiving TerrainVisualSystem. Free helpers route
 // through that owner (or a cfg(test) fallback when no visual is published).
 fn with_scorch_buffer<R>(f: impl FnOnce(&mut TerrainScorchBuffer) -> R) -> R {
-    if let Ok(mut guard) = crate::terrain::terrain_visual::get_terrain_visual() {
-        if let Some(visual) = guard.as_mut() {
-            return f(visual.scorches_mut());
-        }
-    }
     #[cfg(test)]
     {
         return TEST_SCORCH_BUFFER.with(|slot| f(&mut slot.borrow_mut()));
     }
     #[cfg(not(test))]
     {
-        // No published visual yet — operate on an ephemeral buffer so callers
-        // fail closed without resurrecting process TLS game state.
+        if let Ok(mut guard) = crate::terrain::terrain_visual::get_terrain_visual() {
+            if let Some(visual) = guard.as_mut() {
+                return f(visual.scorches_mut());
+            }
+        }
         let mut ephemeral = TerrainScorchBuffer::new();
         f(&mut ephemeral)
     }

@@ -62,33 +62,29 @@ pub const LETTER_BOX_FADE_TIME_MS: f32 = 1000.0;
 
 /// C++ `TheDisplay->isLetterBoxed()` as seen by `W3DView::buildCameraTransform`.
 pub fn set_display_letter_boxed(enabled: bool) {
-    if crate::core::game_client::with_live_game_client_mut(|client| {
-        client.display_letter_boxed = enabled;
-    })
-    .is_some()
-    {
-        return;
-    }
     #[cfg(test)]
     {
         TEST_LETTER_BOXED.with(|flag| flag.set(enabled));
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+            client.display_letter_boxed = enabled;
+        });
     }
 }
 
 /// C++ `TheDisplay->isLetterBoxed()`.
 pub fn is_display_letter_boxed() -> bool {
-    if let Some(flag) = crate::core::game_client::with_live_game_client_mut(|client| {
-        client.display_letter_boxed
-    }) {
-        return flag;
-    }
     #[cfg(test)]
     {
         return TEST_LETTER_BOXED.with(|flag| flag.get());
     }
     #[cfg(not(test))]
     {
-        false
+        crate::core::game_client::with_live_game_client_mut(|client| client.display_letter_boxed)
+            .unwrap_or(false)
     }
 }
 
@@ -2167,18 +2163,18 @@ impl View {
 }
 
 fn with_hint_model_cache<R>(f: impl FnOnce(&mut HintModelCache) -> R) -> R {
-    if crate::core::game_client::live_game_client_frame().is_some() {
-        return crate::core::game_client::with_live_game_client_mut(|client| {
-            f(&mut client.hint_model_cache)
-        })
-        .expect("live client frame implies registered client");
-    }
     #[cfg(test)]
     {
         return TEST_HINT_MODELS.with(|cache| f(&mut cache.borrow_mut()));
     }
     #[cfg(not(test))]
     {
+        if crate::core::game_client::live_game_client_frame().is_some() {
+            return crate::core::game_client::with_live_game_client_mut(|client| {
+                f(&mut client.hint_model_cache)
+            })
+            .expect("live client frame implies registered client");
+        }
         let mut ephemeral = HintModelCache::default();
         f(&mut ephemeral)
     }
@@ -2513,18 +2509,20 @@ pub fn draw_live_command_markers(
 }
 /// Access the receiving client's tactical view (legacy `TheTacticalView`).
 pub fn with_tactical_view<R>(f: impl FnOnce(&mut View) -> R) -> R {
-    if crate::core::game_client::live_game_client_frame().is_some() {
-        return crate::core::game_client::with_live_game_client_mut(|client| {
-            f(&mut client.tactical_view)
-        })
-        .expect("live client frame implies registered client");
-    }
+    // Unit tests keep the historical free-API TLS so ambient live-slot fixtures
+    // do not steal TheTacticalView. Production routes through the live client.
     #[cfg(test)]
     {
         return TEST_TACTICAL_VIEW.with(|view| f(&mut view.borrow_mut()));
     }
     #[cfg(not(test))]
     {
+        if crate::core::game_client::live_game_client_frame().is_some() {
+            return crate::core::game_client::with_live_game_client_mut(|client| {
+                f(&mut client.tactical_view)
+            })
+            .expect("live client frame implies registered client");
+        }
         let mut ephemeral = View::new();
         ephemeral.init();
         f(&mut ephemeral)
