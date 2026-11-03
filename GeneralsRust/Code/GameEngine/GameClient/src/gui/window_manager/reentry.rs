@@ -91,6 +91,8 @@ struct WindowManagerOwnerState {
     /// Offline network stub queues / facade (not(feature = "network")).
     #[cfg(not(feature = "network"))]
     network_compat: crate::game_network_compat::NetworkCompatState,
+    /// Push-button audio hook (was process TLS BUTTON_AUDIO).
+    button_audio: RefCell<Option<crate::gui::gadgets::ButtonAudioHook>>,
 }
 
 /// Persistent owner for one native client's WND tree and its re-entry queues.
@@ -187,6 +189,7 @@ impl WindowManagerOwner {
                 )),
                 #[cfg(not(feature = "network"))]
                 network_compat: crate::game_network_compat::NetworkCompatState::new(),
+                button_audio: RefCell::new(None),
             }),
         }
     }
@@ -201,6 +204,25 @@ impl WindowManagerOwner {
     /// LAN/Skirmish shell transition flags for this client.
     pub fn menu_shell_flags(&self) -> &super::menu_shell_flags::MenuShellFlags {
         &self.state.menu_shell_flags
+    }
+
+    pub(crate) fn register_button_audio_hook(
+        &self,
+        hook: crate::gui::gadgets::ButtonAudioHook,
+    ) {
+        *self.state.button_audio.borrow_mut() = Some(hook);
+    }
+
+    pub(crate) fn take_button_audio_hook(&self) -> Option<crate::gui::gadgets::ButtonAudioHook> {
+        self.state.button_audio.borrow_mut().take()
+    }
+
+    pub(crate) fn with_button_audio_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::gui::gadgets::ButtonAudioHook) -> R,
+    ) -> Option<R> {
+        let mut slot = self.state.button_audio.borrow_mut();
+        slot.as_mut().map(f)
     }
 
     pub(crate) fn keyboard_options_handle(

@@ -40,8 +40,10 @@ pub type ButtonCallback = Box<dyn Fn(GadgetId) + Send + Sync>;
 pub type ButtonAudioHook = Box<dyn FnMut(&str) + Send + Sync>;
 
 // THREAD: main thread only — push-button clicks dispatch audio on the GUI thread.
+// Owned on WindowManagerOwner.button_audio (live client peel / cfg(test) TLS).
+#[cfg(test)]
 thread_local! {
-    static BUTTON_AUDIO: RefCell<Option<ButtonAudioHook>> = const { RefCell::new(None) };
+    static TEST_BUTTON_AUDIO: RefCell<Option<ButtonAudioHook>> = const { RefCell::new(None) };
 }
 
 /// Register button audio dispatch.
@@ -49,20 +51,65 @@ thread_local! {
 /// C++ push buttons call `TheAudio->addAudioEvent()` on accepted mouse-down
 /// events. The hook keeps that behavior injectable for the Rust client.
 pub fn register_button_audio_hook(hook: ButtonAudioHook) {
-    BUTTON_AUDIO.with_borrow_mut(|slot| slot.replace(hook));
+    let mut hook = Some(hook);
+    if let Some(()) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .register_button_audio_hook(hook.take().expect("button audio hook"));
+    }) {
+        return;
+    }
+    let hook = hook.expect("button audio hook");
+    #[cfg(test)]
+    {
+        TEST_BUTTON_AUDIO.with_borrow_mut(|slot| {
+            slot.replace(hook);
+        });
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        let _ = hook;
+    }
 }
 
 #[cfg(test)]
 fn clear_button_audio_hook() {
-    BUTTON_AUDIO.with_borrow_mut(Option::take);
+    if let Some(()) = crate::core::game_client::with_live_game_client_mut(|client| {
+        let _ = client.window_manager_owner_ref().take_button_audio_hook();
+    }) {
+        return;
+    }
+    TEST_BUTTON_AUDIO.with_borrow_mut(Option::take);
 }
 
 fn with_button_audio<F: FnOnce(&mut ButtonAudioHook)>(f: F) {
-    BUTTON_AUDIO.with_borrow_mut(|guard| {
-        if let Some(hook) = guard.as_mut() {
-            f(hook);
-        }
-    });
+    let mut f = Some(f);
+    if let Some(Some(())) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_button_audio_mut(|hook| {
+                f.take().expect("button audio")(hook);
+            })
+    }) {
+        return;
+    }
+    if f.is_none() {
+        return;
+    }
+    #[cfg(test)]
+    {
+        TEST_BUTTON_AUDIO.with_borrow_mut(|guard| {
+            if let Some(hook) = guard.as_mut() {
+                f.take().expect("button audio")(hook);
+            }
+        });
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        let _ = f;
+    }
 }
 
 /// Clock display mode for progress indicators
@@ -1038,17 +1085,26 @@ mod tests {
         // GUI hooks are already owned by this test thread. Preserve an outer
         // fixture while giving this one an empty hook slot; no global lock.
         ButtonAudioTestGuard {
-            previous: BUTTON_AUDIO.with_borrow_mut(Option::take),
+            previous: {
+                if let Some(prev) = crate::core::game_client::with_live_game_client_mut(|client| {
+                    client.window_manager_owner_ref().take_button_audio_hook()
+                }) {
+                    prev
+                } else {
+                    TEST_BUTTON_AUDIO.with_borrow_mut(Option::take)
+                }
+            },
             _thread: PhantomData,
         }
     }
 
     impl Drop for ButtonAudioTestGuard {
         fn drop(&mut self) {
-            let installed =
-                BUTTON_AUDIO.with_borrow_mut(|slot| std::mem::replace(slot, self.previous.take()));
-            // Captured values are dropped after releasing the slot borrow.
-            drop(installed);
+            if let Some(prev) = self.previous.take() {
+                register_button_audio_hook(prev);
+            } else {
+                clear_button_audio_hook();
+            }
         }
     }
 
