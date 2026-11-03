@@ -1491,9 +1491,11 @@ impl CnCGameEngine {
                         if !loaded_any_ocl {
                             gamelogic::object_creation_list::store::ensure_default_object_creation_lists_loaded();
                         }
-                        let ocl_count = gamelogic::object_creation_list::get_object_creation_list_store()
-                            .as_ref()
-                            .map(|store| store.get_ocl_count())
+                        let ocl_cell = gamelogic::object_creation_list::get_object_creation_list_store();
+                        let ocl_count = ocl_cell
+                            .read()
+                            .ok()
+                            .and_then(|guard| guard.as_ref().map(|store| store.get_ocl_count()))
                             .unwrap_or(0);
                         if ocl_count == 0 {
                             warn!("ObjectCreationListStore bootstrap loaded 0 templates — continuing without OCL data");

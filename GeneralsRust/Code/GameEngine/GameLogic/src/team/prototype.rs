@@ -721,8 +721,8 @@ impl TeamPrototype {
             self.owner_name = String::new().into();
             return;
         }
-        let owner_name = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let owner_name = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_player(index).cloned())
             .and_then(|player| {

@@ -824,8 +824,9 @@ pub const OBJECTSHROUD_FOGGED: u8 = crate::common::ObjectShroudStatus::Fogged as
 /// Active non-network W3D ghost scene owner used by the runtime hooks and Main
 /// render ingress. Keeping its scene queue separate from the generic
 /// Snapshotable manager preserves the C++ render payload without downcasts.
-pub static THE_W3D_GHOST_OBJECT_MANAGER: Lazy<Arc<RwLock<W3DGhostObjectManager>>> =
-    Lazy::new(|| Arc::new(RwLock::new(W3DGhostObjectManager::new())));
+pub fn the_w3d_ghost_object_manager() -> Arc<RwLock<W3DGhostObjectManager>> {
+    Arc::clone(crate::system::engine_stores::active_services().w3d_ghost_objects())
+}
 
 #[cfg(test)]
 mod tests {

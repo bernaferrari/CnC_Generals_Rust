@@ -31,7 +31,8 @@ pub fn resolve_special_power_owner_id(
     }
 
     let player_id = owner_player_id?;
-    let list = player_list().read().ok()?;
+    let __player_list_arc = player_list();
+        let list = __player_list_arc.read().ok()?;
     let player = list.get_player(player_id as Int).cloned()?;
     let player_guard = player.read().ok()?;
     let owned = player_guard.get_all_objects();

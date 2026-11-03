@@ -10,7 +10,9 @@ fn power_observation(
     let global = get_global_data()?;
     let rules =
         game_engine::common::ini::ini_game_data::PowerBarRules::from_global_data(&global.read());
-    let list = ThePlayerList().read().ok()?;
+    let __arc_bind = ThePlayerList();
+
+    let list = __arc_bind.read().ok()?;
     let player_arc = TheControlBar::get_observer_look_at_player_index()
         .and_then(|index| {
             if index >= 0 {

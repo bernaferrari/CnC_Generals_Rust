@@ -243,8 +243,8 @@ impl DieModuleInterface for TechBuildingBehavior {
         _damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Put us on the team of the neutral player so no player has any bonus from us
-        let neutral_team = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let neutral_team = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_neutral_player())
             .and_then(|neutral| neutral.read().ok().and_then(|n| n.get_default_team()));

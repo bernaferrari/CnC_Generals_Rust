@@ -118,7 +118,8 @@ pub struct PlayerManagerBridge;
 impl PlayerManager for PlayerManagerBridge {
     fn get_player_resources(&self, player_id: Int) -> Option<PlayerResources> {
         let player_arc = {
-            let list = player_list().read().ok()?;
+            let __player_list_arc = player_list();
+        let list = __player_list_arc.read().ok()?;
             list.get_player(player_id).cloned()
         }?;
         let player = player_arc.read().ok()?;
@@ -130,7 +131,8 @@ impl PlayerManager for PlayerManagerBridge {
     }
 
     fn modify_player_resources(&mut self, player_id: Int, supplies: Int, power: Int) {
-        let player_arc = match player_list().read() {
+        let __player_list_arc = player_list();
+        let player_arc = match __player_list_arc.read() {
             Ok(list) => list.get_player(player_id).cloned(),
             Err(_) => None,
         };
@@ -147,7 +149,8 @@ impl PlayerManager for PlayerManagerBridge {
     }
 
     fn can_player_afford(&self, player_id: Int, cost: &ResourceCost) -> bool {
-        let player_arc = match player_list().read() {
+        let __player_list_arc = player_list();
+        let player_arc = match __player_list_arc.read() {
             Ok(list) => list.get_player(player_id).cloned(),
             Err(_) => None,
         };

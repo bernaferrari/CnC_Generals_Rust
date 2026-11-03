@@ -298,7 +298,8 @@ pub fn partition_cell_shroud_counts(
 }
 
 fn viewer_relationship_to_object(player_index: i32, object: &Object) -> Option<Relationship> {
-    let list = player_list().read().ok()?;
+    let __player_list_arc = player_list();
+        let list = __player_list_arc.read().ok()?;
     let player_arc = list.get_player(player_index)?.clone();
     drop(list);
     let player = player_arc.read().ok()?;

@@ -737,7 +737,8 @@ impl StealthController {
                     .unwrap_or(false);
                 let color = if applying {
                     let disguise_idx = self.disguise_as_player_index;
-                    let local_idx = player_list().read().ok().and_then(|list| {
+                    let __player_list_arc = player_list();
+        let local_idx = __player_list_arc.read().ok().and_then(|list| {
                         list.get_local_player().and_then(|local| {
                             local
                                 .read()
@@ -1056,7 +1057,8 @@ impl StealthController {
         let Some(self_player) = self_player else {
             return;
         };
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return;
         };
         for player in list.iter() {

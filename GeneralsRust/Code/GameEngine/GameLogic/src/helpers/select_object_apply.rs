@@ -24,7 +24,8 @@ impl TheGameLogic {
             SelectionType::Add
         };
         let player_indices: Vec<i32> = {
-            let Ok(list) = crate::player::player_list().read() else {
+            let __player_list_arc = crate::player::player_list();
+        let Ok(list) = __player_list_arc.read() else {
                 return;
             };
             list.iter()
@@ -82,7 +83,8 @@ impl TheGameLogic {
             return;
         };
         let player_indices: Vec<i32> = {
-            let Ok(list) = crate::player::player_list().read() else {
+            let __player_list_arc = crate::player::player_list();
+        let Ok(list) = __player_list_arc.read() else {
                 return;
             };
             list.iter()

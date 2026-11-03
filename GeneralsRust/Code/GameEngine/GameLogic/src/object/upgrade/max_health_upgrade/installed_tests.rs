@@ -254,8 +254,8 @@ fn installed_self_removal_fx_runs_before_body_and_commits_execution() {
     // Actual giveUpgrade invokes CPP updateUpgradeModules, which requires
     // the driving object's real controlling player; the isolated child owns
     // this fixture roster and never resets an unrelated world.
-    let has_player = crate::player::player_list()
-        .read()
+    let __player_list_arc = crate::player::player_list();
+        let has_player = __player_list_arc.read()
         .unwrap()
         .get_player(0)
         .is_some();

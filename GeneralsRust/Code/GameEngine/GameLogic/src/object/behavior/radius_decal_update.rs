@@ -123,8 +123,8 @@ impl RadiusDecalUpdate {
                 .ok()
                 .and_then(|o| o.with_controlling_player(|p| p.get_player_index()))
         });
-        let local_index = ThePlayerList()
-            .read()
+        let __player_list_arc = ThePlayerList();
+            let local_index = __player_list_arc.read()
             .ok()
             .map(|list| list.get_local_player_index());
         let allow_decal = if template.only_visible_to_owning_player {

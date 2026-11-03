@@ -89,7 +89,8 @@ impl EvaAnnounceClientCreate {
     }
 
     fn should_announce_to_player(&self, player_index: usize, object_id: u32) -> bool {
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return true;
         };
         let Some(local_player) = list.get_player(player_index as i32) else {
@@ -156,8 +157,8 @@ impl CreateInterface for EvaAnnounceClientCreate {
             return;
         }
 
-        let local_player_index = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let local_player_index = __player_list_arc.read()
             .ok()
             .map(|list| list.get_local_player_index())
             .unwrap_or(PLAYER_INDEX_INVALID);

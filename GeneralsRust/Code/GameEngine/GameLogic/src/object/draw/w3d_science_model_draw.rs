@@ -306,8 +306,8 @@ pub fn leftover_science_model_should_hide(science: ScienceType) -> bool {
     if science == SCIENCE_INVALID {
         return true;
     }
-    let has_science = ThePlayerList()
-        .read()
+    let __player_list_arc = ThePlayerList();
+        let has_science = __player_list_arc.read()
         .ok()
         .and_then(|list| list.get_local_player().cloned())
         .and_then(|p| {

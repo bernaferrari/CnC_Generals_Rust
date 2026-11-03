@@ -157,8 +157,8 @@ impl TeamInQueue {
             return Ok(());
         };
 
-        let default_team = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let default_team = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_player(controlling_player_id as i32).cloned())
             .and_then(|player_arc| player_arc.read().ok().and_then(|p| p.get_default_team()));

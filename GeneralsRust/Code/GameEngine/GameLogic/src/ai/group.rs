@@ -1084,9 +1084,10 @@ impl AIGroup {
         if self.is_empty() || Self::dual_world_registry_unavailable() {
             return;
         }
-        let Some(store) = get_special_power_store() else {
+        let Some(__sp_store_arc) = get_special_power_store() else {
             return;
         };
+        let Ok(store) = __sp_store_arc.read() else { return; };
         let Some(template) = store.find_special_power_template_by_id(special_power_id) else {
             return;
         };
@@ -1895,7 +1896,8 @@ impl AIGroup {
         &self,
         special_power_id: UnsignedInt,
     ) -> Option<Arc<RwLock<Object>>> {
-        let store = get_special_power_store()?;
+        let store_arc = get_special_power_store()?;
+        let store = store_arc.read().ok()?;
         let template = store.find_special_power_template_by_id(special_power_id as u32)?;
 
         for &member_id in &self.member_list {

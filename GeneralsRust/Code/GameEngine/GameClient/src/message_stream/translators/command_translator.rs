@@ -482,7 +482,9 @@ impl CommandTranslator {
     }
 
     fn record_double_click_attack_move_order_given() {
-        let Ok(list) = ThePlayerList().read() else {
+        let __arc_bind = ThePlayerList();
+
+        let Ok(list) = __arc_bind.read() else {
             return;
         };
         let Some(player) = list.get_local_player() else {

@@ -347,7 +347,7 @@ fn register_game_logic_snapshot_block() {
     state.add_snapshot_block(
         "CHUNK_GhostObject".to_string(),
         Box::new(GhostObjectSnapshotBridge::new(Arc::clone(
-            &THE_GHOST_OBJECT_MANAGER,
+            &the_ghost_object_manager(),
         ))),
         game_engine::System::SnapshotType::SaveLoad,
     );

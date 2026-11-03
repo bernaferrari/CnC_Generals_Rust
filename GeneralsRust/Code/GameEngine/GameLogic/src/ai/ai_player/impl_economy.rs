@@ -37,7 +37,8 @@ impl AIPlayer {
 
         // Snapshot supply-building build-list entries we may need to service.
         let mut supply_entries: Vec<(ObjectID, i32, i32)> = Vec::new();
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player_arc) = list.get_player(self.player_id as i32) {
                 if let Ok(pg) = player_arc.read() {
                     let mut cur = pg.get_build_list();
@@ -116,7 +117,8 @@ impl AIPlayer {
             return 0;
         }
 
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return 0;
         };
         let Some(player_arc) = list.get_player(self.player_id as i32) else {
@@ -215,7 +217,8 @@ impl AIPlayer {
                 if my_team != their_team {
                     // relationship residual: skip if not same player
                     // (C++ ENEMIES check via team relationship)
-                    if let Ok(list) = player_list().read() {
+                    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(me) = list.get_player(self.player_id as i32) {
                             if let Ok(me_g) = me.read() {
                                 if let Some(tarc) = team_arc {
@@ -246,7 +249,8 @@ impl AIPlayer {
             return 0;
         }
 
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return 0;
         };
         let Some(player_arc) = list.get_player(self.player_id as i32) else {
@@ -304,7 +308,8 @@ impl AIPlayer {
     }
 
     pub(super) fn set_build_list_current_gatherers(&self, center_id: ObjectID, cur: i32) {
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player_arc) = list.get_player(self.player_id as i32) {
                 if let Ok(mut pg) = player_arc.write() {
                     if let Some(info) = pg.get_build_list_mut() {
@@ -332,7 +337,8 @@ impl AIPlayer {
             return Ok(false);
         }
 
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return Ok(false);
         };
         let Some(player_arc) = list.get_player(self.player_id as i32) else {
@@ -393,7 +399,8 @@ impl AIPlayer {
     }
 
     pub(super) fn set_can_build_units_temp(&self, can: bool) -> bool {
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return can;
         };
         let Some(player_arc) = list.get_player(self.player_id as i32) else {
@@ -453,7 +460,8 @@ impl AIPlayer {
             team.priority_build = true;
             team.frame_started = TheGameLogic::get_frame();
             // C++ sticks supply truck on default team (m_team + name).
-            if let Ok(list) = player_list().read() {
+            let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 if let Some(player_arc) = list.get_player(self.player_id as i32) {
                     if let Ok(pg) = player_arc.read() {
                         if let Some(dt) = pg.get_default_team() {
@@ -733,8 +741,8 @@ impl AIPlayer {
             .ok()
             .and_then(|ai| Some(&*ai.get_ai_data()).map(|d| d.structure_seconds))
             .unwrap_or(self.structure_seconds);
-        let money = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let money = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_player(self.player_id as i32).cloned())
             .and_then(|p| p.read().ok().map(|g| g.get_money().get_money()))

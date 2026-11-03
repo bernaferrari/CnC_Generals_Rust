@@ -200,18 +200,16 @@ impl Default for SpecialPowerRegistry {
     }
 }
 
-/// Global registry instance
-static POWER_REGISTRY: OnceLock<RwLock<SpecialPowerRegistry>> = OnceLock::new();
-
-/// Initialize the global power registry
+/// Initialize the per-world power registry (constructed with WorldServices).
 pub fn initialize_power_registry() {
-    POWER_REGISTRY.get_or_init(|| RwLock::new(SpecialPowerRegistry::new()));
-    log::info!("Special power registry initialized");
+    log::info!("Special power registry available on active WorldServices");
 }
 
-/// Get a reference to the global power registry
-pub fn get_power_registry() -> Option<&'static RwLock<SpecialPowerRegistry>> {
-    POWER_REGISTRY.get()
+/// Get the active world's power registry.
+pub fn get_power_registry() -> Option<std::sync::Arc<RwLock<SpecialPowerRegistry>>> {
+    Some(std::sync::Arc::clone(
+        crate::system::engine_stores::active_services().special_power_registry(),
+    ))
 }
 
 /// Register a power in the global registry

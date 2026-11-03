@@ -320,10 +320,15 @@ pub static OBJECT_REGISTRY: Lazy<ObjectRegistry> = Lazy::new(ObjectRegistry::def
 /// Process-wide mutex for tests that clear/register objects on the shared
 /// [`OBJECT_REGISTRY`] / GameLogic singleton. Parallel weapon collision tests
 /// otherwise clobber each other mid-assertion.
+#[cfg(test)]
 pub fn test_isolation_lock() -> &'static std::sync::Mutex<()> {
+    test_isolation_lock_cell::LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
+#[cfg(test)]
+mod test_isolation_lock_cell {
     use std::sync::{Mutex, OnceLock};
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    pub(super) static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 }
 
 #[cfg(test)]

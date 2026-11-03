@@ -192,7 +192,9 @@ fn generic_snapshot_never_imports_or_restores_foreign_core_squads() {
             foreign.process_create_team_game_message(3, &[99, 98]);
             let foreign = std::sync::Arc::new(std::sync::RwLock::new(foreign));
             {
-                let mut list = gamelogic::player::ThePlayerList().write().unwrap();
+                let __arc_bind = gamelogic::player::ThePlayerList();
+
+                let mut list = __arc_bind.write().unwrap();
                 list.clear();
                 list.add_player(std::sync::Arc::clone(&foreign));
             }

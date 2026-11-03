@@ -85,7 +85,8 @@ impl AISkirmishPlayer {
         };
 
         // Turn on AI production by default for skirmish
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player_arc) = list.get_player(player_id as i32) {
                 if let Ok(mut player_ref) = player_arc.write() {
                     player_ref.set_can_build_units(true);
@@ -1494,7 +1495,8 @@ impl AISkirmishPlayer {
             }
         }
 
-        let Ok(player_list) = ThePlayerList().read() else {
+        let __player_list_arc = ThePlayerList();
+        let Ok(player_list) = __player_list_arc.read() else {
             return -1;
         };
 
@@ -1549,7 +1551,8 @@ impl AISkirmishPlayer {
             }
         }
 
-        let Ok(player_list) = ThePlayerList().read() else {
+        let __player_list_arc = ThePlayerList();
+        let Ok(player_list) = __player_list_arc.read() else {
             return;
         };
 

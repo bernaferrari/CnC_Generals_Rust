@@ -44,7 +44,8 @@ impl MoodFixture {
             "Object MoodQueryAttacker\n KindOf = INFANTRY CAN_ATTACK\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface MoodAI\n AutoAcquireEnemiesWhenIdle = {auto_acquire}\n MoodAttackCheckRate = 2000\n{turret_ini} End\n Locomotor = SET_NORMAL EnterCapacityLoco\nEnd\n"
         )), 1);
         {
-            let mut players = ThePlayerList().write().unwrap();
+            let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
             players.clear();
             for id in [0, 1] {
                 let mut player = Player::new(id);

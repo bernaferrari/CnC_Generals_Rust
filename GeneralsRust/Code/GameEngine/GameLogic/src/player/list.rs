@@ -1,8 +1,6 @@
 use super::*;
 
-/// Global player management
-pub(super) static PLAYER_LIST: OnceLock<RwLock<PlayerList>> = OnceLock::new();
-
+/// Per-world player roster lives on [`crate::system::engine_stores::WorldServices`].
 /// Player list management (matching C++ PlayerList functionality)
 #[derive(Debug)]
 pub struct PlayerList {
@@ -156,8 +154,8 @@ impl crate::commands::command_processor::PlayerManager for PlayerList {
 }
 
 /// Global access to player list (matching C++ ThePlayerList)
-pub fn player_list() -> &'static RwLock<PlayerList> {
-    PLAYER_LIST.get_or_init(|| RwLock::new(PlayerList::new()))
+pub fn player_list() -> std::sync::Arc<RwLock<PlayerList>> {
+    std::sync::Arc::clone(crate::system::engine_stores::active_services().players())
 }
 
 /// Convenience alias for C++ compatibility
@@ -171,7 +169,8 @@ pub trait PlayerLookup {
 
 impl PlayerLookup for Int {
     fn resolve_player(self) -> Option<Arc<RwLock<Player>>> {
-        let list = player_list().read().ok()?;
+        let __player_list_arc = player_list();
+        let list = __player_list_arc.read().ok()?;
         list.get_player(self).cloned()
     }
 }
@@ -422,5 +421,80 @@ impl Player {
             self.upgrade_list.push(upgrade_mut);
         }
         completed_roster
+    }
+}
+
+#[cfg(test)]
+mod ownership_tests {
+    use super::*;
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    use std::sync::{Arc, Barrier, Mutex};
+    use std::thread;
+
+    #[test]
+    fn parallel_worlds_keep_independent_player_lists() {
+        let barrier = Arc::new(Barrier::new(2));
+        let results = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        for seed in [0i32, 1i32] {
+            let barrier = Arc::clone(&barrier);
+            let results = Arc::clone(&results);
+            handles.push(thread::spawn(move || {
+                let services = new_world_services();
+                with_world_services(&services, || {
+                    {
+                        let list_arc = player_list();
+                        let mut list = list_arc.write().unwrap();
+                        let player = crate::player::Player::new(seed);
+                        // Player::new sets index from arg
+                        list.add_player(Arc::new(std::sync::RwLock::new(player)));
+                    }
+                    barrier.wait();
+                    let list_arc = player_list();
+                    let list = list_arc.read().unwrap();
+                    let mine = list.get_player(seed).is_some();
+                    let other = list.get_player(1 - seed).is_some();
+                    results.lock().unwrap().push((seed, mine, other));
+                    barrier.wait();
+                });
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let mut got = results.lock().unwrap();
+        got.sort_by_key(|(s, _, _)| *s);
+        assert!(got[0].1 && !got[0].2);
+        assert!(got[1].1 && !got[1].2);
+    }
+
+    #[test]
+    fn parallel_worlds_keep_independent_object_managers() {
+        use crate::object_manager::get_object_manager;
+        let barrier = Arc::new(Barrier::new(2));
+        let results = Arc::new(Mutex::new(Vec::new()));
+        let mut handles = Vec::new();
+        for seed in [11u32, 22u32] {
+            let barrier = Arc::clone(&barrier);
+            let results = Arc::clone(&results);
+            handles.push(thread::spawn(move || {
+                let services = new_world_services();
+                with_world_services(&services, || {
+                    // ObjectManager::new starts empty; record Arc ptr identity per world.
+                    let a = get_object_manager();
+                    barrier.wait();
+                    let b = get_object_manager();
+                    let same = Arc::ptr_eq(&a, &b);
+                    results.lock().unwrap().push((seed, same, Arc::as_ptr(&a) as usize));
+                    barrier.wait();
+                });
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let got = results.lock().unwrap();
+        assert!(got[0].1 && got[1].1);
+        assert_ne!(got[0].2, got[1].2);
     }
 }

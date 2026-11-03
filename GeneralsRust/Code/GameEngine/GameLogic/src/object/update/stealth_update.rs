@@ -834,8 +834,8 @@ impl StealthUpdateController {
             return StealthLookType::None;
         }
 
-        let relationship = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let relationship = __player_list_arc.read()
             .ok()
             .and_then(|players| players.get_player(player_id as i32).cloned())
             .and_then(|player| {
@@ -2003,7 +2003,8 @@ mod tests {
             .set_default_team(Some(Arc::clone(&viewer_team)));
 
         {
-            let mut players = player_list().write().expect("player list write");
+            let __player_list_arc = player_list();
+        let mut players = __player_list_arc.write().expect("player list write");
             players.add_player(Arc::new(RwLock::new(crate::player::Player::new(0))));
             players.add_player(Arc::clone(&object_player));
             players.add_player(Arc::clone(&viewer_player));

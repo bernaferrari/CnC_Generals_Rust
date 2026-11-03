@@ -334,7 +334,8 @@ impl GenericObjectCreationNugget {
             }
         }
 
-        let mut debris_owner = crate::player::ThePlayerList().read().ok().and_then(|list| {
+        let __player_list_arc = crate::player::ThePlayerList();
+        let mut debris_owner = __player_list_arc.read().ok().and_then(|list| {
             list.get_neutral_player().and_then(|neutral| {
                 neutral
                     .read()
@@ -1649,7 +1650,8 @@ mod tests {
 
     fn ensure_neutral_player_with_team() -> Arc<RwLock<Team>> {
         let neutral = {
-            let mut list = ThePlayerList().write().expect("player list");
+            let __player_list_arc = ThePlayerList();
+        let mut list = __player_list_arc.write().expect("player list");
             if let Some(neutral) = list.get_neutral_player() {
                 neutral
             } else {
@@ -1827,8 +1829,8 @@ mod tests {
     }
 
     fn source_with_live_player(defeated: bool) -> Object {
-        let list_index = ThePlayerList()
-            .read()
+        let __player_list_arc = ThePlayerList();
+            let list_index = __player_list_arc.read()
             .expect("player list")
             .get_player_count() as i32;
         let mut player = Player::new(list_index);
@@ -2156,7 +2158,8 @@ ObjectCreationList OCL_NuggetCreateGaps
 End
 "#;
         load_object_creation_lists_from_str(ini).expect("parse OCL");
-        let store = get_object_creation_list_store();
+        let store_cell = get_object_creation_list_store();
+        let store = store_cell.read().unwrap();
         let ocl = store
             .as_ref()
             .and_then(|s| s.find_object_creation_list("OCL_NuggetCreateGaps"))

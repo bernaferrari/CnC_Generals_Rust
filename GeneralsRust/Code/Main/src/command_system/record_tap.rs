@@ -576,7 +576,9 @@ pub fn tap_host_team_slot_for_recorder(slot: u8, kind: u8, ids: &[ObjectId]) {
 }
 
 fn host_local_player_index() -> i32 {
-    let Ok(list) = gamelogic::player::ThePlayerList().read() else {
+    let __arc_bind = gamelogic::player::ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         // Unresolvable (no player list yet): fall back to C++ player index 0.
         return 0;
     };

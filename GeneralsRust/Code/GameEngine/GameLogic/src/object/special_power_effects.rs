@@ -329,7 +329,8 @@ impl SpecialPowerEffect {
         }
 
         if self.enemy_only || self.friendly_only {
-            let Ok(list) = player_list().read() else {
+            let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
                 return true;
             };
             let local_player = list.get_local_player().cloned();

@@ -80,8 +80,8 @@ impl Installed {
         });
         // CPP Object::updateUpgradeModules requires a controlling player.
         // The isolated child owns this roster; no unrelated world is reset.
-        let has_player = crate::player::player_list()
-            .read()
+        let __player_list_arc = crate::player::player_list();
+            let has_player = __player_list_arc.read()
             .unwrap()
             .get_player(0)
             .is_some();

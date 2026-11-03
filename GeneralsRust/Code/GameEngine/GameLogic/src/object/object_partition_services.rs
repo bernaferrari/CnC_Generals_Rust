@@ -273,7 +273,8 @@ impl Object {
             .get_controlling_player()
             .and_then(|controller| {
                 let controller_guard = controller.read().ok()?;
-                let players = player_list().read().ok()?;
+                let __player_list_arc = player_list();
+        let players = __player_list_arc.read().ok()?;
                 VisionMasks::capture(Some((&controller, &controller_guard)), &players).ok()
             })
             .unwrap_or_default();

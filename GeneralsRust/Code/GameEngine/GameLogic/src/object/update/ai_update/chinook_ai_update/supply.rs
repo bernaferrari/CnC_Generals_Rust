@@ -111,8 +111,8 @@ impl ChinookAIUpdate {
             .ok()
             .and_then(|center| center.find_upgrade("Upgrade_AmericaSupplyLines"));
         if let Some(upgrade) = upgrade {
-            let player_has = player_list()
-                .read()
+            let __player_list_arc = player_list();
+                let player_has = __player_list_arc.read()
                 .ok()
                 .and_then(|list| list.get_player(player_id as i32).cloned())
                 .and_then(|player| {

@@ -36,7 +36,8 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
                 None
             }
         } else {
-            if let Ok(list) = player_list().read() {
+            let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 if let Some(player) = list.get_player(owning_player as i32) {
                     if let Ok(player_guard) = player.read() {
                         player_guard.get_default_team()
@@ -105,7 +106,8 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
                     let total_build_frames = {
                         let player_id_opt = builder_guard.get_controlling_player_id();
                         if let Some(id) = player_id_opt {
-                            if let Ok(list) = player_list().read() {
+                            let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                                 if let Some(player) = list.get_player(id as i32) {
                                     if let Ok(player_guard) = player.read() {
                                         template.calc_time_to_build(Some(&*player_guard)).max(1)

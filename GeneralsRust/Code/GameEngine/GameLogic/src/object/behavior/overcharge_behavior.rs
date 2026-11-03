@@ -320,8 +320,8 @@ impl UpdateModuleInterface for OverchargeBehavior {
             let controlling_player = self
                 .with_object(|guard| guard.get_controlling_player())
                 .flatten();
-            let local_player = player_list()
-                .read()
+            let __player_list_arc = player_list();
+                let local_player = __player_list_arc.read()
                 .ok()
                 .and_then(|list| list.get_local_player().cloned());
 

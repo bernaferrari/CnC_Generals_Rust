@@ -676,12 +676,14 @@ impl Default for WeaponStore {
     }
 }
 
-/// Global weapon store instance
-static WEAPON_STORE: RwLock<Option<WeaponStore>> = RwLock::new(None);
+fn weapon_store_cell() -> std::sync::Arc<RwLock<Option<WeaponStore>>> {
+    std::sync::Arc::clone(crate::system::engine_stores::active_services().weapon_store())
+}
 
-/// Initialize the global weapon store
+/// Initialize the per-world weapon store
 pub fn initialize_weapon_store() -> GameLogicResult<()> {
-    let mut store = WEAPON_STORE.write().map_err(|e| {
+    let cell = weapon_store_cell();
+    let mut store = cell.write().map_err(|e| {
         GameLogicError::Threading(format!("Failed to acquire weapon store lock: {}", e))
     })?;
 
@@ -696,20 +698,21 @@ pub fn initialize_weapon_store() -> GameLogicResult<()> {
     Ok(())
 }
 
-/// Get reference to the global weapon store
+/// Get reference to the active world's weapon store
 pub fn with_weapon_store<F, R>(f: F) -> GameLogicResult<R>
 where
     F: FnOnce(&WeaponStore) -> R,
 {
+    let cell = weapon_store_cell();
     {
-        let mut store = WEAPON_STORE.write().map_err(|e| {
+        let mut store = cell.write().map_err(|e| {
             GameLogicError::Threading(format!("Failed to acquire weapon store lock: {}", e))
         })?;
         if let Some(weapon_store) = store.as_mut() {
             weapon_store.import_common_weapon_templates();
         }
     }
-    let store = WEAPON_STORE.read().map_err(|e| {
+    let store = cell.read().map_err(|e| {
         GameLogicError::Threading(format!("Failed to acquire weapon store lock: {}", e))
     })?;
 
@@ -721,12 +724,13 @@ where
     }
 }
 
-/// Get mutable reference to the global weapon store
+/// Get mutable reference to the active world's weapon store
 pub fn with_weapon_store_mut<F, R>(f: F) -> GameLogicResult<R>
 where
     F: FnOnce(&mut WeaponStore) -> R,
 {
-    let mut store = WEAPON_STORE.write().map_err(|e| {
+    let cell = weapon_store_cell();
+    let mut store = cell.write().map_err(|e| {
         GameLogicError::Threading(format!("Failed to acquire weapon store lock: {}", e))
     })?;
 
@@ -741,9 +745,10 @@ where
     }
 }
 
-/// Shutdown the leftover global weapon store.
+/// Shutdown the active world's weapon store.
 pub fn shutdown_weapon_store() -> GameLogicResult<()> {
-    let mut store = WEAPON_STORE.write().map_err(|e| {
+    let cell = weapon_store_cell();
+    let mut store = cell.write().map_err(|e| {
         GameLogicError::Threading(format!("Failed to acquire weapon store lock: {}", e))
     })?;
     *store = None;

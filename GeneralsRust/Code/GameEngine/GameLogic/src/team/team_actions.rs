@@ -40,8 +40,8 @@ impl Team {
 
         self.evacuate_team_containers();
 
-        let neutral_default_team = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let neutral_default_team = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_neutral_player())
             .and_then(|player_arc| {
@@ -139,7 +139,8 @@ impl Team {
         let Some(controller_id) = self.controlling_player_id else {
             return false;
         };
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return false;
         };
         let Some(player_arc) = players.get_player(controller_id as Int).cloned() else {

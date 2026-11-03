@@ -273,7 +273,9 @@ pub fn w3d_command_bar_gen_exp_draw(
     let _ = inst_data;
     // C++ W3DCommandBarGenExpDraw (W3DControlBar.cpp:468-495): every early-out
     // returns without painting — no fallback meter track.
-    let Ok(list) = ThePlayerList().read() else {
+    let __arc_bind = ThePlayerList();
+
+    let Ok(list) = __arc_bind.read() else {
         return;
     };
     let Some(player_arc) = list.get_local_player().cloned() else {

@@ -630,8 +630,8 @@ impl SpecialPowerModule {
         // Play EVA launch events with C++ relationship semantics.
         if let Some(template) = &self.module_data.special_power_template {
             let power_type = template.get_special_power_type();
-            let local_player = player_list()
-                .read()
+            let __player_list_arc = player_list();
+                let local_player = __player_list_arc.read()
                 .ok()
                 .and_then(|list| list.get_local_player().cloned());
             let owner = crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id);

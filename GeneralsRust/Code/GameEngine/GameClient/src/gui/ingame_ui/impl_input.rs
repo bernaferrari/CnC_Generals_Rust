@@ -252,14 +252,20 @@ impl InGameUI {
         }
 
         if issued {
-            let reselection_required = get_special_power_store()
-                .and_then(|store| {
-                    store
-                        .find_special_power_template_by_id(pending.power_id)
-                        .map(|template| template.is_shortcut_power())
-                })
-                .unwrap_or(false)
-                && self.source_has_overridable_special_power_destination(pending.source_object_id);
+            let reselection_required = {
+                let shortcut = match get_special_power_store() {
+                    Some(sp_arc) => match sp_arc.read() {
+                        Ok(store) => store
+                            .find_special_power_template_by_id(pending.power_id)
+                            .map(|template| template.is_shortcut_power())
+                            .unwrap_or(false),
+                        Err(_) => false,
+                    },
+                    None => false,
+                };
+                shortcut
+                    && self.source_has_overridable_special_power_destination(pending.source_object_id)
+            };
             if reselection_required {
                 let _ = append_message_to_stream(GameMessageType::CreateSelectedGroupNoSound(
                     true,
@@ -476,9 +482,10 @@ impl InGameUI {
             return false;
         }
 
-        let Some(store) = get_special_power_store() else {
+        let Some(__sp) = get_special_power_store() else {
             return false;
         };
+        let Ok(store) = __sp.read() else { return false; };
         let Some(template) = store.find_special_power_template_by_id(power_id) else {
             return false;
         };

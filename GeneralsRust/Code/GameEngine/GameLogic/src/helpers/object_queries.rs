@@ -1179,8 +1179,8 @@ impl crate::special_power_module::integration::PartitionManagerInterface
         };
         let mut results = partition.get_objects_in_range(center, radius);
         if let Some(filter) = filter {
-            let local_team = crate::player::player_list()
-                .read()
+            let __player_list_arc = crate::player::player_list();
+                let local_team = __player_list_arc.read()
                 .ok()
                 .and_then(|list| list.get_local_player().cloned())
                 .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()));

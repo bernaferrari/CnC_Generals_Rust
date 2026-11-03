@@ -630,7 +630,8 @@ impl SpectreGunshipUpdate {
 
         gunship
             .with_controlling_player(|our_player| {
-                let list = ThePlayerList().read().ok();
+                let __player_list_arc = ThePlayerList();
+        let list = __player_list_arc.read().ok();
                 let other_player_arc = list.as_ref().and_then(|l| l.get_player(disguised_index));
                 let Some(other_player_arc) = other_player_arc else {
                     return false;
@@ -730,8 +731,8 @@ impl SpectreGunshipUpdate {
         if !template.only_visible_to_owning_player {
             return true;
         }
-        let local_index = ThePlayerList()
-            .read()
+        let __player_list_arc = ThePlayerList();
+            let local_index = __player_list_arc.read()
             .ok()
             .map(|list| list.get_local_player_index());
         match (local_index, owner_index) {
@@ -1062,8 +1063,8 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                     self.gattling_target_position += delta;
                 }
 
-                let local_visible = ThePlayerList()
-                    .read()
+                let __player_list_arc = ThePlayerList();
+                    let local_visible = __player_list_arc.read()
                     .ok()
                     .and_then(|list| {
                         let idx = list.get_local_player_index();

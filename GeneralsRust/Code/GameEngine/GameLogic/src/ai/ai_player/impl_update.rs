@@ -32,7 +32,8 @@ impl AIPlayer {
             (DEFAULT_TEAM_SECONDS, DEFAULT_STRUCTURE_SECONDS)
         };
 
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player_arc) = list.get_player(player_id as i32).cloned() {
                 if let Ok(mut player_guard) = player_arc.write() {
                     player_guard.set_can_build_units(false);
@@ -540,7 +541,8 @@ impl AIPlayer {
 
         // Snapshot original build list BEFORE factory prepends (C++ keeps old head ptr).
         let mut original_entries: Vec<(String, Coord3D, Real, bool)> = Vec::new();
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player_arc) = list.get_player(self.player_id as i32) {
                 if let Ok(pg) = player_arc.read() {
                     let mut cur = pg.get_build_list();
@@ -562,7 +564,8 @@ impl AIPlayer {
 
         // Add any factories placed to the build list (C++ ProductionUpdateInterface).
         // C++ addToBuildList prepends — new entries are NOT in original_entries.
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player_arc) = list.get_player(self.player_id as i32) {
                 let owned: Vec<ObjectID> = player_arc
                     .read()
@@ -607,7 +610,8 @@ impl AIPlayer {
                     else {
                         continue;
                     };
-                    if let Ok(list) = player_list().read() {
+                    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(player_arc) = list.get_player(self.player_id as i32) {
                             if let Ok(mut pg) = player_arc.write() {
                                 pg.add_to_build_list(
@@ -636,7 +640,8 @@ impl AIPlayer {
                 initial.push((name, loc, ang));
             } else {
                 // C++ info->incrementNumRebuilds on the live node.
-                if let Ok(list) = player_list().read() {
+                let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                     if let Some(player_arc) = list.get_player(self.player_id as i32) {
                         if let Ok(mut pg) = player_arc.write() {
                             if let Some(info) = pg.get_build_list_mut() {

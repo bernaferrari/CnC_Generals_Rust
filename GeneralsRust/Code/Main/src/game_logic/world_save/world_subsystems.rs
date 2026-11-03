@@ -532,7 +532,8 @@ impl GameLogic {
                 logic_player.set_player_type(LogicPlayerType::Observer, false);
             }
             logic_player.set_colors(core_colors.0, core_colors.1);
-            if let Ok(mut list) = ThePlayerList().write() {
+            let __arc_bind = ThePlayerList();
+if let Ok(mut list) = __arc_bind.write() {
                 list.add_player(std::sync::Arc::new(std::sync::RwLock::new(logic_player)));
             }
         }
@@ -560,7 +561,8 @@ impl GameLogic {
         let observer_id = self.ensure_replay_observer_player();
         self.select_local_player(Some(observer_id));
         // Temporary native consumer adapter; Main selected the identity above.
-        if let Ok(mut list) = ThePlayerList().write() {
+        let __arc_bind = ThePlayerList();
+if let Ok(mut list) = __arc_bind.write() {
             if list.get_player(observer_id as i32).is_some() {
                 list.set_local_player_index(observer_id as i32);
             }

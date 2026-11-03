@@ -839,7 +839,8 @@ impl PlayerSelection {
             return Relationship::Allies;
         }
 
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return Relationship::Neutral;
         };
 
@@ -1201,14 +1202,9 @@ impl Default for SelectionManager {
     }
 }
 
-/// Global selection manager instance
-use once_cell::sync::Lazy;
-static SELECTION_MANAGER: Lazy<Arc<RwLock<SelectionManager>>> =
-    Lazy::new(|| Arc::new(RwLock::new(SelectionManager::new())));
-
-/// Get global selection manager
+/// Get per-world selection manager (C++ TheInGameUI selection lives with the match).
 pub fn get_selection_manager() -> Arc<RwLock<SelectionManager>> {
-    SELECTION_MANAGER.clone()
+    Arc::clone(crate::system::engine_stores::active_services().selection())
 }
 
 /// Selection lookup backed by the global `OBJECT_REGISTRY`.

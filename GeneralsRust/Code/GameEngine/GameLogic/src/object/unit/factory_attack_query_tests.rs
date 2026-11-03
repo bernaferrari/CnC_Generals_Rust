@@ -27,7 +27,8 @@ fn definitions() {
     assert_eq!(get_thing_factory().unwrap().as_mut().unwrap().load_ini_text(
         "Object BorrowedAttackInfantry\n KindOf = INFANTRY CAN_ATTACK\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = AIUpdateInterface AttackAI\n End\n Locomotor = SET_NORMAL BorrowedAttackGround\nEnd\nObject BorrowedAttackTarget\n KindOf = STRUCTURE IMMOBILE\n Body = ActiveBody Health\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
     ), 2);
-    let mut players = ThePlayerList().write().unwrap();
+    let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
     players.clear();
     for id in [0, 1] {
         let mut player = Player::new(id);

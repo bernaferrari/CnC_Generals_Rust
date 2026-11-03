@@ -70,9 +70,9 @@ pub mod w3d_ghost_object_xfer;
 pub mod weapon_set;
 pub use crate::common::types::ObjectStatusTypes;
 pub use crate::template::ObjectTemplate;
-pub use ghost_object::{GhostObject, GhostObjectManager, THE_GHOST_OBJECT_MANAGER};
+pub use ghost_object::{GhostObject, GhostObjectManager, the_ghost_object_manager};
 pub use w3d_ghost_object::{
-    FrozenW3DGhostSceneEvent, FrozenW3DGhostSnapshot, THE_W3D_GHOST_OBJECT_MANAGER, W3DGhostObject,
+    FrozenW3DGhostSceneEvent, FrozenW3DGhostSnapshot, the_w3d_ghost_object_manager, W3DGhostObject,
     W3DGhostObjectManager, W3DGhostSnapshotKey, W3DRenderObjectSnapshot,
 };
 
@@ -482,7 +482,8 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
+                    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
                                 let facts =
@@ -507,7 +508,8 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
+                    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
                                 let facts =
@@ -532,7 +534,8 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
+                    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
                                 let facts =
@@ -569,7 +572,8 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
+                    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
                                 let facts =
@@ -734,7 +738,8 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
+                    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
                                 let facts =
@@ -760,7 +765,8 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
+                    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
                                 let facts =
@@ -786,7 +792,8 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
+                    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
                                 let facts =

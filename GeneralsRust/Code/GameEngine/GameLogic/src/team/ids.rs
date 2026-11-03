@@ -50,7 +50,7 @@ pub const MAX_UNIT_TYPES: usize = 7;
 pub const MAX_GENERIC_SCRIPTS: usize = 16;
 
 #[derive(Debug, Clone)]
-struct PendingTeamScriptEvent {
+pub(crate) struct PendingTeamScriptEvent {
     team_id: TeamID,
     script_name: String,
 }
@@ -65,18 +65,13 @@ struct PendingTeamGenericScriptEval {
     current_player_name: Option<String>,
 }
 
-static PENDING_TEAM_SCRIPT_EVENTS: OnceLock<Mutex<Vec<PendingTeamScriptEvent>>> = OnceLock::new();
-
-fn pending_team_script_events() -> &'static Mutex<Vec<PendingTeamScriptEvent>> {
-    PENDING_TEAM_SCRIPT_EVENTS.get_or_init(|| Mutex::new(Vec::new()))
-}
-
 fn queue_team_script_event(team_id: TeamID, script_name: &str) {
     if team_id == TEAM_ID_INVALID || script_name.is_empty() {
         return;
     }
 
-    if let Ok(mut pending) = pending_team_script_events().lock() {
+    let services = crate::system::engine_stores::active_services();
+    if let Ok(mut pending) = services.pending_team_script_events().lock() {
         pending.push(PendingTeamScriptEvent {
             team_id,
             script_name: script_name.to_string(),
@@ -85,7 +80,9 @@ fn queue_team_script_event(team_id: TeamID, script_name: &str) {
 }
 
 fn drain_pending_team_script_events() -> Vec<PendingTeamScriptEvent> {
-    pending_team_script_events()
+    let services = crate::system::engine_stores::active_services();
+    services
+        .pending_team_script_events()
         .lock()
         .map(|mut pending| std::mem::take(&mut *pending))
         .unwrap_or_default()
@@ -106,7 +103,8 @@ impl TeamScriptEventQueue {
 }
 
 pub(crate) fn take_pending_team_script_events_for_world_boundary() -> TeamScriptEventQueue {
-    let mut pending = match pending_team_script_events().lock() {
+    let services = crate::system::engine_stores::active_services();
+    let mut pending = match services.pending_team_script_events().lock() {
         Ok(pending) => pending,
         Err(poisoned) => poisoned.into_inner(),
     };
@@ -118,7 +116,8 @@ pub(crate) fn take_pending_team_script_events_for_world_boundary() -> TeamScript
 pub(crate) fn replace_pending_team_script_events_for_world_boundary(
     next: TeamScriptEventQueue,
 ) -> TeamScriptEventQueue {
-    let mut pending = match pending_team_script_events().lock() {
+    let services = crate::system::engine_stores::active_services();
+    let mut pending = match services.pending_team_script_events().lock() {
         Ok(pending) => pending,
         Err(poisoned) => poisoned.into_inner(),
     };
@@ -142,13 +141,15 @@ pub fn flush_pending_team_script_events() {
     // C++ Team::updateState: TheScriptEngine->runScript(scriptName, this).
     let script_engine = get_script_engine();
     let Ok(mut engine_guard) = script_engine.write() else {
-        if let Ok(mut queue) = pending_team_script_events().lock() {
+        let services = crate::system::engine_stores::active_services();
+        if let Ok(mut queue) = services.pending_team_script_events().lock() {
             queue.splice(0..0, pending);
         }
         return;
     };
     let Some(engine) = engine_guard.as_mut() else {
-        if let Ok(mut queue) = pending_team_script_events().lock() {
+        let services = crate::system::engine_stores::active_services();
+        if let Ok(mut queue) = services.pending_team_script_events().lock() {
             queue.splice(0..0, pending);
         }
         return;

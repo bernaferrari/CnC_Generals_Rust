@@ -497,8 +497,8 @@ impl MoneyCrateCollide {
         };
 
         let player_index = _player_id.value() as PlayerIndex;
-        let player = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let player = __player_list_arc.read()
             .map_err(|_| CollisionError::InvalidObject("PlayerList lock poisoned".to_string()))?
             .get_player(player_index)
             .cloned();
@@ -519,8 +519,8 @@ impl MoneyCrateCollide {
         _amount: u32,
     ) -> Result<(), CollisionError> {
         let player_index = _player_id.value() as PlayerIndex;
-        let player = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let player = __player_list_arc.read()
             .map_err(|_| CollisionError::InvalidObject("PlayerList lock poisoned".to_string()))?
             .get_player(player_index)
             .cloned()
@@ -542,8 +542,8 @@ impl MoneyCrateCollide {
         _amount: u32,
     ) -> Result<(), CollisionError> {
         let player_index = _player_id.value() as PlayerIndex;
-        let player = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let player = __player_list_arc.read()
             .map_err(|_| CollisionError::InvalidObject("PlayerList lock poisoned".to_string()))?
             .get_player(player_index)
             .cloned()
@@ -704,7 +704,8 @@ mod tests {
             player.add_upgrade(&first_template, UpgradeStatus::Complete, None);
             player.add_upgrade(&second_template, UpgradeStatus::Complete, None);
 
-            let mut players = player_list().write().expect("player list write");
+            let __player_list_arc = player_list();
+        let mut players = __player_list_arc.write().expect("player list write");
             players.clear();
             players.add_player(player);
         }
@@ -720,7 +721,8 @@ mod tests {
             let player = Arc::new(RwLock::new(Player::new(0)));
             player.add_upgrade(&second_template, UpgradeStatus::Complete, None);
 
-            let mut players = player_list().write().expect("player list write");
+            let __player_list_arc = player_list();
+        let mut players = __player_list_arc.write().expect("player list write");
             players.clear();
             players.add_player(player);
         }

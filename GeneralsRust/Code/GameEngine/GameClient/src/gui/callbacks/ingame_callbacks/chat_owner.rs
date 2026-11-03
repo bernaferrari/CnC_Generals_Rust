@@ -51,7 +51,8 @@ fn chat_world(
     }
     // Explicitly bounded old Core adapter. Native never discovers Core players.
     // Passing an owned Core roster remains a separate Core-world source migration.
-    let list = ThePlayerList()
+    let __pl = ThePlayerList();
+    let list = __pl
         .read()
         .map_err(|_| missing_context("Core player owner is unavailable"))?;
     let local = list

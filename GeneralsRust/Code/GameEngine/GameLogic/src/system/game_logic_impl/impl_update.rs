@@ -1256,7 +1256,8 @@ impl GameLogic {
         }
 
         // For each player, update their visible objects
-        if let Ok(player_list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(player_list_guard) = __player_list_arc.read() {
             for player_arc in player_list_guard.iter() {
                 if let Ok(player) = player_arc.read() {
                     let player_id = player.get_player_index();
@@ -1274,7 +1275,8 @@ impl GameLogic {
 
         // C++ PartitionData observes resolved per-object status after the
         // shroud update. Retail W3D captures only the current local player.
-        let local_player = crate::object::THE_W3D_GHOST_OBJECT_MANAGER
+        let __w3d_ghosts_r = crate::object::the_w3d_ghost_object_manager();
+        let local_player = __w3d_ghosts_r
             .read()
             .ok()
             .map(|manager| manager.local_player_index())
@@ -1290,7 +1292,8 @@ impl GameLogic {
                 .flatten();
             transitions.push((object_id, status, capture));
         }
-        if let Ok(mut manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+        let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
+            if let Ok(mut manager) = __w3d_ghosts.write() {
             for (object_id, status, capture) in &transitions {
                 self.partition_manager.apply_object_ghost_shroud_status(
                     *object_id,
@@ -1309,12 +1312,14 @@ impl GameLogic {
     /// Re-evaluates parentless ghosts against current cell shroud and drops
     /// modules that no longer hold any snapshot.
     pub fn update_orphaned_w3d_ghosts(&mut self) {
-        let local_player = crate::object::THE_W3D_GHOST_OBJECT_MANAGER
+        let __w3d_ghosts_r = crate::object::the_w3d_ghost_object_manager();
+        let local_player = __w3d_ghosts_r
             .read()
             .ok()
             .map(|manager| manager.local_player_index())
             .unwrap_or(0);
-        let Ok(mut manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() else {
+        let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
+        let Ok(mut manager) = __w3d_ghosts.write() else {
             return;
         };
         let statuses: Vec<(ObjectID, crate::common::ObjectShroudStatus)> = self
@@ -1555,7 +1560,8 @@ impl GameLogic {
 
         let mut marker = "MARKER:ThePlayerList".to_string();
         let _ = Xfer::xfer_ascii_string(&mut xfer, &mut marker);
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             let mut count = list.get_player_count() as i32;
             let _ = Xfer::xfer_int(&mut xfer, &mut count);
             for player_arc in list.iter() {
@@ -1604,7 +1610,8 @@ impl GameLogic {
             return;
         }
 
-        let player_list = match player_list().read() {
+        let __player_list_arc = player_list();
+        let player_list = match __player_list_arc.read() {
             Ok(pl) => pl,
             Err(_) => return,
         };

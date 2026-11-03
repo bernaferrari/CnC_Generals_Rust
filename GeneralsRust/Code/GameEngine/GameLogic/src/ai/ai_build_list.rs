@@ -631,7 +631,8 @@ impl AIBuildList {
     /// Update resource planning for a player
     fn update_resource_planning(&mut self, player_id: u32, current_frame: u32) -> Result<(), AiError> {
         let planning = self.resource_planning.entry(player_id).or_default();
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player_arc) = list.get_player(player_id as i32) {
                 if let Ok(player_guard) = player_arc.read() {
                     planning.current_resources.insert(
@@ -878,8 +879,8 @@ impl AIBuildList {
                     }
                 }
                 BuildCondition::PowerShortage(needed) => {
-                    let shortage = player_list()
-                        .read()
+                    let __player_list_arc = player_list();
+                        let shortage = __player_list_arc.read()
                         .ok()
                         .and_then(|list| list.get_player(player_id as i32).cloned())
                         .and_then(|player| player.read().ok().map(|guard| guard.get_energy().is_low_power()))
@@ -1100,8 +1101,8 @@ impl AIBuildList {
     // Helper methods (these would interface with the actual game systems)
 
     fn get_build_config_for_player(&self, player_id: u32) -> Result<&BuildListConfig, AiError> {
-        let side = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let side = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_player(player_id as i32).cloned())
             .and_then(|player| player.read().ok().map(|guard| guard.get_side().clone()))

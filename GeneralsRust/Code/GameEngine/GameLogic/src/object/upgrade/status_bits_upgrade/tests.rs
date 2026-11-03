@@ -98,8 +98,8 @@ impl Installed {
             // Actual giveUpgrade runs Object::updateUpgradeModules, whose CPP
             // teardown guard requires a controlling player. Each bounded child
             // owns this fixture roster; unrelated worlds are never reset.
-            let has_player = crate::player::player_list()
-                .read()
+            let __player_list_arc = crate::player::player_list();
+                let has_player = __player_list_arc.read()
                 .unwrap()
                 .get_player(0)
                 .is_some();

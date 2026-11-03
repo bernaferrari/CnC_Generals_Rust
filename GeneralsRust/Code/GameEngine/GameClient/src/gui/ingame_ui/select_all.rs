@@ -129,7 +129,8 @@ pub fn select_all_units_by_type(
     let selected = collect_select_all_unit_ids(aircraft_only, window_query, ui);
     let local_player = get_local_player_id();
     if local_player >= 0 {
-        if let Ok(mut manager) = get_selection_manager().write() {
+        let __arc_bind = get_selection_manager();
+if let Ok(mut manager) = __arc_bind.write() {
             if let Some(selection) = manager.get_player_selection(local_player) {
                 let create_new = selection.get_selected_objects().is_empty();
                 if !selected.is_empty() {

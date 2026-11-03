@@ -71,8 +71,8 @@ impl ScriptAction for CreateBuildingAction {
             .try_into()
             .map_err(|_| GameLogicError::Configuration("Invalid player id".to_string()))?;
 
-        let team = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let team = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_player(player_id as i32).cloned())
             .and_then(|player_arc| player_arc.read().ok().and_then(|p| p.get_default_team()));

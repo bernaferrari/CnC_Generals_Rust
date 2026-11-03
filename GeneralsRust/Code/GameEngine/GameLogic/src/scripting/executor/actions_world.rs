@@ -614,7 +614,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(());
         }
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(());
         };
         let shroud_manager = crate::system::shroud_manager::get_shroud_manager();
@@ -718,7 +719,8 @@ impl ScriptActionDispatcher<'_> {
         }
 
         let mut observer_player_index: Option<u32> = None;
-        if let Ok(players) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(players) = __player_list_arc.read() {
             if let Some(observer) = players.find_player_by_name("ReplayObserver") {
                 if let Ok(observer_guard) = observer.read() {
                     observer_player_index = Some(observer_guard.get_player_index() as u32);
@@ -1136,8 +1138,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         };
 
-        let local_player_mask = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let local_player_mask = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_local_player().cloned())
             .and_then(|player| player.read().ok().map(|guard| guard.get_player_mask()))
@@ -1485,7 +1487,8 @@ impl ScriptActionDispatcher<'_> {
         );
         super::request_host_set_base_construction_speed(&player_name, delay_seconds);
 
-        if let Ok(list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list_guard) = __player_list_arc.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
                     player_guard.set_team_delay_seconds(delay_seconds);

@@ -301,7 +301,8 @@ pub fn notify_skirmish_starting_object(player_id: u32, template_name: &str, is_s
 fn leftover_player_for_host_id(
     player_id: u32,
 ) -> Option<std::sync::Arc<std::sync::RwLock<Player>>> {
-    let Ok(list) = ThePlayerList().read() else {
+    let __player_list_arc = ThePlayerList();
+        let Ok(list) = __player_list_arc.read() else {
         return None;
     };
     let named = format!("player{player_id}");

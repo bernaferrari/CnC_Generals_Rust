@@ -156,7 +156,8 @@ struct GameLogicEnergyOwnerCallbacks;
 impl EnergyOwnerCallbacks for GameLogicEnergyOwnerCallbacks {
     fn on_power_brown_out_change(&self, player: PlayerHandle, brown_out: bool) {
         let player_id = player.value() as PlayerIndex;
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(player_arc) = list.get_player(player_id) {
                 if let Ok(mut guard) = player_arc.write() {
                     let _ = guard.on_power_brown_out_change(brown_out);
@@ -250,10 +251,12 @@ fn install_save_game_counter_integration() {
     );
 
     register_save_lock_ghost_objects_hook(Some(Arc::new(|enable| {
-        if let Ok(mut manager) = THE_GHOST_OBJECT_MANAGER.write() {
+        let ghosts = the_ghost_object_manager();
+        if let Ok(mut manager) = ghosts.write() {
             manager.save_lock_ghost_objects(enable);
         }
-        if let Ok(mut manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+        let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
+            if let Ok(mut manager) = __w3d_ghosts.write() {
             manager.set_save_lock_ghost_objects(enable);
         }
     })));

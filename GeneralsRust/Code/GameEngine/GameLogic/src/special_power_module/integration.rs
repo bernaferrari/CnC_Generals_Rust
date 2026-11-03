@@ -368,18 +368,12 @@ impl Default for SpecialPowerIntegrationContext {
     }
 }
 
-/// Global integration context (singleton).
-static INTEGRATION_CONTEXT: OnceLock<Arc<RwLock<SpecialPowerIntegrationContext>>> = OnceLock::new();
+pub fn initialize_integration_context() {}
 
-/// Initialize the global integration context
-pub fn initialize_integration_context() {
-    let _ = INTEGRATION_CONTEXT
-        .get_or_init(|| Arc::new(RwLock::new(SpecialPowerIntegrationContext::new())));
-}
-
-/// Get the global integration context
 pub fn get_integration_context() -> Option<Arc<RwLock<SpecialPowerIntegrationContext>>> {
-    INTEGRATION_CONTEXT.get().cloned()
+    Some(Arc::clone(
+        crate::system::engine_stores::active_services().special_power_integration(),
+    ))
 }
 
 /// Set object manager

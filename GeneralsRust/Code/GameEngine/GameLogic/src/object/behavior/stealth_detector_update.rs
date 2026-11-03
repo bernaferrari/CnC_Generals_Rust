@@ -80,8 +80,8 @@ fn emit_first_detection_feedback(
     if detector.relationship_to(target) == Relationship::Allies {
         return;
     }
-    let local_index = player_list()
-        .read()
+    let __player_list_arc = player_list();
+        let local_index = __player_list_arc.read()
         .ok()
         .map(|list| list.get_local_player_index() as i32)
         .unwrap_or(PLAYER_INDEX_INVALID);
@@ -976,8 +976,8 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
                 // C++ StealthDetectorUpdate.cpp:338-343 — IR pulse only if
                 // shroud <= PARTIAL_CLEAR AND (not STEALTHED OR local owner).
                 let is_visible = if let Ok(obj_guard) = object.read() {
-                    let local_player_index = crate::player::ThePlayerList()
-                        .read()
+                    let __player_list_arc = crate::player::ThePlayerList();
+                        let local_player_index = __player_list_arc.read()
                         .ok()
                         .map(|list| list.get_local_player_index() as i32)
                         .unwrap_or(-1);

@@ -1468,7 +1468,8 @@ mod tests {
     fn test_kill_selection_and_runscript_aliases_are_consumed() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
-        if let Ok(mut manager) = get_selection_manager().write() {
+        let __arc_bind = get_selection_manager();
+if let Ok(mut manager) = __arc_bind.write() {
             manager.initialize_player(0);
             if let Some(selection) = manager.get_player_selection(0) {
                 selection.clear_selection();
@@ -1510,7 +1511,8 @@ mod tests {
     fn test_demo_lock_camera_to_selection_alias_clears_lock_when_no_selection() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
-        if let Ok(mut manager) = get_selection_manager().write() {
+        let __arc_bind = get_selection_manager();
+if let Ok(mut manager) = __arc_bind.write() {
             manager.initialize_player(0);
             if let Some(selection) = manager.get_player_selection(0) {
                 selection.clear_selection();
