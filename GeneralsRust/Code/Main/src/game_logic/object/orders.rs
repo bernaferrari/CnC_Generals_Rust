@@ -868,9 +868,10 @@ impl Object {
         // ALLOW_INTERRUPT_AND_RESUME_OF_CUR_STATE_FOR_RELOAD.
         self.mark_jet_command_for_reload_interrupt(true);
         self.status.attacking = true;
-        if let Some(max) = max_shots {
-            self.max_shots_to_fire = max;
-        }
+        // AIUpdate.cpp:3450-3454: install maxShotsToFire after setState
+        // (AttackState::onEnter resets it). `None` is the C++
+        // NO_MAX_SHOTS_LIMIT caller (ActiveBody.cpp:696), not "keep stale".
+        self.max_shots_to_fire = max_shots.unwrap_or(-1);
         attack_events.record(self.id, victim);
     }
 

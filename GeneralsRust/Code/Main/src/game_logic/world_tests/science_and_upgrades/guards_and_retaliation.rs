@@ -315,6 +315,35 @@ fn begin_guard_retaliate_sets_state_and_anchor() {
 }
 
 #[test]
+fn begin_guard_retaliate_without_limit_resets_stale_burst_to_no_max() {
+    // hq-k5dc3: AIUpdate.cpp:3450-3454 privateGuardRetaliate installs
+    // maxShotsToFire after setState; ActiveBody.cpp:696 passes
+    // NO_MAX_SHOTS_LIMIT, so a stale limited burst must not survive.
+    let mut attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
+    use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate, Weapon};
+    let mut logic = guard_test_world();
+    let mut t = ThingTemplate::new("GRN");
+    t.add_kind_of(KindOf::Infantry);
+    t.add_kind_of(KindOf::Attackable);
+    let id = ObjectId(4521);
+    let mut o = guard_test_object(t, id, Team::USA);
+    o.weapon = Some(Weapon {
+        range: 50.0,
+        ..Default::default()
+    });
+    o.max_shots_to_fire = 2;
+    logic.objects.insert(id, o);
+    logic.objects.get_mut(&id).unwrap().begin_guard_retaliate(
+        ObjectId(4522),
+        None,
+        None,
+        &mut attack_output,
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+    );
+    assert_eq!(logic.objects[&id].max_shots_to_fire, -1);
+}
+
+#[test]
 fn guard_retaliate_ends_when_victim_dead() {
     let mut _attack_output = crate::game_logic::host_attack_log::AttackEvents::default();
 
