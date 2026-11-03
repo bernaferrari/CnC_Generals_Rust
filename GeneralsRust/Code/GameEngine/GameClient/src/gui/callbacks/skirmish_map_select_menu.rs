@@ -53,7 +53,12 @@ thread_local! {
     > = const { std::cell::OnceCell::new() };
 }
 
-fn map_select_state() -> Arc<Mutex<SkirmishMapSelectState>> {
+fn map_select_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Arc<Mutex<SkirmishMapSelectState>> {
+    if let Some(owner) = owner {
+        return owner.skirmish_map_select_state_handle();
+    }
     if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
         client
             .window_manager_owner_ref()
@@ -63,17 +68,19 @@ fn map_select_state() -> Arc<Mutex<SkirmishMapSelectState>> {
     }
     #[cfg(test)]
     {
-        return TEST_SKIRMISH_MAP_SELECT_STATE
-            .with(|cell| {
-                cell.get_or_init(|| Arc::new(Mutex::new(SkirmishMapSelectState::default())))
-                    .clone()
-            });
+        return TEST_SKIRMISH_MAP_SELECT_STATE.with(|cell| {
+            cell.get_or_init(|| Arc::new(Mutex::new(SkirmishMapSelectState::default())))
+                .clone()
+        });
     }
     #[cfg(not(test))]
     {
-        // Ephemeral: no live client.
         Arc::new(Mutex::new(SkirmishMapSelectState::default()))
     }
+}
+
+fn map_select_state() -> Arc<Mutex<SkirmishMapSelectState>> {
+    map_select_state_on_owner(None)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -263,7 +270,7 @@ pub fn skirmish_map_select_menu_init(
     _user_data: Option<&mut dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_handle = map_select_state();
+    let state_handle = map_select_state_on_owner(effects.window_manager_owner);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id(MAP_SELECT_PARENT_NAME);
@@ -376,7 +383,7 @@ pub fn skirmish_map_select_menu_system(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let state_handle = map_select_state();
+    let state_handle = map_select_state_on_owner(effects.window_manager_owner);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
@@ -495,7 +502,7 @@ pub fn skirmish_map_select_menu_input(
     }
 
     if (data2 & KEY_STATE_UP) != 0 {
-        let state_handle = map_select_state();
+        let state_handle = map_select_state_on_owner(effects.window_manager_owner);
         let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(parent) = state.parent.as_ref() {
             let _ = parent.borrow_mut().send_system_message(
@@ -1049,7 +1056,7 @@ use crate::gui::game_window::WindowEventEffects;
             .borrow_mut()
             .set_widget(crate::gui::WindowWidget::ListBox(listbox));
 
-        let state_handle = map_select_state();
+        let state_handle = map_select_state_on_owner(effects.window_manager_owner);
         let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         *state = SkirmishMapSelectState::default();
         state.listbox_map_id = listbox_id;
@@ -1072,7 +1079,7 @@ use crate::gui::game_window::WindowEventEffects;
             WindowMsgHandled::Handled
         );
 
-        let state_handle = map_select_state();
+        let state_handle = map_select_state_on_owner(effects.window_manager_owner);
         let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             state.selected_map.as_deref(),
@@ -1096,7 +1103,7 @@ use crate::gui::game_window::WindowEventEffects;
             WindowMsgHandled::Handled
         );
 
-        let state_handle = map_select_state();
+        let state_handle = map_select_state_on_owner(effects.window_manager_owner);
         let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             state.selected_map.as_deref(),
@@ -1124,7 +1131,7 @@ use crate::gui::game_window::WindowEventEffects;
     fn simulate_map_select_ok_without_selection_fail_closed() {
         // Clear selection residual.
         {
-            let state_handle = map_select_state();
+            let state_handle = map_select_state_on_owner(effects.window_manager_owner);
             let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
             state.selected_map = None;
         }
