@@ -95,7 +95,7 @@ impl WgpuRenderer {
                 ShdError::HardwareUnsupported("No suitable adapter found".to_string())
             })?;
 
-        let (device, queue) = ww3d_gpu::acquire_device(
+        let (device, queue) = ww3d_gpu::DeviceAuthority::new().acquire_device(
             &adapter,
             &DeviceDescriptor {
                 label: Some("WGPU Device"),

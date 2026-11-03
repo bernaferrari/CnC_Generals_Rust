@@ -264,6 +264,15 @@ skip_dir = re.compile(r"(?:^|/)(?:tests|examples|benches|target)(?:/|$)")
 counts = collections.OrderedDict((k, 0) for k in roots)
 details = collections.defaultdict(list)
 
+# Rust requires `#[global_allocator]` to be a `static`. If such a static is
+# only the process allocator entry (stateless, or process-level alloc stats),
+# list it here with the reason so the honest meter does not force contortions.
+ALLOWED_STATIC_EXCEPTIONS = {
+    # name: reason
+    # Example: "GLOBAL_ALLOCATOR": "#[global_allocator] must be static (Rust)",
+}
+
+
 for label, rel in roots.items():
     base = os.path.join(root, rel)
     if not os.path.isdir(base):
@@ -308,6 +317,7 @@ for label, rel in roots.items():
                         or (not with_cfg_test and item_has_cfg_test_attr(text, m.start()))
                         or (not with_cfg_test and inside_cfg_test_thread_local(text, m.start()))
                         or inside_any_thread_local(text, m.start())
+                        or name in ALLOWED_STATIC_EXCEPTIONS
                     ):
                         continue
                     counts[label] += 1
@@ -356,7 +366,6 @@ ALLOW_OPAQUE_WRAPPERS = {
     "AudioMainWindowHandleSlot",
     "AudioSettingsSlot",
     "AuthoredDrawWeaponBoneSlot",
-    "AuthoritySlotRuntime",
     "BorrowedFxRuntime",
     "BoxDisplayMaskSlot",
     "BoxRenderRuntime",
@@ -418,7 +427,6 @@ ALLOW_OPAQUE_WRAPPERS = {
     "EvaEventStoreSlot",
     "ExplicitVertexColorDebugsSlot",
     "ExtraBlockParsersSlot",
-    "FailsafeRuntime",
     "FilesSlot",
     "FontRuntime",
     "FormationSlot",
@@ -441,7 +449,6 @@ ALLOW_OPAQUE_WRAPPERS = {
     "GlobalLocalizationSlot",
     "GlobalManagerRuntime",
     "GlobalManagerSlot",
-    "GlobalMemoryPoolFactoryRuntime",
     "GlobalMemoryPoolFactorySlot",
     "GlobalRecorderSlot",
     "GlobalRendererRuntime",
@@ -496,7 +503,6 @@ ALLOW_OPAQUE_WRAPPERS = {
     "ModuleFactorySlot",
     "MouseCursorSlot",
     "MouseSettingsSlot",
-    "MsgLoopRuntime",
     "MssLockDepthBag",
     "MultiplayerSettingsSlot",
     "NameKeyStateBag",
@@ -567,7 +573,6 @@ ALLOW_OPAQUE_WRAPPERS = {
     "SpecialPowerStoreSlot",
     "SpeechRegistrySlot",
     "StartupModelTraceCountSlot",
-    "StateRuntime",
     "StateSlot",
     "StaticSortStateBag",
     "StatisticsBag",
@@ -611,7 +616,6 @@ ALLOW_OPAQUE_WRAPPERS = {
     "WritableGlobalDataSlot",
     "Ww3DStateBag",
     "WwAudioInstanceBag",
-    "WwAudioInstanceRuntime",
     "WwAudioRuntime",
     "WwLibRuntime",
     "ZhRegistryBag"

@@ -1,10 +1,14 @@
 //! Owned WWAudio session state. Host constructs [`WwAudioRuntime`] and passes `&`.
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, AtomicU64};
 
 pub struct WwAudioRuntime {
     pub assert_handler: Mutex<Option<Box<dyn crate::assert::AssertHandler + Send + Sync>>>,
     pub main_window_handle: Mutex<Option<isize>>,
     pub mss_lock_depth: Mutex<u32>,
+    /// Windows failsafe timer state (formerly process FAILSAFE).
+    pub failsafe_time: AtomicU64,
+    pub failsafe_calls: AtomicU32,
 }
 
 impl Default for WwAudioRuntime {
@@ -19,6 +23,8 @@ impl WwAudioRuntime {
             assert_handler: Mutex::new(None),
             main_window_handle: Mutex::new(None),
             mss_lock_depth: Mutex::new(0),
+            failsafe_time: AtomicU64::new(0x100000000),
+            failsafe_calls: AtomicU32::new(0),
         }
     }
 }

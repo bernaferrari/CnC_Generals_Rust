@@ -82,8 +82,9 @@ impl GpuDevice {
         adapter: &wgpu::Adapter,
         features: wgpu::Features,
         limits: wgpu::Limits,
+        authority: &crate::DeviceAuthority,
     ) -> Result<Self, GpuError> {
-        let (device, queue) = crate::request_device(
+        let (device, queue) = authority.request_device(
             adapter,
             &wgpu::DeviceDescriptor {
                 label: Some("WW3D GPU Device"),

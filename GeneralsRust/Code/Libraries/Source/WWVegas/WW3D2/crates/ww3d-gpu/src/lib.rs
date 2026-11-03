@@ -46,10 +46,7 @@ pub use caps::*;
 pub use command::*;
 pub use device::MemoryType;
 pub use device::{DeviceBuffer, GpuDevice, MemoryStats};
-pub use device_authority::{
-    SharedGpuDevice, acquire_device, adopt_device, is_device_acquired, request_device,
-    shared_device,
-};
+pub use device_authority::{DeviceAuthority, SharedGpuDevice};
 pub use dynamic_buffer::*;
 pub use fvf::*;
 pub use pipeline::*;
@@ -267,7 +264,8 @@ impl GpuContext {
             .await
             .map_err(|_| GpuError::NoAdapter)?;
 
-        let (device, queue) = request_device(
+        let authority = DeviceAuthority::new();
+        let (device, queue) = authority.request_device(
             &adapter,
             &wgpu::DeviceDescriptor {
                 required_features: wgpu::Features::empty(),

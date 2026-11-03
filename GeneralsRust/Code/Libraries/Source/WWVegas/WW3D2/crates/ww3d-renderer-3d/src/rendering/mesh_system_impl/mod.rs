@@ -414,3 +414,5 @@ pub const MESH_SYSTEM_SRC: &str = concat!(
     include_str!("materials.rs"),
     include_str!("render_obj.rs"),
 );
+
+pub(crate) use static_sort::{StaticSortState, default_static_sort_state};

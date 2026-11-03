@@ -218,23 +218,33 @@ impl Default for FastAllocatorGeneral {
     }
 }
 
-static GLOBAL_ALLOCATOR: std::sync::OnceLock<Arc<FastAllocatorGeneral>> =
-    std::sync::OnceLock::new();
+/// Session general allocator lives on [`crate::process_state::WwLibRuntime`].
+pub fn get_global_allocator(runtime: &crate::process_state::WwLibRuntime) -> Arc<FastAllocatorGeneral> {
+    Arc::clone(&runtime.general_allocator)
+}
 
-pub fn get_global_allocator() -> Arc<FastAllocatorGeneral> {
-    GLOBAL_ALLOCATOR
-        .get_or_init(|| Arc::new(FastAllocatorGeneral::new()))
-        .clone()
+/// Construct a standalone allocator for callers without a WwLibRuntime yet.
+pub fn new_general_allocator() -> Arc<FastAllocatorGeneral> {
+    Arc::new(FastAllocatorGeneral::new())
 }
 
 /// STL-shaped wrapper over the global general allocator.
 pub struct FastSTLAllocator<T> {
+    allocator: Arc<FastAllocatorGeneral>,
     _ty: std::marker::PhantomData<T>,
 }
 
 impl<T> FastSTLAllocator<T> {
     pub fn new() -> Self {
         Self {
+            allocator: new_general_allocator(),
+            _ty: std::marker::PhantomData,
+        }
+    }
+
+    pub fn with_allocator(allocator: Arc<FastAllocatorGeneral>) -> Self {
+        Self {
+            allocator,
             _ty: std::marker::PhantomData,
         }
     }
@@ -243,11 +253,11 @@ impl<T> FastSTLAllocator<T> {
         if count == 0 {
             return None;
         }
-        get_global_allocator().alloc(count * std::mem::size_of::<T>())
+        self.allocator.alloc(count * std::mem::size_of::<T>())
     }
 
     pub fn deallocate(&self, handle: GeneralAlloc) {
-        get_global_allocator().free(handle);
+        self.allocator.free(handle);
     }
 
     pub fn max_size(&self) -> usize {

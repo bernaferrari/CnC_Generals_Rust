@@ -3,6 +3,7 @@
 use std::sync::atomic::{AtomicBool, AtomicIsize};
 use std::sync::{Arc, Mutex};
 
+use crate::fast_allocator::FastAllocatorGeneral;
 use crate::ffactory::{RawFileFactory, SimpleFileFactory};
 use crate::wwfile::WWFile;
 use crate::xmouse::Mouse;
@@ -32,6 +33,11 @@ pub struct WwLibRuntime {
     pub game_in_focus: AtomicBool,
     pub program_instance: AtomicIsize,
     pub main_window: AtomicIsize,
+    pub general_allocator: Arc<FastAllocatorGeneral>,
+    /// HWND / HACCEL stored as isize for cross-platform session state.
+    pub modeless_dialogs: Mutex<Vec<isize>>,
+    pub accelerators: Mutex<Vec<(isize, isize)>>,
+    pub message_intercept_handler: Mutex<Option<usize>>,
 }
 
 impl Default for WwLibRuntime {
@@ -53,6 +59,10 @@ impl WwLibRuntime {
             game_in_focus: AtomicBool::new(false),
             program_instance: AtomicIsize::new(0),
             main_window: AtomicIsize::new(0),
+            general_allocator: Arc::new(FastAllocatorGeneral::new()),
+            modeless_dialogs: Mutex::new(Vec::new()),
+            accelerators: Mutex::new(Vec::new()),
+            message_intercept_handler: Mutex::new(None),
         }
     }
 }

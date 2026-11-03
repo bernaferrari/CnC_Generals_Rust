@@ -143,6 +143,7 @@ impl GpuAdapter {
         &self,
         features: wgpu::Features,
         limits: wgpu::Limits,
+        authority: &crate::DeviceAuthority,
     ) -> Result<crate::device::GpuDevice, GpuError> {
         let required_features = features & self.features;
         let required_limits = wgpu::Limits {
@@ -162,7 +163,7 @@ impl GpuAdapter {
             ..limits
         };
 
-        let (device, queue) = crate::request_device(
+        let (device, queue) = authority.request_device(
             &self.adapter,
             &wgpu::DeviceDescriptor {
                 label: Some(&format!("WW3D Device ({})", self.info.name)),

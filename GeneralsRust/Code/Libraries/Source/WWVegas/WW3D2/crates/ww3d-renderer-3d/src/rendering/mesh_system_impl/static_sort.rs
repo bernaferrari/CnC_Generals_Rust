@@ -35,17 +35,10 @@ pub(crate) fn default_static_sort_state() -> StaticSortState {
 }
 
 pub(super) fn with_sort_state<R>(f: impl FnOnce(&mut StaticSortState) -> R) -> R {
-    let r3d = crate::process_state::renderer_3d();
-    let mut guard = r3d.static_sort_state.lock().unwrap_or_else(|p| p.into_inner());
-    if guard.is_none() {
-        *guard = Some(Box::new(default_static_sort_state()));
-    }
-    let state = guard
-        .as_mut()
-        .unwrap()
-        .downcast_mut::<StaticSortState>()
-        .expect("static_sort_state type");
-    f(state)
+    f(&mut crate::process_state::renderer_3d()
+        .static_sort_state
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()))
 }
 
 #[derive(Clone)]

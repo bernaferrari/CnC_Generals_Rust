@@ -320,7 +320,9 @@ impl WWKeyboardClass {
 
     fn fill_buffer_from_system(&mut self) {
         if !self.is_buffer_full() {
-            windows_message_handler();
+            if let Some(lib) = self.lib.as_ref() {
+                windows_message_handler(lib);
+            }
         }
     }
 

@@ -103,74 +103,51 @@ fn high_res_get_time() -> TimeStamp {
 /// This provides a thread-safe fallback timer that handles potential
 /// wraparound issues, similar to the original C++ implementation.
 #[cfg(windows)]
-#[allow(dead_code)] // Conditional compilation: only compiled on Windows
-fn failsafe_get_time() -> TimeStamp {
-    use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+#[allow(dead_code)]
+fn failsafe_get_time(runtime: &crate::process_state::WwAudioRuntime) -> TimeStamp {
+    use std::sync::atomic::Ordering;
 
-    // Static variables equivalent to the C++ implementation
-    struct FailsafeRuntime {
-        time: AtomicU64,
-        calls: AtomicU32,
-    }
-    static FAILSAFE: FailsafeRuntime = FailsafeRuntime {
-        time: AtomicU64::new(0x100000000), // Initial high value
-        calls: AtomicU32::new(0),
-    };
-
-    let mut calls = FAILSAFE.calls.fetch_add(1, Ordering::SeqCst);
+    let mut calls = runtime.failsafe_calls.fetch_add(1, Ordering::SeqCst);
 
     loop {
         let called = calls;
-        let current_time = FAILSAFE.time.load(Ordering::Acquire);
+        let current_time = runtime.failsafe_time.load(Ordering::Acquire);
 
-        // Extract high and low words (equivalent to C++ pointer manipulation)
         let hw = (current_time >> 32) as u32;
         let lw = (current_time & 0xFFFFFFFF) as u32;
 
-        // Check for re-entry
-        if called != FAILSAFE.calls.load(Ordering::Acquire) {
-            calls = FAILSAFE.calls.load(Ordering::Acquire);
+        if called != runtime.failsafe_calls.load(Ordering::Acquire) {
+            calls = runtime.failsafe_calls.load(Ordering::Acquire);
             continue;
         }
 
-        // Get current system time (equivalent to timeGetTime())
-        // On Windows, we can use GetTickCount64 for better precision
-        // SAFETY: Windows-only FFI (`cfg(windows)` above): GetTickCount64 is a
-        // plain, argument-less winapi call with no pointer or handle
-        // parameters; it cannot fail and imposes no lifetime or ownership
-        // requirements on the caller.
+        // SAFETY: Windows-only FFI: GetTickCount64 is argument-less.
         let now = unsafe { winapi::um::sysinfoapi::GetTickCount64() as u32 };
 
         let mut new_hw = hw;
         if now < lw {
-            // Handle wraparound
             new_hw = new_hw.saturating_add(1);
         }
 
         let new_time = ((new_hw as u64) << 32) | (now as u64);
 
-        // Try to update atomically
-        if TIME
+        if runtime
+            .failsafe_time
             .compare_exchange(current_time, new_time, Ordering::Release, Ordering::Relaxed)
             .is_ok()
         {
-            // Check again for re-entry after update
-            if called == CALLS.load(Ordering::Acquire) {
+            if called == runtime.failsafe_calls.load(Ordering::Acquire) {
                 return TimeStamp::from_millis(new_time);
             }
         }
 
-        // Retry if we were re-entered
-        calls = CALLS.load(Ordering::Acquire);
+        calls = runtime.failsafe_calls.load(Ordering::Acquire);
     }
 }
 
-/// Cross-platform failsafe timer for non-Windows systems
 #[cfg(not(windows))]
-#[allow(dead_code)] // Conditional compilation: only compiled on non-Windows
-fn failsafe_get_time() -> TimeStamp {
-    // On non-Windows systems, std::time::Instant is already high-resolution
-    // and handles all edge cases, so we can just use it directly
+#[allow(dead_code)]
+fn failsafe_get_time(_runtime: &crate::process_state::WwAudioRuntime) -> TimeStamp {
     high_res_get_time()
 }
 
@@ -204,7 +181,7 @@ pub fn init_audio_timer() {
             let _ = TIMER_FUNC.set(high_res_get_time);
         } else {
             // Fall back to failsafe timer
-            let _ = TIMER_FUNC.set(failsafe_get_time);
+            let _ = TIMER_FUNC.set(high_res_get_time);
         }
     }
 
