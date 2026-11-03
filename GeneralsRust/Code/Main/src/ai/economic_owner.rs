@@ -59,8 +59,7 @@ impl ScaffoldAttempt {
             self.position,
             self.cost,
             observe,
-        )?
-        else {
+        ) else {
             return Ok(None);
         };
         world.dozer_admit_constructed_scaffold_owned(self.dozer, &birth, structure)?;

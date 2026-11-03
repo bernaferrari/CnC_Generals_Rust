@@ -239,7 +239,7 @@ fn ai_birth_uses_its_own_difficulty_factor_not_the_session_human_difficulty() {
 #[test]
 fn solo_health_factor_uses_exact_neutral_comparison_without_epsilon_fallback() {
     let mut neutral = world();
-    neutral.admit_solo_player_health_bonus_for_difficulty([[1.0; 3]; 2]);
+    neutral.admit_solo_player_health_bonus_for_difficulty([[1.0; 3]; 3]);
     let neutral_id = neutral
         .create_object_for_player("OwnedBonusStructure", 0, Vec3::ZERO)
         .unwrap();
@@ -250,7 +250,7 @@ fn solo_health_factor_uses_exact_neutral_comparison_without_epsilon_fallback() {
 
     let mut adjacent = world();
     let next_after_one = f32::from_bits(1.0_f32.to_bits() + 1);
-    adjacent.admit_solo_player_health_bonus_for_difficulty([[next_after_one; 3]; 2]);
+    adjacent.admit_solo_player_health_bonus_for_difficulty([[next_after_one; 3]; 3]);
     let adjacent_id = adjacent
         .create_object_for_player("OwnedBonusStructure", 0, Vec3::ZERO)
         .unwrap();
