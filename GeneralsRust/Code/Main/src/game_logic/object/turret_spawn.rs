@@ -118,7 +118,10 @@ pub(super) fn turret_spawn_for_thing_template(
         .as_deref()
         .map(turret_spawn_for_receiving_definition)
         .or_else(|| template.turret_spawn_definition.clone())
-        .unwrap_or_else(|| turret_spawn_for_template(&template.name))
+        // Unadmitted/hand-built templates must not invent turret slots from a
+        // global name table (hq-qpg313.1). Explicit honesty callers still use
+        // turret_spawn_for_template directly.
+        .unwrap_or_else(TurretSpawnSpec::absent)
 }
 
 fn turret_spawn_from_typed_data(
@@ -515,3 +518,23 @@ fn weapon_slot_index(token: &str) -> Option<usize> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::ThingTemplate;
+
+    #[test]
+    fn unadmitted_thing_template_turret_spawn_is_absent() {
+        let template = ThingTemplate::new("AmericaTankCrusader");
+        let spec = turret_spawn_for_thing_template(&template);
+        assert!(
+            !spec.has_turret,
+            "hand-built templates without admitted turret facts stay absent"
+        );
+        assert!(!spec.enabled);
+        // Explicit honesty path remains available for residual callers.
+        assert!(turret_spawn_for_template("AmericaTankCrusader").has_turret);
+    }
+}
+
