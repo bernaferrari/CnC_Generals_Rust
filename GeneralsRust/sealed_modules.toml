@@ -327,3 +327,8 @@ path = "Code/GameEngine/GameClient/src/gui/callbacks/skirmish_game_options_menu.
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/SkirmishGameOptionsMenu.cpp"
 note = "SkirmishGameOptionsState + map-select layout on WindowManagerOwner; removed process TLS; peels use owner or live-client loan."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/lan_game_options_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/LanGameOptionsMenu.cpp"
+note = "LanGameOptionsState + map-select layout on WindowManagerOwner; removed process TLS; peels use owner or live-client loan."
+
