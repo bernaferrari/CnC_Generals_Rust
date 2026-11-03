@@ -5,9 +5,7 @@
 //! decodes the DCT/RDFT bitstream (NihAV / FFmpeg algorithm) so the Miles/kira
 //! hook can play campaign briefing soundtracks.
 
-use std::cell::RefCell;
 use std::f32::consts::PI;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 const MAX_BANDS: usize = 25;
 const CRITICAL_FREQS: [u16; 25] = [
@@ -20,12 +18,21 @@ const BINK_AUD_16BITS: u16 = 0x4000;
 const BINK_AUD_STEREO: u16 = 0x2000;
 const BINK_AUD_USEDCT: u16 = 0x1000;
 
-/// C++ `BinkSoundUseDirectSound` / `BinkSetSoundTrack` binding state.
-static SOUNDTRACK_BOUND: AtomicBool = AtomicBool::new(false);
-// THREAD: main thread only — the Bink sink is bound, released and fed from the
-// video player on the game thread; kira's mixer thread never touches this slot.
-thread_local! {
-    static BINK_MILES_HOOK: RefCell<BinkMilesHook> = RefCell::new(BinkMilesHook::new());
+/// Per-stream Miles+kira soundtrack binding (was process TLS/atomics).
+pub struct BinkAudioState {
+    soundtrack_bound: bool,
+    miles_hook: BinkMilesHook,
+    kira: Option<KiraPlayback>,
+}
+
+impl Default for BinkAudioState {
+    fn default() -> Self {
+        Self {
+            soundtrack_bound: false,
+            miles_hook: BinkMilesHook::new(),
+            kira: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -47,41 +54,91 @@ pub fn has_bink_audio_bitstream_parser() -> bool {
     true
 }
 
-pub fn soundtrack_is_bound() -> bool {
-    SOUNDTRACK_BOUND.load(Ordering::SeqCst)
-}
+impl BinkAudioState {
+    pub fn soundtrack_is_bound(&self) -> bool {
+        self.soundtrack_bound
+    }
 
-/// C++ `BinkVideoPlayer::initializeBinkWithMiles`.
-///
-/// Binds Bink's audio track to the Miles/kira output device. A missing device
-/// mutes the soundtrack (`BinkSetSoundTrack(0,0)`) but does not unregister the
-/// video provider.
-pub fn initialize_bink_with_miles() -> bool {
-    let ok = BINK_MILES_HOOK.with_borrow_mut(|hook| hook.bind());
-    SOUNDTRACK_BOUND.store(ok, Ordering::SeqCst);
-    ok
-}
+    pub fn initialize_bink_with_miles(&mut self) -> bool {
+        let ok = match kira::AudioManager::<kira::DefaultBackend>::new(
+            kira::AudioManagerSettings::default(),
+        ) {
+            Ok(manager) => {
+                self.store_kira_manager(manager);
+                true
+            }
+            Err(_) => false,
+        };
+        self.miles_hook.bound = ok;
+        self.soundtrack_bound = ok;
+        ok
+    }
 
-/// C++ `MilesAudioManager::getHandleForBink` — allocate/reuse the Bink sink.
-pub fn get_handle_for_bink() -> bool {
-    initialize_bink_with_miles()
-}
+    pub fn get_handle_for_bink(&mut self) -> bool {
+        self.initialize_bink_with_miles()
+    }
 
-/// C++ `MilesAudioManager::releaseHandleForBink` + `BinkSetSoundTrack(0, 0)`.
-pub fn release_handle_for_bink() {
-    SOUNDTRACK_BOUND.store(false, Ordering::SeqCst);
-    BINK_MILES_HOOK.with_borrow_mut(|hook| hook.release());
-}
+    pub fn release_handle_for_bink(&mut self) {
+        self.soundtrack_bound = false;
+        self.miles_hook.bound = false;
+        self.stop_playback();
+    }
 
-/// C++ `BinkVideoPlayer::notifyVideoPlayerOfNewProvider`.
-///
-/// `false` only releases the Miles handle and mutes the soundtrack.
-/// `true` re-binds Miles. The Bink video provider stays registered either way.
-pub fn notify_video_player_of_new_provider(now_has_valid: bool) {
-    if now_has_valid {
-        let _ = initialize_bink_with_miles();
-    } else {
-        release_handle_for_bink();
+    pub fn notify_video_player_of_new_provider(&mut self, now_has_valid: bool) {
+        if now_has_valid {
+            let _ = self.initialize_bink_with_miles();
+        } else {
+            self.release_handle_for_bink();
+        }
+    }
+
+    fn store_kira_manager(&mut self, manager: kira::AudioManager<kira::DefaultBackend>) {
+        self.kira = Some(KiraPlayback {
+            manager,
+            handle: None,
+        });
+    }
+
+    fn stop_playback(&mut self) {
+        if let Some(playback) = self.kira.as_mut() {
+            if let Some(handle) = playback.handle.as_mut() {
+                let _ = handle.stop(kira::Tween::default());
+            }
+            playback.handle = None;
+        }
+    }
+
+    pub fn play_bink_pcm_through_miles(
+        &mut self,
+        samples: &[f32],
+        sample_rate: u32,
+        channels: u8,
+        volume: f32,
+    ) {
+        if !self.soundtrack_bound || samples.is_empty() {
+            return;
+        }
+        let frames = pcm_to_frames(samples, channels);
+        if frames.is_empty() {
+            return;
+        }
+        let data = kira::sound::static_sound::StaticSoundData {
+            sample_rate,
+            frames: frames.into(),
+            settings: kira::sound::static_sound::StaticSoundSettings::new()
+                .volume(kira_amplitude(volume.max(0.0001) as f64)),
+            slice: None,
+        };
+        let Some(playback) = self.kira.as_mut() else {
+            return;
+        };
+        if let Some(handle) = playback.handle.as_mut() {
+            let _ = handle.stop(kira::Tween::default());
+        }
+        playback.handle = match playback.manager.play(data) {
+            Ok(handle) => Some(handle),
+            Err(_) => None,
+        };
     }
 }
 
@@ -535,48 +592,9 @@ impl<'a> BitReader<'a> {
     }
 }
 
-struct BinkMilesHook {
-    bound: bool,
-    #[cfg(feature = "not_used")]
-    _pad: (),
-}
-
-impl BinkMilesHook {
-    fn new() -> Self {
-        Self { bound: false }
-    }
-
-    fn bind(&mut self) -> bool {
-        // Miles/kira output device is the live GameClient/Device audio backend.
-        // Binding succeeds whenever a default output device can be opened.
-        self.bound = try_bind_kira_output();
-        self.bound
-    }
-
-    fn release(&mut self) {
-        self.bound = false;
-        stop_bink_playback();
-    }
-}
-
-fn try_bind_kira_output() -> bool {
-    match kira::AudioManager::<kira::DefaultBackend>::new(kira::AudioManagerSettings::default()) {
-        Ok(manager) => {
-            store_kira_manager(manager);
-            true
-        }
-        Err(_) => false,
-    }
-}
-
 struct KiraPlayback {
     manager: kira::AudioManager<kira::DefaultBackend>,
     handle: Option<kira::sound::static_sound::StaticSoundHandle>,
-}
-
-// THREAD: main thread only — see `BINK_MILES_HOOK` above.
-thread_local! {
-    static KIRA_PLAYBACK: RefCell<Option<KiraPlayback>> = const { RefCell::new(None) };
 }
 
 fn kira_amplitude(amp: f64) -> kira::Decibels {
@@ -587,54 +605,16 @@ fn kira_amplitude(amp: f64) -> kira::Decibels {
     }
 }
 
-fn store_kira_manager(manager: kira::AudioManager<kira::DefaultBackend>) {
-    KIRA_PLAYBACK.with_borrow_mut(|slot| {
-        *slot = Some(KiraPlayback {
-            manager,
-            handle: None,
-        });
-    });
+struct BinkMilesHook {
+    bound: bool,
+    #[cfg(feature = "not_used")]
+    _pad: (),
 }
 
-fn stop_bink_playback() {
-    KIRA_PLAYBACK.with_borrow_mut(|slot| {
-        if let Some(playback) = slot.as_mut() {
-            if let Some(handle) = playback.handle.as_mut() {
-                let _ = handle.stop(kira::Tween::default());
-            }
-            playback.handle = None;
-        }
-    });
-}
-
-/// Mix decoded Bink PCM through the Miles/kira handle at speech-slider volume.
-pub fn play_bink_pcm_through_miles(samples: &[f32], sample_rate: u32, channels: u8, volume: f32) {
-    if !soundtrack_is_bound() || samples.is_empty() {
-        return;
+impl BinkMilesHook {
+    fn new() -> Self {
+        Self { bound: false }
     }
-    let frames = pcm_to_frames(samples, channels);
-    if frames.is_empty() {
-        return;
-    }
-    let data = kira::sound::static_sound::StaticSoundData {
-        sample_rate,
-        frames: frames.into(),
-        settings: kira::sound::static_sound::StaticSoundSettings::new()
-            .volume(kira_amplitude(volume.max(0.0001) as f64)),
-        slice: None,
-    };
-    KIRA_PLAYBACK.with_borrow_mut(|slot| {
-        let Some(playback) = slot.as_mut() else {
-            return;
-        };
-        if let Some(handle) = playback.handle.as_mut() {
-            let _ = handle.stop(kira::Tween::default());
-        }
-        playback.handle = match playback.manager.play(data) {
-            Ok(handle) => Some(handle),
-            Err(_) => None,
-        };
-    });
 }
 
 fn pcm_to_frames(samples: &[f32], channels: u8) -> Vec<kira::Frame> {
@@ -673,8 +653,9 @@ mod tests {
 
     #[test]
     fn notify_false_does_not_claim_bound_soundtrack() {
-        notify_video_player_of_new_provider(false);
-        assert!(!soundtrack_is_bound());
+        let mut audio = BinkAudioState::default();
+        audio.notify_video_player_of_new_provider(false);
+        assert!(!audio.soundtrack_is_bound());
     }
 
     #[test]

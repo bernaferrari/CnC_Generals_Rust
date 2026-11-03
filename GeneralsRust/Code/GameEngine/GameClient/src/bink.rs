@@ -94,10 +94,8 @@ impl BinkHeader {
 }
 
 pub use crate::bink_audio::{
-    apply_speech_slider_volume as bink_volume_from_speech_slider, get_handle_for_bink,
-    has_bink_audio_bitstream_parser, initialize_bink_with_miles,
-    notify_video_player_of_new_provider as notify_bink_of_new_provider,
-    play_bink_pcm_through_miles, release_handle_for_bink, soundtrack_is_bound,
+    apply_speech_slider_volume as bink_volume_from_speech_slider, has_bink_audio_bitstream_parser,
+    BinkAudioState,
 };
 
 use crate::bink_audio::{
@@ -130,6 +128,7 @@ pub struct BinkDecoder {
     video_decoder: Option<BinkVideoDecoder>,
     audio_layout: BinkAudioLayout,
     audio_decoders: Vec<BinkAudioDecoder>,
+    audio: BinkAudioState,
 }
 
 impl BinkDecoder {
@@ -173,6 +172,7 @@ impl BinkDecoder {
             video_decoder,
             audio_layout,
             audio_decoders,
+            audio: BinkAudioState::default(),
         })
     }
 
@@ -245,14 +245,14 @@ impl BinkDecoder {
     }
 
     fn play_frame_audio(&mut self, audio_packets: &[&[u8]]) {
-        if !soundtrack_is_bound() {
+        if !self.audio.soundtrack_is_bound() {
             return;
         }
         let volume = speech_slider_volume();
         for (decoder, packet) in self.audio_decoders.iter_mut().zip(audio_packets.iter()) {
             let pcm = decoder.decode_packet(packet);
             if !pcm.is_empty() {
-                play_bink_pcm_through_miles(
+                self.audio.play_bink_pcm_through_miles(
                     &pcm,
                     decoder.sample_rate(),
                     decoder.channels(),
@@ -260,6 +260,10 @@ impl BinkDecoder {
                 );
             }
         }
+    }
+
+    pub fn audio_mut(&mut self) -> &mut BinkAudioState {
+        &mut self.audio
     }
 
     pub fn seek(&mut self, frame_index: u32) {
@@ -290,8 +294,8 @@ pub struct BinkVideoStream {
 
 impl BinkVideoStream {
     pub fn open(path: &Path) -> Result<Self, String> {
-        let _ = initialize_bink_with_miles();
         let mut decoder = BinkDecoder::open(path)?;
+        let _ = decoder.audio_mut().initialize_bink_with_miles();
         let current_rgba = decoder.decode_current_frame_rgba();
         let speech = speech_slider_volume();
         Ok(Self {
@@ -774,9 +778,10 @@ mod tests {
             has_bink_audio_bitstream_parser(),
             "Bink audio bitstream parser must be present for Miles/kira soundtrack"
         );
-        notify_bink_of_new_provider(false);
+        let mut audio = BinkAudioState::default();
+        audio.notify_video_player_of_new_provider(false);
         assert!(
-            !soundtrack_is_bound(),
+            !audio.soundtrack_is_bound(),
             "lost audio device mutes soundtrack but parser stays available"
         );
     }

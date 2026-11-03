@@ -203,3 +203,8 @@ path = "Code/GameEngine/GameClient/src/gui/loading_screen.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/LoadScreen"
 note = "LoadingScreenResidual on LoadScreenRuntime; removed residual TLS/atomics; simulate/drive take &mut LoadingScreenResidual."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/bink_audio.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Video/BinkVideoPlayer.cpp"
+note = "BinkAudioState owns Miles/kira soundtrack binding; removed SOUNDTRACK_BOUND/BINK_MILES/KIRA TLS; APIs take &mut BinkAudioState on BinkDecoder."
+
