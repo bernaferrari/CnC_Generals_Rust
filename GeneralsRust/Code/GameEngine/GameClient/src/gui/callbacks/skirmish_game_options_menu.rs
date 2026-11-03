@@ -2478,7 +2478,7 @@ mod tests {
                     .iter()
                     .any(|message| message.get_type() == &GameMessageType::NewGame)
             );
-            assert!(!crate::gui::crate::gui::game_window::WindowEventEffects::with_standalone(|effects| dispatch_os_click_named_window(
+            assert!(!crate::gui::game_window::WindowEventEffects::with_standalone(|effects| dispatch_os_click_named_window(
                 "SkirmishGameOptionsMenu.wnd:ButtonStartMissing"
             , effects)));
         }

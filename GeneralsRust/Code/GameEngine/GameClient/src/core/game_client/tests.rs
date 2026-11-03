@@ -16,7 +16,8 @@ mod tests {
     include!("specialized_draw_owner_tests.rs");
     use super::*;
     use crate::drawable::Drawable;
-    use crate::message_stream::game_message::GameMessageType;
+    use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
+use crate::message_stream::game_message::GameMessageType;
     use crate::network::is_network_command_message;
     use crate::system::{Coord3D, GameMessageResult};
     use game_engine::common::system::xfer_load::XferLoad;
@@ -797,7 +798,7 @@ mod tests {
             global_data.read().pending_file,
             "Maps\\ShellMap\\ShellMap.map"
         );
-        assert!(get_shell().is_shell_map_on());
+        assert!(client.window_manager_owner().shell_handle().is_shell_map_on());
     }
 
     #[test]

@@ -456,7 +456,6 @@ impl LoadingScreen {
 /// Predefined loading stages for common game loading operations
 pub mod stages {
     use super::*;
-use crate::gui::game_window::WindowEventEffects;
 
     pub fn initialization() -> LoadingStage {
         LoadingStage::new("init", "Initializing...", 0.1)
@@ -518,6 +517,7 @@ pub mod tips {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn test_loading_screen_creation() {
@@ -826,6 +826,7 @@ pub fn drive_os_wnd_loading_screen_finish_like_cpp(
 #[cfg(test)]
 mod os_wnd_tests {
     use super::*;
+    use crate::gui::game_window::WindowEventEffects;
     
     fn install_named_button(owner: &crate::gui::window_manager::WindowManagerOwner, name: &str, x: i32, y: i32) {
         owner.with_manager(|manager| {
