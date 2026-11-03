@@ -8,6 +8,7 @@
 
 use super::resolver::LiveAssetResolver;
 use anyhow::{Result, anyhow};
+use std::collections::HashMap;
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::system::archive_file_system as core;
 use log::warn;
@@ -572,7 +573,41 @@ impl ArchiveFileSystem {
     }
 }
 
+/// Cached case-folded directory listings for the case-insensitive path walk.
+/// Keyed by canonical search-dir string; entries map lower(name) -> full path.
+/// This is filesystem metadata only (not game assets), shared to cut repeated
+/// `read_dir` during Lone Eagle spawn/hydrate under noisy disk load.
+fn case_insensitive_dir_index(search_dir: &Path) -> Option<HashMap<String, PathBuf>> {
+    static DIR_INDEX: OnceLock<Mutex<HashMap<String, HashMap<String, PathBuf>>>> = OnceLock::new();
+    let key = search_dir.to_string_lossy().to_ascii_lowercase();
+    let cache = DIR_INDEX.get_or_init(|| Mutex::new(HashMap::new()));
+    {
+        let guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(hit) = guard.get(&key) {
+            return Some(hit.clone());
+        }
+    }
+    let mut index = HashMap::new();
+    for entry in std::fs::read_dir(search_dir).ok()? {
+        let entry = entry.ok()?;
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        index.entry(name).or_insert_with(|| entry.path());
+    }
+    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    // Cap growth on long-running hosts: drop if huge.
+    if guard.len() > 4096 {
+        guard.clear();
+    }
+    guard.insert(key, index.clone());
+    Some(index)
+}
+
 fn resolve_existing_path_case_insensitive(path: &Path) -> Option<PathBuf> {
+    // APFS default is case-insensitive; avoid per-component read_dir on the
+    // hot asset open path when the caller already has the right spelling.
+    if path.exists() {
+        return Some(path.to_path_buf());
+    }
     let mut resolved = PathBuf::new();
     for component in path.components() {
         match component {
@@ -590,21 +625,15 @@ fn resolve_existing_path_case_insensitive(path: &Path) -> Option<PathBuf> {
                 } else {
                     resolved.as_path()
                 };
-                let part = part.to_string_lossy();
-                let matched = std::fs::read_dir(search_dir)
-                    .ok()?
-                    .filter_map(Result::ok)
-                    .find_map(|entry| {
-                        if entry
-                            .file_name()
-                            .to_string_lossy()
-                            .eq_ignore_ascii_case(&part)
-                        {
-                            Some(entry.path())
-                        } else {
-                            None
-                        }
-                    })?;
+                // Prefer a direct child exists check before listing.
+                let direct = search_dir.join(part);
+                if direct.exists() {
+                    resolved = direct;
+                    continue;
+                }
+                let part_key = part.to_string_lossy().to_ascii_lowercase();
+                let index = case_insensitive_dir_index(search_dir)?;
+                let matched = index.get(&part_key)?.clone();
                 resolved = matched;
             }
         }
