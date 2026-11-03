@@ -176,14 +176,18 @@ impl CnCGameEngine {
         // Prefer presentation game_mode residual when installed.
         let game_info_context = match self.presentation_or_live_game_mode() {
             GameMode::Lan | GameMode::Multiplayer => Some({
-                let setup = game_client::gui::get_lan_setup();
+                let setup_handle = game_client::gui::get_lan_setup();
+
+                let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 game_client::gui::load_screen::load_screen_init_context_from_game_info(
                     setup.game_info(),
                     self.game_client.challenge_generals(),
                 )
             }),
             GameMode::Skirmish => Some({
-                let setup = game_client::gui::get_skirmish_setup();
+                let setup_handle = game_client::gui::get_skirmish_setup();
+
+                let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 game_client::gui::load_screen::load_screen_init_context_from_game_info(
                     setup.game_info().game_info(),
                     self.game_client.challenge_generals(),

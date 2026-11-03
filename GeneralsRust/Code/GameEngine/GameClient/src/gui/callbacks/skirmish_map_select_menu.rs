@@ -297,7 +297,9 @@ pub fn skirmish_map_select_menu_init(
     });
 
     {
-        let setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         if !setup.selected_map().is_empty() {
             state.selected_map = Some(setup.selected_map().to_string());
         } else if !setup.game_info().game_info().get_map().is_empty() {
@@ -313,7 +315,9 @@ pub fn skirmish_map_select_menu_init(
             }
         };
     } else {
-        let setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         state.use_system_maps = setup.use_system_maps();
     }
 
@@ -403,7 +407,9 @@ pub fn skirmish_map_select_menu_system(
                 };
 
                 let cache = get_map_cache_manager();
-                let mut setup = get_skirmish_setup();
+                let setup_handle = get_skirmish_setup();
+
+                let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 setup.set_selected_map(map_name.clone());
                 setup.set_use_system_maps(state.use_system_maps);
                 let info = setup.game_info_mut().game_info_mut();
@@ -891,7 +897,9 @@ pub fn simulate_skirmish_map_select_ok_button_gadget_selected() -> bool {
 
     // Host residual commit (no window-manager re-entry). Interactive overlay still
     // uses skirmish_map_select_menu_system via real GBM_SELECTED on ButtonOK.
-    let mut setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+
+    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     setup.set_selected_map(map_name.clone());
     setup.set_use_system_maps(use_system_maps);
     {
@@ -1007,7 +1015,7 @@ use crate::gui::game_window::WindowEventEffects;
                 WindowEventEffects::with_standalone(|effects| drive_os_wnd_skirmish_map_select_like_cpp("maps\\alpine_war.map", effects)),
                 "OS WND clicks must commit map into skirmish setup"
             );
-            let committed = get_skirmish_setup()
+            let committed = get_skirmish_setup().lock().unwrap_or_else(|e| e.into_inner())
                 .game_info()
                 .game_info()
                 .get_map()
@@ -1154,7 +1162,9 @@ use crate::gui::game_window::WindowEventEffects;
             simulate_skirmish_map_select_and_confirm(map),
             "map-select OK residual must commit setup"
         );
-        let setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         assert!(
             setup.selected_map() == map || setup.game_info().game_info().get_map() == map,
             "setup map residual: selected={} game_info={}",

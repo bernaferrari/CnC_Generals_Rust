@@ -604,3 +604,14 @@ note = "Asset id counter on GameClient; no process AtomicU64."
 path = "Code/GameEngine/GameClient/src/platform/device_interface.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
 note = "Device id counter on GameClient; no process AtomicU64."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/lan_setup.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks"
+note = "LanSetup on GameClient; get_lan_setup peels live client then cfg(test) TLS; no process LazyLock."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/skirmish_setup.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks"
+note = "SkirmishSetup on GameClient; get_skirmish_setup peels live client then cfg(test) TLS; no process LazyLock."
+

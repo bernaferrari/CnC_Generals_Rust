@@ -124,7 +124,9 @@ fn internet_session_is_sandbox() -> bool {
 fn session_is_sandbox() -> bool {
     match TheGameLogic::get_game_mode() {
         GAME_LAN => {
-            let setup = get_lan_setup();
+            let setup_handle = get_lan_setup();
+
+            let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup.game_info().is_sandbox()
         }
         GAME_INTERNET => internet_session_is_sandbox(),

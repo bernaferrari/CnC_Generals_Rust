@@ -151,7 +151,9 @@ impl CnCGameEngine {
             #[cfg(feature = "game_client")]
             {
                 {
-                    let mut setup = game_client::gui::get_skirmish_setup();
+                    let setup_handle = game_client::gui::get_skirmish_setup();
+
+                    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                     setup.set_selected_map(map.clone());
                     let info = setup.game_info_mut().game_info_mut();
                     info.set_map(map.clone());
@@ -219,14 +221,16 @@ impl CnCGameEngine {
                     // Wave 837: always force-commit control map into setup after
                     // latch attempt (shell residual must not win).
                     {
-                        let mut setup = game_client::gui::get_skirmish_setup();
+                        let setup_handle = game_client::gui::get_skirmish_setup();
+
+                        let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                         setup.set_selected_map(map.clone());
                         let info = setup.game_info_mut().game_info_mut();
                         info.set_map(map.clone());
                     }
                     game_client::gui::callbacks::set_skirmish_menu_selected_map(map.clone());
                     if map_select_wnd_ok
-                        || !game_client::gui::get_skirmish_setup()
+                        || !game_client::gui::get_skirmish_setup().lock().unwrap_or_else(|e| e.into_inner())
                             .game_info()
                             .game_info()
                             .get_map()
@@ -641,7 +645,9 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             // Seed client setup map so config_from_client can resolve.
-            let mut setup = game_client::gui::get_skirmish_setup();
+            let setup_handle = game_client::gui::get_skirmish_setup();
+
+            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup.set_selected_map(map.clone());
             setup.game_info_mut().game_info_mut().set_map(map.clone());
             if setup

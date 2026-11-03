@@ -84,6 +84,8 @@ pub struct GameClient {
     header_template_manager: Option<std::sync::Arc<std::sync::Mutex<crate::gui::header_template::HeaderTemplateManager>>>,
     translator_presentation_residual: Option<std::sync::Arc<std::sync::RwLock<crate::presentation_translator_residual::TranslatorPresentationResidual>>>,
     mouse: Option<std::sync::Arc<std::sync::Mutex<crate::input::mouse::Mouse>>>,
+    lan_setup: Option<std::sync::Arc<std::sync::Mutex<crate::gui::lan_setup::LanSetup>>>,
+    skirmish_setup: Option<std::sync::Arc<std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>>>,
     fx_next_id: std::sync::atomic::AtomicU64,
     render_bridge_next_line_id: std::sync::atomic::AtomicU64,
     win_draw_image_commands: std::sync::atomic::AtomicUsize,

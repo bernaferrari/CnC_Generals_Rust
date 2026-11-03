@@ -110,7 +110,9 @@ fn game_info_conversion_preserves_zero_and_unsigned_cash() {
             crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
             for cash in [0, u32::MAX] {
                 {
-                    let mut setup = game_client::gui::get_skirmish_setup();
+                    let setup_handle = game_client::gui::get_skirmish_setup();
+
+                    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                     setup.set_selected_map(String::new());
                     let info = setup.game_info_mut().game_info_mut();
                     info.reset();

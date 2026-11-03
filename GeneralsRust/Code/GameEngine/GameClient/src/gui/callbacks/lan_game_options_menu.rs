@@ -241,7 +241,9 @@ fn update_map_start_spots(
         return;
     };
     let max_players = meta.num_players.max(0);
-    let setup = get_lan_setup();
+    let setup_handle = get_lan_setup();
+
+    let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let info = setup.game_info();
     for i in 0..MAX_SLOTS {
         let Some(slot) = info.get_slot(i) else {
@@ -304,7 +306,9 @@ fn update_map_preview(
 fn sync_map_metadata(map_name: &str) {
     let cache = get_map_cache_manager();
     let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
-    let mut setup = get_lan_setup();
+    let setup_handle = get_lan_setup();
+
+    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let info = setup.game_info_mut();
     if let Some(meta) = cache_guard.find_map(map_name) {
         info.set_map_crc(meta.crc);
@@ -318,7 +322,9 @@ fn sync_map_metadata(map_name: &str) {
 fn sync_map_to_game_info(state: &LanGameOptionsState) {
     if let Some(map) = state.selected_map.as_ref() {
         {
-            let mut setup = get_lan_setup();
+            let setup_handle = get_lan_setup();
+
+            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             let info = setup.game_info_mut();
             info.set_map(map.clone());
             info.reset_start_spots();
@@ -400,7 +406,9 @@ pub(crate) fn refresh_lan_game_options_from_setup(
 ) {
     with_state(|state| {
         let selected_map = {
-            let setup = get_lan_setup();
+            let setup_handle = get_lan_setup();
+
+            let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup.selected_map().to_string()
         };
 
@@ -414,7 +422,9 @@ pub(crate) fn refresh_lan_game_options_from_setup(
 }
 
 fn ensure_default_slots() {
-    let mut setup = get_lan_setup();
+    let setup_handle = get_lan_setup();
+
+    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let info = setup.game_info_mut();
     let has_player = info
         .get_slot(0)
@@ -609,7 +619,9 @@ fn update_slot_selection(
     index: usize,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) {
-    let setup = get_lan_setup();
+    let setup_handle = get_lan_setup();
+
+    let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let Some(slot) = setup.game_info().get_slot(index) else {
         return;
     };
@@ -693,7 +705,9 @@ fn populate_global_controls(
                     format!("${}", amount),
                 ));
             }
-            let setup = get_lan_setup();
+            let setup_handle = get_lan_setup();
+
+            let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             let selected = setup.game_info().get_starting_cash().count_money();
             let _ = combo.select_item(selected);
         }
@@ -706,7 +720,9 @@ fn populate_global_controls(
     })(receiving_manager)
     {
         let mut guard = window.borrow_mut();
-        let setup = get_lan_setup();
+        let setup_handle = get_lan_setup();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         let enabled = setup.game_info().get_superweapon_restriction() != 0;
         let _ = guard.gadget_check_box_set_checked(enabled, effects);
     }
@@ -727,7 +743,9 @@ fn lan_update_slot_list(
         update_slot_selection(state, i, receiving_manager);
     }
     let map_name = {
-        let setup = get_lan_setup();
+        let setup_handle = get_lan_setup();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         setup.game_info().get_map().to_string()
     };
     let cache = get_map_cache_manager();
@@ -750,7 +768,9 @@ fn choose_default_map(state: &mut LanGameOptionsState) {
     candidates.sort_by(|a, b| a.0.cmp(&b.0));
     if let Some((name, _)) = candidates.first() {
         state.selected_map = Some(name.clone());
-        let mut setup = get_lan_setup();
+        let setup_handle = get_lan_setup();
+
+        let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         setup.set_selected_map(name.clone());
     }
 }
@@ -790,7 +810,9 @@ fn set_start_position(info: &mut game_network::GameInfo, index: usize, position:
 fn handle_start_position_click(state: &mut LanGameOptionsState, control_id: i32) -> bool {
     for (index, button_id) in state.start_position_ids.iter().enumerate() {
         if control_id == *button_id {
-            let mut setup = get_lan_setup();
+            let setup_handle = get_lan_setup();
+
+            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             let info = setup.game_info_mut();
             let mut player_in_pos: Option<usize> = None;
             for slot_index in 0..MAX_SLOTS {
@@ -837,7 +859,9 @@ fn handle_start_position_click(state: &mut LanGameOptionsState, control_id: i32)
 fn handle_start_position_right_click(state: &mut LanGameOptionsState, control_id: i32) -> bool {
     for (index, button_id) in state.start_position_ids.iter().enumerate() {
         if control_id == *button_id {
-            let mut setup = get_lan_setup();
+            let setup_handle = get_lan_setup();
+
+            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             let info = setup.game_info_mut();
             let mut player_in_pos: Option<usize> = None;
             for slot_index in 0..MAX_SLOTS {
@@ -877,7 +901,9 @@ fn handle_combo_selection(
                 return true;
             }
             if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
-                let mut setup = get_lan_setup();
+                let setup_handle = get_lan_setup();
+
+                let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(slot) = setup.game_info_mut().get_slot_mut(index) {
                     let state_value = match selected {
                         x if x == SlotState::Open as u32 => SlotState::Open,
@@ -896,7 +922,9 @@ fn handle_combo_selection(
         }
         if control_id == state.combo_box_color_ids[index] {
             if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
-                let mut setup = get_lan_setup();
+                let setup_handle = get_lan_setup();
+
+                let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 let color = if selected == u32::MAX {
                     -1
                 } else {
@@ -917,7 +945,9 @@ fn handle_combo_selection(
         }
         if control_id == state.combo_box_template_ids[index] {
             if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
-                let mut setup = get_lan_setup();
+                let setup_handle = get_lan_setup();
+
+                let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(slot) = setup.game_info_mut().get_slot_mut(index) {
                     let template = selected as i32;
                     if template != slot.get_player_template() {
@@ -935,7 +965,9 @@ fn handle_combo_selection(
         }
         if control_id == state.combo_box_team_ids[index] {
             if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
-                let mut setup = get_lan_setup();
+                let setup_handle = get_lan_setup();
+
+                let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(slot) = setup.game_info_mut().get_slot_mut(index) {
                     let team = if selected == 0 {
                         -1
@@ -952,7 +984,9 @@ fn handle_combo_selection(
 
     if control_id == state.combo_box_starting_cash_id {
         if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
-            let mut setup = get_lan_setup();
+            let setup_handle = get_lan_setup();
+
+            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup
                 .game_info_mut()
                 .set_starting_cash(Money::new(selected));
@@ -962,7 +996,9 @@ fn handle_combo_selection(
     }
     if control_id == state.checkbox_limit_superweapons_id {
         if let Some(checked) = checkbox_is_checked(control_id, receiving_manager) {
-            let mut setup = get_lan_setup();
+            let setup_handle = get_lan_setup();
+
+            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup
                 .game_info_mut()
                 .set_superweapon_restriction(if checked { 1 } else { 0 });
@@ -977,7 +1013,9 @@ fn handle_combo_selection(
 fn handle_accept_click(state: &mut LanGameOptionsState, control_id: i32) -> bool {
     for index in 0..MAX_SLOTS {
         if control_id == state.button_accept_ids[index] {
-            let mut setup = get_lan_setup();
+            let setup_handle = get_lan_setup();
+
+            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(slot) = setup.game_info_mut().get_slot_mut(index) {
                 if slot.is_accepted() {
                     slot.un_accept();
@@ -1000,7 +1038,9 @@ fn start_lan_game(
     };
     sync_map_to_game_info(state);
     {
-        let setup = get_lan_setup();
+        let setup_handle = get_lan_setup();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         let info = setup.game_info();
         let mut num_users = 0;
         let mut num_humans = 0;
@@ -1049,7 +1089,9 @@ fn start_lan_game(
         }
     }
     {
-        let mut setup = get_lan_setup();
+        let setup_handle = get_lan_setup();
+
+        let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         setup.game_info_mut().start_game(0);
     }
     if let Some(data) = game_engine::common::ini::get_global_data() {
@@ -1115,7 +1157,9 @@ pub fn lan_game_options_menu_init(
         });
 
         {
-            let setup = get_lan_setup();
+            let setup_handle = get_lan_setup();
+
+            let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             if !setup.selected_map().is_empty() {
                 state.selected_map = Some(setup.selected_map().to_string());
             }
@@ -1175,7 +1219,9 @@ pub fn lan_game_options_menu_update(
 
     // Check for map changes
     let setup_map = {
-        let setup = get_lan_setup();
+        let setup_handle = get_lan_setup();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         setup.selected_map().to_string()
     };
 

@@ -3403,7 +3403,9 @@ impl CnCGameEngine {
         let gla = store.find_template_index("FactionGLA").unwrap() as i32;
         drop(store);
         {
-            let mut setup = game_client::gui::get_skirmish_setup();
+            let setup_handle = game_client::gui::get_skirmish_setup();
+
+            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup.set_selected_map("Lone Eagle".into());
             let gi = setup.game_info_mut().game_info_mut();
             gi.reset();

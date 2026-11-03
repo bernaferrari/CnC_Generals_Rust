@@ -341,7 +341,9 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
                 }
             };
             {
-                let mut setup = game_client::gui::get_skirmish_setup();
+                let setup_handle = game_client::gui::get_skirmish_setup();
+
+                let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 setup.set_selected_map(map.clone());
                 let gi = setup.game_info_mut().game_info_mut();
                 gi.reset();
@@ -366,7 +368,9 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
             assert_eq!(initial.config.map, map);
             drop(native_pre_start);
             {
-                let mut setup = game_client::gui::get_skirmish_setup();
+                let setup_handle = game_client::gui::get_skirmish_setup();
+
+                let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 let info = setup.game_info_mut().game_info_mut();
                 info.enter_game();
                 author(info);
@@ -422,7 +426,9 @@ fn actual_client_game_info_capture_survives_foreign_setup_and_original_archive_r
                     .contains("admitted map identity")
             );
             {
-                let mut other = game_client::gui::get_skirmish_setup();
+                let other_handle = game_client::gui::get_skirmish_setup();
+
+                let mut other = other_handle.lock().unwrap_or_else(|e| e.into_inner());
                 other.game_info_mut().game_info_mut().reset();
                 other
                     .game_info_mut()
@@ -596,7 +602,9 @@ fn actual_random_color_client_input_keeps_native_archive_and_nonfirst_local_auth
             let gla = store.find_template_index("FactionGLA").unwrap() as i32;
             drop(store);
             {
-                let mut setup = game_client::gui::get_skirmish_setup();
+                let setup_handle = game_client::gui::get_skirmish_setup();
+
+                let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 setup.set_selected_map(map.clone());
                 let gi = setup.game_info_mut().game_info_mut();
                 gi.reset();
