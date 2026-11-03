@@ -923,7 +923,9 @@ mod emission_player_owner_tests {
                 let (mut peer, peer_id) = world(ObjectShroudStatus::Fogged);
                 assert_eq!(id, peer_id);
                 {
-                    let mut foreign = gamelogic::player::ThePlayerList().write().unwrap();
+                    let __arc_bind = gamelogic::player::ThePlayerList();
+
+                    let mut foreign = __arc_bind.write().unwrap();
                     foreign.clear();
                     foreign.set_local_player_index(77);
                 }

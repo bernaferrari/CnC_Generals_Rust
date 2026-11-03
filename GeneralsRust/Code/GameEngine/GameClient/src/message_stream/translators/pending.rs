@@ -54,7 +54,10 @@ pub(super) fn relationship_to_target(
     let target_guard = target.read().ok()?;
     let owner = target_guard.get_controlling_player_id()?;
 
-    let list = player_list().read().ok()?;
+    let __arc_bind = player_list();
+
+
+    let list = __arc_bind.read().ok()?;
     let me = list.get_player(local_player_id)?;
     let them = list.get_player(owner as i32)?;
     let (Ok(me_guard), Ok(them_guard)) = (me.read(), them.read()) else {
@@ -150,7 +153,8 @@ pub(super) fn pending_special_power_payload(
     ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) -> Option<(crate::helpers::PendingSpecialPower, SpecialPowerTemplate)> {
     let power = ui.get_pending_special_power()?;
-    let store = get_special_power_store()?;
+    let __sp = get_special_power_store()?;
+    let store = __sp.read().ok()?;
     let template = store
         .find_special_power_template_by_id(power.power_id)?
         .clone();

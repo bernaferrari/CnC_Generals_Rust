@@ -140,7 +140,8 @@ impl ScriptCondition for AreaControlledByPlayerCondition {
             .try_into()
             .map_err(|_| GameLogicError::Configuration("Invalid player id".to_string()))?;
 
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return Ok(false);
         };
         let Some(player_arc) = list.get_player(player_id as i32) else {

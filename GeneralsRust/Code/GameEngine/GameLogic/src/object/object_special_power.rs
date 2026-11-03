@@ -901,7 +901,11 @@ impl Object {
             return true;
         }
 
-        let Some(store) = crate::object::special_power_template::get_special_power_store() else {
+        let Some(store_arc) = crate::object::special_power_template::get_special_power_store()
+        else {
+            return false;
+        };
+        let Ok(store) = store_arc.read() else {
             return false;
         };
         let Some(template) = store.find_special_power_template(special_power_template_name) else {

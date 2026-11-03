@@ -178,7 +178,8 @@ impl ScriptAction for PlayerAddMoneyAction {
         // 4. Amount can be negative to subtract money
         // Rust: player.add_money(amount)
 
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             let player_idx = player.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
             if let Some(player_arc) = list.get_player(player_idx) {
                 if let Ok(mut player_guard) = player_arc.write() {
@@ -243,8 +244,8 @@ impl ScriptAction for GiveMoneyAction {
 
         let resolved_name =
             resolve_player_name_token(&player_name, _context.is_generals_challenge_campaign());
-        let list_guard = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let list_guard = __player_list_arc.read()
             .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?;
         let Some(player_arc) = list_guard.find_player_by_name(&resolved_name) else {
             log::warn!("GiveMoneyAction: player '{}' not found", resolved_name);
@@ -308,8 +309,8 @@ impl ScriptAction for SetMoneyAction {
 
         let resolved_name =
             resolve_player_name_token(&player_name, _context.is_generals_challenge_campaign());
-        let list_guard = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let list_guard = __player_list_arc.read()
             .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?;
         let Some(player_arc) = list_guard.find_player_by_name(&resolved_name) else {
             log::warn!("SetMoneyAction: player '{}' not found", resolved_name);
@@ -367,8 +368,8 @@ impl ScriptAction for SetHandicapAction {
 
         let resolved_name =
             resolve_player_name_token(&player_name, _context.is_generals_challenge_campaign());
-        let list_guard = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let list_guard = __player_list_arc.read()
             .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?;
         let Some(player_arc) = list_guard.find_player_by_name(&resolved_name) else {
             log::warn!("SetHandicapAction: player '{}' not found", resolved_name);

@@ -218,8 +218,10 @@ impl UpgradeProductionIntegration {
     /// Check if upgrade prerequisites are met
     /// Matches C++ BuildListInfo prerequisite checking
     fn check_upgrade_prerequisites(template: &UpgradeTemplate, player: &Player) -> bool {
-        if let Some(tree_guard) = crate::upgrade::prerequisites::get_tech_tree() {
-            return tree_guard.can_research(template.get_name_key(), player);
+        if let Some(tree_arc) = crate::upgrade::prerequisites::get_tech_tree() {
+            if let Ok(tree_guard) = tree_arc.read() {
+                return tree_guard.can_research(template.get_name_key(), player);
+            }
         }
 
         true

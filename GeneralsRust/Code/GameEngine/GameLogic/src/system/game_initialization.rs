@@ -276,7 +276,8 @@ impl GameInitializer {
 
     fn apply_replay_observer_as_local_player() {
         let observer = {
-            let Ok(list) = ThePlayerList().read() else {
+            let __player_list_arc = ThePlayerList();
+        let Ok(list) = __player_list_arc.read() else {
                 return;
             };
             list.find_player_by_name("ReplayObserver")
@@ -1185,7 +1186,8 @@ impl GameInitializer {
 
         if let Some(local_index) = system_list.get_local_player_index() {
             logic_list.set_local_player_index(local_index as i32);
-            if let Ok(mut manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+            let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
+            if let Ok(mut manager) = __w3d_ghosts.write() {
                 manager.set_local_player_index(local_index as usize);
             }
         }
@@ -1528,7 +1530,8 @@ impl GameInitializer {
 
             if let Ok(mut team_guard) = team_arc.write() {
                 if !owner.is_empty() {
-                    if let Ok(player_list) = ThePlayerList().read() {
+                    let __player_list_arc = ThePlayerList();
+        if let Ok(player_list) = __player_list_arc.read() {
                         if let Some(player_arc) = player_list.find_player_by_name(&owner) {
                             if let Ok(player_guard) = player_arc.read() {
                                 team_guard.set_controlling_player_id(Some(
@@ -1541,7 +1544,8 @@ impl GameInitializer {
             };
         }
 
-        if let Ok(player_list) = ThePlayerList().read() {
+        let __player_list_arc = ThePlayerList();
+        if let Ok(player_list) = __player_list_arc.read() {
             for player_arc in player_list.iter() {
                 let Ok(player_guard) = player_arc.read() else {
                     continue;
@@ -1614,7 +1618,8 @@ impl GameInitializer {
             return;
         }
 
-        let Ok(player_list) = ThePlayerList().read() else {
+        let __player_list_arc = ThePlayerList();
+        let Ok(player_list) = __player_list_arc.read() else {
             return;
         };
 

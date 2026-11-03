@@ -783,11 +783,8 @@ impl Snapshot for SidesList {
     fn load_post_process(&mut self) {}
 }
 
-pub static THE_SIDES_LIST: Lazy<Arc<RwLock<SidesList>>> =
-    Lazy::new(|| Arc::new(RwLock::new(SidesList::new())));
-
 pub fn get_sides_list() -> Arc<RwLock<SidesList>> {
-    THE_SIDES_LIST.clone()
+    Arc::clone(crate::system::engine_stores::active_services().sides())
 }
 
 #[derive(Default)]

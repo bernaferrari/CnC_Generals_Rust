@@ -1282,13 +1282,9 @@ impl Default for PhysicsEngine {
 }
 
 /// Global physics engine instance
-use once_cell::sync::Lazy;
-pub static THE_PHYSICS_ENGINE: Lazy<Arc<RwLock<PhysicsEngine>>> =
-    Lazy::new(|| Arc::new(RwLock::new(PhysicsEngine::new())));
-
-/// Get reference to global physics engine
+/// Get per-world physics engine (C++ ThePhysicsBehavior / match-owned).
 pub fn get_physics_engine() -> Arc<RwLock<PhysicsEngine>> {
-    THE_PHYSICS_ENGINE.clone()
+    Arc::clone(crate::system::engine_stores::active_services().physics())
 }
 
 /// Ballistic trajectory calculation utilities - matches C++ ballistics functions

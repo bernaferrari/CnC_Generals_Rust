@@ -952,7 +952,8 @@ impl TheObjectCreationListStore {
     ) -> Option<Arc<crate::object_creation_list::store::ObjectCreationList>> {
         crate::object_creation_list::store::ensure_default_object_creation_lists_loaded();
         let key = normalize_resource_name(name);
-        let store = crate::object_creation_list::store::get_object_creation_list_store();
+        let store_cell = crate::object_creation_list::store::get_object_creation_list_store();
+        let store = store_cell.read().ok()?;
         store
             .as_ref()
             .and_then(|store| store.find_object_creation_list(&key))
@@ -971,13 +972,14 @@ impl TheObjectCreationListStore {
         ocl: crate::object_creation_list::store::ObjectCreationList,
     ) -> Arc<crate::object_creation_list::store::ObjectCreationList> {
         let key = normalize_resource_name(name);
-        if crate::object_creation_list::store::get_object_creation_list_store()
-            .as_ref()
-            .is_none()
         {
-            crate::object_creation_list::store::init_object_creation_list_store();
+            let cell = crate::object_creation_list::store::get_object_creation_list_store();
+            if cell.read().expect("ocl").as_ref().is_none() {
+                crate::object_creation_list::store::init_object_creation_list_store();
+            }
         }
-        let mut store = crate::object_creation_list::store::get_object_creation_list_store_mut();
+        let store_cell = crate::object_creation_list::store::get_object_creation_list_store_mut();
+        let mut store = store_cell.write().expect("ocl write");
         store
             .as_mut()
             .expect("ObjectCreationListStore not initialized")
@@ -1011,8 +1013,6 @@ fn normalize_resource_name(name: &str) -> String {
 /// Simple text lookup helper emulating the legacy localization queries.
 pub struct TheGameText;
 
-static MAP_STRING_OVERLAY: Lazy<RwLock<HashMap<String, String>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
 
 fn parse_map_string_file(contents: &str, out: &mut HashMap<String, String>) {
     let mut current_key: Option<String> = None;
@@ -1075,7 +1075,7 @@ impl TheGameText {
             return String::new();
         }
 
-        if let Ok(overlay) = MAP_STRING_OVERLAY.read() {
+        if let Ok(overlay) = crate::system::engine_stores::active_services().map_string_overlay().read() {
             if let Some(value) = overlay.get(key) {
                 return value.clone();
             }
@@ -1100,7 +1100,7 @@ impl TheGameText {
             .map(|raw| String::from_utf8_lossy(&raw).into_owned())
             .map_err(|err| format!("Failed reading map string file '{}': {err}", path))?;
 
-        if let Ok(mut overlay) = MAP_STRING_OVERLAY.write() {
+        if let Ok(mut overlay) = crate::system::engine_stores::active_services().map_string_overlay().write() {
             overlay.clear();
             parse_map_string_file(&contents, &mut overlay);
         }
@@ -1109,7 +1109,7 @@ impl TheGameText {
     }
 
     pub fn clear_map_string_file() {
-        if let Ok(mut overlay) = MAP_STRING_OVERLAY.write() {
+        if let Ok(mut overlay) = crate::system::engine_stores::active_services().map_string_overlay().write() {
             overlay.clear();
         }
     }

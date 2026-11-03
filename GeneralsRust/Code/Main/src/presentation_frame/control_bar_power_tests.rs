@@ -17,7 +17,9 @@ fn frozen_frames_apply_power_only_to_their_control_bar() {
             }
         }
         let old = {
-            let mut players = gamelogic::player::player_list().write().unwrap();
+            let __arc_bind = gamelogic::player::player_list();
+
+            let mut players = __arc_bind.write().unwrap();
             std::mem::replace(&mut *players, gamelogic::player::PlayerList::new())
         };
         let _restore = RestorePlayers(old);

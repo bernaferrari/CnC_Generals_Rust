@@ -291,7 +291,8 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(ScriptConditionResult::False);
         };
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(victim_player) = players.find_player_by_name(&player_name) else {
@@ -391,7 +392,8 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(ScriptConditionResult::False);
         };
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -555,7 +557,8 @@ impl ScriptConditionEvaluator<'_> {
             });
         }
 
-        let Ok(list) = crate::player::player_list().read() else {
+        let __player_list_arc = crate::player::player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let local_player_id = list.get_local_player_index();
@@ -1110,7 +1113,8 @@ impl ScriptConditionEvaluator<'_> {
             if dual_world_registry_unavailable() {
                 return Ok(ScriptConditionResult::False);
             }
-            let Ok(players) = player_list().read() else {
+            let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
                 return Ok(ScriptConditionResult::False);
             };
             let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1178,7 +1182,8 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(ScriptConditionResult::False);
         }
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1482,7 +1487,8 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(ScriptConditionResult::False);
         };
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(target_player_arc) = players.find_player_by_name(&player_name) else {
@@ -1607,7 +1613,8 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(ScriptConditionResult::False);
         };
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(target_player_arc) = players.find_player_by_name(&player_name) else {
@@ -1697,7 +1704,8 @@ impl ScriptConditionEvaluator<'_> {
         let min_supply_amount = self.get_condition_int_param(condition, 1)?;
         log::debug!("Evaluating if supply source safe for '{}'", player_name);
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             condition.custom_data = -1;
             return Ok(ScriptConditionResult::False);
         };
@@ -1746,7 +1754,8 @@ impl ScriptConditionEvaluator<'_> {
         let player_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if supply source attacked for '{}'", player_name);
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1795,7 +1804,8 @@ impl ScriptConditionEvaluator<'_> {
             start_position
         );
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(player_arc) = players.find_player_by_name(&player_name) else {

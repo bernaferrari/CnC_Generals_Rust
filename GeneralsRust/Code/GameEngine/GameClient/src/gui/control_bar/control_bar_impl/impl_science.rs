@@ -779,7 +779,8 @@ impl ControlBar {
         let skill = player.get_skill_points();
         let rank = player.get_rank_level();
         let (down, up) = gamelogic::system::rank_info::the_rank_info_store()
-            .and_then(|store| {
+            .and_then(|store_arc| {
+                let store = store_arc.read().ok()?;
                 let down = store
                     .get_rank_info(rank as usize)
                     .map(|info| info.skill_points_needed)

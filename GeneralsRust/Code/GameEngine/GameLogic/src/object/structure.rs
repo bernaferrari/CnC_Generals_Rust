@@ -925,8 +925,8 @@ impl Structure {
         &mut self,
         player_id: PlayerId,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let player_arc = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let player_arc = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_player(player_id.get() as PlayerIndex).cloned());
 

@@ -104,7 +104,8 @@ impl GameLogic {
             self.event_queue.push(GameEvent::ObjectDestroyed(obj_id));
 
             // Remove from partition manager
-            if let Ok(mut ghost_manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+            let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
+            if let Ok(mut ghost_manager) = __w3d_ghosts.write() {
                 self.partition_manager
                     .detach_object_ghost(obj_id, &mut ghost_manager);
             }
@@ -196,7 +197,8 @@ impl GameLogic {
                     .get_draw_module_info()
                     .iter()
                     .any(|module| module.name.as_str().eq_ignore_ascii_case("W3DDefaultDraw"));
-            if let Ok(mut ghost_manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+            let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
+            if let Ok(mut ghost_manager) = __w3d_ghosts.write() {
                 self.partition_manager.attach_object_ghost(
                     object_id,
                     ghost_eligible,
@@ -722,10 +724,11 @@ impl GameLogic {
                 _ => crate::system::game_initialization::GameDifficulty::Normal,
             };
 
+            let __player_list_arc = crate::player::ThePlayerList();
             let num_players = if let Ok(sides_guard) = crate::sides_list::get_sides_list().read() {
                 let count = sides_guard.get_num_sides().max(1) as usize;
                 count.min(crate::system::player_init::MAX_PLAYER_COUNT)
-            } else if let Ok(player_list) = crate::player::ThePlayerList().read() {
+            } else if let Ok(player_list) = __player_list_arc.read() {
                 let count = player_list.iter().count();
                 if count > 0 {
                     count.min(crate::system::player_init::MAX_PLAYER_COUNT)
@@ -840,7 +843,8 @@ impl GameLogic {
 
     /// Get player by ID (for command executor)
     pub fn get_player(&self, player_id: u32) -> Option<Arc<RwLock<Player>>> {
-        if let Ok(player_list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(player_list_guard) = __player_list_arc.read() {
             for player_arc in player_list_guard.iter() {
                 if let Ok(player) = player_arc.read() {
                     if player.get_player_index() == player_id as Int {
@@ -907,7 +911,8 @@ impl GameLogic {
     /// Returns iterator yielding Arc<RwLock<Player>> for each player
     pub fn iter_players(&self) -> Vec<Arc<RwLock<Player>>> {
         let mut players = Vec::new();
-        if let Ok(player_list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(player_list_guard) = __player_list_arc.read() {
             for player_arc in player_list_guard.iter() {
                 players.push(Arc::clone(player_arc));
             }
@@ -917,7 +922,8 @@ impl GameLogic {
 
     pub fn clear_all_objects(&mut self) {
         self.destroy_all_objects_immediate();
-        if let Ok(mut ghost_manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+        let __w3d_ghosts = crate::object::the_w3d_ghost_object_manager();
+            if let Ok(mut ghost_manager) = __w3d_ghosts.write() {
             self.partition_manager
                 .clear_ghost_objects(&mut ghost_manager);
         }
@@ -1212,7 +1218,8 @@ fn apply_challenge_the_player_relationships(is_challenge: bool) {
     if !is_challenge {
         return;
     }
-    let Ok(list) = player_list().read() else {
+    let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
         return;
     };
     let Some(local_arc) = list.get_local_player().cloned() else {

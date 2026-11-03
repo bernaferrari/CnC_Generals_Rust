@@ -523,7 +523,8 @@ impl DozerAIUpdate {
             guard.get_controlling_player_id()
         });
         let is_ai = if let Some(player_id) = player_id {
-            if let Ok(list) = player_list().read() {
+            let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 if let Some(player) = list.get_player(player_id as i32) {
                     if let Ok(player_guard) = player.read() {
                         player_guard.is_skirmish_ai()

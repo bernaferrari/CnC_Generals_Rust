@@ -1278,7 +1278,8 @@ mod tests {
     use crate::team::Team;
 
     fn reset_players() {
-        let mut list = ThePlayerList().write().expect("player list write");
+        let __player_list_arc = ThePlayerList();
+        let mut list = __player_list_arc.write().expect("player list write");
         list.clear();
         list.add_player(Arc::new(RwLock::new(Player::new(0))));
         list.add_player(Arc::new(RwLock::new(Player::new(1))));

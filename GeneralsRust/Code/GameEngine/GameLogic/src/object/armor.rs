@@ -260,7 +260,8 @@ pub fn load_armor_templates_from_str(
     }
 
     {
-        let mut store = TheArmorStore::write();
+        let __armor = TheArmorStore::store_arc();
+        let mut store = __armor.write().expect("armor write");
         store.clear();
         for (name, template) in &parsed {
             store.register_template(name, template.clone());
@@ -381,7 +382,8 @@ fn default_armor_paths() -> [PathBuf; 3] {
 
 fn load_default_templates_internal() -> Result<(), ArmorLoadError> {
     {
-        let store = TheArmorStore::read();
+        let __armor = TheArmorStore::store_arc();
+        let store = __armor.read().expect("armor read");
         if store.len() > 0 {
             return Ok(());
         }
@@ -454,49 +456,52 @@ fn canonical_key(name: &AsciiString) -> String {
     name.as_str().to_ascii_lowercase()
 }
 
-static ARMOR_STORE: Lazy<RwLock<ArmorStore>> = Lazy::new(|| RwLock::new(ArmorStore::new()));
-
-/// Helper exposing the shared store in a form similar to the original singleton.
+/// Helper exposing the per-world store in a form similar to the original singleton.
 pub struct TheArmorStore;
 
 impl TheArmorStore {
-    /// Borrow the store for read-only access.
-    pub fn read() -> RwLockReadGuard<'static, ArmorStore> {
-        ARMOR_STORE
-            .read()
-            .expect("TheArmorStore read lock poisoned")
-    }
-
-    /// Borrow the store for mutation.
-    pub fn write() -> RwLockWriteGuard<'static, ArmorStore> {
-        ARMOR_STORE
-            .write()
-            .expect("TheArmorStore write lock poisoned")
+    fn store_arc() -> std::sync::Arc<RwLock<ArmorStore>> {
+        std::sync::Arc::clone(crate::system::engine_stores::active_services().armor_store())
     }
 
     /// Register (or overwrite) a template under the supplied name.
     pub fn register_template(name: &AsciiString, template: ArmorTemplate) -> Arc<ArmorTemplate> {
-        Self::write().register_template(name, template)
+        let arc = Self::store_arc();
+        arc.write()
+            .expect("TheArmorStore write lock poisoned")
+            .register_template(name, template)
     }
 
     /// Locate a template and clone the shared reference.
     pub fn find_template(name: &AsciiString) -> Option<Arc<ArmorTemplate>> {
-        Self::read().find_template(name)
+        let arc = Self::store_arc();
+        arc.read()
+            .expect("TheArmorStore read lock poisoned")
+            .find_template(name)
     }
 
     /// Convenience helper matching the C++ `makeArmor` inline.
     pub fn make_armor(template: Arc<ArmorTemplate>) -> Armor {
-        Self::read().make_armor(template)
+        let arc = Self::store_arc();
+        arc.read()
+            .expect("TheArmorStore read lock poisoned")
+            .make_armor(template)
     }
 
     /// Try to build an armor instance from the named template.
     pub fn make_armor_by_name(name: &AsciiString) -> Option<Armor> {
-        Self::read().make_armor_by_name(name)
+        let arc = Self::store_arc();
+        arc.read()
+            .expect("TheArmorStore read lock poisoned")
+            .make_armor_by_name(name)
     }
 
     /// Remove all registered templates (useful for resetting between missions/tests).
     pub fn reset() {
-        Self::write().clear();
+        let arc = Self::store_arc();
+        arc.write()
+            .expect("TheArmorStore write lock poisoned")
+            .clear();
     }
 }
 

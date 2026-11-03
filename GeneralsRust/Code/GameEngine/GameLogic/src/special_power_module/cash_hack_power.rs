@@ -144,7 +144,8 @@ impl CashHackSpecialPower {
         let manager = get_player_money_manager()?;
         let mgr = manager.read().ok()?;
 
-        let list = player_list().read().ok()?;
+        let __player_list_arc = player_list();
+        let list = __player_list_arc.read().ok()?;
         let me = list.get_player(player_id as Int)?;
 
         let mut best_enemy: Option<(ObjectID, Int)> = None;

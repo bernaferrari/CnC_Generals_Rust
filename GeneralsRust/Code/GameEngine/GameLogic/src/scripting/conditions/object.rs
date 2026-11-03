@@ -511,14 +511,6 @@ impl ScriptCondition for UnitHasObjectStatusCondition {
 //-------------------------------------------------------------------------------------------------
 pub(super) struct UnitEmptiedCondition;
 
-pub(super) struct TransportStatus {
-    obj_id: u32,
-    frame_number: u32,
-    unit_count: i32,
-}
-
-static TRANSPORT_STATUSES: std::sync::Mutex<Vec<TransportStatus>> =
-    std::sync::Mutex::new(Vec::new());
 
 #[async_trait]
 impl ScriptCondition for UnitEmptiedCondition {
@@ -556,31 +548,24 @@ impl ScriptCondition for UnitEmptiedCondition {
 
         let frame_num = TheGameLogic::get_frame();
 
-        let mut statuses = TRANSPORT_STATUSES.lock().map_err(|e| {
+        let services = crate::system::engine_stores::active_services();
+        let mut statuses = services.transport_statuses().lock().map_err(|e| {
             GameLogicError::Threading(format!("Failed to lock transport statuses: {}", e))
         })?;
 
-        let existing_idx = statuses.iter().position(|s| s.obj_id == obj_id);
+        let existing_idx = statuses.iter().position(|(id, _, _)| *id == obj_id);
 
         match existing_idx {
             None => {
-                statuses.push(TransportStatus {
-                    obj_id,
-                    frame_number: frame_num,
-                    unit_count: num_peeps,
-                });
+                statuses.push((obj_id, frame_num, num_peeps));
                 Ok(false)
             }
             Some(idx) => {
-                let stats = &statuses[idx];
-                if stats.frame_number == frame_num.saturating_sub(1)
-                    && stats.unit_count > 0
-                    && num_peeps == 0
-                {
+                let (_id, prev_frame, prev_count) = statuses[idx];
+                if prev_frame == frame_num.saturating_sub(1) && prev_count > 0 && num_peeps == 0 {
                     Ok(true)
                 } else {
-                    statuses[idx].frame_number = frame_num;
-                    statuses[idx].unit_count = num_peeps;
+                    statuses[idx] = (obj_id, frame_num, num_peeps);
                     Ok(false)
                 }
             }

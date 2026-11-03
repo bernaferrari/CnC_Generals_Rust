@@ -1566,7 +1566,8 @@ mod tests {
 
         let player = Arc::new(RwLock::new(Player::new(0)));
         let player_index = {
-            let mut list = player_list().write().unwrap();
+            let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().unwrap();
             list.add_player(Arc::clone(&player));
             (list.get_player_count() - 1) as u32
         };

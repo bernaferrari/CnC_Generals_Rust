@@ -672,17 +672,16 @@ pub(crate) fn lookup_sub_object_names(model: &str) -> Vec<String> {
 pub type ModelBoundsHook =
     std::sync::Arc<dyn Fn(&str) -> Option<([f32; 3], [f32; 3])> + Send + Sync>;
 
-static MODEL_OBJ_BOUNDS: std::sync::LazyLock<std::sync::RwLock<Option<ModelBoundsHook>>> =
-    std::sync::LazyLock::new(|| std::sync::RwLock::new(None));
-
 pub fn register_model_bounds_hook(hook: Option<ModelBoundsHook>) {
-    if let Ok(mut guard) = MODEL_OBJ_BOUNDS.write() {
+    let services = crate::system::engine_stores::active_services();
+    if let Ok(mut guard) = services.model_obj_bounds_hook().write() {
         *guard = hook;
     }
 }
 
 pub(crate) fn lookup_model_obj_bounds(model: &str) -> Option<([f32; 3], [f32; 3])> {
-    let guard = MODEL_OBJ_BOUNDS.read().ok()?;
+    let services = crate::system::engine_stores::active_services();
+    let guard = services.model_obj_bounds_hook().read().ok()?;
     guard.as_ref()?(model)
 }
 

@@ -462,8 +462,8 @@ impl Object {
             if let Some(audio) = crate::helpers::TheAudio::get() {
                 audio.add_audio_event_for_owner(&sound, self);
             }
-            let selected = crate::player::player_list()
-                .read()
+            let __player_list_arc = crate::player::player_list();
+                let selected = __player_list_arc.read()
                 .ok()
                 .and_then(|list| {
                     let index = list.get_local_player_index();

@@ -98,6 +98,8 @@ pub struct WorldServices {
     host_script_requests: crate::scripting::executor::HostScriptRequestQueues,
     session_flags: SessionLogicFlags,
     logic_managers: WorldLogicManagers,
+    players: Arc<RwLock<crate::player::PlayerList>>,
+    objects: Arc<RwLock<crate::object_manager::ObjectManager>>,
     in_game_ui: RwLock<InGameUIState>,
     eva: Arc<Mutex<EvaState>>,
     control_bar_ui_hooks: Mutex<Option<std::sync::Arc<dyn crate::control_bar::ControlBarUiHooks>>>,
@@ -106,6 +108,33 @@ pub struct WorldServices {
     damage_over_time_next_id: AtomicU32,
     host_script_query: Mutex<crate::scripting::conditions::HostScriptQuerySnapshot>,
     cur_update_module: Mutex<Option<crate::modules::UpdateModulePtr>>,
+    selection: Arc<RwLock<crate::commands::selection::SelectionManager>>,
+    physics: Arc<RwLock<crate::physics::PhysicsEngine>>,
+    sides: Arc<RwLock<crate::sides_list::SidesList>>,
+    rts_actions: Arc<RwLock<game_engine::common::rts::ActionManager>>,
+    ghost_objects: Arc<RwLock<crate::object::ghost_object::GhostObjectManager>>,
+    w3d_ghost_objects: Arc<RwLock<crate::object::w3d_ghost_object::W3DGhostObjectManager>>,
+    taxi_to_takeoff: Mutex<Vec<crate::common::ObjectID>>,
+    transport_statuses: Mutex<Vec<(u32, u32, i32)>>,
+    pending_team_script_events: Mutex<Vec<crate::team::PendingTeamScriptEvent>>,
+    named_evac_disposition: Mutex<std::collections::HashMap<String, u32>>,
+    player_money: Arc<RwLock<crate::special_power_module::player_money::PlayerMoneyManager>>,
+    player_science: Arc<RwLock<crate::special_power_module::player_science::PlayerScienceManager>>,
+    special_power_integration: Arc<RwLock<crate::special_power_module::integration::SpecialPowerIntegrationContext>>,
+    special_power_registry: Arc<RwLock<crate::special_power_module::registry::SpecialPowerRegistry>>,
+    map_string_overlay: RwLock<std::collections::HashMap<String, String>>,
+    armor_store: Arc<RwLock<crate::object::armor::ArmorStore>>,
+    special_power_store: Arc<RwLock<crate::object::special_power_template::SpecialPowerStore>>,
+    tech_tree: Arc<RwLock<crate::upgrade::prerequisites::TechTree>>,
+    rank_info_store: Arc<RwLock<crate::system::rank_info::RankInfoStore>>,
+    weapon_store: Arc<RwLock<Option<crate::weapon::WeaponStore>>>,
+    ocl_store: Arc<RwLock<Option<crate::object_creation_list::store::ObjectCreationListStore>>>,
+    hlod_live_child_capture_hook: RwLock<Option<crate::object::draw::w3d_model_draw::HlodLiveChildCaptureHook>>,
+    committed_live_states: Mutex<std::collections::HashMap<crate::common::ObjectID, Vec<crate::object::draw::w3d_model_draw::HlodLiveChildState>>>,
+    model_obj_bounds_hook: RwLock<Option<crate::object::draw::w3d_model_draw::ModelBoundsHook>>,
+
+
+
     /// Nested world-stage depth for the published services (was process TLS).
     staging_depth: AtomicU32,
     staging_deferred_team_effects:
@@ -121,6 +150,8 @@ impl WorldServices {
             host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
             session_flags: SessionLogicFlags::default(),
             logic_managers: WorldLogicManagers::default(),
+            players: Arc::new(RwLock::new(crate::player::PlayerList::new())),
+            objects: Arc::new(RwLock::new(crate::object_manager::ObjectManager::new())),
             in_game_ui: RwLock::new(InGameUIState::default()),
             eva: Arc::new(Mutex::new(EvaState::new_enabled())),
             control_bar_ui_hooks: Mutex::new(None),
@@ -129,6 +160,34 @@ impl WorldServices {
             damage_over_time_next_id: AtomicU32::new(50000),
             host_script_query: Mutex::new(Default::default()),
             cur_update_module: Mutex::new(None),
+            selection: Arc::new(RwLock::new(crate::commands::selection::SelectionManager::new())),
+            physics: Arc::new(RwLock::new(crate::physics::PhysicsEngine::new())),
+            sides: Arc::new(RwLock::new(crate::sides_list::SidesList::new())),
+            rts_actions: {
+                let mut manager = game_engine::common::rts::ActionManager::new();
+                crate::action_manager::GameLogicActionExecutor::install(&mut manager);
+                Arc::new(RwLock::new(manager))
+            },
+            ghost_objects: Arc::new(RwLock::new(crate::object::ghost_object::GhostObjectManager::new())),
+            w3d_ghost_objects: Arc::new(RwLock::new(crate::object::w3d_ghost_object::W3DGhostObjectManager::new())),
+            taxi_to_takeoff: Mutex::new(Vec::new()),
+            transport_statuses: Mutex::new(Vec::new()),
+            pending_team_script_events: Mutex::new(Vec::new()),
+            named_evac_disposition: Mutex::new(std::collections::HashMap::new()),
+            player_money: Arc::new(RwLock::new(crate::special_power_module::player_money::PlayerMoneyManager::new())),
+            player_science: Arc::new(RwLock::new(crate::special_power_module::player_science::PlayerScienceManager::new())),
+            special_power_integration: Arc::new(RwLock::new(crate::special_power_module::integration::SpecialPowerIntegrationContext::new())),
+            special_power_registry: Arc::new(RwLock::new(crate::special_power_module::registry::SpecialPowerRegistry::new())),
+            map_string_overlay: RwLock::new(std::collections::HashMap::new()),
+            armor_store: Arc::new(RwLock::new(crate::object::armor::ArmorStore::new())),
+            special_power_store: Arc::new(RwLock::new(crate::object::special_power_template::SpecialPowerStore::new())),
+            tech_tree: Arc::new(RwLock::new(crate::upgrade::prerequisites::TechTree::new())),
+            rank_info_store: Arc::new(RwLock::new(crate::system::rank_info::RankInfoStore::default())),
+            weapon_store: Arc::new(RwLock::new(None)),
+            ocl_store: Arc::new(RwLock::new(None)),
+            hlod_live_child_capture_hook: RwLock::new(None),
+            committed_live_states: Mutex::new(std::collections::HashMap::new()),
+            model_obj_bounds_hook: RwLock::new(None),
             staging_depth: AtomicU32::new(0),
             staging_deferred_team_effects: Mutex::new(Vec::new()),
         }
@@ -145,6 +204,8 @@ impl WorldServices {
             host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
             session_flags: SessionLogicFlags::default(),
             logic_managers: WorldLogicManagers::default(),
+            players: Arc::new(RwLock::new(crate::player::PlayerList::new())),
+            objects: Arc::new(RwLock::new(crate::object_manager::ObjectManager::new())),
             in_game_ui: RwLock::new(InGameUIState::default()),
             eva: Arc::new(Mutex::new(EvaState::new_enabled())),
             control_bar_ui_hooks: Mutex::new(None),
@@ -153,6 +214,34 @@ impl WorldServices {
             damage_over_time_next_id: AtomicU32::new(50000),
             host_script_query: Mutex::new(Default::default()),
             cur_update_module: Mutex::new(None),
+            selection: Arc::new(RwLock::new(crate::commands::selection::SelectionManager::new())),
+            physics: Arc::new(RwLock::new(crate::physics::PhysicsEngine::new())),
+            sides: Arc::new(RwLock::new(crate::sides_list::SidesList::new())),
+            rts_actions: {
+                let mut manager = game_engine::common::rts::ActionManager::new();
+                crate::action_manager::GameLogicActionExecutor::install(&mut manager);
+                Arc::new(RwLock::new(manager))
+            },
+            ghost_objects: Arc::new(RwLock::new(crate::object::ghost_object::GhostObjectManager::new())),
+            w3d_ghost_objects: Arc::new(RwLock::new(crate::object::w3d_ghost_object::W3DGhostObjectManager::new())),
+            taxi_to_takeoff: Mutex::new(Vec::new()),
+            transport_statuses: Mutex::new(Vec::new()),
+            pending_team_script_events: Mutex::new(Vec::new()),
+            named_evac_disposition: Mutex::new(std::collections::HashMap::new()),
+            player_money: Arc::new(RwLock::new(crate::special_power_module::player_money::PlayerMoneyManager::new())),
+            player_science: Arc::new(RwLock::new(crate::special_power_module::player_science::PlayerScienceManager::new())),
+            special_power_integration: Arc::new(RwLock::new(crate::special_power_module::integration::SpecialPowerIntegrationContext::new())),
+            special_power_registry: Arc::new(RwLock::new(crate::special_power_module::registry::SpecialPowerRegistry::new())),
+            map_string_overlay: RwLock::new(std::collections::HashMap::new()),
+            armor_store: Arc::new(RwLock::new(crate::object::armor::ArmorStore::new())),
+            special_power_store: Arc::new(RwLock::new(crate::object::special_power_template::SpecialPowerStore::new())),
+            tech_tree: Arc::new(RwLock::new(crate::upgrade::prerequisites::TechTree::new())),
+            rank_info_store: Arc::new(RwLock::new(crate::system::rank_info::RankInfoStore::default())),
+            weapon_store: Arc::new(RwLock::new(None)),
+            ocl_store: Arc::new(RwLock::new(None)),
+            hlod_live_child_capture_hook: RwLock::new(None),
+            committed_live_states: Mutex::new(std::collections::HashMap::new()),
+            model_obj_bounds_hook: RwLock::new(None),
             staging_depth: AtomicU32::new(0),
             staging_deferred_team_effects: Mutex::new(Vec::new()),
         }
@@ -172,11 +261,17 @@ impl WorldServices {
     pub(crate) fn host_script_requests(&self) -> &crate::scripting::executor::HostScriptRequestQueues {
         &self.host_script_requests
     }
-    pub(crate) fn session_flags(&self) -> &SessionLogicFlags {
+    pub fn session_flags(&self) -> &SessionLogicFlags {
         &self.session_flags
     }
     pub(crate) fn logic_managers(&self) -> &WorldLogicManagers {
         &self.logic_managers
+    }
+    pub fn players(&self) -> &Arc<RwLock<crate::player::PlayerList>> {
+        &self.players
+    }
+    pub fn objects(&self) -> &Arc<RwLock<crate::object_manager::ObjectManager>> {
+        &self.objects
     }
     pub(crate) fn in_game_ui(&self) -> &RwLock<InGameUIState> {
         &self.in_game_ui
@@ -217,6 +312,111 @@ impl WorldServices {
         &self,
     ) -> &Mutex<Vec<crate::team::TeamFactoryDeferredEffects>> {
         &self.staging_deferred_team_effects
+    }
+    pub(crate) fn selection(&self) -> &Arc<RwLock<crate::commands::selection::SelectionManager>> {
+        &self.selection
+    }
+    pub(crate) fn physics(&self) -> &Arc<RwLock<crate::physics::PhysicsEngine>> {
+        &self.physics
+    }
+    pub fn sides(&self) -> &Arc<RwLock<crate::sides_list::SidesList>> {
+        &self.sides
+    }
+    pub(crate) fn rts_actions(&self) -> &Arc<RwLock<game_engine::common::rts::ActionManager>> {
+        &self.rts_actions
+    }
+    pub(crate) fn ghost_objects(&self) -> &Arc<RwLock<crate::object::ghost_object::GhostObjectManager>> {
+        &self.ghost_objects
+    }
+    pub(crate) fn w3d_ghost_objects(
+        &self,
+    ) -> &Arc<RwLock<crate::object::w3d_ghost_object::W3DGhostObjectManager>> {
+        &self.w3d_ghost_objects
+    }
+    pub(crate) fn taxi_to_takeoff(&self) -> &Mutex<Vec<crate::common::ObjectID>> {
+        &self.taxi_to_takeoff
+    }
+    pub(crate) fn transport_statuses(&self) -> &Mutex<Vec<(u32, u32, i32)>> {
+        &self.transport_statuses
+    }
+    pub(crate) fn pending_team_script_events(
+        &self,
+    ) -> &Mutex<Vec<crate::team::PendingTeamScriptEvent>> {
+        &self.pending_team_script_events
+    }
+    pub(crate) fn named_evac_disposition(
+        &self,
+    ) -> &Mutex<std::collections::HashMap<String, u32>> {
+        &self.named_evac_disposition
+    }
+    pub(crate) fn player_money(
+        &self,
+    ) -> &Arc<RwLock<crate::special_power_module::player_money::PlayerMoneyManager>> {
+        &self.player_money
+    }
+    pub(crate) fn player_science(
+        &self,
+    ) -> &Arc<RwLock<crate::special_power_module::player_science::PlayerScienceManager>> {
+        &self.player_science
+    }
+    pub(crate) fn special_power_integration(
+        &self,
+    ) -> &Arc<RwLock<crate::special_power_module::integration::SpecialPowerIntegrationContext>> {
+        &self.special_power_integration
+    }
+    pub(crate) fn special_power_registry(
+        &self,
+    ) -> &Arc<RwLock<crate::special_power_module::registry::SpecialPowerRegistry>> {
+        &self.special_power_registry
+    }
+    pub fn map_string_overlay(&self) -> &RwLock<std::collections::HashMap<String, String>> {
+        &self.map_string_overlay
+    }
+    pub(crate) fn armor_store(&self) -> &Arc<RwLock<crate::object::armor::ArmorStore>> {
+        &self.armor_store
+    }
+    pub(crate) fn special_power_store(
+        &self,
+    ) -> &Arc<RwLock<crate::object::special_power_template::SpecialPowerStore>> {
+        &self.special_power_store
+    }
+    pub(crate) fn tech_tree(&self) -> &Arc<RwLock<crate::upgrade::prerequisites::TechTree>> {
+        &self.tech_tree
+    }
+    pub(crate) fn rank_info_store(
+        &self,
+    ) -> &Arc<RwLock<crate::system::rank_info::RankInfoStore>> {
+        &self.rank_info_store
+    }
+    pub(crate) fn weapon_store(
+        &self,
+    ) -> &Arc<RwLock<Option<crate::weapon::WeaponStore>>> {
+        &self.weapon_store
+    }
+    pub(crate) fn ocl_store(
+        &self,
+    ) -> &Arc<RwLock<Option<crate::object_creation_list::store::ObjectCreationListStore>>> {
+        &self.ocl_store
+    }
+    pub(crate) fn hlod_live_child_capture_hook(
+        &self,
+    ) -> &RwLock<Option<crate::object::draw::w3d_model_draw::HlodLiveChildCaptureHook>> {
+        &self.hlod_live_child_capture_hook
+    }
+    pub(crate) fn committed_live_states(
+        &self,
+    ) -> &Mutex<
+        std::collections::HashMap<
+            crate::common::ObjectID,
+            Vec<crate::object::draw::w3d_model_draw::HlodLiveChildState>,
+        >,
+    > {
+        &self.committed_live_states
+    }
+    pub(crate) fn model_obj_bounds_hook(
+        &self,
+    ) -> &RwLock<Option<crate::object::draw::w3d_model_draw::ModelBoundsHook>> {
+        &self.model_obj_bounds_hook
     }
 }
 /// Standalone Core runtime; AI is mandatory, never optional or deferred.

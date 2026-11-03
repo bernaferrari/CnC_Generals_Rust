@@ -344,7 +344,9 @@ fn dump_player_object_counts(
     include_all_objects: bool,
     ui: &mut crate::message_stream::ReceivingUi<'_>,
 ) {
-    let Ok(player_list) = ThePlayerList().read() else {
+    let __arc_bind = ThePlayerList();
+
+    let Ok(player_list) = __arc_bind.read() else {
         return;
     };
 

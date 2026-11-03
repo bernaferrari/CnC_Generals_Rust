@@ -150,8 +150,8 @@ impl Team {
         }
 
         let controller_id = self.controlling_player_id?;
-        let default_team_id = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let default_team_id = __player_list_arc.read()
             .ok()
             .and_then(|players| players.get_player(controller_id as Int).cloned())
             .and_then(|player_arc| {

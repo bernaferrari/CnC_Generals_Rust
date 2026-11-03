@@ -1233,7 +1233,8 @@ impl Object {
             let new_player = if let Some(players) = players {
                 new_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned())
             } else {
-                let Ok(players) = player_list().read() else {
+                let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
                     return Ok(());
                 };
                 new_player_id.and_then(|id| players.get_player(id as PlayerIndex).cloned())
@@ -1761,7 +1762,8 @@ mod team_membership_borrow_tests {
 
     impl RestorePlayers {
         fn replace(players: &[Arc<RwLock<Player>>]) -> Self {
-            let mut list = player_list().write().unwrap();
+            let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().unwrap();
             let previous = Self {
                 players: list.iter().cloned().collect(),
                 local_player_index: list.get_local_player_index(),
@@ -1777,8 +1779,8 @@ mod team_membership_borrow_tests {
 
     impl Drop for RestorePlayers {
         fn drop(&mut self) {
-            let mut list = player_list()
-                .write()
+            let __player_list_arc = player_list();
+                let mut list = __player_list_arc.write()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             list.clear();
             for player in self.players.drain(..) {

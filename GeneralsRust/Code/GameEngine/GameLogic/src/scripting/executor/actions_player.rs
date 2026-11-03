@@ -22,8 +22,8 @@ impl ScriptActionDispatcher<'_> {
             },
         );
 
-        let object_ids = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let object_ids = __player_list_arc.read()
             .ok()
             .and_then(|list| list.find_player_by_name(&player_name))
             .and_then(|player| player.read().ok().map(|p| p.get_all_objects()))
@@ -76,7 +76,8 @@ impl ScriptActionDispatcher<'_> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Disabling base construction for '{}'", player_name);
 
-        if let Ok(list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list_guard) = __player_list_arc.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
                     player_guard.set_can_build_base(false);
@@ -98,7 +99,8 @@ impl ScriptActionDispatcher<'_> {
             player_name
         );
 
-        if let Ok(list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list_guard) = __player_list_arc.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
                     player_guard.set_objects_enabled(&object_name, false);
@@ -115,7 +117,8 @@ impl ScriptActionDispatcher<'_> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Disabling unit construction for '{}'", player_name);
 
-        if let Ok(list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list_guard) = __player_list_arc.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
                     player_guard.set_can_build_units(false);
@@ -132,7 +135,8 @@ impl ScriptActionDispatcher<'_> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Enabling base construction for '{}'", player_name);
 
-        if let Ok(list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list_guard) = __player_list_arc.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
                     player_guard.set_can_build_base(true);
@@ -150,7 +154,8 @@ impl ScriptActionDispatcher<'_> {
         let object_name = self.get_string_param(action, 1)?;
         log::debug!("Enabling factories '{}' for '{}'", object_name, player_name);
 
-        if let Ok(list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list_guard) = __player_list_arc.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
                     player_guard.set_objects_enabled(&object_name, true);
@@ -167,7 +172,8 @@ impl ScriptActionDispatcher<'_> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Enabling unit construction for '{}'", player_name);
 
-        if let Ok(list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list_guard) = __player_list_arc.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
                     player_guard.set_can_build_units(true);
@@ -195,7 +201,8 @@ impl ScriptActionDispatcher<'_> {
             to_player
         );
 
-        let (source_player, dest_player) = if let Ok(players) = player_list().read() {
+        let __player_list_arc = player_list();
+        let (source_player, dest_player) = if let Ok(players) = __player_list_arc.read() {
             (
                 players.find_player_by_name(&from_player),
                 players.find_player_by_name(&to_player),
@@ -264,7 +271,8 @@ impl ScriptActionDispatcher<'_> {
             relation
         );
 
-        let (source_player, target_player_index) = if let Ok(players) = player_list().read() {
+        let __player_list_arc = player_list();
+        let (source_player, target_player_index) = if let Ok(players) = __player_list_arc.read() {
             (
                 players.find_player_by_name(&player1),
                 players
@@ -306,7 +314,8 @@ impl ScriptActionDispatcher<'_> {
             relation
         );
 
-        let player_arc = if let Ok(players) = player_list().read() {
+        let __player_list_arc = player_list();
+        let player_arc = if let Ok(players) = __player_list_arc.read() {
             players.find_player_by_name(&player_name)
         } else {
             None
@@ -339,7 +348,8 @@ impl ScriptActionDispatcher<'_> {
             team_name
         );
 
-        let player_arc = if let Ok(players) = player_list().read() {
+        let __player_list_arc = player_list();
+        let player_arc = if let Ok(players) = __player_list_arc.read() {
             players.find_player_by_name(&player_name)
         } else {
             None
@@ -366,8 +376,8 @@ impl ScriptActionDispatcher<'_> {
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Player '{}' garrisoning all buildings", player_name);
-        let object_ids = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let object_ids = __player_list_arc.read()
             .ok()
             .and_then(|list| list.find_player_by_name(&player_name))
             .and_then(|player| player.read().ok().map(|p| p.get_all_objects()))
@@ -406,8 +416,8 @@ impl ScriptActionDispatcher<'_> {
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Player '{}' exiting all buildings", player_name);
-        let object_ids = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let object_ids = __player_list_arc.read()
             .ok()
             .and_then(|list| list.find_player_by_name(&player_name))
             .and_then(|player| player.read().ok().map(|p| p.get_all_objects()))
@@ -559,7 +569,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let Ok(list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list_guard) = __player_list_arc.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
                     let _ = player_guard.attempt_to_purchase_science(science_type);
@@ -609,7 +620,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         };
 
-        if let Ok(list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list_guard) = __player_list_arc.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
                     player_guard.repair_structure(structure_id);
@@ -634,7 +646,8 @@ impl ScriptActionDispatcher<'_> {
             modifier
         );
 
-        if let Ok(list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list_guard) = __player_list_arc.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
                     player_guard.set_skill_points_modifier(modifier);
@@ -657,7 +670,8 @@ impl ScriptActionDispatcher<'_> {
             },
         );
 
-        if let Ok(list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list_guard) = __player_list_arc.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
                     player_guard.set_list_in_score_screen(false);
@@ -705,7 +719,8 @@ impl ScriptActionDispatcher<'_> {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let Ok(list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list_guard) = __player_list_arc.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
                     player_guard.set_science_availability(science_type, availability_type);
@@ -751,7 +766,8 @@ impl ScriptActionDispatcher<'_> {
             },
         );
 
-        if let Ok(list_guard) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list_guard) = __player_list_arc.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
                     // Script uses 1-based skillset numbering; AI uses zero-based.

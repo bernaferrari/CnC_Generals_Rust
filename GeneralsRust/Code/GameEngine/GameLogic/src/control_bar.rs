@@ -335,8 +335,8 @@ fn find_academy_template_context(player: PlayerHandle) -> Option<AcademyTemplate
     }
 
     let player_index = player.value() as i32;
-    let player_arc = player_list()
-        .read()
+    let __player_list_arc = player_list();
+        let player_arc = __player_list_arc.read()
         .ok()
         .and_then(|players| players.get_player(player_index).cloned())?;
     let object_ids = get_object_manager()

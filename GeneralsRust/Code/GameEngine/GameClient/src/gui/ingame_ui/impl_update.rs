@@ -249,7 +249,8 @@ impl InGameUI {
     }
 
     fn superweapon_science_and_color(player_index: u8, template_name: &str) -> (bool, u32) {
-        let player = player_list()
+        let player_list_arc = player_list();
+        let player = player_list_arc
             .read()
             .ok()
             .and_then(|list| list.get_player(player_index as i32).cloned());
@@ -260,17 +261,23 @@ impl InGameUI {
                 ((c.a as u32) << 24) | ((c.r as u32) << 16) | ((c.g as u32) << 8) | (c.b as u32)
             })
             .unwrap_or(0xFFFFFFFF);
-        let hidden_by_science = get_special_power_store()
-            .and_then(|store| store.find_special_power_template(template_name).cloned())
-            .map(|template| {
-                let science = template.get_required_science();
-                science != game_engine::common::rts::SCIENCE_INVALID
-                    && player
-                        .as_ref()
-                        .and_then(|p| p.read().ok().map(|g| !g.has_science(science)))
-                        .unwrap_or(true)
-            })
-            .unwrap_or(false);
+        let hidden_by_science = match get_special_power_store() {
+            Some(sp_arc) => match sp_arc.read() {
+                Ok(store) => match store.find_special_power_template(template_name).cloned() {
+                    Some(template) => {
+                        let science = template.get_required_science();
+                        science != game_engine::common::rts::SCIENCE_INVALID
+                            && player
+                                .as_ref()
+                                .and_then(|p| p.read().ok().map(|g| !g.has_science(science)))
+                                .unwrap_or(true)
+                    }
+                    None => false,
+                },
+                Err(_) => false,
+            },
+            None => false,
+        };
         (hidden_by_science, color)
     }
 
@@ -410,8 +417,13 @@ impl InGameUI {
             };
             let (is_ready, ready_frame, power_type, shared) = match guard
                 .with_special_power_module_interface_by_name(lookup_name, |sp| {
-                    let template = get_special_power_store()
-                        .and_then(|store| store.find_special_power_template(lookup_name).cloned());
+                    let template = match get_special_power_store() {
+                        Some(__sp) => match __sp.read() {
+                            Ok(store) => store.find_special_power_template(lookup_name).cloned(),
+                            Err(_) => None,
+                        },
+                        None => None,
+                    };
                     (
                         sp.is_ready(),
                         sp.get_ready_frame(),
@@ -432,8 +444,13 @@ impl InGameUI {
                     // No live module (dual-world residual): the stored ready
                     // frame owns the countdown, and passing it means READY.
                     let ready_frame = timers[i].ready_frame;
-                    let template = get_special_power_store()
-                        .and_then(|store| store.find_special_power_template(lookup_name).cloned());
+                    let template = match get_special_power_store() {
+                        Some(__sp) => match __sp.read() {
+                            Ok(store) => store.find_special_power_template(lookup_name).cloned(),
+                            Err(_) => None,
+                        },
+                        None => None,
+                    };
                     (
                         ready_frame <= current_frame,
                         ready_frame,

@@ -1525,7 +1525,8 @@ fn leftover_census_or_player_has_science(
     if science == game_engine::common::rts::SCIENCE_INVALID {
         return true;
     }
-    if let Ok(list) = player_list().read() {
+    let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
         if let Some(arc) = list.find_player_by_name(player_name) {
             if let Ok(player) = arc.read() {
                 return player.has_science(science);
@@ -1678,7 +1679,8 @@ fn host_allow_neutral_affiliation(player_name: &str, obj: &HostScriptQueryObject
     if obj.owner_player.is_empty() {
         return true;
     }
-    if let Ok(players) = player_list().read() {
+    let __player_list_arc = player_list();
+        if let Ok(players) = __player_list_arc.read() {
         if let (Some(a), Some(b)) = (
             players.find_player_by_name(player_name),
             players.find_player_by_name(&obj.owner_player),
@@ -1703,7 +1705,8 @@ fn host_allow_non_ally_tech_affiliation(player_name: &str, owner_player: &str) -
     if host_owner_matches(&owner, player_name) {
         return false;
     }
-    if let Ok(players) = player_list().read() {
+    let __player_list_arc = player_list();
+        if let Ok(players) = __player_list_arc.read() {
         if let (Some(a), Some(b)) = (
             players.find_player_by_name(player_name),
             players.find_player_by_name(owner_player),

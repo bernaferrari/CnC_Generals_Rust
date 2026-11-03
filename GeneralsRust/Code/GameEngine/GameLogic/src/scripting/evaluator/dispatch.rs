@@ -468,7 +468,8 @@ impl ScriptEvaluator {
             // Multiplayer: local player individually defeated (not whole alliance)
             // C++: TheVictoryConditions->isLocalDefeat() && !TheVictoryConditions->isLocalAlliedDefeat()
             ConditionType::MultiplayerPlayerDefeat => {
-                let Ok(list) = player_list().read() else {
+                let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
                     return Ok(false);
                 };
                 let Some(local_player_arc) = list.get_local_player() else {
@@ -1717,7 +1718,8 @@ impl ScriptEvaluator {
                 }
 
                 // C++ counts neutral player objects with DISABLED_UNMANNED
-                let Ok(list) = player_list().read() else {
+                let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
                     return Ok(false);
                 };
                 let neutral_player = list.get_neutral_player();

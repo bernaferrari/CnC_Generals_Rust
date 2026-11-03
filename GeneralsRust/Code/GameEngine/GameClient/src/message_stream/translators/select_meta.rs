@@ -51,7 +51,8 @@ fn apply_single_selection(id: ObjectID) {
     if local_player < 0 {
         return;
     }
-    if let Ok(mut manager) = get_selection_manager().write() {
+    let __arc_bind = get_selection_manager();
+if let Ok(mut manager) = __arc_bind.write() {
         if let Some(selection) = manager.get_player_selection(local_player) {
             selection.select_objects(
                 vec![id],
@@ -176,7 +177,8 @@ pub(super) fn handle_select_all(
                 if object_disqualifies_select_all(&obj, aircraft_only) {
                     let local_player = get_local_player_id();
                     if local_player >= 0 {
-                        if let Ok(mut manager) = get_selection_manager().write() {
+                        let __arc_bind = get_selection_manager();
+if let Ok(mut manager) = __arc_bind.write() {
                             if let Some(selection) = manager.get_player_selection(local_player) {
                                 selection.clear_selection();
                             }

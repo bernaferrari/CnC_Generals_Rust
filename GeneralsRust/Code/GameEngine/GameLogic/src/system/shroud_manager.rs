@@ -2298,7 +2298,8 @@ impl ShroudManager {
 
     /// Refresh using the driving instance clock, including while its save/load owner is borrowed.
     pub fn refresh_shroud_for_local_player_at_frame(&mut self, frame: u32) {
-        if let Ok(list) = crate::player::player_list().read() {
+        let __player_list_arc = crate::player::player_list();
+        if let Ok(list) = __player_list_arc.read() {
             let local_index = list.get_local_player_index();
             if local_index != PLAYER_INDEX_INVALID {
                 let player_id = local_index as u32;

@@ -1135,7 +1135,8 @@ mod tests {
         let mut fixture = TeamPrototypeOwnerFixture::new(owner);
         let player_arc = Arc::clone(&fixture.player);
         let admitted = {
-            let players = player_list().read().expect("admitted fixture roster");
+            let __player_list_arc = player_list();
+        let players = __player_list_arc.read().expect("admitted fixture roster");
             players.get_player(7).cloned()
         };
         assert!(Arc::ptr_eq(
@@ -1183,7 +1184,8 @@ mod tests {
             .lock()
             .expect("team owner fixture isolation");
         let (previous_players, previous_local) = {
-            let players = player_list().read().expect("original roster");
+            let __player_list_arc = player_list();
+        let players = __player_list_arc.read().expect("original roster");
             (
                 players.iter().cloned().collect::<Vec<_>>(),
                 players.get_local_player_index(),
@@ -1229,7 +1231,8 @@ mod tests {
             "fixture factory unlinks before restoring another roster"
         );
         let (restored_players, restored_local) = {
-            let players = player_list().read().expect("restored roster");
+            let __player_list_arc = player_list();
+        let players = __player_list_arc.read().expect("restored roster");
             (
                 players.iter().cloned().collect::<Vec<_>>(),
                 players.get_local_player_index(),

@@ -892,11 +892,12 @@ impl ScriptConditionEvaluator<'_> {
         // an optional second boolean that inverts the meaning (TRUE => player alive).
         let wants_alive = condition.get_parameter(1).map(|p| p.get_int() != 0);
 
+        let __player_list_arc = player_list();
         let all_destroyed =
             if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
                 // Live host: leftover OBJECT_REGISTRY is empty so Player::hasAnyObjects is false.
                 !census.has_any_objects
-            } else if let Ok(players) = player_list().read() {
+            } else if let Ok(players) = __player_list_arc.read() {
                 if let Some(player_arc) = players.find_player_by_name(&player_name) {
                     if let Ok(player) = player_arc.read() {
                         // C++: player is all destroyed if Player::hasAnyObjects() is false.
@@ -933,7 +934,8 @@ impl ScriptConditionEvaluator<'_> {
         }
 
         // Look up the player and check if they have any build facilities
-        if let Ok(players) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(players) = __player_list_arc.read() {
             if let Some(player_arc) = players.find_player_by_name(&player_name) {
                 if let Ok(player) = player_arc.read() {
                     // All build facilities are destroyed if player has none
@@ -966,7 +968,8 @@ impl ScriptConditionEvaluator<'_> {
                 census.money
             } else {
                 // C++ returns false when playerFromParam cannot resolve the Side.
-                let Ok(players) = player_list().read() else {
+                let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
                     return Ok(ScriptConditionResult::False);
                 };
                 let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1007,7 +1010,8 @@ impl ScriptConditionEvaluator<'_> {
             if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
                 census.building_count
             } else {
-                let Ok(players) = player_list().read() else {
+                let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
                     return Ok(ScriptConditionResult::False);
                 };
                 let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1034,7 +1038,8 @@ impl ScriptConditionEvaluator<'_> {
         }
 
         // Look up the player and check their power status
-        if let Ok(players) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(players) = __player_list_arc.read() {
             if let Some(player_arc) = players.find_player_by_name(&player_name) {
                 if let Ok(player) = player_arc.read() {
                     // C++ parity: Energy::hasSufficientPower
@@ -1079,7 +1084,8 @@ impl ScriptConditionEvaluator<'_> {
             if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
                 census.faction_building_count
             } else {
-                let Ok(players) = player_list().read() else {
+                let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
                     return Ok(ScriptConditionResult::False);
                 };
                 let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1114,7 +1120,8 @@ impl ScriptConditionEvaluator<'_> {
             if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
                 census.supply_ratio()
             } else {
-                let Ok(players) = player_list().read() else {
+                let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
                     return Ok(ScriptConditionResult::False);
                 };
                 let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1151,7 +1158,8 @@ impl ScriptConditionEvaluator<'_> {
             if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
                 census.excess_power()
             } else {
-                let Ok(players) = player_list().read() else {
+                let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
                     return Ok(ScriptConditionResult::False);
                 };
                 let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1193,7 +1201,8 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(ScriptConditionResult::False);
         }
 
-        let player_index = if let Ok(players) = player_list().read() {
+        let __player_list_arc = player_list();
+        let player_index = if let Ok(players) = __player_list_arc.read() {
             players
                 .find_player_by_name(&player_name)
                 .and_then(|arc| arc.read().ok().map(|p| p.get_player_index() as usize))
@@ -1241,7 +1250,8 @@ impl ScriptConditionEvaluator<'_> {
         let current_points =
             crate::scripting::host_query_player_science_purchase_points(&player_name)
                 .or_else(|| {
-                    let players = player_list().read().ok()?;
+                    let __player_list_arc = player_list();
+        let players = __player_list_arc.read().ok()?;
                     let player_arc = players.find_player_by_name(&player_name)?;
                     player_arc
                         .read()
@@ -1287,7 +1297,8 @@ impl ScriptConditionEvaluator<'_> {
             return Ok(ScriptConditionResult::False);
         }
 
-        if let Ok(players) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(players) = __player_list_arc.read() {
             if let Some(player_arc) = players.find_player_by_name(&player_name) {
                 if let Ok(player) = player_arc.read() {
                     if player.is_capable_of_purchasing_science(science) {
@@ -1341,7 +1352,8 @@ impl ScriptConditionEvaluator<'_> {
             object_type
         );
 
-        let leftover_player = player_list().read().ok().and_then(|players| {
+        let __player_list_arc = player_list();
+        let leftover_player = __player_list_arc.read().ok().and_then(|players| {
             players
                 .find_player_by_name(&player_name)
                 .and_then(|arc| arc.read().ok().map(|p| p.get_player_index()))
@@ -1361,7 +1373,8 @@ impl ScriptConditionEvaluator<'_> {
         let Some(player_index) = leftover_player else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1418,7 +1431,8 @@ impl ScriptConditionEvaluator<'_> {
 
         // C++ resolves both players, ignores N, then returns FALSE because this helper
         // still contains only `@todo CLH implement me!`.
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1474,7 +1488,8 @@ impl ScriptConditionEvaluator<'_> {
         {
             count
         } else {
-            let Ok(players) = player_list().read() else {
+            let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
                 return Ok(ScriptConditionResult::False);
             };
             let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1696,7 +1711,8 @@ impl ScriptConditionEvaluator<'_> {
             )));
         }
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(victim_player) = players.find_player_by_name(&player_name) else {
@@ -1793,7 +1809,8 @@ impl ScriptConditionEvaluator<'_> {
             )));
         }
 
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(ScriptConditionResult::False);
         };
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
@@ -1844,7 +1861,8 @@ impl ScriptConditionEvaluator<'_> {
                 if let Ok(team) = team_arc.read() {
                     if let Some(controlling_player_id) = team.get_controlling_player_id() {
                         // Find the player and compare names
-                        if let Ok(players) = player_list().read() {
+                        let __player_list_arc = player_list();
+        if let Ok(players) = __player_list_arc.read() {
                             if let Some(player_arc) =
                                 players.get_player(controlling_player_id as i32)
                             {

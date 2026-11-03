@@ -426,7 +426,8 @@ impl StealthUpdate {
         let Some(self_player) = obj.get_controlling_player() else {
             return;
         };
-        let Ok(list) = crate::player::player_list().read() else {
+        let __player_list_arc = crate::player::player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return;
         };
         for player in list.iter() {

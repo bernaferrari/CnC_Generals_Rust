@@ -81,7 +81,8 @@ impl TheInGameUI {
 
         let object_id = drawable.get_object_id();
         if object_id != INVALID_ID {
-            if let Ok(list) = crate::player::player_list().read() {
+            let __player_list_arc = crate::player::player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 let local_index = list.get_local_player_index();
                 if local_index != crate::player::PLAYER_INDEX_INVALID {
                     let selection_manager = crate::commands::selection::get_selection_manager();
@@ -111,7 +112,8 @@ impl TheInGameUI {
 
         let object_id = drawable.get_object_id();
         if object_id != INVALID_ID {
-            if let Ok(list) = crate::player::player_list().read() {
+            let __player_list_arc = crate::player::player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 let local_index = list.get_local_player_index();
                 if local_index != crate::player::PLAYER_INDEX_INVALID {
                     let selection_manager = crate::commands::selection::get_selection_manager();
@@ -1217,7 +1219,8 @@ fn leftover_players_are_allies(a: &crate::player::Player, b: &crate::player::Pla
 
 /// C++ `isLocalAlliedDefeat` from leftover PlayerList `is_defeated`.
 fn leftover_player_list_is_local_allied_defeat() -> bool {
-    let Ok(list) = crate::player::ThePlayerList().read() else {
+    let __player_list_arc = crate::player::ThePlayerList();
+        let Ok(list) = __player_list_arc.read() else {
         return false;
     };
     let Some(local_arc) = list.get_local_player().cloned() else {
@@ -1269,7 +1272,8 @@ fn leftover_player_list_is_local_allied_defeat() -> bool {
 }
 
 fn leftover_local_player_is_observer() -> bool {
-    let Ok(list) = crate::player::ThePlayerList().read() else {
+    let __player_list_arc = crate::player::ThePlayerList();
+        let Ok(list) = __player_list_arc.read() else {
         return false;
     };
     list.get_local_player()
@@ -1278,7 +1282,8 @@ fn leftover_local_player_is_observer() -> bool {
 }
 
 fn leftover_local_player_is_individually_defeated() -> bool {
-    let Ok(list) = crate::player::ThePlayerList().read() else {
+    let __player_list_arc = crate::player::ThePlayerList();
+        let Ok(list) = __player_list_arc.read() else {
         return false;
     };
     list.get_local_player()

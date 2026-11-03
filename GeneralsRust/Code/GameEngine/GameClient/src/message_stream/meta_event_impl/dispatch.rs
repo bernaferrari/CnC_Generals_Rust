@@ -957,7 +957,8 @@ fn dispatch_map_entry(
 
     if record.name.eq_ignore_ascii_case("DEMO_WIN") {
         TheVictoryConditions::set_local_allied_victory(true);
-        if let Ok(list) = ThePlayerList().read() {
+        let __arc_bind = ThePlayerList();
+if let Ok(list) = __arc_bind.read() {
             if let Some(local_player) = list.get_local_player() {
                 if let Ok(mut guard) = local_player.write() {
                     guard.set_defeated(false);

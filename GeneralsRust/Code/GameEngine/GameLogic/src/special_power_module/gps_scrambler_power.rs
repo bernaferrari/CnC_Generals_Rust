@@ -139,7 +139,8 @@ impl GpsScramblerPower {
     fn apply_scrambling_effect(&mut self, activating_player_id: ObjectID) -> Result<(), String> {
         log::debug!("Applying GPS scrambling to enemy players");
 
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return Err("Failed to lock player list".to_string());
         };
         let Some(activating_player) = list.get_player(activating_player_id as Int) else {
@@ -180,7 +181,8 @@ impl GpsScramblerPower {
         if current_frame >= self.active_until_frame && !self.affected_players.is_empty() {
             log::debug!("GPS Scrambler effect ended, restoring radar");
 
-            if let Ok(list) = player_list().read() {
+            let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 for player_id in self.affected_players.iter().copied() {
                     let Some(player) = list.get_player(player_id as Int) else {
                         continue;

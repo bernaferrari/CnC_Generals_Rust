@@ -46,8 +46,8 @@ impl ChinookAIUpdate {
         let Ok(owner_guard) = owner.read() else {
             return;
         };
-        let local_index = player_list()
-            .read()
+        let __player_list_arc = player_list();
+            let local_index = __player_list_arc.read()
             .ok()
             .map(|list| list.get_local_player_index())
             .unwrap_or(-1);

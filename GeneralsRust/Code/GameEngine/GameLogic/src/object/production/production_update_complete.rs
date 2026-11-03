@@ -1114,7 +1114,8 @@ impl ProductionUpdateComplete {
             if credits <= 0 {
                 return;
             }
-            if let Ok(list) = crate::player::player_list().read() {
+            let __player_list_arc = crate::player::player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 if let Some(player_arc) = list.get_player(player_id as i32) {
                     if let Ok(mut player) = player_arc.write() {
                         let facts = crate::helpers::capture_player_audio_locality(&player, &list);
@@ -1685,7 +1686,8 @@ impl ProductionUpdateInterface for ProductionUpdateComplete {
             if credits <= 0 {
                 return;
             }
-            if let Ok(list) = crate::player::player_list().read() {
+            let __player_list_arc = crate::player::player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 if let Some(player_arc) = list.get_player(player_id as i32) {
                     if let Ok(mut player) = player_arc.write() {
                         let facts = crate::helpers::capture_player_audio_locality(&player, &list);

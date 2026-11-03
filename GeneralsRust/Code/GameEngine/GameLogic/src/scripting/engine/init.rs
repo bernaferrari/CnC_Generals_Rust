@@ -207,8 +207,8 @@ impl ScriptEngine {
     fn standalone_team_player(id: TeamID) -> Option<String> {
         let team = get_team_factory().lock().ok()?.find_team_by_id(id)?;
         let player_id = team.read().ok()?.get_controlling_player_id()?;
-        let player = crate::player::player_list()
-            .read()
+        let __player_list_arc = crate::player::player_list();
+            let player = __player_list_arc.read()
             .ok()?
             .get_player(player_id as i32)
             .cloned()?;

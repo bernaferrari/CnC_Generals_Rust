@@ -200,7 +200,8 @@ impl GameObjectInstance {
     /// is the player's own index), so the index needs no second player lock.
     fn player_index_from_team(team: Option<&Arc<RwLock<Team>>>) -> Option<PlayerIndex> {
         let player_index = team?.read().ok()?.get_controlling_player_id()? as Int;
-        let list = crate::player::player_list().read().ok()?;
+        let __player_list_arc = crate::player::player_list();
+        let list = __player_list_arc.read().ok()?;
         list.get_player(player_index)?;
         Some(player_index as PlayerIndex)
     }
@@ -706,12 +707,14 @@ impl GameObjectInstance {
     /// Get the controlling player for this object
     pub fn get_controlling_player(&self) -> Option<Arc<RwLock<crate::player::Player>>> {
         if let Some(idx) = self.player_index {
-            let list = crate::player::player_list().read().ok()?;
+            let __player_list_arc = crate::player::player_list();
+        let list = __player_list_arc.read().ok()?;
             return list.get_player(idx as Int).cloned();
         }
         let team = self.get_team()?;
         let player_index = team.read().ok()?.get_controlling_player_id()? as Int;
-        let list = crate::player::player_list().read().ok()?;
+        let __player_list_arc = crate::player::player_list();
+        let list = __player_list_arc.read().ok()?;
         list.get_player(player_index).cloned()
     }
 
@@ -1169,7 +1172,8 @@ impl ObjectManager {
             return;
         };
 
-        let Ok(list_guard) = crate::player::player_list().read() else {
+        let __player_list_arc = crate::player::player_list();
+        let Ok(list_guard) = __player_list_arc.read() else {
             return;
         };
 
@@ -1190,7 +1194,8 @@ impl ObjectManager {
             return;
         };
 
-        let Ok(list_guard) = crate::player::player_list().read() else {
+        let __player_list_arc = crate::player::player_list();
+        let Ok(list_guard) = __player_list_arc.read() else {
             return;
         };
 
@@ -1577,14 +1582,7 @@ impl Default for ObjectManager {
     }
 }
 
-/// Global object manager instance
-// THREAD: cloned Arc + RwLock handles escape to GameClient/script callers
-// via `get_object_manager()`, so the RwLock is the shared-manager contract
-// (legacy adapter; not convertible to a thread-local without breaking that API).
-pub static THE_OBJECT_MANAGER: Lazy<Arc<RwLock<ObjectManager>>> =
-    Lazy::new(|| Arc::new(RwLock::new(ObjectManager::new())));
-
-
+/// Per-world object manager lives on [`crate::system::engine_stores::WorldServices`].
 struct ObjectManagerResetGuard;
 
 impl ObjectManagerResetGuard {
@@ -1612,7 +1610,7 @@ pub(crate) fn is_resetting() -> bool {
 
 /// Get reference to global object manager
 pub fn get_object_manager() -> Arc<RwLock<ObjectManager>> {
-    THE_OBJECT_MANAGER.clone()
+    Arc::clone(crate::system::engine_stores::active_services().objects())
 }
 
 // Module tests
@@ -1627,7 +1625,8 @@ mod tests {
     static PLAYER_LIST_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn reset_players() {
-        player_list().write().expect("player list write").clear();
+        let list = player_list();
+        list.write().expect("player list write").clear();
     }
 
     fn player_with_team(index: PlayerIndex, team_id: crate::team::TeamID) -> Arc<RwLock<Team>> {
@@ -1644,8 +1643,8 @@ mod tests {
             .write()
             .expect("player write")
             .set_default_team(Some(Arc::clone(&team)));
-        player_list()
-            .write()
+        let list = player_list();
+        list.write()
             .expect("player list write")
             .add_player(player);
 

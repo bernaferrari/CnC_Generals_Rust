@@ -599,8 +599,8 @@ impl RhaiScriptExecutor {
         engine.register_fn("get_difficulty", || -> i64 {
             log::debug!("Rhai: get_difficulty()");
             // Resolve from player 0 if available, else default to Normal.
-            let player_arc = player_list()
-                .read()
+            let __player_list_arc = player_list();
+                let player_arc = __player_list_arc.read()
                 .ok()
                 .and_then(|list| list.get_player(0).cloned());
             let difficulty = player_arc

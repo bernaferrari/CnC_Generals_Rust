@@ -94,7 +94,8 @@ impl ScriptCondition for MultiplayerPlayerDefeatCondition {
         _parameters: &HashMap<String, ScriptValue>,
         _context: &ScriptContext,
     ) -> GameLogicResult<bool> {
-        let Ok(players) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return Ok(false);
         };
         let Some(local_player_arc) = players.get_local_player().cloned() else {

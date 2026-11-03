@@ -456,8 +456,8 @@ impl ScriptEngine {
     }
 
     pub fn should_show_observer_quit_window(&self) -> bool {
-        let local_is_observer = crate::player::player_list()
-            .read()
+        let __player_list_arc = crate::player::player_list();
+            let local_is_observer = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_local_player().cloned())
             .and_then(|player| player.read().ok().map(|guard| guard.is_player_observer()))
@@ -466,8 +466,8 @@ impl ScriptEngine {
     }
 
     pub fn should_show_local_defeat_window(&self) -> bool {
-        let local_is_observer = crate::player::player_list()
-            .read()
+        let __player_list_arc = crate::player::player_list();
+            let local_is_observer = __player_list_arc.read()
             .ok()
             .and_then(|list| list.get_local_player().cloned())
             .and_then(|player| player.read().ok().map(|guard| guard.is_player_observer()))
@@ -1210,7 +1210,8 @@ impl ScriptEngine {
             return;
         };
 
-        let Ok(players) = crate::player::player_list().read() else {
+        let __player_list_arc = crate::player::player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return;
         };
         let Some(player_arc) = players.find_player_by_name(&reveal.player_name) else {
@@ -1251,7 +1252,8 @@ impl ScriptEngine {
             return;
         };
 
-        let Ok(players) = crate::player::player_list().read() else {
+        let __player_list_arc = crate::player::player_list();
+        let Ok(players) = __player_list_arc.read() else {
             return;
         };
         let Some(player_arc) = players.find_player_by_name(&reveal.player_name) else {

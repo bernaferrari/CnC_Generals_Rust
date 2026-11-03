@@ -288,6 +288,9 @@ pub(crate) struct ClientVisualState {
     pub(crate) terrain_visual_pending_props: Mutex<Vec<(u32, [f32; 3], f32, f32, String)>>,
     /// Leftover `addWaterVelocity` impulses queued for this world only.
     pub(crate) water_velocity_impulses: Mutex<Vec<(Real, Real, Real, Real, UnsignedInt)>>,
+    pub(crate) texture_aspect_hook: Mutex<Option<fn(&str) -> Option<Real>>>,
+    pub(crate) preload_asset_hook: Mutex<Option<fn(&str)>>,
+    pub(crate) receives_dynamic_lights_hook: Mutex<Option<fn(ObjectID, bool)>>,
 }
 
 impl Default for ClientVisualState {
@@ -307,6 +310,9 @@ impl Default for ClientVisualState {
             terrain_visual_add_prop: Mutex::new(None),
             terrain_visual_pending_props: Mutex::new(Vec::new()),
             water_velocity_impulses: Mutex::new(Vec::new()),
+            texture_aspect_hook: Mutex::new(None),
+            preload_asset_hook: Mutex::new(None),
+            receives_dynamic_lights_hook: Mutex::new(None),
         }
     }
 }

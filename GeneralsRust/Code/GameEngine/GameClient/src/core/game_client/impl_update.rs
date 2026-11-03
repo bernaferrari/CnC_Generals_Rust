@@ -2268,7 +2268,8 @@ impl GameClient {
             logic.update_orphaned_w3d_ghosts();
             return;
         }
-        if let Ok(mut manager) = gamelogic::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
+        let __w3d_ghosts = gamelogic::object::the_w3d_ghost_object_manager();
+        if let Ok(mut manager) = __w3d_ghosts.write() {
             manager.update_orphaned_objects(&[]);
         }
     }

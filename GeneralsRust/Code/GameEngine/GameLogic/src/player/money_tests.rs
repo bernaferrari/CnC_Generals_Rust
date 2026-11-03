@@ -77,7 +77,8 @@ fn registered_money_audio_and_income_do_not_reenter_write_borrowed_player() {
     let _test_guard = crate::test_sync::lock();
     let _services = Services::install();
     let player = {
-        let mut list = player_list().write().unwrap();
+        let __player_list_arc = player_list();
+        let mut list = __player_list_arc.write().unwrap();
         let player = admit(&mut list, 0, 100);
         list.set_local_player_index(0);
         player

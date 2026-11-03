@@ -502,7 +502,8 @@ impl TheGameLogic {
             return count.min(crate::system::player_init::MAX_PLAYER_COUNT);
         }
 
-        if let Ok(player_list) = crate::player::ThePlayerList().read() {
+        let __player_list_arc = crate::player::ThePlayerList();
+        if let Ok(player_list) = __player_list_arc.read() {
             let count = player_list.iter().count();
             if count > 0 {
                 return count.min(crate::system::player_init::MAX_PLAYER_COUNT);

@@ -353,7 +353,8 @@ impl ScriptEvaluator {
         }
 
         let mut is_selected = false;
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             let local_index = list.get_local_player_index();
             if local_index >= 0 {
                 if let Some(selection) = manager_guard.get_player_selection_ref(local_index) {

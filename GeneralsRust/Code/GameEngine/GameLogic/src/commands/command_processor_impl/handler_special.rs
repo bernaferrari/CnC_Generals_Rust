@@ -928,7 +928,8 @@ impl DefaultCommandHandler {
             return Vec::new();
         }
 
-        let selected_ids = match player_list().read() {
+        let __player_list_arc = player_list();
+        let selected_ids = match __player_list_arc.read() {
             Ok(list) => list
                 .get_player(player_id)
                 .and_then(|player| {
@@ -974,7 +975,8 @@ impl DefaultCommandHandler {
         &self,
         player_id: Int,
     ) -> Option<Arc<dyn crate::common::ThingTemplate>> {
-        let list = player_list().read().ok()?;
+        let __player_list_arc = player_list();
+        let list = __player_list_arc.read().ok()?;
         let player_arc = list.get_player(player_id)?.clone();
         let player_guard = player_arc.read().ok()?;
         let template_name = player_guard

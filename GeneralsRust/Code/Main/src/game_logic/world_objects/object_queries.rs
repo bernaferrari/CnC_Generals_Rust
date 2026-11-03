@@ -4054,7 +4054,9 @@ mod receiving_player_team_relationship_owner_tests {
                 foreign.set_team_relationship(&team.read().unwrap(), Relationship::Enemies);
                 let foreign = std::sync::Arc::new(std::sync::RwLock::new(foreign));
                 {
-                    let mut list = gamelogic::player::ThePlayerList().write().unwrap();
+                    let __arc_bind = gamelogic::player::ThePlayerList();
+
+                    let mut list = __arc_bind.write().unwrap();
                     list.clear();
                     list.add_player(std::sync::Arc::clone(&foreign));
                 }

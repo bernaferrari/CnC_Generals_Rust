@@ -1074,7 +1074,8 @@ impl PartitionFilterRejectBuildings {
                 // Player::getPlayerType() == PLAYER_TYPE_COMPUTER). This replaces the
                 // previous hardcoded `player_id != 0` approximation.
                 if let Some(pid) = guard.get_player_id() {
-                    if let Ok(list) = ThePlayerList().read() {
+                    let __player_list_arc = ThePlayerList();
+        if let Ok(list) = __player_list_arc.read() {
                         if let Some(player_arc) = list.get_player(pid.0 as i32) {
                             if let Ok(player) = player_arc.read() {
                                 player.get_player_type() != crate::player::PlayerType::Human
@@ -1560,7 +1561,8 @@ fn compute_player_affiliation(player_id: PlayerId, obj: &crate::object::Object) 
     let Ok(team_guard) = team_arc.read() else {
         return Relationship::Neutral;
     };
-    let Ok(player_list) = ThePlayerList().read() else {
+    let __player_list_arc = ThePlayerList();
+        let Ok(player_list) = __player_list_arc.read() else {
         return Relationship::Neutral;
     };
     let Some(player_arc) = player_list.get_player(player_id.0.into()) else {
@@ -1680,7 +1682,8 @@ impl super::partition_manager::PartitionFilter for PartitionFilterGarrisonableBy
             .and_then(|handle| {
                 let target_guard = handle.read().ok()?;
                 let player_arc = {
-                    let player_list = ThePlayerList().read().ok()?;
+                    let __player_list_arc = ThePlayerList();
+        let player_list = __player_list_arc.read().ok()?;
                     player_list.get_player(self.player_id.0.into()).cloned()?
                 };
                 let player_guard = player_arc.read().ok()?;
@@ -1937,7 +1940,8 @@ mod tests {
     }
 
     fn reset_player_list_with_players(players: &[Arc<RwLock<Player>>]) {
-        let mut list = ThePlayerList().write().expect("player list write lock");
+        let __player_list_arc = ThePlayerList();
+        let mut list = __player_list_arc.write().expect("player list write lock");
         list.clear();
         for player in players {
             list.add_player(Arc::clone(player));

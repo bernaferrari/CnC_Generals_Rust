@@ -1061,7 +1061,9 @@ mod tests {
             "local should win when the other army is gone, got {outcome:?}"
         );
         let leftover_defeated = vc.is_player_defeated(1);
-        let foreign = gamelogic::player::ThePlayerList().read().unwrap();
+        let __arc_bind = gamelogic::player::ThePlayerList();
+
+        let foreign = __arc_bind.read().unwrap();
         assert!(!foreign.get_player(1).unwrap().read().unwrap().is_defeated());
         drop(foreign);
         assert!(
@@ -1072,7 +1074,8 @@ mod tests {
         assert!(!vc.is_local_allied_defeat_owned(&players, None, Some(0)));
 
         vc.reset();
-        if let Ok(mut list) = gamelogic::player::ThePlayerList().write() {
+        let __arc_bind = gamelogic::player::ThePlayerList();
+if let Ok(mut list) = __arc_bind.write() {
             list.clear();
         }
     }

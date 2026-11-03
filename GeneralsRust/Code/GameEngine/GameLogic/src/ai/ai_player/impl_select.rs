@@ -40,7 +40,8 @@ impl AIPlayer {
         let mut any_idle = false;
         let mut cost: i32 = 0;
         {
-            let Ok(list) = player_list().read() else {
+            let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
                 return Ok((false, false));
             };
             let Some(player_arc) = list.get_player(self.player_id as i32) else {
@@ -87,7 +88,8 @@ impl AIPlayer {
         cost = (cost as f32 * resources_mod) as i32;
 
         let money = {
-            let Ok(list) = player_list().read() else {
+            let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
                 return Ok((false, false));
             };
             let Some(player_arc) = list.get_player(self.player_id as i32) else {
@@ -183,7 +185,8 @@ impl AIPlayer {
         let mut closest_dist_sqr = 0.0_f32;
 
         let object_ids: Vec<ObjectID> = {
-            let Ok(list) = player_list().read() else {
+            let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
                 return Ok(None);
             };
             let Some(player_arc) = list.get_player(self.player_id as i32) else {
@@ -329,7 +332,8 @@ impl AIPlayer {
             let mut team = TeamInQueue::new();
             team.priority_build = true;
             team.frame_started = TheGameLogic::get_frame();
-            if let Ok(list) = player_list().read() {
+            let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                 if let Some(player_arc) = list.get_player(self.player_id as i32) {
                     if let Ok(pg) = player_arc.read() {
                         if let Some(dt) = pg.get_default_team() {
@@ -542,7 +546,8 @@ impl AIPlayer {
                 }
             }
             if team_arc.is_none() {
-                if let Ok(list) = player_list().read() {
+                let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
                     if let Some(player_arc) = list.get_player(self.player_id as i32) {
                         if let Ok(pg) = player_arc.read() {
                             team_arc = pg.get_default_team();
@@ -572,7 +577,8 @@ impl AIPlayer {
     /// C++ `TheScriptEngine->getSkirmishEnemyPlayer()->getPlayerIndex()`.
     /// Prefer this player's current enemy, then first human, then any non-neutral.
     pub(super) fn get_skirmish_enemy_player_index(&self) -> i32 {
-        if let Ok(list) = player_list().read() {
+        let __player_list_arc = player_list();
+        if let Ok(list) = __player_list_arc.read() {
             if let Some(me) = list.get_player(self.player_id as i32) {
                 if let Ok(mg) = me.read() {
                     if let Some(enemy_index) = mg.get_current_enemy_player_index() {
@@ -746,7 +752,8 @@ impl AIPlayer {
     pub(super) fn select_current_enemy_player(
         &self,
     ) -> Result<Option<(Arc<RwLock<Player>>, i32)>, AiError> {
-        let Ok(list) = player_list().read() else {
+        let __player_list_arc = player_list();
+        let Ok(list) = __player_list_arc.read() else {
             return Ok(None);
         };
         let Some(me_arc) = list.get_player(self.player_id as i32) else {

@@ -43,7 +43,8 @@ fn factory_open_admission_preserves_cpp_capacity_and_query_side_effects() {
         3,
     );
     {
-        let mut players = ThePlayerList().write().unwrap();
+        let __player_list_arc = ThePlayerList();
+        let mut players = __player_list_arc.write().unwrap();
         players.clear();
         players.add_player(Arc::new(RwLock::new(Player::new(0))));
     }

@@ -2387,14 +2387,8 @@ impl ActionExecutor for GameLogicActionExecutor {
     }
 }
 
-static RTS_ACTION_MANAGER: Lazy<Arc<RwLock<RtsActionManager>>> = Lazy::new(|| {
-    let mut manager = RtsActionManager::new();
-    GameLogicActionExecutor::install(&mut manager);
-    Arc::new(RwLock::new(manager))
-});
-
 pub fn get_rts_action_manager() -> Arc<RwLock<RtsActionManager>> {
-    RTS_ACTION_MANAGER.clone()
+    Arc::clone(crate::system::engine_stores::active_services().rts_actions())
 }
 
 #[cfg(test)]
