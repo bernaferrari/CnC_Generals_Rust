@@ -1416,6 +1416,140 @@ fn dozer_hack_reaches_live_astar() {
     );
 }
 
+
+/// hq-dtquay: dozerHack admits through enemy CELL_OBSTACLE only when seeker or
+/// obstacle is an undetected defector (C++ AIPathfind.cpp:6215 / Object.cpp:1548).
+#[test]
+fn pathfind_cluster_dozer_defector_obstacle_relationship() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+
+    fn wall_sys() -> PathfindingSystem {
+        let mut sys = PathfindingSystem::new(120.0, 80.0);
+        for y in 0..8 {
+            sys.grid
+                .set_cell_type(GridPos::new(5, y), PathfindCellType::Impassable);
+        }
+        sys
+    }
+    fn admit_dozer(objects: &mut HostObjectStore, id: u32, team: Team, player: u32) {
+        let mut dozer_t = ThingTemplate::new("AmericaDozer");
+        dozer_t.add_kind_of(KindOf::Dozer);
+        dozer_t.add_kind_of(KindOf::Vehicle);
+        let mut dozer = Object::new(dozer_t, ObjectId(id), team);
+        dozer.set_position(Vec3::new(20.0, 0.0, 35.0));
+        dozer.owner_player_id = Some(player);
+        objects.admit(dozer.id, dozer);
+    }
+    let start = Vec3::new(20.0, 0.0, 35.0);
+    let goal = Vec3::new(90.0, 0.0, 35.0);
+    let ground = crate::game_logic::pathfinding::PathfindingGround::Flat(0.0);
+
+    // Enemy obstacle blocks ordinary dozer.
+    {
+        let mut sys = wall_sys();
+        sys.grid.set_cell_obstacle_owned(
+            GridPos::new(5, 3),
+            false,
+            false,
+            21,
+            Some(2),
+            Some(Team::GLA),
+        );
+        let mut objects = HostObjectStore::new();
+        admit_dozer(&mut objects, 1, Team::USA, 0);
+        let mut enemy_t = ThingTemplate::new("GLABarracks");
+        enemy_t.add_kind_of(KindOf::Structure);
+        let mut enemy = Object::new(enemy_t, ObjectId(21), Team::GLA);
+        enemy.owner_player_id = Some(2);
+        objects.admit(enemy.id, enemy);
+        assert!(
+            sys.find_path_ex(start, goal, objects.read(), false, Some(ObjectId(1)), &ground)
+                .is_none(),
+            "enemy obstacle must block non-defector dozer"
+        );
+    }
+
+    // Seeker undetected defector may pass the same enemy obstacle.
+    {
+        let mut sys = wall_sys();
+        sys.grid.set_cell_obstacle_owned(
+            GridPos::new(5, 3),
+            false,
+            false,
+            21,
+            Some(2),
+            Some(Team::GLA),
+        );
+        let mut objects = HostObjectStore::new();
+        admit_dozer(&mut objects, 1, Team::USA, 0);
+        objects
+            .get_mut(&ObjectId(1))
+            .unwrap()
+            .begin_undetected_defection(0, 600, false);
+        assert!(
+            objects.get(&ObjectId(1)).unwrap().is_undetected_defector(),
+            "seeker must be undetected defector"
+        );
+        let mut enemy_t = ThingTemplate::new("GLABarracks");
+        enemy_t.add_kind_of(KindOf::Structure);
+        let mut enemy = Object::new(enemy_t, ObjectId(21), Team::GLA);
+        enemy.owner_player_id = Some(2);
+        objects.admit(enemy.id, enemy);
+        assert!(
+            sys.find_path_ex(start, goal, objects.read(), false, Some(ObjectId(1)), &ground)
+                .is_some(),
+            "undetected-defector seeker must dozerHack enemy obstacle"
+        );
+    }
+
+    // Obstacle undetected defector also grants passage.
+    {
+        let mut sys = wall_sys();
+        sys.grid.set_cell_obstacle_owned(
+            GridPos::new(5, 3),
+            false,
+            false,
+            21,
+            Some(2),
+            Some(Team::GLA),
+        );
+        let mut objects = HostObjectStore::new();
+        admit_dozer(&mut objects, 1, Team::USA, 0);
+        let mut enemy_t = ThingTemplate::new("GLABarracks");
+        enemy_t.add_kind_of(KindOf::Structure);
+        let mut enemy = Object::new(enemy_t, ObjectId(21), Team::GLA);
+        enemy.owner_player_id = Some(2);
+        enemy.begin_undetected_defection(0, 600, false);
+        objects.admit(enemy.id, enemy);
+        assert!(
+            sys.find_path_ex(start, goal, objects.read(), false, Some(ObjectId(1)), &ground)
+                .is_some(),
+            "undetected-defector obstacle must admit dozerHack"
+        );
+    }
+
+    // Stale obstacle id (no live object) must not grant passage.
+    {
+        let mut sys = wall_sys();
+        sys.grid.set_cell_obstacle_owned(
+            GridPos::new(5, 3),
+            false,
+            false,
+            99,
+            Some(2),
+            Some(Team::GLA),
+        );
+        let mut objects = HostObjectStore::new();
+        admit_dozer(&mut objects, 1, Team::USA, 0);
+        assert!(
+            sys.find_path_ex(start, goal, objects.read(), false, Some(ObjectId(1)), &ground)
+                .is_none(),
+            "missing obstacle object must not admit dozerHack"
+        );
+    }
+}
+
+
 /// hq-ugt0x: downhill-only is not hardcoded false on the live A* call.
 
 #[test]
