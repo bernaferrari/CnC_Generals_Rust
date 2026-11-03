@@ -252,6 +252,8 @@ impl AudioFileCache {
 
 /// The main AudioManager - matches C++ API exactly
 pub struct AudioManager {
+    /// Owned WW3D animated-sound metadata manager (local to this rodio manager).
+    animated_sound_mgr: std::sync::Arc<AnimatedSoundMgr>,
     // Core settings
     audio_settings: AudioSettings,
     misc_audio: MiscAudio,
