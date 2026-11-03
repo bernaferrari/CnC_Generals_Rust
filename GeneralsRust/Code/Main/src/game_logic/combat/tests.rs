@@ -3003,3 +3003,47 @@ pub(in crate::game_logic) mod tests {
         );
     }
 }
+
+    #[test]
+    fn directional_splash_cone_skips_behind_source() {
+        use super::leftover_radius_damage_cone_allows;
+        let source = Vec3::new(0.0, 0.0, 0.0);
+        let facing = (1.0_f32, 0.0_f32); // +X
+        let ahead = Vec3::new(10.0, 0.0, 0.0);
+        let behind = Vec3::new(-10.0, 0.0, 0.0);
+        let narrow = 0.1_f32;
+        assert!(leftover_radius_damage_cone_allows(
+            narrow,
+            Some(source),
+            Some(facing),
+            ahead,
+        ));
+        assert!(!leftover_radius_damage_cone_allows(
+            narrow,
+            Some(source),
+            Some(facing),
+            behind,
+        ));
+        assert!(leftover_radius_damage_cone_allows(
+            std::f32::consts::PI,
+            Some(source),
+            Some(facing),
+            behind,
+        ));
+        assert!(
+            !leftover_radius_damage_cone_allows(narrow, None, Some(facing), ahead),
+            "missing source must skip when directional"
+        );
+    }
+
+    #[test]
+    fn splash_template_equivalence_is_case_insensitive_and_rejects_empty() {
+        use crate::game_logic::weapon_bootstrap::splash_templates_equivalent;
+        assert!(splash_templates_equivalent("AmericaTankCrusader", "americatankcrusader"));
+        assert!(!splash_templates_equivalent("", "AmericaTankCrusader"));
+        assert!(!splash_templates_equivalent("AmericaTankCrusader", ""));
+        assert!(!splash_templates_equivalent(
+            "AmericaTankCrusader",
+            "AmericaInfantryRanger"
+        ));
+    }

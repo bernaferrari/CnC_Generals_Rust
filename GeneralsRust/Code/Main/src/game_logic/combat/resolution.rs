@@ -1132,7 +1132,7 @@ pub(crate) fn victim_splash_sphere_radius(obj: &Object) -> f32 {
 }
 
 /// Leftover `WeaponTemplate::radius_damage_angle`. Missing name / store miss → C++ PI (full circle).
-fn leftover_radius_damage_angle(weapon_name: &str) -> f32 {
+pub(crate) fn leftover_radius_damage_angle(weapon_name: &str) -> f32 {
     if weapon_name.is_empty() {
         return std::f32::consts::PI;
     }
@@ -1148,7 +1148,7 @@ fn leftover_radius_damage_angle(weapon_name: &str) -> f32 {
 
 /// Leftover `deal_damage_internal` cone (Weapon.cpp:1393-1408).
 /// `allowed_angle < PI` gates splash to the source facing cone; missing source skips the victim.
-fn leftover_radius_damage_cone_allows(
+pub(crate) fn leftover_radius_damage_cone_allows(
     allowed_angle: f32,
     source_pos: Option<Vec3>,
     source_dir_xz: Option<(f32, f32)>,
