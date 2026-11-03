@@ -206,6 +206,85 @@ impl Object {
         }
     }
 
+    /// C++ ActiveBody::onSubdualChange → ProjectileUpdateInterface::projectileNowJammed.
+    /// DumbProjectileBehavior is empty; MissileAIUpdate scatters and loses lock.
+    pub(crate) fn projectile_now_jammed(&mut self, seed: u32) {
+        use crate::game_logic::host_ecm_jam::{
+            ecm_missile_scatter_offset, is_dumb_projectile_shell_name, is_ecm_jam_projectile_flags,
+        };
+        if self.ecm_missile_jammed {
+            return;
+        }
+        let proj = self.is_kind_of(KindOf::Projectile);
+        if !is_ecm_jam_projectile_flags(proj, &self.template_name, false) {
+            return;
+        }
+        if is_dumb_projectile_shell_name(&self.template_name)
+            || self.usa_tank_shell_projectile
+            || self.battlemaster_shell_projectile
+            || self.overlord_shell_projectile
+            || self.marauder_shell_projectile
+            || self.fire_base_shell_projectile
+            || self.technical_cannon_shell_projectile
+            || self.nuke_cannon_shell_projectile
+            || self.neutron_cannon_shell_projectile
+            || self.inferno_shell_projectile
+            || self.scorpion_shell_projectile
+        {
+            return;
+        }
+        let pos = self.get_position();
+        let (sx, sz) = ecm_missile_scatter_offset(seed);
+        let new_aim = [pos.x + sx, 0.0, pos.z + sz];
+        self.ecm_missile_jammed = true;
+        if self.raptor_missile_aim.is_some() {
+            self.raptor_missile_aim = Some(new_aim);
+            self.raptor_missile_intended = None;
+        }
+        if self.mig_missile_aim.is_some() {
+            self.mig_missile_aim = Some(new_aim);
+            self.mig_missile_intended = None;
+        }
+        if self.tomahawk_missile_aim.is_some() {
+            self.tomahawk_missile_aim = Some(new_aim);
+        }
+        if self.scud_launcher_missile_aim.is_some() {
+            self.scud_launcher_missile_aim = Some(new_aim);
+        }
+        if self.rocket_buggy_missile_aim.is_some() {
+            self.rocket_buggy_missile_aim = Some(new_aim);
+            self.rocket_buggy_missile_intended = None;
+        }
+        if self.rpg_trooper_missile_aim.is_some() {
+            self.rpg_trooper_missile_aim = Some(new_aim);
+            self.rpg_trooper_missile_intended = None;
+        }
+        if self.tank_hunter_missile_aim.is_some() {
+            self.tank_hunter_missile_aim = Some(new_aim);
+            self.tank_hunter_missile_intended = None;
+        }
+        if self.missile_defender_missile_aim.is_some() {
+            self.missile_defender_missile_aim = Some(new_aim);
+            self.missile_defender_missile_intended = None;
+        }
+        if self.scorpion_missile_aim.is_some() {
+            self.scorpion_missile_aim = Some(new_aim);
+            self.scorpion_missile_intended = None;
+        }
+        if self.technical_rpg_missile_aim.is_some() {
+            self.technical_rpg_missile_aim = Some(new_aim);
+            self.technical_rpg_missile_intended = None;
+        }
+        if self.stealth_jet_missile_aim.is_some() {
+            self.stealth_jet_missile_aim = Some(new_aim);
+            self.stealth_jet_missile_intended = None;
+        }
+        if self.humvee_tow_aim.is_some() {
+            self.humvee_tow_aim = Some(new_aim);
+            self.humvee_tow_intended = None;
+        }
+    }
+
     pub fn set_disabled_subdued(
         &mut self,
         subdued: bool,
@@ -229,10 +308,11 @@ impl Object {
                 self.set_status_moving(false);
                 self.stop_moving(audio);
             }
-            // C++ ActiveBody::onSubdualChange: non-projectile contain
-            // `orderAllPassengersToIdle`. Occupants are other HostObjects;
-            // GameLogic flushes `pending_subdual_passenger_idle`.
-            if becoming && !self.is_kind_of(KindOf::Projectile) {
+            // C++ ActiveBody::onSubdualChange: projectileNowJammed once on the
+            // edge into subdued; non-projectile contain orderAllPassengersToIdle.
+            if becoming && self.is_kind_of(KindOf::Projectile) {
+                self.projectile_now_jammed(self.id.0);
+            } else if becoming && !self.is_kind_of(KindOf::Projectile) {
                 self.status.pending_subdual_passenger_idle = true;
             }
         } else {

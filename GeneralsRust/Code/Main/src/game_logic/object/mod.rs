@@ -3347,6 +3347,8 @@ mod kill_special_reentry_tests;
 mod damage_status_type_owner_tests;
 #[cfg(test)]
 mod source_template_damage_tests;
+#[cfg(test)]
+mod projectile_subdual_jam_tests;
 mod entity_lifecycle_tags;
 mod entity_lifecycle_weapon_slots;
 mod fx;
