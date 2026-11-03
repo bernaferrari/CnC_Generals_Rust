@@ -48,6 +48,8 @@ use crate::common::ini::ini_mouse::CursorInfo;
 use crate::common::ini::ini_object::ObjectDefinition;
 use std::collections::HashMap;
 use crate::common::ini::ini::{BlockParse, ParticleSystemLiveOverlay};
+use crate::common::ini::ini_challenge_generals::{ChallengeGenerals, ChallengeGeneralsLoadError};
+use std::sync::OnceLock;
 
 /// INI / definition registries owned by one game instance.
 pub struct IniStores {
@@ -97,6 +99,8 @@ pub struct IniStores {
     pub particle_system_live_overlay: RwLock<Option<ParticleSystemLiveOverlay>>,
     /// Map-cache display-name text provider (GameTextManager bridge).
     pub game_text_provider: Mutex<Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>>,
+    /// Authored ChallengeMode.ini personas (C++ TheChallengeGenerals table).
+    pub challenge_generals: OnceLock<Result<(String, Arc<ChallengeGenerals>), ChallengeGeneralsLoadError>>,
 }
 
 impl Default for IniStores {
@@ -145,6 +149,7 @@ impl Default for IniStores {
             extra_block_parsers: RwLock::new(Vec::new()),
             particle_system_live_overlay: RwLock::new(None),
             game_text_provider: Mutex::new(None),
+            challenge_generals: OnceLock::new(),
         }
     }
 }
