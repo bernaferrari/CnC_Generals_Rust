@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 
 use crate::game_text::GameText;
 use crate::gui::callbacks::{
@@ -26,7 +26,7 @@ const KEY_STATE_UP: usize = 0x0001;
 const LAN_PLAYER_NAME_LENGTH: usize = 12;
 
 #[derive(Default)]
-struct LanLobbyState {
+pub(crate) struct LanLobbyState {
     parent_id: i32,
     button_back_id: i32,
     button_clear_id: i32,
@@ -58,22 +58,48 @@ struct LanLobbyState {
     socket_error: bool,
 }
 
+#[cfg(test)]
 thread_local! {
-    static STATE: Rc<RefCell<LanLobbyState>> = Rc::new(RefCell::new(LanLobbyState::default()));
+    static TEST_LAN_LOBBY: Rc<RefCell<LanLobbyState>> =
+        Rc::new(RefCell::new(LanLobbyState::default()));
+    static TEST_LAN_EVENTS: std::cell::OnceCell<std::sync::Arc<Mutex<VecDeque<LanEvent>>>> =
+        std::cell::OnceCell::new();
 }
 
-// THREAD: producer -> consumer handoff. The tokio task spawned by
-// `pump_lan_events` (see `spawn_lan`) pushes LAN events from the async
-// runtime while the GUI thread drains them in the lobby update, so this
-// stays a lock-backed queue rather than thread-local state.
-static LAN_EVENTS: OnceLock<Mutex<VecDeque<LanEvent>>> = OnceLock::new();
-
-fn events() -> &'static Mutex<VecDeque<LanEvent>> {
-    LAN_EVENTS.get_or_init(|| Mutex::new(VecDeque::new()))
+/// THREAD: producer -> consumer handoff. The tokio task spawned by
+/// `pump_lan_events` pushes LAN events from the async runtime while the GUI
+/// thread drains them; the queue lives on WindowManagerOwner.
+fn events() -> std::sync::Arc<Mutex<VecDeque<LanEvent>>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().lan_events_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_LAN_EVENTS
+            .with(|slot| slot.get_or_init(|| std::sync::Arc::new(Mutex::new(VecDeque::new()))).clone());
+    }
+    #[cfg(not(test))]
+    {
+        std::sync::Arc::new(Mutex::new(VecDeque::new()))
+    }
 }
 
 fn state() -> Rc<RefCell<LanLobbyState>> {
-    STATE.with(Rc::clone)
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().lan_lobby_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_LAN_LOBBY.with(Rc::clone);
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(LanLobbyState::default()))
+    }
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -139,12 +165,15 @@ where
 }
 
 fn pump_lan_events() {
+    // Capture the queue on the GUI thread; the async task must not peel live
+    // GameClient (non-Send) from the tokio worker.
+    let queue = events();
     spawn_lan(async move {
         let mut guard = the_lan().lock().await;
         if let Some(api) = guard.as_mut() {
             match api.update().await {
                 Ok(Some(event)) => {
-                    if let Ok(mut q) = events().lock() {
+                    if let Ok(mut q) = queue.lock() {
                         q.push_back(event);
                     }
                 }

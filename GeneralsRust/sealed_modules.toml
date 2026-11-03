@@ -332,3 +332,8 @@ path = "Code/GameEngine/GameClient/src/gui/callbacks/lan_game_options_menu.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/LanGameOptionsMenu.cpp"
 note = "LanGameOptionsState + map-select layout on WindowManagerOwner; removed process TLS; peels use owner or live-client loan."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/lan_lobby_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/LanLobbyMenu.cpp"
+note = "LanLobbyState + LAN event queue on WindowManagerOwner (online_ui); removed process TLS/OnceLock; peels use live-client loan."
+
