@@ -41,6 +41,7 @@ use wgpu::{Device, Queue, Surface, SurfaceConfiguration, TextureFormat};
 use ww3d_assets::AssetManager;
 use ww3d_core::errors::{W3DError, W3DResult};
 use ww3d_core::ww3d::{FrameStats, RendererBackend, Ww3dContext};
+use crate::process_state::{install_renderer_3d, Renderer3dRuntime};
 use ww3d_engine::{self, EngineError};
 use ww3d_gpu::device::GpuDevice;
 
@@ -107,6 +108,8 @@ pub struct WgpuMainRenderer {
     registered_with_ww3d: bool,
     /// Owned WW3D façade (C++ W3DDisplay owns WW3D session state).
     pub ww3d: Arc<Ww3dContext>,
+    /// Owned renderer-3d session bag (config / texture / id counters).
+    pub renderer_3d: Arc<Renderer3dRuntime>,
     pending_frame: Option<ww3d_engine::RenderFrame>,
     last_surface_presented: bool,
     pre_scene_callbacks: Vec<FrameCallback>,
@@ -230,6 +233,8 @@ impl WgpuMainRenderer {
         let ready_flag = Arc::new(AtomicBool::new(true));
         let ww3d = Arc::new(Ww3dContext::new());
         ww3d.install_asset_manager_bridge();
+        let renderer_3d = Arc::new(Renderer3dRuntime::new());
+        install_renderer_3d(Arc::clone(&renderer_3d));
         if let Ok(mut guard) = renderer.lock() {
             guard.set_ww3d(Arc::clone(&ww3d));
         }
@@ -260,6 +265,7 @@ impl WgpuMainRenderer {
             ready_flag,
             registered_with_ww3d,
             ww3d,
+            renderer_3d,
             pending_frame: None,
             last_surface_presented: false,
             pre_scene_callbacks: Vec::new(),
@@ -313,6 +319,8 @@ impl WgpuMainRenderer {
         let ready_flag = Arc::new(AtomicBool::new(true));
         let ww3d = Arc::new(Ww3dContext::new());
         ww3d.install_asset_manager_bridge();
+        let renderer_3d = Arc::new(Renderer3dRuntime::new());
+        install_renderer_3d(Arc::clone(&renderer_3d));
         if let Ok(mut guard) = renderer.lock() {
             guard.set_ww3d(Arc::clone(&ww3d));
         }
@@ -343,6 +351,7 @@ impl WgpuMainRenderer {
             ready_flag,
             registered_with_ww3d,
             ww3d,
+            renderer_3d,
             pending_frame: None,
             last_surface_presented: false,
             pre_scene_callbacks: Vec::new(),

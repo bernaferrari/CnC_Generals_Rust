@@ -22,7 +22,7 @@ impl Default for MeshClass {
 impl MeshClass {
     pub fn new() -> Self {
         // Atomically increment and get the debug ID (thread-safe, no unsafe needed)
-        let debug_id = crate::process_state::RENDERER_3D.mesh_debug_id_count.fetch_add(1, Ordering::SeqCst);
+        let debug_id = crate::process_state::renderer_3d().mesh_debug_id_count.fetch_add(1, Ordering::SeqCst);
         Self {
             name: String::new(),
             model: None,

@@ -77,16 +77,7 @@ const BOX_VERTEX_NORMALS: [Vec3; NUM_BOX_VERTS] = [
 ];
 
 /// Display mask for controlling which boxes are rendered
-/// C++ Reference: boxrobj.cpp line 160 (static int DisplayMask)
-/// Rust Implementation: Uses AtomicI32 with Relaxed ordering for thread-safe access
-struct BoxRenderRuntime {
-    display_mask: AtomicI32,
-    is_initted: AtomicBool,
-}
-static BOX_RENDER: BoxRenderRuntime = BoxRenderRuntime {
-    display_mask: AtomicI32::new(0),
-    is_initted: AtomicBool::new(false),
-};
+/// Box display mask / init flag live on [`crate::process_state::Renderer3dRuntime`].
 
 /// Base class for box rendering objects
 pub struct BoxRenderObjClass {
@@ -123,8 +114,8 @@ impl BoxRenderObjClass {
     /// Initialize the box render object system
     /// C++ Reference: boxrobj.cpp lines 347-366
     pub fn init() {
-        BOX_RENDER.is_initted.store(true, Ordering::Relaxed);
-        BOX_RENDER.display_mask.store(0, Ordering::Relaxed);
+        crate::process_state::renderer_3d().box_is_initted.store(true, Ordering::Relaxed);
+        crate::process_state::renderer_3d().box_display_mask.store(0, Ordering::Relaxed);
         // In C++, this also initializes materials and shaders
         // In Rust WGPU renderer, materials are managed separately
     }
@@ -132,7 +123,7 @@ impl BoxRenderObjClass {
     /// Shutdown the box render object system
     /// C++ Reference: boxrobj.cpp lines 384-390
     pub fn shutdown() {
-        BOX_RENDER.is_initted.store(false, Ordering::Relaxed);
+        crate::process_state::renderer_3d().box_is_initted.store(false, Ordering::Relaxed);
         // In C++, this releases materials
         // In Rust, RAII handles cleanup automatically
     }
@@ -140,13 +131,13 @@ impl BoxRenderObjClass {
     /// Set the display mask (controls which boxes render)
     /// Thread-safe mask update for collision box visualization control
     pub fn set_box_display_mask(mask: i32) {
-        BOX_RENDER.display_mask.store(mask, Ordering::Relaxed);
+        crate::process_state::renderer_3d().box_display_mask.store(mask, Ordering::Relaxed);
     }
 
     /// Get the display mask
     /// Thread-safe read of collision box visualization mask
     pub fn get_box_display_mask() -> i32 {
-        BOX_RENDER.display_mask.load(Ordering::Relaxed)
+        crate::process_state::renderer_3d().box_display_mask.load(Ordering::Relaxed)
     }
 
     /// Get the name
@@ -234,7 +225,7 @@ impl BoxRenderObjClass {
     /// active renderer backend.
     pub fn render_box(&self, _rinfo: &RenderInfoClass, center: Vec3, extent: Vec3) {
         // Early exit if not initialized
-        if !BOX_RENDER.is_initted.load(Ordering::Relaxed) {
+        if !crate::process_state::renderer_3d().box_is_initted.load(Ordering::Relaxed) {
             return;
         }
 
@@ -266,7 +257,7 @@ impl BoxRenderObjClass {
     /// Renders the box with a special VIS-ID for picking/selection.
     /// This is used by the editor and debugging tools.
     pub fn vis_render_box(&self, _rinfo: &SpecialRenderInfoClass, center: Vec3, extent: Vec3) {
-        if !BOX_RENDER.is_initted.load(Ordering::Relaxed) {
+        if !crate::process_state::renderer_3d().box_is_initted.load(Ordering::Relaxed) {
             return;
         }
 

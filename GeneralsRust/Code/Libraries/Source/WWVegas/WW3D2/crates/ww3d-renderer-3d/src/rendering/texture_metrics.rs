@@ -35,17 +35,17 @@ pub fn record_decision(name: impl Into<String>, decision: &FormatDecision, mip_l
         mip_levels,
     };
 
-    crate::process_state::RENDERER_3D.texture_decisions.lock().unwrap_or_else(|p| p.into_inner()).push(record);
+    crate::process_state::renderer_3d().texture_decisions.lock().unwrap_or_else(|p| p.into_inner()).push(record);
 }
 
 /// Snapshot the recorded decisions and clear the buffer.
 pub fn drain_decisions() -> Vec<TextureDecisionRecord> {
-    std::mem::take(&mut *crate::process_state::RENDERER_3D.texture_decisions.lock().unwrap_or_else(|p| p.into_inner()))
+    std::mem::take(&mut *crate::process_state::renderer_3d().texture_decisions.lock().unwrap_or_else(|p| p.into_inner()))
 }
 
 /// Borrow a copy of the current decision log without clearing it.
 pub fn snapshot_decisions() -> Vec<TextureDecisionRecord> {
-    crate::process_state::RENDERER_3D.texture_decisions.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    crate::process_state::renderer_3d().texture_decisions.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 /// Summary information derived from recorded decisions.
@@ -64,7 +64,8 @@ pub struct TextureMetricsSummary {
 /// Build a summary of the current decision log without clearing it.
 pub fn summarize() -> TextureMetricsSummary {
     let empty = Vec::new();
-    let guard = crate::process_state::RENDERER_3D.texture_decisions.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    let __r3d = crate::process_state::renderer_3d();
+    let guard = __r3d.texture_decisions.lock().unwrap_or_else(|p| p.into_inner()).clone();
     let guard: &Vec<TextureDecisionRecord> = if guard.is_empty() { &empty } else { &guard };
 
     if guard.is_empty() {

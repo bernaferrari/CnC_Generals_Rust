@@ -17,12 +17,6 @@
 use super::texture_mapper::TextureMapperType;
 use glam::Vec3;
 use std::sync::atomic::{AtomicU32, Ordering};
-struct VertexMaterialIdRuntime {
-    next_id: AtomicU32,
-}
-static VERTEX_MATERIAL_IDS: VertexMaterialIdRuntime = VertexMaterialIdRuntime {
-    next_id: AtomicU32::new(1),
-};
 
 use std::sync::{Arc, OnceLock};
 
@@ -232,7 +226,7 @@ impl VertexMaterialClass {
             fn deref(&self) -> &Self::Target { &self.0 }
         }
         // ids from VERTEX_MATERIAL_IDS (was local static starting at 1)
-        let unique_id = VERTEX_MATERIAL_IDS.next_id.fetch_add(1, Ordering::Relaxed);
+        let unique_id = crate::process_state::renderer_3d().next_vertex_material_id.fetch_add(1, Ordering::Relaxed);
 
         Self {
             name: String::new(),
@@ -267,7 +261,7 @@ impl VertexMaterialClass {
                 fn deref(&self) -> &Self::Target { &self.0 }
             }
         // ids from VERTEX_MATERIAL_IDS (was local static starting at 1)
-        VERTEX_MATERIAL_IDS.next_id.fetch_add(1, Ordering::Relaxed)
+        crate::process_state::renderer_3d().next_vertex_material_id.fetch_add(1, Ordering::Relaxed)
         };
         cloned
     }
@@ -647,7 +641,7 @@ impl VertexMaterialClass {
             fn deref(&self) -> &Self::Target { &self.0 }
         }
         // ids from VERTEX_MATERIAL_IDS (was local static starting at 1000)
-        let unique_id = VERTEX_MATERIAL_IDS.next_id.fetch_add(1, Ordering::Relaxed);
+        let unique_id = crate::process_state::renderer_3d().next_vertex_material_id.fetch_add(1, Ordering::Relaxed);
         self.unique_id = unique_id;
         self.crc_dirty = true;
     }

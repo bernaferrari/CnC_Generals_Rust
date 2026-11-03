@@ -14,12 +14,13 @@ const WWMATH_EPSILON: f32 = 1.0e-5;
 
 /// C++ `Set_Lighting_LOD_Cutoff`.
 pub fn set_lighting_lod_cutoff(cutoff: f32) {
-    { let mut cell = crate::process_state::RENDERER_3D.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()); *cell = cutoff };
+    { let __r3d = crate::process_state::renderer_3d();
+    let mut cell = __r3d.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()); *cell = cutoff };
 }
 
 /// C++ `Get_Lighting_LOD_Cutoff` (default 0.5, cutoff² = 0.25).
 pub fn get_lighting_lod_cutoff() -> f32 {
-    crate::process_state::RENDERER_3D.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    crate::process_state::renderer_3d().lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 fn lighting_lod_cutoff2() -> f32 {
