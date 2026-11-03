@@ -48,6 +48,7 @@ pub struct DrawableState {
     pub(super) fx: crate::fx_list::FxClientState,
     pub(super) tracers: crate::effects::tracer_fx::TracerFxState,
     pub(super) beacons: crate::system::beacon_display::BeaconDisplayState,
+    pub(super) rays: crate::effects::ray_effect_system::RayFxState,
     pub(super) next_drawable_id: DrawableId,
     pub(super) ray_effects: crate::effects::ray_effect_registry::RayEffectSystem,
     /// C++ GameClient.cpp480 prepends each newly constructed Drawable.
@@ -75,6 +76,7 @@ impl DrawableState {
             fx: Default::default(),
             tracers: Default::default(),
             beacons: Default::default(),
+            rays: Default::default(),
             next_drawable_id: DrawableId(1),
             ray_effects: Default::default(),
             native_drawable_order: Vec::new(),
@@ -336,5 +338,9 @@ impl GameClient {
         &mut self,
     ) -> &mut crate::display::client_draw_schedule::ClientDrawScheduleState {
         &mut self.draw_schedule
+    }
+
+    pub fn rays_mut(&mut self) -> &mut crate::effects::ray_effect_system::RayFxState {
+        &mut self.drawables.rays
     }
 }

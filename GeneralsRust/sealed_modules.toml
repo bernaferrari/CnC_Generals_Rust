@@ -253,3 +253,8 @@ path = "Code/GameEngine/GameClient/src/display/client_draw_schedule.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Display/W3DDisplay.cpp"
 note = "Draw schedule peels use GameClient::draw_schedule; removed SYNC_TIME/LAST_* atomics."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/effects/ray_effect_system.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/RayEffect.cpp"
+note = "RayFxState on GameClient::drawables.rays; removed process OnceLock Mutex store; peels use live-client loan."
+
