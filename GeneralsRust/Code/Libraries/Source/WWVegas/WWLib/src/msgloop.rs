@@ -40,26 +40,32 @@ impl PartialEq for AcceleratorTracker {
 
 #[cfg(target_os = "windows")]
 struct ModelessDialogsSlot(OnceLock<Mutex<DynamicVectorClass<HWND>>>);
+#[cfg(target_os = "windows")]
 impl std::ops::Deref for ModelessDialogsSlot {
     type Target = OnceLock<Mutex<DynamicVectorClass<HWND>>>;
     fn deref(&self) -> &Self::Target { &self.0 }
 }
+#[cfg(target_os = "windows")]
 static MODELESS_DIALOGS: ModelessDialogsSlot = ModelessDialogsSlot(OnceLock::new());
 
 #[cfg(target_os = "windows")]
 struct AcceleratorsSlot(OnceLock<Mutex<DynamicVectorClass<AcceleratorTracker>>>);
+#[cfg(target_os = "windows")]
 impl std::ops::Deref for AcceleratorsSlot {
     type Target = OnceLock<Mutex<DynamicVectorClass<AcceleratorTracker>>>;
     fn deref(&self) -> &Self::Target { &self.0 }
 }
+#[cfg(target_os = "windows")]
 static ACCELERATORS: AcceleratorsSlot = AcceleratorsSlot(OnceLock::new());
 
 #[cfg(target_os = "windows")]
 struct MessageInterceptHandlerSlot(Mutex<Option<fn(&mut MSG) -> bool>>);
+#[cfg(target_os = "windows")]
 impl std::ops::Deref for MessageInterceptHandlerSlot {
     type Target = Mutex<Option<fn(&mut MSG) -> bool>>;
     fn deref(&self) -> &Self::Target { &self.0 }
 }
+#[cfg(target_os = "windows")]
 static MESSAGE_INTERCEPT_HANDLER: MessageInterceptHandlerSlot = MessageInterceptHandlerSlot(Mutex::new(None));
 
 #[cfg(target_os = "windows")]
