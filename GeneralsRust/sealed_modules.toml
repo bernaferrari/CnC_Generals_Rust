@@ -414,3 +414,28 @@ note = "GameInfoWindowState on WindowManagerOwner; removed process TLS; peels pr
 path = "Code/GameEngine/GameClient/src/gui/callbacks/download_menu.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/DownloadMenu.cpp"
 note = "DownloadMenuState on WindowManagerOwner; removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/popup_ladder_select.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupLadderSelect.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_status_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLStatusMenu.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_message_window.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLMessageWindow.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wolqm_score_screen.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLQMScoreScreen.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_custom_score_screen.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLCustomScoreScreen.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
