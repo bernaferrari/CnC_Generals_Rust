@@ -1319,6 +1319,34 @@ impl CnCGameEngine {
             }
         }
 
+        // Hint path installs heightmap geometry but historically skipped
+        // Art/Terrain TGA loads from TerrainZH.big (disk-only resolve → grey
+        // stand-ins). Always hydrate source tiles through the mounted archive
+        // after either heightmap route, matching C++ WorldHeightMap tile load.
+        {
+            let mut read_virtual_file = |path: &str| {
+                let mut assets = application_assets
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                assets.archive_file_system_mut().open_file_sync(path).ok()
+            };
+            match render_pipeline.hydrate_native_terrain_gpu_with_source_reader(
+                &graphics_system.device_arc(),
+                &graphics_system.queue_arc(),
+                &mut read_virtual_file,
+            ) {
+                Ok(true) => info!(
+                    "Hydrated terrain source tiles from archive for '{}'",
+                    map_name
+                ),
+                Ok(false) => {}
+                Err(err) => warn!(
+                    "Archive terrain source tile hydrate failed for '{}': {}",
+                    map_name, err
+                ),
+            }
+        }
+
         // C++ WaterRenderObjClass::renderWater traverses the map's authored
         // PolygonTrigger water areas. This runs after both hint and frozen
         // runtime-heightmap hydration, including rematch and save restore.

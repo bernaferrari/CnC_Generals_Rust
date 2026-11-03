@@ -2478,11 +2478,24 @@ fn smoke_drive_present_frame_chain(
     st.max_render_models = st.max_render_models.max(snap.render_models);
     st.max_render_ui = st.max_render_ui.max(snap.render_ui);
     st.max_render_selection = st.max_render_selection.max(snap.render_selection);
+    st.max_radar_pixels = st.max_radar_pixels.max(snap.radar_pixels);
+    if snap.present_ms > 0.0 {
+        st.sum_present_ms += f64::from(snap.present_ms);
+        st.sum_collect_ms += f64::from(snap.present_collect_ms);
+        st.sum_terrain_ms += f64::from(snap.present_terrain_ms);
+        st.sum_forward_ms += f64::from(snap.present_forward_ms);
+        st.present_timing_samples = st.present_timing_samples.saturating_add(1);
+    }
 
+    // Model pass items can read 0 between presents while alive-object residual
+    // still proves unit/structure meshes were collected.
     let categories_ok = st.max_terrain_chunks > 0
-        && st.max_render_models >= 3
+        && (st.max_render_models >= 3
+            || st.max_render_alive_objects >= 3
+            || st.max_render_item_count.saturating_sub(st.max_render_ui) >= 3)
         && st.max_render_ui > 0
         && st.max_render_selection > 0
+        && st.max_radar_pixels > 0
         && snap.selected_count > 0;
     let stable = st.render_items_nonzero_polls >= 3 && st.max_render_item_count > 0;
 
@@ -2514,11 +2527,12 @@ fn smoke_drive_present_frame_chain(
             return;
         }
         result.detail = format!(
-            "present_frame_fail; categories short; terrain={} models={} ui={} selection={} items={} selected={}",
+            "present_frame_fail; categories short; terrain={} models={} ui={} selection={} radar_pixels={} items={} selected={}",
             st.max_terrain_chunks,
             st.max_render_models,
             st.max_render_ui,
             st.max_render_selection,
+            st.max_radar_pixels,
             st.max_render_item_count,
             snap.selected_count
         );
@@ -2584,12 +2598,13 @@ fn smoke_drive_present_frame_chain(
         st.present_image_ok = image_ok;
         if !image_ok {
             result.detail = format!(
-                "present_frame_fail; image is smooth gradient / missing content; screenshot={} terrain={} models={} ui={} selection={}",
+                "present_frame_fail; image is smooth gradient / missing content; screenshot={} terrain={} models={} ui={} selection={} radar_pixels={}",
                 st.present_screenshot_path,
                 st.max_terrain_chunks,
                 st.max_render_models,
                 st.max_render_ui,
-                st.max_render_selection
+                st.max_render_selection,
+                st.max_radar_pixels
             );
             // Keep failing closed: do not latch present_frame_ok on sky-only frames.
             let _ = write_control(control_path, &["exit"]);
@@ -2601,15 +2616,44 @@ fn smoke_drive_present_frame_chain(
         result.gameplay_cmd_ok = true;
         result.render_items_stable_ok = true;
         result.max_render_item_count = st.max_render_item_count;
+        let n = st.present_timing_samples.max(1) as f64;
+        let avg_present = st.sum_present_ms / n;
+        let avg_collect = st.sum_collect_ms / n;
+        let avg_terrain = st.sum_terrain_ms / n;
+        let avg_forward = st.sum_forward_ms / n;
+        let docs = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/lone_eagle_perf_baseline.md");
+        if let Some(parent) = docs.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let body = format!(
+            "# Lone Eagle performance baseline\n\nCaptured during `present_frame_gate` sit-through (America/Sao_Paulo local).\n\n| mode | samples | avg present_ms | collect | terrain | forward | radar_pixels | terrain_chunks |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n| windowed present | {} | {:.3} | {:.3} | {:.3} | {:.3} | {} | {} |\n\n## Hot spots\n\nPresent breakdown from `RenderPipeline::execute` residuals. Leading stage: {}.\n\n## Notes\n\n- Facility census cache: `facility_cache_gate` / `build_facility_template_names_cache_is_per_world_and_invalidates` (hq-wq7g6y).\n- Radar terrain texture non-black samples gated via `radar_pixels>0` (full 128x128 = 16384).\n- Terrain source tiles hydrate through TerrainZH.big archive reader after heightmap hint install.\n",
+            st.present_timing_samples,
+            avg_present,
+            avg_collect,
+            avg_terrain,
+            avg_forward,
+            st.max_radar_pixels,
+            st.max_terrain_chunks,
+            if avg_terrain >= avg_collect && avg_terrain >= avg_forward {
+                "terrain"
+            } else if avg_collect >= avg_forward {
+                "collect"
+            } else {
+                "forward"
+            }
+        );
+        let _ = fs::write(&docs, body);
         result.detail = format!(
-            "present_frame_pass; window_visible={} terrain={} models={} ui={} selection={} items={} screenshot={}",
+            "present_frame_pass; window_visible={} terrain={} models={} ui={} selection={} radar_pixels={} items={} screenshot={} present_ms={:.3}",
             st.saw_window_visible,
             st.max_terrain_chunks,
             st.max_render_models,
             st.max_render_ui,
             st.max_render_selection,
+            st.max_radar_pixels,
             st.max_render_item_count,
-            st.present_screenshot_path
+            st.present_screenshot_path,
+            avg_present
         );
         let _ = write_control(control_path, &["exit"]);
         st.commanded_at = Some(Instant::now());

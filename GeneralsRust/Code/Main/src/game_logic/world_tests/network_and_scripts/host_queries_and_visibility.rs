@@ -1193,6 +1193,7 @@ fn exact_model_lookup_rejects_legacy_proxy_meshes() {
 fn get_available_templates_filters_faction_prefixed_templates() {
     let mut game_logic = GameLogic::new();
     game_logic.templates.clear();
+    game_logic.invalidate_build_facility_template_names_cache();
 
     let mut usa = ThingTemplate::new("USA_Tank");
     usa.add_kind_of(KindOf::Selectable)

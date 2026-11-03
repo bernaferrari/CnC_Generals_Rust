@@ -114,6 +114,7 @@ impl GameLogic {
         }
         let projectile_candidate=crate::game_logic::projectile_definitions::ProjectileDefinitions::from_effective_definitions(definitions.iter().map(|(name,row)|(name.as_str(),row)),self.physics_definitions.effective.gravity)?;
         self.templates.clear();
+        self.invalidate_build_facility_template_names_cache();
         self.setup_templates();
         self.receiving_object_definitions = Some(projections);
         self.seed_asset_definition_templates_from_snapshot_with_receiving(

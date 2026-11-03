@@ -851,6 +851,18 @@ impl TerrainVisualImpl {
         self.source_tiles.iter().any(Option::is_some)
     }
 
+    /// True when at least one source tile is a real Art/Terrain sample (not a stand-in).
+    pub fn has_real_source_tiles(&self) -> bool {
+        self.source_tiles.iter().enumerate().any(|(index, tile)| {
+            tile.is_some()
+                && !self
+                    .stand_in_source_tiles
+                    .get(index)
+                    .copied()
+                    .unwrap_or(true)
+        })
+    }
+
     pub fn load_source_tiles_from_texture_classes(
         &mut self,
         classes: &[TerrainSourceTileClass],

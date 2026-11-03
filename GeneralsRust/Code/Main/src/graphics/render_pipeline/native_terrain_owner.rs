@@ -190,6 +190,8 @@ impl RenderPipeline {
         self.native_terrain = None;
         self.native_draw_world.pending_native_props.clear();
         self.radar_terrain_colors = None;
+        self.radar_terrain_colors_generation =
+            self.radar_terrain_colors_generation.wrapping_add(1);
         self.heightmap_world_size = None;
     }
 }

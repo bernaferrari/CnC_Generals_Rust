@@ -703,6 +703,11 @@ pub struct RenderPipeline {
     heightmap_world_size: Option<(f32, f32)>,
     #[cfg(feature = "game_client")]
     radar_terrain_colors: Option<game_client::terrain::terrain_visual::FrozenRadarTerrainColors>,
+    /// Bumped when `radar_terrain_colors` is replaced so the host can re-admit once.
+    #[cfg(feature = "game_client")]
+    radar_terrain_colors_generation: u64,
+    #[cfg(feature = "game_client")]
+    pub(crate) radar_terrain_colors_admitted_generation: u64,
     /// Object/forward lighting selected at map activation.
     cached_lighting: Option<CachedLighting>,
     /// Terrain uses its own GameData `TerrainLighting*` record. Keeping this
@@ -744,6 +749,11 @@ pub struct RenderPipeline {
     debug_last_presentation_live_fallback_reads: usize,
     debug_last_fow_filtered: usize,
     debug_last_frustum_culled: usize,
+    /// Last execute wall ms (present path).
+    debug_last_present_ms: f32,
+    debug_last_collect_ms: f32,
+    debug_last_terrain_ms: f32,
+    debug_last_forward_ms: f32,
     debug_last_model_missing: usize,
     debug_last_deferred_model_loads: usize,
     debug_last_deferred_model_load_budget: usize,

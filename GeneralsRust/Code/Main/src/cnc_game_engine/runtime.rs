@@ -95,6 +95,13 @@ pub(super) struct RuntimeHostSnapshot {
     pub(super) render_selection: u32,
     pub(super) render_model_missing: u32,
     pub(super) render_frustum_culled: u32,
+    /// Non-black RGBA samples in the 128x128 W3DRadar terrain texture.
+    pub(super) radar_pixels: u32,
+    /// Last present execute total ms (diagnostic).
+    pub(super) present_ms: f32,
+    pub(super) present_collect_ms: f32,
+    pub(super) present_terrain_ms: f32,
+    pub(super) present_forward_ms: f32,
     pub(super) camera_pos: String,
     pub(super) camera_target: String,
     pub(super) sample_unit_pos: String,
@@ -399,6 +406,11 @@ impl RuntimeHostBridge {
             render_selection: 0,
             render_model_missing: 0,
             render_frustum_culled: 0,
+            radar_pixels: 0,
+            present_ms: 0.0,
+            present_collect_ms: 0.0,
+            present_terrain_ms: 0.0,
+            present_forward_ms: 0.0,
             camera_pos: String::new(),
             camera_target: String::new(),
             sample_unit_pos: String::new(),
@@ -584,6 +596,20 @@ impl RuntimeHostBridge {
         payload.push_str(&format!(
             "render_frustum_culled={}\n",
             snapshot.render_frustum_culled
+        ));
+        payload.push_str(&format!("radar_pixels={}\n", snapshot.radar_pixels));
+        payload.push_str(&format!("present_ms={:.3}\n", snapshot.present_ms));
+        payload.push_str(&format!(
+            "present_collect_ms={:.3}\n",
+            snapshot.present_collect_ms
+        ));
+        payload.push_str(&format!(
+            "present_terrain_ms={:.3}\n",
+            snapshot.present_terrain_ms
+        ));
+        payload.push_str(&format!(
+            "present_forward_ms={:.3}\n",
+            snapshot.present_forward_ms
         ));
         payload.push_str(&format!("camera_pos={}\n", snapshot.camera_pos));
         payload.push_str(&format!("camera_target={}\n", snapshot.camera_target));

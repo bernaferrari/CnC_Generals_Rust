@@ -443,6 +443,14 @@ path = "src/bin/retail_save_load_gate.rs"
 name = "present_frame_gate"
 path = "src/bin/present_frame_gate.rs"
 
+[[bin]]
+name = "lone_eagle_bench"
+path = "src/bin/lone_eagle_bench.rs"
+
+[[bin]]
+name = "facility_cache_gate"
+path = "src/bin/facility_cache_gate.rs"
+
 [[example]]
 name = "telemetry_bridge"
 path = "examples/telemetry_bridge.rs"

@@ -1350,6 +1350,20 @@ impl CnCGameEngine {
             render_selection: self.render_pipeline.debug_last_selection_indicators() as u32,
             render_model_missing: self.render_pipeline.debug_last_model_missing() as u32,
             render_frustum_culled: self.render_pipeline.debug_last_frustum_culled() as u32,
+            radar_pixels: {
+                let tex = self.game_logic.radar().get_terrain_texture();
+                let mut n = 0u32;
+                for px in tex.chunks_exact(4) {
+                    if px[0] | px[1] | px[2] != 0 {
+                        n += 1;
+                    }
+                }
+                n
+            },
+            present_ms: self.render_pipeline.debug_last_present_ms(),
+            present_collect_ms: self.render_pipeline.debug_last_collect_ms(),
+            present_terrain_ms: self.render_pipeline.debug_last_terrain_ms(),
+            present_forward_ms: self.render_pipeline.debug_last_forward_ms(),
             camera_pos: format!(
                 "{:.1},{:.1},{:.1}",
                 self.game_logic.session_view.camera.camera_position.x,

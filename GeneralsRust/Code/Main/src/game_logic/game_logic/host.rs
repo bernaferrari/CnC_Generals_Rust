@@ -1210,6 +1210,10 @@ pub struct GameLogic {
 
     /// Thing templates registry
     pub templates: HashMap<String, ThingTemplate>,
+    /// Cached build-facility / CommandCenter prerequisite names for AI + script
+    /// census (C++ walks factories once; rebuild only when templates mutate).
+    pub(crate) build_facility_template_names_cache:
+        std::cell::RefCell<Option<std::collections::HashSet<String>>>,
     /// Names that already failed host-template + already-loaded Object INI lookup.
     /// Map spawn repeats the same decorative names; do not re-scan archives.
     pub(super) unresolved_spawn_templates: HashSet<String>,
