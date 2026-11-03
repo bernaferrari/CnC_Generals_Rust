@@ -559,8 +559,8 @@ pub struct TheGameClient;
 
 impl TheGameClient {
     pub fn get() -> Option<&'static Self> {
-        static CLIENT: OnceLock<TheGameClient> = OnceLock::new();
-        Some(CLIENT.get_or_init(|| TheGameClient))
+        static CLIENT: TheGameClient = TheGameClient;
+        Some(&CLIENT)
     }
 
     /// Synchronize the client frame counter with the logic frame.

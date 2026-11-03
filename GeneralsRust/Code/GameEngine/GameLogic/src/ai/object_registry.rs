@@ -1,6 +1,5 @@
 use crate::common::ObjectID;
 use crate::object::Object;
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock, Weak};
@@ -43,7 +42,7 @@ impl LegacyObjectRegistry {
     }
 }
 
-struct LegacyObjectRegistryFacade {
+pub(crate) struct LegacyObjectRegistryFacade {
     store: RwLock<LegacyObjectRegistry>,
     /// Wave 248: lock-free empty short-circuit for host path (Main does not populate legacy).
     live_count: AtomicUsize,
@@ -70,32 +69,43 @@ impl LegacyObjectRegistryFacade {
     }
 }
 
-static LEGACY_OBJECT_REGISTRY: Lazy<LegacyObjectRegistryFacade> =
-    Lazy::new(LegacyObjectRegistryFacade::default);
+pub(crate) fn new_legacy_object_registry() -> Arc<LegacyObjectRegistryFacade> {
+    Arc::new(LegacyObjectRegistryFacade::default())
+}
+
+fn legacy() -> Arc<LegacyObjectRegistryFacade> {
+    Arc::clone(
+        crate::system::engine_stores::active_services()
+            .legacy_object_registry(),
+    )
+}
 
 pub fn register_legacy_object(object: &Arc<RwLock<Object>>) {
-    if let Ok(mut guard) = LEGACY_OBJECT_REGISTRY.store.write() {
+    let registry = legacy();
+    if let Ok(mut guard) = registry.store.write() {
         if let Ok(obj_guard) = object.read() {
             guard.register(obj_guard.get_id(), object);
-            LEGACY_OBJECT_REGISTRY.set_live_count(guard.len());
+            registry.set_live_count(guard.len());
         }
     }
 }
 
 pub fn unregister_legacy_object(object_id: ObjectID) {
-    if let Ok(mut guard) = LEGACY_OBJECT_REGISTRY.store.write() {
+    let registry = legacy();
+    if let Ok(mut guard) = registry.store.write() {
         guard.unregister(object_id);
-        LEGACY_OBJECT_REGISTRY.set_live_count(guard.len());
+        registry.set_live_count(guard.len());
     }
 }
 
 /// Wave 248: prefer read lock; host empty path skips locks entirely.
 pub fn get_legacy_object(object_id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-    if LEGACY_OBJECT_REGISTRY.is_empty() {
+    let registry = legacy();
+    if registry.is_empty() {
         return None;
     }
     // Fast path: read lock + upgrade.
-    if let Ok(guard) = LEGACY_OBJECT_REGISTRY.store.read() {
+    if let Ok(guard) = registry.store.read() {
         if let Some(obj) = guard.get_readonly(object_id) {
             return Some(obj);
         }
@@ -103,9 +113,9 @@ pub fn get_legacy_object(object_id: ObjectID) -> Option<Arc<RwLock<Object>>> {
         return None;
     }
     // Slow path: dead weak — prune under write lock.
-    if let Ok(mut guard) = LEGACY_OBJECT_REGISTRY.store.write() {
+    if let Ok(mut guard) = registry.store.write() {
         let obj = guard.get_and_prune(object_id);
-        LEGACY_OBJECT_REGISTRY.set_live_count(guard.len());
+        registry.set_live_count(guard.len());
         obj
     } else {
         None
@@ -113,13 +123,14 @@ pub fn get_legacy_object(object_id: ObjectID) -> Option<Arc<RwLock<Object>>> {
 }
 
 pub fn clear_legacy_objects() {
-    if let Ok(mut guard) = LEGACY_OBJECT_REGISTRY.store.write() {
+    let registry = legacy();
+    if let Ok(mut guard) = registry.store.write() {
         guard.clear();
-        LEGACY_OBJECT_REGISTRY.set_live_count(0);
+        registry.set_live_count(0);
     }
 }
 
 /// Wave 248: host/presentation empty probe (lock-free).
 pub fn legacy_object_registry_is_empty() -> bool {
-    LEGACY_OBJECT_REGISTRY.is_empty()
+    legacy().is_empty()
 }

@@ -1,7 +1,7 @@
 {
-  "Common": 0,
+  "Common": 1,
   "GameClient": 0,
-  "GameLogic": 11,
+  "GameLogic": 2,
   "Main": 0,
   "WWVegas": 0
 }

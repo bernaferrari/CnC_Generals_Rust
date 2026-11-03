@@ -120,6 +120,10 @@ pub struct WorldServices {
     animation_metadata_hook: Mutex<Option<crate::helpers::AnimationMetadataHook>>,
     terrain_decal_client: Mutex<Option<std::sync::Arc<dyn crate::object::draw::TerrainDecalClient>>>,
     terrain_track_client: Mutex<Option<std::sync::Arc<dyn crate::object::draw::TerrainTrackClient>>>,
+    object_registry: std::sync::Arc<crate::object::registry::ObjectRegistry>,
+    unit_registry: std::sync::Arc<std::sync::RwLock<crate::object::unit::UnitRegistry>>,
+    legacy_object_registry: std::sync::Arc<crate::ai::object_registry::LegacyObjectRegistryFacade>,
+    locomotor_store: std::sync::Arc<crate::locomotor::LocomotorStore>,
     control_bar_bridge: RwLock<Option<std::sync::Arc<crate::control_bar::ControlBarBridge>>>,
     damage_over_time_fields: Mutex<Vec<DamageOverTimeField>>,
     damage_over_time_next_id: AtomicU32,
@@ -191,6 +195,10 @@ impl WorldServices {
             animation_metadata_hook: Mutex::new(None),
             terrain_decal_client: Mutex::new(None),
             terrain_track_client: Mutex::new(None),
+            object_registry: std::sync::Arc::new(crate::object::registry::ObjectRegistry::default()),
+            unit_registry: crate::object::unit::new_unit_registry(),
+            legacy_object_registry: crate::ai::object_registry::new_legacy_object_registry(),
+            locomotor_store: crate::locomotor::new_locomotor_store(),
             control_bar_bridge: RwLock::new(None),
             damage_over_time_fields: Mutex::new(Vec::new()),
             damage_over_time_next_id: AtomicU32::new(50000),
@@ -263,6 +271,10 @@ impl WorldServices {
             animation_metadata_hook: Mutex::new(None),
             terrain_decal_client: Mutex::new(None),
             terrain_track_client: Mutex::new(None),
+            object_registry: std::sync::Arc::new(crate::object::registry::ObjectRegistry::default()),
+            unit_registry: crate::object::unit::new_unit_registry(),
+            legacy_object_registry: crate::ai::object_registry::new_legacy_object_registry(),
+            locomotor_store: crate::locomotor::new_locomotor_store(),
             control_bar_bridge: RwLock::new(None),
             damage_over_time_fields: Mutex::new(Vec::new()),
             damage_over_time_next_id: AtomicU32::new(50000),
@@ -401,6 +413,26 @@ impl WorldServices {
         &self,
     ) -> &Mutex<Option<std::sync::Arc<dyn crate::object::draw::TerrainTrackClient>>> {
         &self.terrain_track_client
+    }
+    pub(crate) fn object_registry(
+        &self,
+    ) -> &std::sync::Arc<crate::object::registry::ObjectRegistry> {
+        &self.object_registry
+    }
+    pub(crate) fn unit_registry(
+        &self,
+    ) -> &std::sync::Arc<std::sync::RwLock<crate::object::unit::UnitRegistry>> {
+        &self.unit_registry
+    }
+    pub(crate) fn legacy_object_registry(
+        &self,
+    ) -> &std::sync::Arc<crate::ai::object_registry::LegacyObjectRegistryFacade> {
+        &self.legacy_object_registry
+    }
+    pub(crate) fn locomotor_store(
+        &self,
+    ) -> &std::sync::Arc<crate::locomotor::LocomotorStore> {
+        &self.locomotor_store
     }
     pub(crate) fn control_bar_bridge(
         &self,
@@ -660,6 +692,7 @@ impl PublishedOwner {
         let common = Arc::clone(self.services().common());
         let _ = common_services::install_common_services(Arc::clone(&common));
         common.finish_bootstrap_after_publish();
+        crate::locomotor::sync_locomotor_store_from_common(self.services().locomotor_store());
         if let Self::Core(core) = self {
             common_upgrade::install_upgrade_center(Arc::clone(core.upgrade_center()));
             ini_ai_data::install_ai_data_store(Arc::clone(core.ai_data()));

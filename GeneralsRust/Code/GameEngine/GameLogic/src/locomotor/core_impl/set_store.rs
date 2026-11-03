@@ -327,8 +327,8 @@ impl LocomotorStore {
     pub fn update(&self) {}
 }
 
-// Global instance
-pub static LOCOMOTOR_STORE: Lazy<Arc<LocomotorStore>> = Lazy::new(|| {
+/// Per-world locomotor definitions (was process Lazy).
+pub fn new_locomotor_store() -> Arc<LocomotorStore> {
     let store = Arc::new(LocomotorStore::new());
 
     // Fallback stubs used before / without INI. Retail names come from Common.
@@ -340,7 +340,42 @@ pub static LOCOMOTOR_STORE: Lazy<Arc<LocomotorStore>> = Lazy::new(|| {
     store.register_template(LocomotorTemplate::new_wings("Wings".to_string()));
     store.register_template(LocomotorTemplate::new_climber("Climber".to_string()));
 
-    crate::locomotor::ini_bridge::sync_common_store_into(&store);
-
+    // Common INI sync happens on publish (install_services), not during
+    // WorldServices construction — CommonServices is not ambient yet.
     store
-});
+}
+
+pub fn sync_locomotor_store_from_common(store: &Arc<LocomotorStore>) {
+    crate::locomotor::ini_bridge::sync_common_store_into(store);
+}
+
+/// Call-site-compatible proxy; resolves the published world's store.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LocomotorStoreGlobal;
+
+pub static LOCOMOTOR_STORE: LocomotorStoreGlobal = LocomotorStoreGlobal;
+
+impl LocomotorStoreGlobal {
+    fn store(self) -> Arc<LocomotorStore> {
+        Arc::clone(
+            crate::system::engine_stores::active_services()
+                .locomotor_store(),
+        )
+    }
+
+    pub fn register_template(self, template: LocomotorTemplate) {
+        self.store().register_template(template)
+    }
+
+    pub fn get_template(self, name: &str) -> Option<Arc<LocomotorTemplate>> {
+        self.store().get_template(name)
+    }
+
+    pub fn create_locomotor(self, template_name: &str) -> Option<Locomotor> {
+        self.store().create_locomotor(template_name)
+    }
+
+    pub fn update(self) {
+        self.store().update()
+    }
+}

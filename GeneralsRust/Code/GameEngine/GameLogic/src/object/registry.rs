@@ -9,7 +9,6 @@
 use crate::common::ObjectID;
 use crate::object::Object;
 use crate::scripting::engine::get_script_engine;
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
@@ -314,8 +313,76 @@ impl ObjectRegistry {
     }
 }
 
-/// Global instance mirroring the legacy singleton.
-pub static OBJECT_REGISTRY: Lazy<ObjectRegistry> = Lazy::new(ObjectRegistry::default);
+/// Call-site-compatible proxy; resolves the published world's registry.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ObjectRegistryGlobal;
+
+pub static OBJECT_REGISTRY: ObjectRegistryGlobal = ObjectRegistryGlobal;
+
+impl ObjectRegistryGlobal {
+    fn get(self) -> std::sync::Arc<ObjectRegistry> {
+        std::sync::Arc::clone(
+            crate::system::engine_stores::active_services()
+                .object_registry(),
+        )
+    }
+
+    pub fn register_object(self, id: ObjectID, object: &Arc<RwLock<Object>>) {
+        self.get().register_object(id, object)
+    }
+
+    pub fn unregister_object(self, id: ObjectID) {
+        self.get().unregister_object(id)
+    }
+
+    pub(crate) fn unregister_object_if_same(
+        self,
+        id: ObjectID,
+        object: &SharedObjectHandle,
+    ) -> bool {
+        self.get().unregister_object_if_same(id, object)
+    }
+
+    pub fn get_object(self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+        self.get().get_object(id)
+    }
+
+    pub fn contains(self, id: ObjectID) -> bool {
+        self.get().contains(id)
+    }
+
+    pub fn with_object<R>(self, id: ObjectID, f: impl FnOnce(&Object) -> R) -> Option<R> {
+        self.get().with_object(id, f)
+    }
+
+    pub fn with_object_mut<R>(self, id: ObjectID, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
+        self.get().with_object_mut(id, f)
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.get().is_empty()
+    }
+
+    pub fn store_is_empty(self) -> bool {
+        self.get().store_is_empty()
+    }
+
+    pub fn get_all_objects(self) -> Vec<Arc<RwLock<Object>>> {
+        self.get().get_all_objects()
+    }
+
+    pub fn get_all_object_ids(self) -> Vec<ObjectID> {
+        self.get().get_all_object_ids()
+    }
+
+    pub fn clear(self) {
+        self.get().clear()
+    }
+
+    pub fn cleanup_dead_references(self) -> usize {
+        self.get().cleanup_dead_references()
+    }
+}
 
 /// Process-wide mutex for tests that clear/register objects on the shared
 /// [`OBJECT_REGISTRY`] / GameLogic singleton. Parallel weapon collision tests

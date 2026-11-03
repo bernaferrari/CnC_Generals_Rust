@@ -381,10 +381,9 @@ pub struct TheRadar;
 
 impl TheRadar {
     pub fn get() -> Option<&'static Self> {
-        static RADAR: OnceLock<TheRadar> = OnceLock::new();
-        let radar = RADAR.get_or_init(|| TheRadar);
+        static RADAR: TheRadar = TheRadar;
         ensure_radar_event_feedback_registered();
-        Some(radar)
+        Some(&RADAR)
     }
 
     pub fn create_event(

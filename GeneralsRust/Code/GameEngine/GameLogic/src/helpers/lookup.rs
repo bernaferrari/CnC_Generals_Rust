@@ -942,8 +942,8 @@ pub struct TheObjectCreationListStore;
 
 impl TheObjectCreationListStore {
     pub fn get() -> Option<&'static Self> {
-        static STORE: OnceLock<TheObjectCreationListStore> = OnceLock::new();
-        Some(STORE.get_or_init(|| TheObjectCreationListStore))
+        static STORE: TheObjectCreationListStore = TheObjectCreationListStore;
+        Some(&STORE)
     }
 
     /// Find object creation list.

@@ -42,9 +42,19 @@ body_mut = re.compile(
 )
 
 
+def struct_is_unit(text, type_name):
+    return (
+        re.search(
+            rf"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?struct[ \t]+{re.escape(type_name)}\s*;",
+            text,
+        )
+        is not None
+    )
+
+
 def struct_body_text(text, type_name):
     for m in re.finditer(
-        rf"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?struct[ \t]+{re.escape(type_name)}\b[^{{]*\{{",
+        rf"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?struct[ \t]+{re.escape(type_name)}\b[^;{{]*\{{",
         text,
     ):
         start = m.end() - 1
@@ -138,7 +148,7 @@ def init_cell_is_mutable(text, ty):
             return False
         body = struct_body_text(text, name)
         if body is None:
-            return True
+            return not struct_is_unit(text, name)
         return body_mut.search(body) is not None
     return True
 
