@@ -8,26 +8,32 @@ use windows::Win32::Foundation::{GetLastError, HINSTANCE, HWND};
 
 #[cfg(target_os = "windows")]
 struct ProgramInstanceSlot(AtomicIsize);
+#[cfg(target_os = "windows")]
 impl std::ops::Deref for ProgramInstanceSlot {
     type Target = AtomicIsize;
     fn deref(&self) -> &Self::Target { &self.0 }
 }
+#[cfg(target_os = "windows")]
 static PROGRAM_INSTANCE: ProgramInstanceSlot = ProgramInstanceSlot(AtomicIsize::new(0));
 
 #[cfg(target_os = "windows")]
 struct MainWindowSlot(AtomicIsize);
+#[cfg(target_os = "windows")]
 impl std::ops::Deref for MainWindowSlot {
     type Target = AtomicIsize;
     fn deref(&self) -> &Self::Target { &self.0 }
 }
+#[cfg(target_os = "windows")]
 static MAIN_WINDOW: MainWindowSlot = MainWindowSlot(AtomicIsize::new(0));
 
 #[cfg(target_os = "windows")]
 struct GameInFocusSlot(AtomicBool);
+#[cfg(target_os = "windows")]
 impl std::ops::Deref for GameInFocusSlot {
     type Target = AtomicBool;
     fn deref(&self) -> &Self::Target { &self.0 }
 }
+#[cfg(target_os = "windows")]
 static GAME_IN_FOCUS: GameInFocusSlot = GameInFocusSlot(AtomicBool::new(false));
 
 #[cfg(target_os = "windows")]

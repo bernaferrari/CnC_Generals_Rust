@@ -1,7 +1,5 @@
 //! Utility helpers mirroring WWAudio Utils.h/.cpp.
 
-use std::cell::Cell;
-
 struct MssLockDepthBag {
     mss_lock_depth: std::sync::Mutex<u32>,
 }
@@ -27,7 +25,7 @@ struct MMSLockGuard;
 
 impl MMSLockClass {
     pub fn new() -> Self {
-        { let mut depth = MSS_LOCK_DEPTH_TLS_BAG.mss_lock_depth.lock().unwrap_or_else(|p| p.into_inner()); *depth = depth.clone( + 1) };
+        { let mut depth = MSS_LOCK_DEPTH_TLS_BAG.mss_lock_depth.lock().unwrap_or_else(|p| p.into_inner()); *depth += 1; };
         Self {
             _guard: MMSLockGuard,
         }
@@ -42,7 +40,7 @@ impl Default for MMSLockClass {
 
 impl Drop for MMSLockClass {
     fn drop(&mut self) {
-        { let mut depth = MSS_LOCK_DEPTH_TLS_BAG.mss_lock_depth.lock().unwrap_or_else(|p| p.into_inner()); *depth = depth.clone(.saturating_sub(1)) };
+        { let mut depth = MSS_LOCK_DEPTH_TLS_BAG.mss_lock_depth.lock().unwrap_or_else(|p| p.into_inner()); *depth = depth.saturating_sub(1); };
     }
 }
 

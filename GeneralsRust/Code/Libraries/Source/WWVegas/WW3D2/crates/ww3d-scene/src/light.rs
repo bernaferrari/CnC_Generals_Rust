@@ -626,7 +626,7 @@ struct LightingLodCutoffBag {
     lighting_lod_cutoff: std::sync::Mutex<f32>,
 }
 static LIGHTING_LOD_CUTOFF_TLS_BAG: std::sync::LazyLock<LightingLodCutoffBag> = std::sync::LazyLock::new(|| LightingLodCutoffBag {
-        lighting_lod_cutoff: std::sync::Mutex::new(const { std::cell::Cell::new(0.5) }),
+        lighting_lod_cutoff: std::sync::Mutex::new(0.5),
 });
 
 
