@@ -90,6 +90,7 @@ impl GameClient {
             script_runtime: crate::core::script_action_runtime::ScriptActionRuntime::new(),
             draw_schedule: crate::display::client_draw_schedule::ClientDrawScheduleState::default(),
             message_stream: crate::message_stream::message_stream::MessageStream::new(),
+            meta_map: crate::message_stream::meta_event::MetaMap::default(),
             input_authority,
             shell_game_first_load: true,
             window_videos: crate::gui::window_video_manager::ClientWindowVideos::new(),

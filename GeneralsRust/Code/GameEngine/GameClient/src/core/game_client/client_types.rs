@@ -54,6 +54,8 @@ pub struct GameClient {
     pub(crate) main_menu: crate::gui::shell::main_menu::MainMenu,
     pub(crate) menu_manager: crate::gui::callbacks::menu_callbacks::MenuManager,
     message_stream: crate::message_stream::message_stream::MessageStream,
+    /// Parsed CommandMap / MetaEvent key bindings (C++ TheMetaMap).
+    pub(crate) meta_map: crate::message_stream::meta_event::MetaMap,
     /// Fixed at inert construction; never inferred from a global registry.
     input_authority: ClientInputAuthority,
     /// C++ shell-game load-screen first-load latch for this receiving client.

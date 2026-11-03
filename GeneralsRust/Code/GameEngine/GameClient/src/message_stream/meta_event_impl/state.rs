@@ -2,19 +2,36 @@
 
 use crate::meta_demo_state::DemoCoord2D;
 
+#[cfg(test)]
+std::thread_local! {
+    static TEST_META_MAP: std::cell::RefCell<MetaMap> =
+        std::cell::RefCell::new(MetaMap::default());
+}
+
 /// Run `f` with mutable access to the parsed CommandMap table.
 fn with_meta_map<R>(f: impl FnOnce(&mut MetaMap) -> R) -> R {
-    f(&mut get_meta_map().write().unwrap_or_else(|e| e.into_inner()))
+    #[cfg(test)]
+    {
+        return TEST_META_MAP.with(|slot| f(&mut slot.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        if crate::core::game_client::live_game_client_frame().is_some() {
+            return crate::core::game_client::with_live_game_client_mut(|client| {
+                f(&mut client.meta_map)
+            })
+            .expect("live client frame implies registered client");
+        }
+        let mut ephemeral = MetaMap::default();
+        f(&mut ephemeral)
+    }
 }
 
 /// Run `f` with shared access to the parsed CommandMap table.
 fn with_meta_map_ref<R>(f: impl FnOnce(&MetaMap) -> R) -> R {
-    f(&get_meta_map().read().unwrap_or_else(|e| e.into_inner()))
+    with_meta_map(|map| f(map))
 }
 
-fn get_meta_map() -> &'static RwLock<MetaMap> {
-    META_MAP.get_or_init(|| RwLock::new(MetaMap::default()))
-}
 
 fn toggle_shared_bool_state(flag: &mut bool) -> bool {
     MetaDemoState::toggle_bool(flag)
