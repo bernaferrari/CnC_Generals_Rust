@@ -155,11 +155,11 @@ pub(crate) fn run() -> anyhow::Result<()> {
         ..Default::default()
     })?;
     eprintln!("reset probe: WGPU initialized");
-        let mut graphics = crate::graphics::GraphicsSystem::new(
-        engine.lock().device()?,
-        engine.lock().queue()?,
-        engine.lock().color_format()?,
-        engine.lock().depth_format()?,
+    let mut graphics = crate::graphics::GraphicsSystem::new(
+        engine.lock().device(),
+        engine.lock().queue(),
+        engine.lock().color_format(),
+        engine.lock().depth_format(),
     )?;
     graphics.cache_model(
         crate::assets::mesh_asset_resolve::canonical_model_key("CameraModel"),
