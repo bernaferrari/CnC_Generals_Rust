@@ -686,7 +686,7 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
             .world()
             .entity(entity)
             .unwrap()
-            .active_guard_position(),
+            .guard_position,
         Some([3.0, 0.0, 5.0])
     );
     assert_eq!(
@@ -694,7 +694,7 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
         tid.0
     );
     let copy = shadow.world_mut().world_mut().entity_mut(entity).unwrap();
-    copy.set_guard_position_data(None);
+    copy.guard_position = None;
     copy.guard_target_host = 0;
     assert_eq!(
         logic.host_object(oid).unwrap().active_guard_position(),
@@ -718,7 +718,7 @@ fn host_guard_is_canonical_and_shadow_only_observes() {
             .world()
             .entity(entity)
             .unwrap()
-            .active_guard_position(),
+            .guard_position,
         None
     );
     assert_eq!(shadow.world().entity(entity).unwrap().guard_target_host, 0);

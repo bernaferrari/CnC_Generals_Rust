@@ -758,13 +758,9 @@ fn actual_build_native_mid_action_resumes_progress_without_production_timer_cont
         "timer batch no longer contributes"
     );
     let factory = crate::save_load::snapshot::SnapshotBuilder::new();
-    let mut snapshot = factory.create_world_snapshot(&source).unwrap();
-    let mut bytes = std::io::Cursor::new(Vec::new());
-    snapshot.xfer(&mut XferSave::new(&mut bytes)).unwrap();
-    let mut decoded = crate::save_load::snapshot::WorldSnapshot::default();
-    decoded
-        .xfer(&mut XferLoad::new(std::io::Cursor::new(bytes.into_inner())))
-        .unwrap();
+    let snapshot = factory.create_world_snapshot(&source).unwrap();
+    let decoded: crate::save_load::snapshot::WorldSnapshot =
+        bincode_legacy::deserialize(&bincode_legacy::serialize(&snapshot).unwrap()).unwrap();
     let (mut restored, restored_builder, restored_site) = action_build_world();
     assert_eq!((builder, site), (restored_builder, restored_site));
     factory

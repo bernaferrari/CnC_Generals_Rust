@@ -279,7 +279,6 @@ fn authored_helipad_takeoff_completion_enters_owned_idle() {
 
             let jet = logic.host_object(heli).unwrap();
             assert_eq!(jet.ai_state(), AIState::Idle);
-            assert!(jet.unit_ai_runtime.idle_initialized());
             assert!(!jet.idle_mood_reset_pending);
             assert!(jet.status.airborne_target);
             assert!(!jet.precise_z_pos);

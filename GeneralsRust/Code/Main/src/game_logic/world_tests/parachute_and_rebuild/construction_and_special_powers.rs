@@ -1028,7 +1028,7 @@ fn supply_center_placement_rejects_too_close_to_supplies_residual() {
             Team::USA,
             glam::Vec3::new(-500.0, 0.0, 0.0),
         )
-        .expect("cc").expect("ObjectId");
+        .expect("cc");
 
     let _ = logic
         .create_object(
@@ -1227,7 +1227,7 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
             Team::USA,
             glam::Vec3::new(-10.0, 0.0, 0.0),
         )
-        .expect("cc").expect("ObjectId");
+        .expect("cc");
     // Prove under-construction gate opens, then place completed tech buildings far apart.
     assert!(
         logic
@@ -1244,7 +1244,7 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
             Team::USA,
             glam::Vec3::new(200.0, 0.0, 0.0),
         )
-        .expect("supply").expect("ObjectId");
+        .expect("supply");
 
     // WarFactory needs supply.
     assert!(
@@ -1262,7 +1262,7 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
             Team::USA,
             glam::Vec3::new(400.0, 0.0, 0.0),
         )
-        .expect("wf").expect("ObjectId");
+        .expect("wf");
 
     // Strategy needs WF OR Airfield (or_chain residual).
     assert!(
@@ -1280,7 +1280,7 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
             Team::USA,
             glam::Vec3::new(600.0, 0.0, 0.0),
         )
-        .expect("sc").expect("ObjectId");
+        .expect("sc");
 
     // PUC needs Strategy.
     assert!(
@@ -1341,7 +1341,7 @@ fn superweapon_structure_requires_tech_building_prereq() {
             Team::USA,
             glam::Vec3::new(100.0, 0.0, 0.0),
         )
-        .expect("strategy").expect("ObjectId");
+        .expect("strategy");
     assert!(logic.host_object(sc).unwrap().is_constructed());
     assert!(
         logic
@@ -1366,7 +1366,7 @@ fn superweapon_structure_requires_tech_building_prereq() {
     );
     let palace = logic
         .create_object("GLAPalace", Team::USA, glam::Vec3::new(400.0, 0.0, 0.0))
-        .expect("palace").expect("ObjectId");
+        .expect("palace");
     let _ = palace;
     assert!(
         logic
@@ -1414,7 +1414,7 @@ fn disabled_freezes_structure_superweapon_countdown() {
             Team::USA,
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
-        .expect("puc").expect("ObjectId");
+        .expect("puc");
     // Start mid-recharge residual.
     if let Some(o) = logic.host_object_mut(puc) {
         o.template_mut().add_kind_of(KindOf::Powered);
@@ -1964,7 +1964,7 @@ fn shared_timer_ready_fires_eva_superweapon_ready_residual() {
     // Use create_object (map-placed) which starts full recharge — then force remaining.
     let id = logic
         .create_object(AMERICA_PARTICLE_CANNON_UPLINK, Team::USA, glam::Vec3::ZERO)
-        .expect("puc").expect("ObjectId");
+        .expect("puc");
     // Power plant so underpowered does not freeze countdown residual.
     let mut plant = ThingTemplate::new("AmericaColdFusionReactor");
     plant

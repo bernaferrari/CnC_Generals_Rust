@@ -119,7 +119,7 @@ impl crate::game_logic::GameLogic {
     #[cfg(test)]
     pub(crate) fn admit_fx_definitions(&mut self) {
         // Compatibility for older test fixtures; native startup admits an owner.
-        let catalog = game_client::fx_list::get_fx_list_store().clone();
+        let catalog = game_client::fx_list::with_fx_list_store(|s| s.clone());
         self.admit_fx_catalog(catalog);
     }
 }

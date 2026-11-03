@@ -328,7 +328,7 @@ fn production_world(identity: &str) -> (GameLogic, ObjectId) {
     world.players.get_mut(&0).unwrap().power_produced = 10;
     let producer = world
         .create_object_for_player("TestBarracks", 0, glam::Vec3::ZERO)
-        .unwrap().expect("ObjectId");
+        .unwrap();
     assert!(world.host_object(producer).unwrap().building_data.is_some());
     (world, producer)
 }

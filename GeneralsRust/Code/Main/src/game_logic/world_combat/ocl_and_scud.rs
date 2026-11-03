@@ -246,8 +246,8 @@ mod receiving_debris_ocl_owner_tests {
         let (mut world, source) = helix_portable_world(Vec3::ZERO);
         let host = world.objects.get_mut(&source).unwrap();
         host.is_helix_transport = false;
-        host.thing.template.contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
-        host.thing.template.contain_module.slots = Some(1);
+        host.template_mut().contain_module.kind = crate::game_logic::ContainModuleKind::Transport;
+        host.template_mut().contain_module.slots = Some(1);
         host.max_transport = 1;
 
         let created = world.execute_parsed_weapon_ocl_at(

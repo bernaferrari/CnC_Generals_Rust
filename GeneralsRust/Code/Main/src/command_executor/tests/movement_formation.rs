@@ -85,9 +85,9 @@ fn service_executor_revalidates_authored_kindof_matrix_not_building_names() {
 
     let mut executor = CommandExecutor::new(&mut logic, 0);
     assert!(matches!(executor.execute_get_repaired(&[ground_ok], repair_target), Ok(CommandResult::Success)), "ground vehicle requires and accepts authored REPAIR_PAD");
-    assert!(executor.execute_get_repaired(&[ground_reject], name_only_target).is_ok_and(|r| r == CommandResult::InvalidCommand), "Repair/Hospital/Airfield spelling without REPAIR_PAD must fail authority");
-    assert!(executor.execute_get_repaired(&[aircraft_ok], airfield_target).is_ok_and(|r| r == CommandResult::Success), "airborne VEHICLE+AIRCRAFT requires and accepts authored FS_AIRFIELD");
-    assert!(executor.execute_get_healed(&[infantry_ok], heal_target).is_ok_and(|r| r == CommandResult::Success), "infantry requires and accepts authored HEAL_PAD");
+    assert!(executor.execute_get_repaired(&[ground_reject], name_only_target) == CommandResult::InvalidCommand, "Repair/Hospital/Airfield spelling without REPAIR_PAD must fail authority");
+    assert!(executor.execute_get_repaired(&[aircraft_ok], airfield_target) == CommandResult::Success, "airborne VEHICLE+AIRCRAFT requires and accepts authored FS_AIRFIELD");
+    assert!(executor.execute_get_healed(&[infantry_ok], heal_target) == CommandResult::Success, "infantry requires and accepts authored HEAL_PAD");
 }
 
 #[test]
@@ -1194,7 +1194,7 @@ fn follow_waypoint_path_assigns_multi_point_path() {
     ];
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_follow_waypoint_path(&[id], &wps, true, false).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_follow_waypoint_path(&[id], &wps, true, false) == CommandResult::Success);
     }
     let o = logic.host_object(id).unwrap();
     assert!(
@@ -1312,7 +1312,7 @@ fn exact_waypoint_path_sets_exact_flag_and_path() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert!(
-            exec.execute_follow_waypoint_path(&[id], &wps, true, false).is_ok_and(|r| r == CommandResult::Success));
+            exec.execute_follow_waypoint_path(&[id], &wps, true, false) == CommandResult::Success);
     }
     let u = logic.host_object(id).unwrap();
     assert!(u.is_exact_path, "exact follow must stamp is_exact_path");
@@ -1559,7 +1559,7 @@ fn attack_move_sets_max_shots_and_path_flag() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert!(
-            exec.execute_attack_move(&[id], Vec3::new(200.0, 0.0, 0.0), 5).is_ok_and(|r| r == CommandResult::Success));
+            exec.execute_attack_move(&[id], Vec3::new(200.0, 0.0, 0.0), 5) == CommandResult::Success);
     }
     let u = logic.host_object(id).unwrap();
     assert_eq!(u.ai_state(), AIState::AttackMoving);
@@ -1599,7 +1599,7 @@ fn group_geometry_and_formation_move() {
         // Keep both +/-20 formation offsets inside the map extent.
         let dest = Vec3::new(150.0, 0.0, 0.0);
         assert!(exec.compute_ground_path_should_group(&[a, b], dest));
-        assert!(exec.execute_move_formation_to_position(&[a, b], dest) == CommandResult::Success);
+        assert!(exec.execute_move_formation_to_position(&[a, b], dest).unwrap() == CommandResult::Success);
     }
     let ga = logic
         .host_object(a)
@@ -1823,7 +1823,7 @@ fn attack_follow_waypoint_uses_move_path_until_combat_acquisition() {
     let wps = vec![Vec3::new(20.0, 0.0, 0.0), Vec3::new(60.0, 0.0, 0.0)];
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_attack_follow_waypoint_path(&[id], &wps, true, false).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_attack_follow_waypoint_path(&[id], &wps, true, false) == CommandResult::Success);
     }
     let u = logic.host_object(id).unwrap();
     // AIStates.cpp:4402-4407 enters ordinary FollowWaypointPath; its

@@ -66,7 +66,7 @@ fn ordinary_scaffold_factory_observes_cpp_birth_before_payment_and_placement() {
                 assert_eq!(world.get_player(0).unwrap().effective_supplies(), 1000);
             },
         )
-        .unwrap();
+        .unwrap().expect("ObjectId");
     assert!(witnessed);
     let object = logic.host_object(id).unwrap();
     assert_eq!(object.producer_id, Some(constructor));

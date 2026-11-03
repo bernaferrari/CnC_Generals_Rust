@@ -132,7 +132,7 @@ fn constructor_admission_does_not_promote_worker_harvester_or_names() {
         assert!(object.can_move());
         assert!(!object.can_construct());
         assert!(!object.can_repair());
-        assert!(construct(&mut owner, id).is_ok_and(|r| r == CommandResult::InvalidCommand));
+        assert!(construct(&mut owner, id) == CommandResult::InvalidCommand);
         assert_eq!(owner.get_player(0).unwrap().effective_supplies(), 1000);
         assert!(
             !owner

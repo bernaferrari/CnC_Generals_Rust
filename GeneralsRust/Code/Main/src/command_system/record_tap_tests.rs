@@ -1032,7 +1032,7 @@ fn native_client_stream_routes_once_to_receiving_world_without_core_player_queue
         module_path!(),
         "native_client_stream_routes_once_to_receiving_world_without_core_player_queue",
         || {
-            let client = game_client::core::GameClient::new().unwrap();
+            let mut client = game_client::core::GameClient::new().unwrap();
             let mut owner = GameLogic::new();
             let mut peer = GameLogic::new();
             let ambient_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -1148,7 +1148,7 @@ fn native_world_bind_reset_preserves_foreign_core_callback_and_explicit_command_
                         .extend(messages.iter().map(|message| message.get_player_index()));
                 }),
             ));
-            let client = game_client::core::GameClient::new().unwrap();
+            let mut client = game_client::core::GameClient::new().unwrap();
             let mut first = GameLogic::new();
             let mut second = GameLogic::new();
             // Both constructors, binds and actual resets must preserve the
@@ -1273,7 +1273,7 @@ fn native_client_culls_by_actual_receiving_replay_reader_while_global_recorder_i
             init_recorder();
             with_recorder_mut(|recorder| recorder.reset());
             assert!(!host_recorder_is_playback());
-            let client = game_client::core::GameClient::new().unwrap();
+            let mut client = game_client::core::GameClient::new().unwrap();
             append_game_message_to_stream(&GameMessage::with_player(GameMessageType::DoStop, 7));
             let mut delivered = 0;
             client

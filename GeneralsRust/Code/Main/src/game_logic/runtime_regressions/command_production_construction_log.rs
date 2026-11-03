@@ -17,7 +17,7 @@ fn command_production_construction_log() -> bool {
         logic.templates.insert("ConstrBldg199".into(), t);
     }
 
-    let Some(bid) = logic.create_object_under_construction(
+    let Ok(Some(bid)) = logic.create_object_under_construction(
         "ConstrBldg199",
         Team::USA,
         Vec3::new(50.0, 0.0, 50.0),
@@ -39,7 +39,7 @@ fn command_production_construction_log() -> bool {
     };
     logic
         .get_player_mut(player)
-        .expect("selected player").expect("ObjectId")
+        .expect("selected player")
         .resources
         .supplies = 1000;
     let mut unit_template = ThingTemplate::new("CancelUnit199");

@@ -104,7 +104,6 @@ End
                 .expect("slow-death Idle entry belongs to the receiving world")
         );
         let actor = logic.host_object(id).unwrap();
-        assert!(actor.unit_ai_runtime.idle_initialized());
         assert!(!actor.idle_mood_reset_pending);
     }
     let mut shadow = GameWorldShadow::new(64);

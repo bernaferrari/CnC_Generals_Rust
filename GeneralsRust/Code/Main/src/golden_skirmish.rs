@@ -2895,7 +2895,7 @@ mod tests {
         install_templates(&mut logic);
         let dozer = logic
             .create_object_for_player("GoldenDozer", 0, Vec3::ZERO)
-            .unwrap().expect("ObjectId");
+            .unwrap();
         let object = logic.host_object(dozer).unwrap();
         assert!(
             object.is_kind_of(KindOf::Dozer),

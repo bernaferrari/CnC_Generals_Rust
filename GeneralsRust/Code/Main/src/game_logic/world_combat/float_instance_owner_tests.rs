@@ -58,6 +58,14 @@ impl crate::game_logic::NativeViewEffects for Receiving {
     ) -> Result<(), String> {
         Err("recording view cannot create".into())
     }
+
+    fn body_visual_changed(
+        &mut self,
+        _: &crate::game_logic::NativeBodyVisualChange,
+        _: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+    ) -> Result<bool, String> {
+        Ok(false)
+    }
 }
 fn fixture() -> (GameLogic, ObjectId) {
     let mut parser = crate::assets::IniParser::new();

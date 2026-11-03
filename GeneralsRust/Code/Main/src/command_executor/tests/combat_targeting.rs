@@ -58,7 +58,7 @@ fn follow_waypoint_as_team_preserves_offsets() {
     let wps = vec![Vec3::new(100.0, 0.0, 0.0), Vec3::new(200.0, 0.0, 0.0)];
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_follow_waypoint_path(&[a, b], &wps, true, true).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_follow_waypoint_path(&[a, b], &wps, true, true) == CommandResult::Success);
     }
     let ga = logic
         .host_object(a)
@@ -109,7 +109,7 @@ fn do_command_button_using_waypoints_attack_moves() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert!(
-            exec.execute_do_command_button_using_waypoints(&[id], "Command_AttackMove", &wps).is_ok_and(|r| r == CommandResult::Success));
+            exec.execute_do_command_button_using_waypoints(&[id], "Command_AttackMove", &wps) == CommandResult::Success);
     }
     let u = logic.host_object(id).unwrap();
     assert!(
@@ -146,7 +146,7 @@ fn do_command_button_dispatches_stop() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_do_command_button(&[id], "Command_Stop", None, None).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_do_command_button(&[id], "Command_Stop", None, None) == CommandResult::Success);
     }
     let u = logic.host_object(id).unwrap();
     assert!(
@@ -174,7 +174,7 @@ fn do_command_button_at_position_moves() {
     let dest = Vec3::new(55.0, 0.0, 10.0);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_do_command_button(&[id], "Command_AttackMove", Some(dest), None).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_do_command_button(&[id], "Command_AttackMove", Some(dest), None) == CommandResult::Success);
     }
     let u = logic.host_object(id).unwrap();
     assert!(
@@ -798,7 +798,7 @@ fn move_to_and_evacuate_sets_pending_flag() {
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_move_to_and_evacuate(&[transport], Vec3::new(80.0, 0.0, 0.0), false).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_move_to_and_evacuate(&[transport], Vec3::new(80.0, 0.0, 0.0), false) == CommandResult::Success);
     }
     let t = logic.host_object(transport).unwrap();
     assert!(
@@ -841,7 +841,7 @@ fn move_to_and_evacuate_unloads_when_path_completes() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_move_to_and_evacuate(&[transport], Vec3::new(10.0, 0.0, 0.0), false).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_move_to_and_evacuate(&[transport], Vec3::new(10.0, 0.0, 0.0), false) == CommandResult::Success);
     }
     // Simulate arrival: complete path + movement tick.
     if let Some((t, partition)) = logic.host_object_and_partition_mut(transport) {
@@ -1312,7 +1312,7 @@ fn move_delays_mood_for_unstealthed_stealth_unit() {
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert!(
-        exec.execute_move(&[a], Vec3::new(50.0, 0.0, 0.0)).is_ok_and(|r| r == CommandResult::Success));
+        exec.execute_move(&[a], Vec3::new(50.0, 0.0, 0.0)) == CommandResult::Success);
     let u = logic.host_object(a).unwrap();
     assert_eq!(u.next_mood_check_time, 80); // 50+30+0
 }

@@ -235,7 +235,15 @@ mod tests {
         ) -> Option<&mut game_client::effects::particle_manager::ParticleSystemManager> {
             Some(&mut self.particles)
         }
+    
+    fn body_visual_changed(
+        &mut self,
+        _: &crate::game_logic::NativeBodyVisualChange,
+        _: Option<&mut dyn game_client::drawable::drawable::NativeAmbientAudio>,
+    ) -> Result<bool, String> {
+        Ok(false)
     }
+}
 
     struct OrderedAudio(Arc<Mutex<Vec<&'static str>>>);
     impl crate::game_logic::NativeAudioEffects for OrderedAudio {

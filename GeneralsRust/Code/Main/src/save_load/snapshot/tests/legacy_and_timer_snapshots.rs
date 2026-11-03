@@ -732,8 +732,7 @@ fn direct_xfer_current_round_trips_cia_builder_sell_tail() {
     assert_eq!(sentinel, 0xC0DE_F00D);
     let dozer_snapshot = restored
         .objects
-        .iter()
-        .find(|object| object.id == dozer)
+        .get(&dozer)
         .expect("actual admitted dozer");
     let task = dozer_snapshot
         .modules

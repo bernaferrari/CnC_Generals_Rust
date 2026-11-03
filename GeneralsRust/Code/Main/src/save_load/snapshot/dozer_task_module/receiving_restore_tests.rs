@@ -54,13 +54,9 @@ fn snapshot_round_trips_dozer_repair_task_and_continues_only_receiving_owner() {
     let docks = owner.docks[1];
     let before = source.host_object(site).unwrap().health.current;
     let factory = crate::save_load::snapshot::SnapshotBuilder::new();
-    let mut snapshot = factory.create_world_snapshot(&source).unwrap();
-    let mut bytes = std::io::Cursor::new(Vec::new());
-    snapshot.xfer(&mut XferSave::new(&mut bytes)).unwrap();
-    let mut decoded = crate::save_load::snapshot::WorldSnapshot::default();
-    decoded
-        .xfer(&mut XferLoad::new(std::io::Cursor::new(bytes.into_inner())))
-        .unwrap();
+    let snapshot = factory.create_world_snapshot(&source).unwrap();
+    let decoded: crate::save_load::snapshot::WorldSnapshot =
+        bincode_legacy::deserialize(&bincode_legacy::serialize(&snapshot).unwrap()).unwrap();
     let (mut receiving, receiving_dozer, receiving_site) = world();
     assert_eq!((dozer, site), (receiving_dozer, receiving_site));
     factory
