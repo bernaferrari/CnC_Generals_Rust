@@ -243,3 +243,13 @@ path = "Code/GameEngine/GameClient/src/system/beacon_display.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
 note = "BeaconDisplayState on GameClient::drawables.beacons; TLS+residual atomics removed; peels use live-client loan."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/display/client_draw_schedule_state.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Display/W3DDisplay.cpp"
+note = "ClientDrawScheduleState owns sync-time and display/cpu frame latches; 0 process globals."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/display/client_draw_schedule.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Display/W3DDisplay.cpp"
+note = "Draw schedule peels use GameClient::draw_schedule; removed SYNC_TIME/LAST_* atomics."
+

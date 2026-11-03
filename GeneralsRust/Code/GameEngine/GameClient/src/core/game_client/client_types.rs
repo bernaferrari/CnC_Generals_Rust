@@ -50,6 +50,7 @@ pub struct GameClient {
     pub(crate) menu_host: crate::gui::campaign_launch_host_bridge::MenuHostMailbox,
     pub(crate) script_display: crate::core::script_action_handler::ScriptDisplayReceiver,
     pub(crate) script_runtime: crate::core::script_action_runtime::ScriptActionRuntime,
+    pub(crate) draw_schedule: crate::display::client_draw_schedule::ClientDrawScheduleState,
     pub(crate) main_menu: crate::gui::shell::main_menu::MainMenu,
     pub(crate) menu_manager: crate::gui::callbacks::menu_callbacks::MenuManager,
     message_stream: crate::message_stream::message_stream::MessageStream,
