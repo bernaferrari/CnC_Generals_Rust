@@ -25,9 +25,10 @@ use ww3d_gpu::{GpuDevice, GpuError, shared_device};
 
 mod frame_submit;
 pub use frame_submit::{
-    FrameCommandPhase, OutOfFrameReason, SUBMIT_DEBUG_ENV, frame_is_active,
-    last_frame_submit_count, last_out_of_frame_submit_count, on_begin_frame, reset_submit_debug,
-    submit_out_of_frame, submit_owned_frame, submit_recorded, total_owned_submits,
+    FrameCommandPhase, FrameSubmitState, OutOfFrameReason, SUBMIT_DEBUG_ENV, frame_is_active,
+    install_frame_submit, last_frame_submit_count, last_out_of_frame_submit_count, on_begin_frame,
+    reset_submit_debug, submit_out_of_frame, submit_owned_frame, submit_recorded,
+    total_owned_submits, uninstall_frame_submit,
 };
 
 // Re-export core types
@@ -800,6 +801,8 @@ pub struct Engine {
     gpu_device: Arc<GpuDevice>,
     surface: SurfaceMode,
     settings: EngineSettings,
+    /// Owned frame-submit bookkeeping (C++ one in-flight WW3D device frame).
+    pub(crate) frame_submit: Arc<Mutex<frame_submit::FrameSubmitState>>,
     frame_active: bool,
     frame_index: u64,
     last_frame_start: Option<Instant>,
@@ -897,6 +900,7 @@ impl Engine {
             gpu_device,
             surface: SurfaceMode::Windowed(surface_state),
             settings: EngineSettings::default(),
+            frame_submit: Arc::new(Mutex::new(frame_submit::FrameSubmitState::new())),
             frame_active: false,
             frame_index: 0,
             last_frame_start: None,
@@ -962,6 +966,7 @@ impl Engine {
             gpu_device,
             surface: SurfaceMode::Headless(target),
             settings: EngineSettings::default(),
+            frame_submit: Arc::new(Mutex::new(frame_submit::FrameSubmitState::new())),
             frame_active: false,
             frame_index: 0,
             last_frame_start: None,
@@ -1102,7 +1107,7 @@ impl Engine {
                         );
                         let depth_view = surface_state.depth_view();
                         self.frame_active = true;
-                        frame_submit::on_begin_frame();
+                        self.frame_submit.lock().on_begin_frame();
                         Ok(RenderFrame {
                             device: Arc::clone(&self.device),
                             queue: Arc::clone(&self.queue),
@@ -1136,7 +1141,7 @@ impl Engine {
                             .or_else(|| surface_state.depth_view());
                         let color_texture = surface_state.occlusion_fallback.texture().clone();
                         self.frame_active = true;
-                        frame_submit::on_begin_frame();
+                        self.frame_submit.lock().on_begin_frame();
                         Ok(RenderFrame {
                             device: Arc::clone(&self.device),
                             queue: Arc::clone(&self.queue),
@@ -1160,7 +1165,7 @@ impl Engine {
                 let depth_view = target.depth_view();
 
                 self.frame_active = true;
-                frame_submit::on_begin_frame();
+                self.frame_submit.lock().on_begin_frame();
                 Ok(RenderFrame {
                     device: Arc::clone(&self.device),
                     queue: Arc::clone(&self.queue),
@@ -1217,7 +1222,7 @@ impl Engine {
 
         let command_buffer = encoder.finish();
         // Frame-owned submit: uploads + this encoder + overlays in one queue.submit.
-        frame_submit::submit_owned_frame(&self.queue, command_buffer, self.frame_index);
+        self.frame_submit.lock().submit_owned_frame(&self.queue, command_buffer, self.frame_index);
 
         let rendered_offscreen = frame_rendered_offscreen;
         self.process_pending_screenshots(surface_texture.as_ref())?;
@@ -1645,7 +1650,7 @@ impl Engine {
         );
 
         // Out-of-frame: copy must run after the frame encoder has already been submitted.
-        frame_submit::submit_out_of_frame(
+        self.frame_submit.lock().submit_out_of_frame(
             &self.queue,
             std::iter::once(encoder.finish()),
             frame_submit::OutOfFrameReason::ScreenshotReadback,
@@ -1857,7 +1862,7 @@ impl Engine {
         );
 
         // Out-of-frame: blocking debug capture, not the game present path.
-        frame_submit::submit_out_of_frame(
+        self.frame_submit.lock().submit_out_of_frame(
             &self.queue,
             std::iter::once(encoder.finish()),
             frame_submit::OutOfFrameReason::BlockingScreenshotCapture,
@@ -2204,6 +2209,7 @@ where
     } // drop lock before await
 
     let engine = Engine::new_windowed(window, config).await?;
+    frame_submit::install_frame_submit(Arc::clone(&engine.frame_submit));
     *global_engine().lock() = Some(engine);
     Ok(())
 }
@@ -2223,6 +2229,7 @@ pub async fn init_headless(config: EngineConfig) -> EngineResult<()> {
     } // drop lock before await
 
     let engine = Engine::new_headless(config).await?;
+    frame_submit::install_frame_submit(Arc::clone(&engine.frame_submit));
     *global_engine().lock() = Some(engine);
     Ok(())
 }
@@ -2246,9 +2253,10 @@ pub async fn init_headless(config: EngineConfig) -> EngineResult<()> {
 /// - Animation sound manager shutdown
 pub fn shutdown() -> EngineResult<()> {
     let mut slot = global_engine().lock();
-    if slot.take().is_none() {
+    let Some(engine) = slot.take() else {
         return Err(EngineError::NotInitialised);
-    }
+    };
+    frame_submit::uninstall_frame_submit(&engine.frame_submit);
     Ok(())
 }
 
