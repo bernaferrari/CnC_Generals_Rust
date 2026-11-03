@@ -105,12 +105,13 @@ impl CnCGameEngine {
     pub(super) fn gameplay_ui_active(&self) -> bool {
         #[cfg(feature = "game_client")]
         {
+            // Menu/shell transitions can run before InGameUI is installed.
             self.game_logic.script_input_enabled()
                 && self
                     .game_client
                     .in_game_ui_subsystem()
-                    .expect("receiving InGameUI initialized")
-                    .get_input_enabled()
+                    .map(|ui| ui.get_input_enabled())
+                    .unwrap_or(false)
         }
         #[cfg(not(feature = "game_client"))]
         {
