@@ -6,14 +6,24 @@
 /// FX list bridge to client-side effect manager (matching C++ TheFXList)
 pub struct TheFXList;
 
-static FX_LIST_MANAGER: OnceLock<Arc<dyn FXListManagerInterface>> = OnceLock::new();
-
 pub fn register_fx_list_manager(manager: Arc<dyn FXListManagerInterface>) -> bool {
-    FX_LIST_MANAGER.set(manager).is_ok()
+    let Some(services) = crate::system::engine_stores::try_active_services() else {
+        return false;
+    };
+    *services
+        .fx_list_manager()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = Some(manager);
+    true
 }
 
-pub fn get_fx_list_manager() -> Option<&'static Arc<dyn FXListManagerInterface>> {
-    FX_LIST_MANAGER.get()
+pub fn get_fx_list_manager() -> Option<Arc<dyn FXListManagerInterface>> {
+    let services = crate::system::engine_stores::try_active_services()?;
+    services
+        .fx_list_manager()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 impl TheFXList {
@@ -23,7 +33,7 @@ impl TheFXList {
     }
 
     pub fn do_fx_at_position(&self, fx_template: &str, pos: &Coord3D) {
-        let Some(manager) = FX_LIST_MANAGER.get() else {
+        let Some(manager) = get_fx_list_manager() else {
             return;
         };
         let fx_id = NameKeyGenerator::name_to_key(fx_template) as FXListId;
@@ -40,7 +50,7 @@ impl TheFXList {
         override_radius: f32,
         matrix: Option<&Matrix3D>,
     ) {
-        let Some(manager) = FX_LIST_MANAGER.get() else {
+        let Some(manager) = get_fx_list_manager() else {
             return;
         };
         let fx_id = NameKeyGenerator::name_to_key(fx_template) as FXListId;
@@ -61,7 +71,7 @@ impl TheFXList {
         primary_id: ObjectID,
         secondary_id: Option<ObjectID>,
     ) {
-        let Some(manager) = FX_LIST_MANAGER.get() else {
+        let Some(manager) = get_fx_list_manager() else {
             return;
         };
         let fx_id = NameKeyGenerator::name_to_key(fx_template) as FXListId;
@@ -75,7 +85,7 @@ impl TheFXList {
         primary: &HostFxObjectPose,
         secondary: Option<&HostFxObjectPose>,
     ) {
-        let Some(manager) = FX_LIST_MANAGER.get() else {
+        let Some(manager) = get_fx_list_manager() else {
             return;
         };
         let fx_id = NameKeyGenerator::name_to_key(fx_template) as FXListId;
