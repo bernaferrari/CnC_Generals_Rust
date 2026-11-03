@@ -394,3 +394,23 @@ note = "PopupHostState on WindowManagerOwner (online_ui); removed process TLS; p
 path = "Code/GameEngine/GameClient/src/gui/callbacks/popup_player_info.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupPlayerInfo.cpp"
 note = "PopupPlayerInfoState on WindowManagerOwner (online_ui); removed process TLS; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/lan_map_select_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/LanMapSelectMenu.cpp"
+note = "LanMapSelectState on WindowManagerOwner; removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/motd.rs"
+cpp = "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/GUI/GUICallbacks/W3DMOTD.cpp"
+note = "MOTD close-button id on WindowManagerOwner; removed process TLS Cell; peels prefer owner / live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/game_info_window.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/GameInfoWindow.cpp"
+note = "GameInfoWindowState on WindowManagerOwner; removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/download_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/DownloadMenu.cpp"
+note = "DownloadMenuState on WindowManagerOwner; removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."

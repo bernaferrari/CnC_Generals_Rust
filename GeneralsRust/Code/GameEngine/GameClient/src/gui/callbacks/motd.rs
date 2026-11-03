@@ -4,16 +4,62 @@ use crate::gui::{GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled, Win
 use game_engine::common::name_key_generator::{NAMEKEY_INVALID, NameKeyGenerator};
 use std::cell::Cell;
 
+#[cfg(test)]
 thread_local! {
-    static CLOSE_BUTTON_ID: Cell<u32> = const { Cell::new(NAMEKEY_INVALID) };
+    static TEST_CLOSE_BUTTON_ID: Cell<u32> = const { Cell::new(NAMEKEY_INVALID) };
+}
+
+fn close_button_id_on_owner(owner: Option<&crate::gui::window_manager::WindowManagerOwner>) -> u32 {
+    if let Some(owner) = owner {
+        return owner.motd_close_button_id();
+    }
+    if let Some(id) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().motd_close_button_id()
+    }) {
+        return id;
+    }
+    #[cfg(test)]
+    {
+        return TEST_CLOSE_BUTTON_ID.with(Cell::get);
+    }
+    #[cfg(not(test))]
+    {
+        NAMEKEY_INVALID
+    }
+}
+
+fn set_close_button_id_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+    id: u32,
+) {
+    if let Some(owner) = owner {
+        owner.set_motd_close_button_id(id);
+        return;
+    }
+    if let Some(()) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .set_motd_close_button_id(id);
+    }) {
+        return;
+    }
+    #[cfg(test)]
+    {
+        TEST_CLOSE_BUTTON_ID.with(|cell| cell.set(id));
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        let _ = id;
+    }
 }
 
 fn close_button_id() -> u32 {
-    CLOSE_BUTTON_ID.with(Cell::get)
+    close_button_id_on_owner(None)
 }
 
 fn set_close_button_id(id: u32) {
-    CLOSE_BUTTON_ID.with(|cell| cell.set(id));
+    set_close_button_id_on_owner(None, id);
 }
 
 /// Message of the day window system callback.
