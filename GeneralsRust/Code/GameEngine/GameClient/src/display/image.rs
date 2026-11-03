@@ -9,8 +9,7 @@ use log::debug;
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
@@ -48,15 +47,14 @@ const STARTUP_SHELL_IMAGE_NAMES: [&str; 4] = [
 ];
 
 fn log_startup_shell_image_once(name: &str, message: String) {
-    thread_local! {
-        static REPORTED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
-    }
     let key = format!("{name}:{message}");
-    REPORTED.with_borrow_mut(|reported| {
-        if reported.insert(key) {
-            debug!("startup shell image: name={name} {message}");
-        }
-    });
+    let should_log = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.note_startup_shell_image_log(&key)
+    })
+    .unwrap_or(true);
+    if should_log {
+        debug!("startup shell image: name={name} {message}");
+    }
 }
 
 /// Image-related error types
@@ -866,21 +864,15 @@ impl SubsystemInterface for ImageCollection {
     }
 }
 
-// THREAD: main thread only — the collection is filled from Common's INI store
-// during client init and read by the draw path on the same thread. The slot is
-// thread-local; the `Arc<RwLock<...>>` handle it hands out keeps the published
-// API unchanged.
-thread_local! {
-    static MAPPED_IMAGE_COLLECTION: RefCell<Option<Arc<RwLock<ImageCollection>>>> =
-        const { RefCell::new(None) };
-}
-
-/// Ensure the mapped image collection exists and return a handle to it
+/// Ensure the mapped image collection exists and return a handle to it.
+/// Prefers the live GameClient slot; otherwise returns a fresh empty collection.
 pub fn ensure_mapped_image_collection() -> Arc<RwLock<ImageCollection>> {
-    MAPPED_IMAGE_COLLECTION.with_borrow_mut(|slot| {
-        slot.get_or_insert_with(|| Arc::new(RwLock::new(ImageCollection::new())))
-            .clone()
-    })
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_mapped_image_collection()
+    }) {
+        return handle;
+    }
+    Arc::new(RwLock::new(ImageCollection::new()))
 }
 
 fn candidate_texture_resource_names(filename: &str) -> Vec<String> {
