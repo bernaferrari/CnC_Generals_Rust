@@ -64,6 +64,13 @@ impl SkirmishPlayerTemplateSelection {
     /// it into a different base faction.
     pub fn exact_template_name(template_name: &str) -> Self {
         let requested_name = template_name.trim().to_string();
+        // Config builders may run before a GameLogic bind; use a temporary
+        // CommonServices so PlayerTemplate lookup is not ambient-dependent.
+        let _common = if game_engine::common::common_services::try_common_services().is_none() {
+            Some(game_engine::common::common_services::CommonServicesScope::new())
+        } else {
+            None
+        };
         game_engine::common::ini::ensure_player_templates_loaded();
         let store = game_engine::common::rts::player_template::get_player_template_store();
         let Some(template_index) = store
