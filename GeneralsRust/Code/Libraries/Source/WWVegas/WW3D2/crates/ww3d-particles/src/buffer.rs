@@ -240,7 +240,8 @@ impl ParticleBuffer {
         };
 
         // Initialize cost and value arrays with screen area of 1.0
-        let min_lod = buffer.calculate_cost_value_arrays(1.0);
+        let runtime = crate::process_state::ParticlesRuntime::new();
+        let min_lod = buffer.calculate_cost_value_arrays(1.0, &runtime);
 
         // Ensure LOD is no less than minimum allowed
         if buffer.get_lod_level() < min_lod {
@@ -1005,6 +1006,7 @@ impl ParticleBuffer {
         viewport_width: f32,
         viewport_height: f32,
         view_plane_size: (f32, f32),
+        particles: &crate::process_state::ParticlesRuntime,
     ) {
         // Calculate screen area projection
         let sphere = self.get_bounding_sphere();
@@ -1036,7 +1038,7 @@ impl ParticleBuffer {
         self.projected_area = 0.9 * self.projected_area + 0.1 * proj_area;
 
         // Calculate cost/value arrays
-        let min_lod = self.calculate_cost_value_arrays(self.projected_area);
+        let min_lod = self.calculate_cost_value_arrays(self.projected_area, particles);
 
         // Ensure LOD is no less than minimum allowed
         if self.get_lod_level() < min_lod {
@@ -1045,7 +1047,7 @@ impl ParticleBuffer {
     }
 
     /// Calculate cost and value arrays for LOD selection
-    fn calculate_cost_value_arrays(&mut self, screen_area: f32) -> usize {
+    fn calculate_cost_value_arrays(&mut self, screen_area: f32, particles: &crate::process_state::ParticlesRuntime) -> usize {
         // Calculate cost heuristic for each LOD level
         // Cost factor is based on 1/16 (0.0625) of total since decimation uses 16 steps
         let cost_factor = match self.render_mode {
@@ -1076,7 +1078,7 @@ impl ParticleBuffer {
         // Calculate value heuristic
         let mut lod = 0;
         {
-            let lod_sizes = crate::process_state::particles().lod_max_screen_sizes.lock().unwrap_or_else(|p| p.into_inner()).clone();
+            let lod_sizes = particles.lod_max_screen_sizes.lock().unwrap_or_else(|p| p.into_inner()).clone();
             // Find first LOD where MaxScreenSize >= screen_area
             while lod < self.lod_count && lod_sizes[lod] < screen_area {
                 self.value[lod] = AT_MIN_LOD;
@@ -1159,17 +1161,24 @@ impl ParticleBuffer {
     }
 
     /// Set global LOD max screen size for a specific level
-    pub fn set_lod_max_screen_size(lod_level: usize, max_screen_size: f32) {
+    pub fn set_lod_max_screen_size(
+        runtime: &crate::process_state::ParticlesRuntime,
+        lod_level: usize,
+        max_screen_size: f32,
+    ) {
         if lod_level < 17 {
-            let mut sizes = crate::process_state::particles().lod_max_screen_sizes.lock().unwrap_or_else(|p| p.into_inner()).clone();
+            let mut sizes = runtime.lod_max_screen_sizes.lock().unwrap_or_else(|p| p.into_inner());
             sizes[lod_level] = max_screen_size;
         }
     }
 
     /// Get global LOD max screen size for a specific level
-    pub fn get_lod_max_screen_size(lod_level: usize) -> f32 {
+    pub fn get_lod_max_screen_size(
+        runtime: &crate::process_state::ParticlesRuntime,
+        lod_level: usize,
+    ) -> f32 {
         if lod_level < 17 {
-            crate::process_state::particles().lod_max_screen_sizes.lock().unwrap_or_else(|p| p.into_inner()).clone()[lod_level]
+            runtime.lod_max_screen_sizes.lock().unwrap_or_else(|p| p.into_inner())[lod_level]
         } else {
             NO_MAX_SCREEN_SIZE
         }
