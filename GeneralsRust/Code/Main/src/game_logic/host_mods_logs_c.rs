@@ -17,7 +17,6 @@ use super::host_structure_topple;
 #[path = "host_production_log.rs"]
 pub mod host_production_log;
 
-#[cfg(test)]
 #[path = "host_production_progress_log.rs"]
 pub mod host_production_progress_log;
 

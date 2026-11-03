@@ -121,11 +121,13 @@ impl LiveAssetResolver {
 
 #[cfg(not(target_os = "macos"))]
 fn resolver_case_insensitive_dir_index(search_dir: &Path) -> Option<HashMap<String, PathBuf>> {
-    static DIR_INDEX: OnceLock<Mutex<HashMap<String, HashMap<String, PathBuf>>>> = OnceLock::new();
     let key = search_dir.to_string_lossy().to_ascii_lowercase();
-    let cache = DIR_INDEX.get_or_init(|| Mutex::new(HashMap::new()));
+    let services = crate::main_services::main_services();
     {
-        let guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = services
+            .resolver_dir_index
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(hit) = guard.get(&key) {
             return Some(hit.clone());
         }
@@ -136,7 +138,10 @@ fn resolver_case_insensitive_dir_index(search_dir: &Path) -> Option<HashMap<Stri
         let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
         index.entry(name).or_insert_with(|| entry.path());
     }
-    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = services
+        .resolver_dir_index
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     if guard.len() > 4096 {
         guard.clear();
     }

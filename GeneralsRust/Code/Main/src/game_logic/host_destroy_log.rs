@@ -1,29 +1,29 @@
 //! Frame-local host destroy log for GameWorld shadow parity.
 
 use super::ObjectId;
-use std::cell::RefCell;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HostDestroyEvent {
     pub id: ObjectId,
 }
 
-struct HostDestroyLogLogBag {
-    value: std::sync::Mutex<Vec<HostDestroyEvent>>,
+fn with_log_mut<R>(f: impl FnOnce(&mut Vec<HostDestroyEvent>) -> R) -> R {
+    let services = crate::main_services::main_services();
+    let mut log = services
+        .host_destroy_log
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    f(&mut log)
 }
-static LOG: std::sync::LazyLock<HostDestroyLogLogBag> = std::sync::LazyLock::new(|| HostDestroyLogLogBag {
-    value: std::sync::Mutex::new(Vec::new()),
-});
-
 
 pub fn record(id: ObjectId) {
-    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); log.push(HostDestroyEvent { id }) };
+    with_log_mut(|log| log.push(HostDestroyEvent { id }));
 }
 
 pub fn drain() -> Vec<HostDestroyEvent> {
-    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); std::mem::take(&mut log) }
+    with_log_mut(std::mem::take)
 }
 
 pub fn clear() {
-    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); log.clear() };
+    with_log_mut(|log| log.clear());
 }

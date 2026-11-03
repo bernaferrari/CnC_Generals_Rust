@@ -17,14 +17,8 @@ impl MissionScriptHooks {
                 ease_in_seconds,
                 ease_out_seconds,
             } => {
-                struct DebugCameraMoveToLogsSlot(AtomicUsize);
-                impl std::ops::Deref for DebugCameraMoveToLogsSlot {
-                    type Target = AtomicUsize;
-                    fn deref(&self) -> &Self::Target { &self.0 }
-                }
-                static DEBUG_CAMERA_MOVE_TO_LOGS: DebugCameraMoveToLogsSlot = DebugCameraMoveToLogsSlot(AtomicUsize::new(0));
-                let position = camera_coord3d_to_world(x, y, z);
-                if DEBUG_CAMERA_MOVE_TO_LOGS.fetch_add(1, Ordering::Relaxed) < 16 {
+                                let position = camera_coord3d_to_world(x, y, z);
+                if crate::main_services::main_services().debug_camera_move_to_logs.fetch_add(1, Ordering::Relaxed) < 16 {
                     eprintln!(
                         "DEBUG_SHELL_CAMERA_ACTION: move_camera_to raw=({x:.3}, {y:.3}, {z:.3}) world={position:?} seconds={seconds:.3}"
                     );

@@ -360,7 +360,7 @@ fn host_construction_completes_when_sole_tick_unmapped() {
     // Production keeps construction authority default-off (host GameLogic is
     // the sole writer, C++ single-store); the sole-tick contract under test
     // opts in via `GameLogic::set_construction_authority(true)`.
-    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+    let _env_guard = host_state_residual_test_env_lock()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
 

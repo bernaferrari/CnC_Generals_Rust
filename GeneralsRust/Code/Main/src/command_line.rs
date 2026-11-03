@@ -698,21 +698,17 @@ impl CommandLineArgs {
     }
 }
 
-/// Global command line arguments
-struct CommandLineArgsSlot(std::sync::LazyLock<std::sync::Mutex<Option<CommandLineArgs>>>);
-impl std::ops::Deref for CommandLineArgsSlot {
-    type Target = std::sync::LazyLock<std::sync::Mutex<Option<CommandLineArgs>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static COMMAND_LINE_ARGS: CommandLineArgsSlot = CommandLineArgsSlot(std::sync::LazyLock::new(|| std::sync::Mutex::new(None)));
-
 /// Initialize command line parsing system
 pub fn initialize_command_line() -> Result<CommandLineArgs> {
     let args = CommandLineArgs::parse()?;
 
-    // Store globally for access by other systems
+    // Store on MainServices for access by other systems
     {
-        let mut global_args = COMMAND_LINE_ARGS.lock().unwrap_or_else(|e| e.into_inner());
+        let services = crate::main_services::main_services();
+        let mut global_args = services
+            .command_line_args
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *global_args = Some(args.clone());
     }
 
@@ -722,7 +718,8 @@ pub fn initialize_command_line() -> Result<CommandLineArgs> {
 
 /// Get the global command line arguments
 pub fn get_command_line_args() -> Option<CommandLineArgs> {
-    COMMAND_LINE_ARGS
+    crate::main_services::main_services()
+        .command_line_args
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone()

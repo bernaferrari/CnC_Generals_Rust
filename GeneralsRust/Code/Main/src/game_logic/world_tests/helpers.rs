@@ -13,13 +13,11 @@ pub(super) fn admit_retail_production_energy_rules(logic: &mut GameLogic) {
 
 // Child module of game_logic.rs via `#[path]`.
 
-struct HostStateResidualTestEnvLockSlot(std::sync::Mutex<()>);
-impl std::ops::Deref for HostStateResidualTestEnvLockSlot {
-    type Target = std::sync::Mutex<()>;
-    fn deref(&self) -> &Self::Target { &self.0 }
+pub(super) fn host_state_residual_test_env_lock() -> &'static std::sync::Mutex<()> {
+    let services = crate::main_services::main_services();
+    let lock = &services.host_state_residual_test_env_lock;
+    unsafe { std::mem::transmute(lock) }
 }
-pub(super) static HOST_STATE_RESIDUAL_TEST_ENV_LOCK: HostStateResidualTestEnvLockSlot =
-    HostStateResidualTestEnvLockSlot(std::sync::Mutex::new(()));
 
 /// Install a tall ridge through the pathfinding-grid mid X cells so
 /// `is_clear_line_of_sight_terrain` fails between low endpoints on either side.

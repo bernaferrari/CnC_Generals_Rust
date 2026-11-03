@@ -1,7 +1,6 @@
 //! Frame-local host fire-intent log for GameWorld SetFireIntent parity.
 
 use super::ObjectId;
-use std::cell::RefCell;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HostFireIntentEvent {
@@ -15,13 +14,14 @@ pub struct HostFireIntentEvent {
     pub fire_intent_count: u32,
 }
 
-struct HostFireIntentLogLogBag {
-    value: std::sync::Mutex<Vec<HostFireIntentEvent>>,
+fn with_log_mut<R>(f: impl FnOnce(&mut Vec<HostFireIntentEvent>) -> R) -> R {
+    let services = crate::main_services::main_services();
+    let mut log = services
+        .host_fire_intent_log
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    f(&mut log)
 }
-static LOG: std::sync::LazyLock<HostFireIntentLogLogBag> = std::sync::LazyLock::new(|| HostFireIntentLogLogBag {
-    value: std::sync::Mutex::new(Vec::new()),
-});
-
 
 pub fn record(
     object: ObjectId,
@@ -33,7 +33,7 @@ pub fn record(
     last_fire_frame: u32,
     fire_intent_count: u32,
 ) {
-    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); 
+    with_log_mut(|log| {
         log.push(HostFireIntentEvent {
             object,
             last_fire_victim_host,
@@ -44,21 +44,21 @@ pub fn record(
             last_fire_frame,
             fire_intent_count,
         });
-     };
+    });
 }
 
 pub fn has_pending(object: ObjectId) -> bool {
-    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); log.iter().any(|e| e.object == object) }
+    with_log_mut(|log| log.iter().any(|e| e.object == object))
 }
 
 pub fn drain() -> Vec<HostFireIntentEvent> {
-    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); std::mem::take(&mut log) }
+    with_log_mut(std::mem::take)
 }
 
 pub fn len() -> usize {
-    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); log.len() }
+    with_log_mut(|log| log.len())
 }
 
 pub fn clear() {
-    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); log.clear() };
+    with_log_mut(|log| log.clear());
 }

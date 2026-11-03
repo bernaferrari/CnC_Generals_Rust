@@ -12,7 +12,7 @@ use super::*;
 pub struct DrawableWorld {
     pub(super) auxiliary_identity: std::sync::Arc<()>,
     pub(super) state: DrawableState,
-    pub(super) particles: Option<crate::effects::particle_manager::ParticleSystemManager>,
+    pub(crate) particles: Option<crate::effects::particle_manager::ParticleSystemManager>,
 }
 impl DrawableWorld {
     pub fn new() -> Self {

@@ -959,18 +959,12 @@ fn resolve_show_object_health(parsed: Option<bool>, retail_game_data_source_pres
 
 /// Cached probe: 0 unresolved, 1 a GameData INI source resolves on this
 /// install, 2 none resolves.
-struct RetailGameDataProbeSlot(AtomicU8);
-impl std::ops::Deref for RetailGameDataProbeSlot {
-    type Target = AtomicU8;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static RETAIL_GAME_DATA_PROBE: RetailGameDataProbeSlot = RetailGameDataProbeSlot(AtomicU8::new(0));
 
 /// Whether any boot GameData INI source (`Data/INI/GameData.ini` or
 /// `Data/INI/Default/GameData.ini`, the `bootstrap_global_data_from_ini`
 /// pair) resolves from this install's extracted disk roots.
 fn retail_game_data_source_present() -> bool {
-    match RETAIL_GAME_DATA_PROBE.load(Ordering::Relaxed) {
+    match crate::main_services::main_services().retail_game_data_probe.load(Ordering::Relaxed) {
         1 => true,
         2 => false,
         _ => {
@@ -980,7 +974,7 @@ fn retail_game_data_source_present() -> bool {
                     crate::cnc_game_engine::CnCGameEngine::read_startup_ini_from_disk(path)
                         .is_some()
                 });
-            RETAIL_GAME_DATA_PROBE.store(if present { 1 } else { 2 }, Ordering::Relaxed);
+            crate::main_services::main_services().retail_game_data_probe.store(if present { 1 } else { 2 }, Ordering::Relaxed);
             present
         }
     }
@@ -990,15 +984,17 @@ fn retail_game_data_source_present() -> bool {
 /// 2 absent, 0 re-probe on next use).
 #[cfg(test)]
 fn force_retail_game_data_probe_for_tests(state: u8) {
-    RETAIL_GAME_DATA_PROBE.store(state, Ordering::Relaxed);
+    crate::main_services::main_services().retail_game_data_probe.store(state, Ordering::Relaxed);
 }
 
 /// Log the active ShowObjectHealth value once at InGame entry (first
 /// health-bar pack of the session).
-static SHOW_OBJECT_HEALTH_GATE_LOGGED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-
 fn log_show_object_health_gate_once(open: bool) {
-    if SHOW_OBJECT_HEALTH_GATE_LOGGED.set(()).is_ok() {
+    let services = crate::main_services::main_services();
+    if !services
+        .show_object_health_gate_logged
+        .swap(true, Ordering::Relaxed)
+    {
         if open {
             log::info!("ShowObjectHealth gate open at InGame entry: health bars visible");
         } else {

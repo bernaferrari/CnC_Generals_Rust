@@ -56,14 +56,9 @@ fn shroud_runtime_active(
 /// Serialize remaining legacy fixtures which still mutate engine singletons.
 #[cfg(test)]
 pub fn shroud_test_isolation_lock() -> &'static std::sync::Mutex<()> {
-    use std::sync::{Mutex, OnceLock};
-    struct LockSlot(OnceLock<Mutex<()>>);
-    impl std::ops::Deref for LockSlot {
-        type Target = OnceLock<Mutex<()>>;
-        fn deref(&self) -> &Self::Target { &self.0 }
-    }
-    static LOCK: LockSlot = LockSlot(OnceLock::new());
-    LOCK.get_or_init(|| Mutex::new(()))
+    let services = crate::main_services::main_services();
+    let lock = &services.fow_test_lock;
+    unsafe { std::mem::transmute(lock) }
 }
 
 /// Frozen per-object visibility consumed by rendering.
