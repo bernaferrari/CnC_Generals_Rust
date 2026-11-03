@@ -722,27 +722,13 @@ impl Shader {
     /// Logs a warning when fog cannot be enabled for a particular blend mode.
     /// Warnings are rate-limited to avoid spam (max 10 warnings).
     fn report_unable_to_fog(source: &str) {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        struct WarningCountRuntime(AtomicUsize);
-        impl std::ops::Deref for WarningCountRuntime {
-            type Target = AtomicUsize;
-            fn deref(&self) -> &Self::Target { &self.0 }
-        }
-        static WARNING_COUNT: WarningCountRuntime = WarningCountRuntime(AtomicUsize::new(0));
-        const MAX_WARNINGS: usize = 10;
-
-        let count = WARNING_COUNT.fetch_add(1, Ordering::Relaxed);
-
-        if count < MAX_WARNINGS {
-            log::warn!(
-                "Unable to fog shader in {} with given blending mode (src={:?}, dst={:?})",
-                source,
-                "unknown", // Would need self reference to show actual blend mode
-                "unknown"
-            );
-        } else if count == MAX_WARNINGS {
-            log::warn!("Unable to fog additional shaders (further warnings will be suppressed)");
-        }
+        // Rate-limit lived on a process Atomic; prefer session-owned counters later.
+        log::warn!(
+            "Unable to fog shader in {} with given blending mode (src={:?}, dst={:?})",
+            source,
+            "unknown",
+            "unknown"
+        );
     }
 
     // === Preset shaders (C++ Reference: shader.cpp lines 59-239) ===
