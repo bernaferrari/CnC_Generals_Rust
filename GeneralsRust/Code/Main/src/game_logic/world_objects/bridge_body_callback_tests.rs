@@ -663,6 +663,7 @@ fn detached_span_death_cannot_break_peer_or_restored_receiving_bridge() {
                 1000.0,
                 None,
                 DamageType::Unresistable,
+                0,
                 &mut local_health
             ));
             receiving.sync_host_bridge_rubble_and_scaffolds();
