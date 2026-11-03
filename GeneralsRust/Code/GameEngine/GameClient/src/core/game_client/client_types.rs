@@ -94,6 +94,10 @@ pub struct GameClient {
     pub(crate) hint_model_cache: crate::display::view::HintModelCache,
     /// C++ `TheDisplay->isLetterBoxed()` as seen by W3DView::buildCameraTransform.
     pub(crate) display_letter_boxed: bool,
+    /// Per-frame unit shadow casters + GUI-thread GPU pipelines for this client.
+    pub(crate) shadow_pass: crate::display::shadow_pass::ShadowPassState,
+    /// Resolved terrain texture path caches for this client.
+    pub(crate) terrain_texture_caches: crate::terrain::textures::TerrainTextureCaches,
     fx_next_id: std::sync::atomic::AtomicU64,
     render_bridge_next_line_id: std::sync::atomic::AtomicU64,
     win_draw_image_commands: std::sync::atomic::AtomicUsize,

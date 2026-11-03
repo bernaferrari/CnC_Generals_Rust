@@ -266,12 +266,37 @@ pub const FLIPPED_MASK: u8 = 0x2;
 
 type TextureCacheKey = (TextureId, TextureKind);
 
-type PathCache = Mutex<HashMap<String, Option<PathBuf>>>;
 type DecodedImage = Arc<image::DynamicImage>;
-type GameFsPathCache = Mutex<HashMap<String, Option<String>>>;
 
-static RESOLVED_PATH_CACHE: OnceLock<PathCache> = OnceLock::new();
-static GAME_FS_PATH_CACHE: OnceLock<GameFsPathCache> = OnceLock::new();
+#[derive(Default)]
+pub struct TerrainTextureCaches {
+    resolved_paths: HashMap<String, Option<PathBuf>>,
+    game_fs_paths: HashMap<String, Option<String>>,
+}
+
+fn with_texture_caches<R>(f: impl FnOnce(&mut TerrainTextureCaches) -> R) -> R {
+    if crate::core::game_client::live_game_client_frame().is_some() {
+        return crate::core::game_client::with_live_game_client_mut(|client| {
+            f(&mut client.terrain_texture_caches)
+        })
+        .expect("live client frame implies registered client");
+    }
+    #[cfg(test)]
+    {
+        return TEST_TEXTURE_CACHES.with(|slot| f(&mut slot.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        let mut ephemeral = TerrainTextureCaches::default();
+        f(&mut ephemeral)
+    }
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static TEST_TEXTURE_CACHES: std::cell::RefCell<TerrainTextureCaches> =
+        std::cell::RefCell::new(TerrainTextureCaches::default());
+}
 
 fn normalized_texture_key(path: &str) -> String {
     normalize_texture_name(path).to_ascii_lowercase()
@@ -651,17 +676,13 @@ impl TextureManager {
 
     fn resolve_texture_path_cached(diffuse_path: &str) -> Option<PathBuf> {
         let key = normalized_texture_key(diffuse_path);
-        let cache = RESOLVED_PATH_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-        if let Ok(cache) = cache.lock() {
-            if let Some(cached) = cache.get(&key) {
-                return cached.clone();
-            }
+        if let Some(cached) = with_texture_caches(|caches| caches.resolved_paths.get(&key).cloned()) {
+            return cached;
         }
-
         let resolved = Self::resolve_texture_path(diffuse_path);
-        if let Ok(mut cache) = cache.lock() {
-            cache.insert(key, resolved.clone());
-        }
+        with_texture_caches(|caches| {
+            caches.resolved_paths.insert(key, resolved.clone());
+        });
         resolved
     }
 
@@ -794,17 +815,13 @@ impl TextureManager {
 
     fn resolve_game_fs_path_cached(path: &str) -> Option<String> {
         let key = normalized_texture_key(path);
-        let cache = GAME_FS_PATH_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-        if let Ok(cache) = cache.lock() {
-            if let Some(cached) = cache.get(&key) {
-                return cached.clone();
-            }
+        if let Some(cached) = with_texture_caches(|caches| caches.game_fs_paths.get(&key).cloned()) {
+            return cached;
         }
-
         let resolved = Self::find_game_fs_path(path);
-        if let Ok(mut cache) = cache.lock() {
-            cache.insert(key, resolved.clone());
-        }
+        with_texture_caches(|caches| {
+            caches.game_fs_paths.insert(key, resolved.clone());
+        });
         resolved
     }
 
