@@ -171,6 +171,8 @@ fn run_mode(
         .arg(format!("-gpui_control={}", control_path.display()))
         .arg(format!("-gpui_status={}", status_path.display()))
         .arg(format!("-gpui_frame={}", frame_path.display()))
+        // Keep present_ms honest: no periodic PNG readback during the bench.
+        .arg("-gpui_capture_interval_ms=0")
         .arg("-nologo")
         .arg("-nointro")
         .env(
@@ -313,6 +315,21 @@ fn run_mode(
     let ms_per_tick = (measure_elapsed * 1000.0) / f64::from(logic_delta);
     let ms_per_frame = (measure_elapsed * 1000.0) / f64::from(frame_delta);
 
+    // One on-demand capture for artifacts / PNG gates (not during the timed window).
+    if launch == "windowed" {
+        let _ = write_control(&control_path, &["request_capture"]);
+        let wait_deadline = Instant::now() + Duration::from_secs(8);
+        while Instant::now() < wait_deadline {
+            if frame_path.is_file() {
+                if let Ok(meta) = fs::metadata(&frame_path) {
+                    if meta.len() > 1024 {
+                        break;
+                    }
+                }
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
     let _ = write_control(&control_path, &["exit"]);
     thread::sleep(Duration::from_millis(500));
     let _ = child.kill();

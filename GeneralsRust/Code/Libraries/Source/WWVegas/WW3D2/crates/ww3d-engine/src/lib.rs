@@ -1672,15 +1672,19 @@ impl Engine {
     }
 
     fn flush_pending_screenshot_readbacks(&mut self) {
-        let finish = |this: &mut Self, pending: ScreenshotReadback| {
-            if let Err(err) = this.finish_screenshot_readback(pending) {
-                eprintln!("WW3D screenshot finalize failed: {}", err);
-            }
-        };
+        // Hot-path only: never wait_indefinitely or PNG-encode on the present
+        // thread. C++ W3D has no per-frame screenshot finalize in end_render;
+        // the runtime-host capture bridge polls until the file appears.
+        // Ready maps are converted and encoded on a worker so ForwardPass /
+        // present_ms stay honest.
         let mut remaining = Vec::new();
         for pending in std::mem::take(&mut self.pending_screenshot_readbacks) {
             match pending.completion.try_recv() {
-                Ok(Ok(())) => finish(self, pending),
+                Ok(Ok(())) => {
+                    if let Err(err) = Self::finish_screenshot_readback_async(pending) {
+                        eprintln!("WW3D screenshot finalize failed: {}", err);
+                    }
+                }
                 Ok(Err(err)) => eprintln!("WW3D screenshot GPU map failed: {}", err),
                 Err(std::sync::mpsc::TryRecvError::Empty) => remaining.push(pending),
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -1688,14 +1692,18 @@ impl Engine {
                 }
             }
         }
+        // Keep outstanding maps alive; next end_render / poll will retry.
+        // A cheap non-blocking poll helps completions land without stalling.
         if !remaining.is_empty() {
-            // Block once so capture_path is durable before the runtime host
-            // copies the procedural fallback placeholder into frame.png.
-            let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+            let _ = self.device.poll(wgpu::PollType::Poll);
             let mut still = Vec::new();
             for pending in remaining {
                 match pending.completion.try_recv() {
-                    Ok(Ok(())) => finish(self, pending),
+                    Ok(Ok(())) => {
+                        if let Err(err) = Self::finish_screenshot_readback_async(pending) {
+                            eprintln!("WW3D screenshot finalize failed: {}", err);
+                        }
+                    }
                     Ok(Err(err)) => eprintln!("WW3D screenshot GPU map failed: {}", err),
                     Err(std::sync::mpsc::TryRecvError::Empty) => still.push(pending),
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -1706,6 +1714,53 @@ impl Engine {
             remaining = still;
         }
         self.pending_screenshot_readbacks = remaining;
+    }
+
+    /// Copy mapped pixels then encode/write on a worker. Unmaps on this thread
+    /// so the GPU buffer is released before the present path continues.
+    fn finish_screenshot_readback_async(pending: ScreenshotReadback) -> EngineResult<()> {
+        let buffer_slice = pending.buffer.slice(..);
+        let data = buffer_slice.get_mapped_range().map_err(|err| {
+            EngineError::Screenshot(format!("Screenshot buffer unavailable: {err}"))
+        })?;
+        let mapped_bytes = data.to_vec();
+        drop(data);
+        pending.buffer.unmap();
+
+        let path = pending.path;
+        let width = pending.width;
+        let height = pending.height;
+        let format = pending.format;
+        let row_size = pending.row_size;
+        let padded_row_size = pending.padded_row_size;
+        std::thread::Builder::new()
+            .name("ww3d-screenshot".into())
+            .spawn(move || {
+                let mut image_data = vec![0u8; width as usize * height as usize * 4];
+                for (row_index, dest_chunk) in
+                    image_data.chunks_exact_mut(width as usize * 4).enumerate()
+                {
+                    let src_offset = row_index * padded_row_size;
+                    let src_slice = &mapped_bytes[src_offset..src_offset + row_size];
+                    if let Err(err) = convert_row_to_rgba(format, src_slice, dest_chunk) {
+                        eprintln!(
+                            "WW3D screenshot row conversion failed for {}: {err}",
+                            path.display()
+                        );
+                        return;
+                    }
+                }
+                if let Err(err) = write_screenshot_png(path.as_path(), width, height, &image_data) {
+                    eprintln!(
+                        "WW3D screenshot encode/write failed for {}: {err}",
+                        path.display()
+                    );
+                }
+            })
+            .map_err(|err| {
+                EngineError::Screenshot(format!("Failed to spawn screenshot worker: {err}"))
+            })?;
+        Ok(())
     }
 
     fn finish_screenshot_readback(&self, pending: ScreenshotReadback) -> EngineResult<()> {
