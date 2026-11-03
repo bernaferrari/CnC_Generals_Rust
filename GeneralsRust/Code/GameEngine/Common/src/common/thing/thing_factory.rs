@@ -1197,8 +1197,10 @@ pub fn get_thing_factory() -> Result<ThingFactoryGuard, std::sync::PoisonError<(
 }
 
 /// Non-blocking lock so map-load bridge width lookup can fail-open.
+/// Returns None when CommonServices is unbound (does not panic).
 pub fn try_get_thing_factory() -> Option<ThingFactoryGuard> {
-    ThingFactoryGuard::try_from_arc(active_thing_factory_slot())
+    let services = crate::common::common_services::try_common_services()?;
+    ThingFactoryGuard::try_from_arc(Arc::clone(&services.thing_factory))
 }
 
 /// Replay top-level Locomotor lines into AI module data after the GameLogic hook is registered.
