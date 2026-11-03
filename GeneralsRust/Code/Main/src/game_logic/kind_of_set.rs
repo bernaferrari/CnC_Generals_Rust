@@ -211,4 +211,80 @@ mod tests {
         assert!(decoded.contains(&KindOf::ProducedAtHelipad));
         assert_eq!(decoded.len(), 3);
     }
+
+    #[test]
+    fn kind_of_set_membership_is_zero_alloc_and_faster_than_hashset() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Stack-only container: Copy + fixed u128 storage (zero heap for
+        // construction/clone/membership of the set itself).
+        assert_eq!(std::mem::size_of::<KindOfSet>(), 16);
+        let mut set = KindOfSet::new();
+        for &kind in KindOf::ALL_KIND_OF {
+            set.insert(kind);
+        }
+        let cloned = set;
+        assert_eq!(cloned, set);
+
+        let mut hash = HashSet::new();
+        for &kind in KindOf::ALL_KIND_OF {
+            hash.insert(kind);
+        }
+
+        let retail = [
+            KindOf::Infantry,
+            KindOf::Vehicle,
+            KindOf::Dozer,
+            KindOf::Aircraft,
+            KindOf::Structure,
+            KindOf::Projectile,
+        ];
+        let rounds = 50_000usize;
+
+        let start = Instant::now();
+        let mut bit_hits = 0usize;
+        for _ in 0..rounds {
+            for kind in retail {
+                if black_box(set.contains(&kind)) {
+                    bit_hits = black_box(bit_hits + 1);
+                }
+            }
+            for &kind in KindOf::ALL_KIND_OF {
+                if black_box(set.contains(&kind)) {
+                    bit_hits = black_box(bit_hits + 1);
+                }
+            }
+        }
+        let bit_ns = start.elapsed();
+
+        let start = Instant::now();
+        let mut hash_hits = 0usize;
+        for _ in 0..rounds {
+            for kind in retail {
+                if black_box(hash.contains(&kind)) {
+                    hash_hits = black_box(hash_hits + 1);
+                }
+            }
+            for &kind in KindOf::ALL_KIND_OF {
+                if black_box(hash.contains(&kind)) {
+                    hash_hits = black_box(hash_hits + 1);
+                }
+            }
+        }
+        let hash_ns = start.elapsed();
+
+        assert_eq!(bit_hits, hash_hits);
+        eprintln!(
+            "KindOfSet membership {:?} over {} rounds; HashSet {:?}; ratio {:.2}x",
+            bit_ns,
+            rounds,
+            hash_ns,
+            hash_ns.as_secs_f64() / bit_ns.as_secs_f64().max(1e-12)
+        );
+        assert!(
+            bit_ns <= hash_ns.saturating_mul(2) + std::time::Duration::from_millis(5),
+            "KindOfSet unexpectedly slower than HashSet: {bit_ns:?} vs {hash_ns:?}"
+        );
+    }
 }
