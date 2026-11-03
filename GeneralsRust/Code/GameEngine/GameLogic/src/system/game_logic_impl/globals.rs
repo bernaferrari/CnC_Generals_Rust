@@ -277,21 +277,22 @@ fn install_save_game_counter_integration() {
 // Global Singleton Access
 // =============================================================================
 
-static GAME_LOGIC: OnceLock<Mutex<GameLogic>> = OnceLock::new();
 static SAVE_GAME_COUNTER_HOOKS: OnceLock<()> = OnceLock::new();
 
 fn game_logic_mutex() -> &'static Mutex<GameLogic> {
     SAVE_GAME_COUNTER_HOOKS.get_or_init(|| {
         install_save_game_counter_integration();
     });
-    GAME_LOGIC.get_or_init(|| {
-        Mutex::new(GameLogic::new_with_engine_stores(
-            crate::system::engine_stores::EngineStores::process_lifetime(),
-        ))
-    })
+    // Prefer the published Core runtime; Main world-services boundaries keep
+    // using the process-lifetime Core slot for leftover TheGameLogic accessors.
+    let stores = match crate::system::engine_stores::published_core_for_game_logic() {
+        Some(core) => core,
+        None => crate::system::engine_stores::EngineStores::process_lifetime(),
+    };
+    stores.game_logic_mutex()
 }
 
-/// Get the global GameLogic singleton
+/// Get the GameLogic mutex for the active Core runtime (was process OnceLock).
 pub fn get_game_logic() -> &'static Mutex<GameLogic> {
     crate::system::object_data_provider::ensure_object_data_provider();
     game_logic_mutex()

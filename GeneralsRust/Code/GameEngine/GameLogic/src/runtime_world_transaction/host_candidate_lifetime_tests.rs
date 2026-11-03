@@ -6,9 +6,7 @@ struct RestoreGlobals {
 }
 impl Drop for RestoreGlobals {
     fn drop(&mut self) {
-        let _lock = world_runtime_transaction_lock()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _lock = world_runtime_transaction_lock();
         let current = HostRuntimeGlobals::take_from_singletons(&self.bundle);
         drop(current);
         drop(
@@ -101,7 +99,7 @@ fn detached_a_allows_b_failed_c_drop_and_commit_interleavings_without_reserving_
     empty_receipt();
     let a = a_stage.finish_and_restore_live(&a_services);
     assert!(
-        world_runtime_transaction_lock().try_lock().is_ok(),
+        WorldRuntimeTransactionLock::is_free(),
         "detached A must not reserve stores"
     );
     assert!(!world_runtime_staging_active());
@@ -155,12 +153,12 @@ fn detached_a_allows_b_failed_c_drop_and_commit_interleavings_without_reserving_
 
     let committed = a.preflight_native().unwrap().install_globals();
     assert!(
-        world_runtime_transaction_lock().try_lock().is_err(),
+        !WorldRuntimeTransactionLock::is_free(),
         "raw install retains exclusion until Main commit completes"
     );
     observe(2);
     committed.finish_after_logic_commit();
-    assert!(world_runtime_transaction_lock().try_lock().is_ok());
+    assert!(WorldRuntimeTransactionLock::is_free());
     // A later reset-stage rollback preserves the just-committed A values.
     let reset = HostRuntimeWorldStage::begin(&a_services);
     seed(5);
@@ -188,7 +186,7 @@ fn native_rejection_drops_detached_receipts_without_callbacks_and_releases_reser
         .is_ok()
     );
     let candidate = stage.finish_and_restore_live(&live);
-    assert!(world_runtime_transaction_lock().try_lock().is_ok());
+    assert!(WorldRuntimeTransactionLock::is_free());
     assert_eq!(candidate.team_factory_effects.len(), 2);
     assert_eq!(
         candidate.team_factory_effects[0].pending_callback_counts(),
@@ -200,6 +198,6 @@ fn native_rejection_drops_detached_receipts_without_callbacks_and_releases_reser
     );
     assert!(candidate.preflight_native().is_err());
     observe(1);
-    assert!(world_runtime_transaction_lock().try_lock().is_ok());
+    assert!(WorldRuntimeTransactionLock::is_free());
     observe(1);
 }
