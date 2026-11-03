@@ -60,7 +60,7 @@ impl FXListManagerInterface for FXListManagerBridge {
             return;
         };
 
-        let Some(fx) = get_fx_list_store().find_fx_list(&name) else {
+        let Some(fx) = with_fx_list_store(|s| s.find_fx_list(&name)) else {
             log::debug!("FXListManager: FXList '{}' not found", name);
             return;
         };
@@ -82,7 +82,7 @@ impl FXListManagerInterface for FXListManagerBridge {
             return;
         };
 
-        let Some(fx) = get_fx_list_store().find_fx_list(&name) else {
+        let Some(fx) = with_fx_list_store(|s| s.find_fx_list(&name)) else {
             log::debug!("FXListManager: FXList '{}' not found", name);
             return;
         };
@@ -109,7 +109,7 @@ impl FXListManagerInterface for FXListManagerBridge {
             log::debug!("FXListManager: unknown FXList id {}", fx_list);
             return;
         };
-        let Some(fx) = get_fx_list_store().find_fx_list(&name) else {
+        let Some(fx) = with_fx_list_store(|s| s.find_fx_list(&name)) else {
             log::debug!("FXListManager: FXList '{}' not found", name);
             return;
         };
@@ -129,7 +129,7 @@ impl FXListManagerInterface for FXListManagerBridge {
             log::debug!("FXListManager: unknown FXList id {}", fx_list);
             return;
         };
-        let Some(fx) = get_fx_list_store().find_fx_list(&name) else {
+        let Some(fx) = with_fx_list_store(|s| s.find_fx_list(&name)) else {
             log::debug!("FXListManager: FXList '{}' not found", name);
             return;
         };
@@ -202,7 +202,7 @@ fn host_fx_obj_is_visible(object_id: u32) -> bool {
 }
 
 fn do_named_fx_obj(name: &str, primary_id: Option<u32>, secondary_id: Option<u32>) -> bool {
-    let Some(fx) = get_fx_list_store().find_fx_list(name) else {
+    let Some(fx) = with_fx_list_store(|s| s.find_fx_list(name)) else {
         return false;
     };
     let leftover_primary = primary_id.and_then(gamelogic::helpers::TheGameLogic::find_object_by_id);
@@ -794,26 +794,50 @@ impl Default for FXListStore {
     }
 }
 
-static FX_LIST_STORE: OnceLock<RwLock<FXListStore>> = OnceLock::new();
 static FX_LIST_PARSER_REGISTERED: OnceLock<()> = OnceLock::new();
 
-pub fn get_fx_list_store() -> std::sync::RwLockReadGuard<'static, FXListStore> {
-    FX_LIST_STORE
-        .get_or_init(|| RwLock::new(FXListStore::new()))
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
+#[cfg(test)]
+thread_local! {
+    static TEST_FX_LIST_STORE: std::cell::RefCell<Option<std::sync::Arc<RwLock<FXListStore>>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
-pub fn get_fx_list_store_mut() -> std::sync::RwLockWriteGuard<'static, FXListStore> {
-    FX_LIST_STORE
-        .get_or_init(|| RwLock::new(FXListStore::new()))
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
+/// Handle to the FX catalog for this client (or a test/ephemeral fallback).
+pub fn fx_list_store_handle() -> std::sync::Arc<RwLock<FXListStore>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_fx_list_store()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_FX_LIST_STORE.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| std::sync::Arc::new(RwLock::new(FXListStore::new())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        std::sync::Arc::new(RwLock::new(FXListStore::new()))
+    }
+}
+
+pub fn with_fx_list_store<R>(f: impl FnOnce(&FXListStore) -> R) -> R {
+    let handle = fx_list_store_handle();
+    let guard = handle.read().unwrap_or_else(|e| e.into_inner());
+    f(&*guard)
+}
+
+pub fn with_fx_list_store_mut<R>(f: impl FnOnce(&mut FXListStore) -> R) -> R {
+    let handle = fx_list_store_handle();
+    let mut guard = handle.write().unwrap_or_else(|e| e.into_inner());
+    f(&mut *guard)
 }
 
 /// C++ `SoundFXNugget::m_soundName` values authored inside `name`.
 pub fn sound_names_for_fx_list(name: &str) -> Vec<String> {
-    get_fx_list_store().sound_names(name)
+    with_fx_list_store(|s| s.sound_names(name))
 }
 
 pub fn init_fx_list_store() -> Result<(), Box<dyn std::error::Error>> {
@@ -882,7 +906,7 @@ fn parse_fx_list_definition(ini: &mut INI) -> INIResult<()> {
     // Compatibility parser publishes both legacy registries.
     let fx_list = FXList::from_definition(&definition);
     game_engine::common::ini::ini_fx_list::get_fx_list_store_mut().add_fx_list(definition);
-    get_fx_list_store_mut().add_fx_list(name, fx_list);
+    with_fx_list_store_mut(|s| { s.add_fx_list(name, fx_list); });
     Ok(())
 }
 
@@ -1792,9 +1816,8 @@ mod tests {
                 _: Option<&Coord3D>,
                 _: f32,
             ) {
-                let mut store = FX_LIST_STORE
-                    .get()
-                    .unwrap()
+                let handle = fx_list_store_handle();
+                let mut store = handle
                     .try_write()
                     .expect("dispatch must release catalog read guard before callbacks");
                 store.add_fx_list("FX_CallbackAdmitted".into(), FXList::new());
@@ -1802,12 +1825,10 @@ mod tests {
         }
         let mut fx = FXList::new();
         fx.add_fx_nugget(Box::new(WritesCatalog));
-        get_fx_list_store_mut().add_fx_list("FX_CallbackSource".into(), fx);
+        with_fx_list_store_mut(|s| { s.add_fx_list("FX_CallbackSource".into(), fx); });
         assert!(do_named_fx_obj("FX_CallbackSource", None, None));
         assert!(
-            get_fx_list_store()
-                .find_fx_list("FX_CallbackAdmitted")
-                .is_some()
+            with_fx_list_store(|s| s.find_fx_list("FX_CallbackAdmitted")).is_some()
         );
     }
 
@@ -1850,11 +1871,7 @@ mod tests {
         assert_eq!((radius.minimum, radius.maximum), (3.0, 17.0));
         assert_eq!(height.distribution, Distribution::Gaussian);
         assert_eq!(
-            get_fx_list_store()
-                .find_fx_list("FX_SharedRulesAdapter")
-                .unwrap()
-                .nuggets
-                .len(),
+            with_fx_list_store(|s| s.find_fx_list("FX_SharedRulesAdapter").unwrap().nuggets.len()),
             3
         );
     }
@@ -1917,10 +1934,12 @@ mod tests {
         ini.with_inline_source(&source, |ini| ini.parse_current_file())
             .unwrap_or_else(|error| panic!("retail {} must parse: {error:?}", path.display()));
 
-        let store = get_fx_list_store();
-        let tank = store
-            .find_fx_list("WeaponFX_GenericTankGun")
-            .expect("known retail runtime FXList stored");
+        let tank = with_fx_list_store(|store| {
+            store
+                .find_fx_list("WeaponFX_GenericTankGun")
+                .expect("known retail runtime FXList stored")
+                .clone()
+        });
         assert!(tank.nuggets.len() >= 4);
     }
 

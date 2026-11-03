@@ -103,6 +103,7 @@ impl GameClient {
             owned_world_animations: OwnedWorldAnimations::default(),
             receiving_ui_images: None,
             mapped_image_collection: None,
+            fx_list_store: None,
             startup_shell_image_reported: std::collections::HashSet::new(),
             receiving_draw_icon_ui: true,
             snow: crate::snow::SnowManager::new(),

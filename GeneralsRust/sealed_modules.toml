@@ -307,3 +307,8 @@ path = "Code/GameEngine/GameClient/src/gui/callbacks/generals_exp_points.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/GeneralsExpPoints.cpp"
 note = "GeneralsExp residual peels on WindowManagerOwner; removed process residual atomics."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/fx_list.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/FXList.cpp"
+note = "FXListStore catalog on GameClient; removed process OnceLock RwLock; peels use live-client loan / cfg(test) TLS fallback."
+

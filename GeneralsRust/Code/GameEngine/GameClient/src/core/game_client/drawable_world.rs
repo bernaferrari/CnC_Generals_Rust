@@ -360,4 +360,14 @@ impl GameClient {
     pub fn note_startup_shell_image_log(&mut self, key: &str) -> bool {
         self.startup_shell_image_reported.insert(key.to_string())
     }
+
+    pub fn ensure_fx_list_store(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::RwLock<crate::fx_list::FXListStore>> {
+        self.fx_list_store
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::RwLock::new(crate::fx_list::FXListStore::new()))
+            })
+            .clone()
+    }
 }
