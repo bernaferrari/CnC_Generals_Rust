@@ -102,6 +102,12 @@ struct WindowManagerOwnerState {
     /// PopupJoinGame state (was process TLS).
     #[cfg(feature = "online_ui")]
     popup_join_state: Rc<RefCell<crate::gui::callbacks::popup_join_game::PopupJoinState>>,
+    /// PopupHostGame state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    popup_host_state: Rc<RefCell<crate::gui::callbacks::popup_host_game::PopupHostState>>,
+    /// PopupPlayerInfo state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    popup_player_info_state: Rc<RefCell<crate::gui::callbacks::popup_player_info::PopupPlayerInfoState>>,
 }
 
 /// Persistent owner for one native client's WND tree and its re-entry queues.
@@ -207,6 +213,14 @@ impl WindowManagerOwner {
                 popup_join_state: Rc::new(RefCell::new(
                     crate::gui::callbacks::popup_join_game::PopupJoinState::default(),
                 )),
+                #[cfg(feature = "online_ui")]
+                popup_host_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::popup_host_game::PopupHostState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                popup_player_info_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::popup_player_info::PopupPlayerInfoState::default(),
+                )),
             }),
         }
     }
@@ -254,6 +268,20 @@ impl WindowManagerOwner {
         &self,
     ) -> Rc<RefCell<crate::gui::callbacks::popup_join_game::PopupJoinState>> {
         Rc::clone(&self.state.popup_join_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn popup_host_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::popup_host_game::PopupHostState>> {
+        Rc::clone(&self.state.popup_host_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn popup_player_info_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::popup_player_info::PopupPlayerInfoState>> {
+        Rc::clone(&self.state.popup_player_info_state)
     }
 
     pub(crate) fn keyboard_options_handle(

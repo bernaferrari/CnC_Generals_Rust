@@ -26,7 +26,7 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct PopupPlayerInfoState {
+pub(crate) struct PopupPlayerInfoState {
     parent_id: i32,
     listbox_info_id: i32,
     button_close_id: i32,
@@ -47,13 +47,31 @@ struct PopupPlayerInfoState {
     raise_message_box: bool,
 }
 
+#[cfg(test)]
 thread_local! {
-    static POPUP_STATE: Rc<RefCell<PopupPlayerInfoState>> = Rc::new(RefCell::new(PopupPlayerInfoState::default()));
+    static TEST_POPUP_STATE: std::cell::OnceCell<Rc<RefCell<PopupPlayerInfoState>>> =
+        const { std::cell::OnceCell::new() };
 }
 
 fn popup_state() -> Rc<RefCell<PopupPlayerInfoState>> {
-    POPUP_STATE.with(Rc::clone)
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().popup_player_info_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_POPUP_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(PopupPlayerInfoState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(PopupPlayerInfoState::default()))
+    }
 }
+
 
 fn name_to_id(name: &str) -> i32 {
     NameKeyGenerator::name_to_key(name) as i32
