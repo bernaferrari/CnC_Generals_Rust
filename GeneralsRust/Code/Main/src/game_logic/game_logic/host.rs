@@ -1536,7 +1536,9 @@ impl GameLogic {
     /// world). Idempotent per bundle — a live world resetting itself must
     /// not push a duplicate active-stack entry.
     pub(crate) fn install_as_active_stores(&self) {
-        crate::game_logic::ensure_world_ambient();
+        // Transitional: publishes this world's services for nested GameLogic-crate
+        // free functions that still call active_services(). Prefer passing
+        // &self.world_services / with_world_services at the call site instead.
         let bundle = Arc::clone(&self.world_services);
         if gamelogic::system::engine_stores::is_services_active(&bundle) {
             return;

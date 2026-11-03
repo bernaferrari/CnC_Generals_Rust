@@ -1,12 +1,11 @@
 //! Game logic, owned runtime adapters, and executable behavioral regressions.
 
-pub(crate) mod world_ambient;
-
-/// Register Main TLS ambient stack with GameLogic (idempotent).
+/// Ambient SCOPED_ACTIVE hooks were removed from Main. Transitional
+/// with_world_services TLS lives in gamelogic::system::engine_stores until
+/// nested free functions take explicit `&WorldServices`.
 #[inline]
 pub fn ensure_world_ambient() {
-    world_ambient::bind_pre_ensure();
-    world_ambient::ensure_registered();
+    // no-op: hooks deleted; engine_stores owns the transitional stack
 }
 #[cfg(test)]
 mod runtime_regressions;

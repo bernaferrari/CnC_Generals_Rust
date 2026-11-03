@@ -598,10 +598,10 @@ impl GameLogic {
             !self.host_logic_step_active,
             "nested update on the same GameLogic"
         );
-        // Pin this world's engine stores for the whole step. Compatibility
-        // accessors that still resolve TheAI / TheUpgradeCenter / the shroud
-        // ambiently must see the driving world, not whichever world was
-        // installed last (a second match, or a staged load candidate).
+        // Explicit owned services for this step. with_world_services remains only
+        // so nested GameLogic-crate free functions that still call
+        // active_services() see this world (transitional; delete when those
+        // take &WorldServices).
         let stores = std::sync::Arc::clone(&self.world_services);
         gamelogic::system::engine_stores::with_world_services(&stores, || {
             // Presentation spawn/destruction events are logic-frame scoped.
@@ -644,7 +644,7 @@ impl GameLogic {
                 &gamelogic::system::engine_stores::active_services(),
                 &self.world_services
             ),
-            "a logic step must resolve its own engine stores"
+            "logic step must publish its own world_services (explicit owner)"
         );
         // Pathfinding dynamic obstacles rebuild once per host logic frame.
         self.pathfinding_system.note_logic_frame(self.frame as u64);
