@@ -2006,12 +2006,23 @@ impl GameLogic {
         dozer_id: ObjectId,
     ) -> gamelogic::GameLogicResult<bool> {
         use gamelogic::object::update::ai_update::dozer_ai_update::DozerTask;
-        let Some(task) = self.objects.get(&dozer_id).map(|o| o.dozer_tasks.current) else {
+        let Some((task, ai)) = self
+            .objects
+            .get(&dozer_id)
+            .map(|o| (o.dozer_tasks.current, o.ai_state()))
+        else {
             return Ok(false);
         };
-        if task == DozerTask::Invalid {
-            return Ok(false);
-        }
+        // Primary reset parks current=Invalid until the next pick. A unit still
+        // in Constructing/Repairing AI is mid-entered for cancelTask purposes.
+        let task = match task {
+            DozerTask::Invalid => match ai {
+                AIState::Constructing => DozerTask::Build,
+                AIState::Repairing => DozerTask::Repair,
+                _ => return Ok(false),
+            },
+            other => other,
+        };
         self.dozer_cancel_task_owned(dozer_id, task)
     }
     pub(crate) fn dozer_cancel_task_owned(

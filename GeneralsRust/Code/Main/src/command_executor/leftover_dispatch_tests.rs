@@ -109,6 +109,7 @@ fn leftover_dispatch_tick_posts_enable_retaliation() {
     logic
         .get_players_mut()
         .insert(0, Player::new(0, Team::USA, "P0", true));
+    assert!(logic.select_local_player(Some(0)));
     logic.frame = 30;
     game_engine::common::global_data::write().client_retaliation_mode_enabled = true;
     logic.leftover_dispatch_tick();
@@ -306,6 +307,7 @@ fn enemy_place_hides_drawable_and_skips_host_beacons() {
     enemy.alliance_team = 2;
     logic.get_players_mut().insert(1, enemy);
     logic.get_players_mut().get_mut(&0).unwrap().alliance_team = 1;
+    assert!(logic.select_local_player(Some(0)));
     let result = CommandExecutor::new(&mut logic, 1)
         .execute_command(command(
             1,
@@ -504,13 +506,30 @@ fn repair_mid_build_keeps_pending_build_and_idle_resumes() {
     assert!(result == CommandResult::Success);
     {
         let dz = logic.host_object(dozer).expect("dz");
-        assert_eq!(dz.ai_state(), AIState::Repairing);
-        assert_eq!(dz.target, Some(damaged));
+        // newTask parks REPAIR and keeps BUILD; primary pick enters on Idle update.
         assert_eq!(
             dz.dozer_task_build_target(),
             Some(scaffold),
             "REPAIR must keep BUILD pending"
         );
+        assert_eq!(dz.dozer_task_repair_target(), Some(damaged));
+    }
+    if let Some((dz, _)) = logic.host_object_and_partition_mut(dozer) {
+        dz.clear_target(&mut crate::game_logic::ObjectAudio::record(&mut Vec::new()));
+        dz.set_ai_state(
+            AIState::Idle,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+    }
+    assert!(
+        logic.dozer_idle_resume_pending_build(dozer),
+        "idle isRepairMostImportant must resume parked REPAIR first"
+    );
+    {
+        let dz = logic.host_object(dozer).expect("dz");
+        assert_eq!(dz.ai_state(), AIState::Repairing);
+        assert_eq!(dz.target, Some(damaged));
+        assert_eq!(dz.dozer_task_build_target(), Some(scaffold));
         assert_eq!(dz.dozer_task_repair_target(), Some(damaged));
     }
     logic.dozer_internal_task_complete(dozer, true);
@@ -797,32 +816,58 @@ fn player_stop_cancels_current_build_so_idle_does_not_resume() {
 fn execute_build_records_build_slot_and_docks_off_center() {
     // hq-gkpuk: C++ construct:1717 newTask BUILD.
     // hq-6gy32: C++ findGoodBuildOrRepairPosition half majorRadius + ignoreObstacle.
-    use crate::game_logic::ThingTemplate;
     let mut logic = GameLogic::new();
     logic.frame = 12;
-    let mut player = Player::new(0, Team::USA, "P0", true);
+    let mut player = Player::new(0, Team::USA, "P0", true).with_script_identity("P0");
     player.resources.supplies = 100_000;
-    logic.get_players_mut().insert(0, player);
-    let mut dozer_tpl = ThingTemplate::new("AmericaVehicleDozerSlot");
-    dozer_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Dozer)
-        .add_kind_of(KindOf::Worker)
-        .set_health(300.0);
+    logic.add_player(player);
+    assert!(logic.select_local_player(Some(0)));
     logic
-        .templates
-        .insert("AmericaVehicleDozerSlot".into(), dozer_tpl);
-    let mut bld = ThingTemplate::new("AmericaBarracksSlot");
-    bld.add_kind_of(KindOf::Structure)
-        .set_cost(50, 0)
-        .set_health(500.0);
-    logic.templates.insert("AmericaBarracksSlot".into(), bld);
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "dozer-build-slot.ini".into(),
+                "Object AmericaVehicleDozerSlot
+KindOf = VEHICLE DOZER WORKER SELECTABLE
+Body = ActiveBody Body
+MaxHealth = 300
+InitialHealth = 300
+End
+Behavior = DozerAIUpdate DozerTaskSource
+RepairHealthPercentPerSecond = 2
+End
+End
+Object AmericaBarracksSlot
+KindOf = STRUCTURE
+BuildCost = 50
+BuildTime = 10
+Body = ActiveBody Body
+MaxHealth = 500
+InitialHealth = 500
+End
+End
+".into(),
+            )])
+            .expect("authored content"),
+        )
+        .expect("admit");
+    logic
+        .admit_fixture_command_action_source(
+            "CommandButton FixtureDozerBuildButtonSlot
+ Command = DOZER_CONSTRUCT
+ Object = AmericaBarracksSlot
+End
+CommandSet FixtureDozerBuildSetSlot
+ 1 = FixtureDozerBuildButtonSlot
+End
+",
+        )
+        .expect("admit command catalog");
     let dozer = logic
         .create_object_for_player("AmericaVehicleDozerSlot", 0, Vec3::new(200.0, 0.0, 0.0))
         .expect("dozer");
-    if let Some((dz, partition)) = logic.host_object_and_partition_mut(dozer) {
+    if let Some(dz) = logic.host_object_mut(dozer) {
         dz.selection_radius = 8.0;
+        dz.command_set_override = Some("FixtureDozerBuildSetSlot".into());
     }
     let site = Vec3::new(0.0, 0.0, 0.0);
     let result = CommandExecutor::new(&mut logic, 0)

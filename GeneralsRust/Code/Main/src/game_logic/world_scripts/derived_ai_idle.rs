@@ -20,18 +20,18 @@ impl GameLogic {
             return Ok(false);
         }
         // Immutable installed module identity, not object name/KindOf guesswork.
-        let module = unit
+        let Some(module) = unit
             .thing()
             .template
             .receiving_client_template
             .as_ref()
             .and_then(|template| template.receiving_ai_module_name())
-            .ok_or_else(|| {
-                GameLogicError::Configuration(
-                    "AI command lacks admitted first source identity".into(),
-                )
-            })?
-            .to_ascii_lowercase();
+            .map(|name| name.to_ascii_lowercase())
+        else {
+            // No admitted AI module: refuse without treating KindOf fixtures as
+            // a configuration fault (construct then fails closed separately).
+            return Ok(false);
+        };
         let birth = std::sync::Arc::clone(&unit.visual_draw_identity_token);
 
         // FlightDeckBehavior.cpp1356: source AI skips the entire command switch.
