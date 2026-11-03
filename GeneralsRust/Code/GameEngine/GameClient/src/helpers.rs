@@ -84,7 +84,7 @@ pub struct LiveControlBarEvents {
 }
 
 #[derive(Debug)]
-struct LegacyCoreControlBarIngress {
+pub(crate) struct LegacyCoreControlBarIngress {
     ui_dirty: bool,
     observer_look_at: i32,
 }
@@ -97,18 +97,42 @@ impl Default for LegacyCoreControlBarIngress {
     }
 }
 // Transitional standalone Core ingress only. Native UIs never register or
-// consume this old simulation hook; their events are owned by the actual UI.
+// consume this old simulation hook; their events are owned by the actual UI
+// (InGameUISubsystem.legacy_core_control_bar_ingress).
+#[cfg(test)]
 thread_local! {
-    static LEGACY_CORE_CONTROL_BAR_INGRESS: RefCell<LegacyCoreControlBarIngress> = RefCell::new(Default::default());
+    static TEST_LEGACY_CORE_CONTROL_BAR_INGRESS: RefCell<LegacyCoreControlBarIngress> =
+        RefCell::new(Default::default());
+}
+
+fn with_legacy_core_ingress_mut<R>(f: impl FnOnce(&mut LegacyCoreControlBarIngress) -> R) -> R {
+    let mut f = Some(f);
+    if let Some(Some(result)) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.in_game_ui_subsystem_mut().map(|ui| {
+            f.take().expect("legacy ingress")(&mut ui.legacy_core_control_bar_ingress)
+        })
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_LEGACY_CORE_CONTROL_BAR_INGRESS.with(|slot| {
+            f.take().expect("legacy ingress")(&mut *slot.borrow_mut())
+        });
+    }
+    #[cfg(not(test))]
+    {
+        // No live client: discard (standalone Core without GameClient).
+        let mut discard = LegacyCoreControlBarIngress::default();
+        f.take().expect("legacy ingress")(&mut discard)
+    }
 }
 pub fn drain_live_control_bar_events(
     ui: &mut crate::core::subsystems::InGameUISubsystem,
 ) -> LiveControlBarEvents {
     let mut events = std::mem::take(&mut ui.control_bar_events);
     if !crate::gui::control_bar::host_control_bar_bridge_enabled(ui) {
-        LEGACY_CORE_CONTROL_BAR_INGRESS.with(|pending| {
-            events.ui_dirty |= std::mem::take(&mut pending.borrow_mut().ui_dirty);
-        });
+        events.ui_dirty |= std::mem::take(&mut ui.legacy_core_control_bar_ingress.ui_dirty);
     }
     events
 }
@@ -122,15 +146,18 @@ pub fn set_live_control_bar_observer_look_at(
     }
 }
 pub(crate) fn set_legacy_core_control_bar_observer_look_at(index: Option<i32>) {
-    LEGACY_CORE_CONTROL_BAR_INGRESS
-        .with(|pending| pending.borrow_mut().observer_look_at = index.unwrap_or(-1));
+    with_legacy_core_ingress_mut(|pending| {
+        pending.observer_look_at = index.unwrap_or(-1);
+    });
 }
 
 struct LiveControlBarUiHooks;
 
 impl gamelogic::control_bar::ControlBarUiHooks for LiveControlBarUiHooks {
     fn mark_ui_dirty(&self) {
-        LEGACY_CORE_CONTROL_BAR_INGRESS.with(|pending| pending.borrow_mut().ui_dirty = true);
+        with_legacy_core_ingress_mut(|pending| {
+            pending.ui_dirty = true;
+        });
     }
 
     fn on_player_science_purchase_points_changed(&self, _player_id: i32, _points: i32) {
@@ -1326,8 +1353,7 @@ impl TheControlBar {
     /// Standalone Core audio compatibility only; actual receiving UI users
     /// read their control_bar_observer_look_at field instead.
     pub fn get_observer_look_at_player_index() -> Option<i32> {
-        let index =
-            LEGACY_CORE_CONTROL_BAR_INGRESS.with(|pending| pending.borrow().observer_look_at);
+        let index = with_legacy_core_ingress_mut(|pending| pending.observer_look_at);
         (index >= 0).then_some(index)
     }
 
@@ -1425,14 +1451,14 @@ mod receiving_control_bar_events_tests {
     fn native_ui_never_consumes_standalone_dirty_or_observer_ingress() {
         let mut a = crate::core::subsystems::InGameUISubsystem::default();
         a.admit_native_control_bar_transport();
-        LEGACY_CORE_CONTROL_BAR_INGRESS.with(|state| {
-            state.borrow_mut().ui_dirty = true;
-            state.borrow_mut().observer_look_at = 7;
+        with_legacy_core_ingress_mut(|state| {
+            state.ui_dirty = true;
+            state.observer_look_at = 7;
         });
         assert!(!drain_live_control_bar_events(&mut a).ui_dirty);
         set_live_control_bar_observer_look_at(Some(2), &mut a);
         assert_eq!(a.control_bar_observer_look_at, Some(2));
         assert_eq!(TheControlBar::get_observer_look_at_player_index(), Some(7));
-        LEGACY_CORE_CONTROL_BAR_INGRESS.with(|state| *state.borrow_mut() = Default::default());
+        with_legacy_core_ingress_mut(|state| *state = Default::default());
     }
 }
