@@ -22,7 +22,7 @@ pub const CHUNK_PLAYERS: &str = "CHUNK_Players";
 pub const CHUNK_TEAM_FACTORY: &str = "CHUNK_TeamFactory";
 
 const PLAYERS_CHUNK_VERSION: u8 = 9;
-const TEAM_FACTORY_CHUNK_VERSION: u8 = 8;
+const TEAM_FACTORY_CHUNK_VERSION: u8 = 9;
 const MAX_ATTACKED_BY: usize = 16;
 const MAX_GENERIC_SCRIPTS: usize = 16;
 
@@ -213,6 +213,9 @@ pub struct TeamPrototypePersist {
     pub controller: Option<Option<u32>>,
     /// None before v7; otherwise the index in the owning Player's team list.
     pub owner_order: Option<u32>,
+    /// C++ `TeamPrototype::m_productionConditionAlwaysFalse` (Team.cpp:1195).
+    /// Pre-v9 archives default false (historical; do not infer from empty script).
+    pub production_condition_always_false: bool,
 }
 
 fn map_xfer<T>(result: std::io::Result<T>) -> SaveLoadResult<T> {
@@ -779,6 +782,9 @@ pub fn write_team_factory_block<W: Write + Seek>(
         if let Some(mut index) = proto.owner_order {
             map_xfer(xfer.xfer_unsigned_int(&mut index))?;
         }
+        // v9+: C++ TeamPrototype::xfer bool m_productionConditionAlwaysFalse
+        let mut always_false = proto.production_condition_always_false;
+        map_xfer(xfer.xfer_bool(&mut always_false))?;
     }
     let mut complete = persist.persist_roster;
     map_xfer(xfer.xfer_bool(&mut complete))?;
@@ -934,6 +940,12 @@ pub fn parse_team_factory_block(payload: &[u8]) -> SaveLoadResult<TeamFactoryChu
                     map_xfer(xfer.xfer_unsigned_int(&mut index))?;
                     proto.owner_order = Some(index);
                 }
+            }
+            if version >= 9 {
+                map_xfer(xfer.xfer_bool(&mut proto.production_condition_always_false))?;
+            } else {
+                // Historical default: unset latch (C++ ctor false).
+                proto.production_condition_always_false = false;
             }
             prototypes.push(proto);
         }
@@ -1132,6 +1144,7 @@ pub(super) fn capture_team_factory_chunk(
                 .and_then(|controller| {
                     factory.player_prototype_order_index(controller, proto.get_name().as_str())
                 }),
+            production_condition_always_false: proto.production_condition_always_false(),
         })
         .collect();
     Ok(TeamFactoryChunkPersist {
@@ -1344,6 +1357,9 @@ pub(super) fn apply_teams_to_leftover(
         let mut updated = (*prototype).clone();
         updated.set_attack_priority_name(proto_persist.attack_priority_name.clone().into());
         updated.set_production_priority(proto_persist.production_priority);
+        updated.set_production_condition_always_false(
+            proto_persist.production_condition_always_false,
+        );
         factory.replace_team_prototype(updated);
         if let Some(controller) = proto_persist.controller {
             if !factory.restore_prototype_controller(&proto_persist.team_name, controller) {
@@ -1570,6 +1586,7 @@ mod tests {
                 prototype_id: None,
                 controller: Some(Some(2)),
                 owner_order: Some(0),
+                production_condition_always_false: false,
             }],
         };
         teams.teams[0].generic_script_attempts[0] = true;
@@ -1687,6 +1704,7 @@ mod tests {
                 prototype_id: None,
                 controller: Some(Some(2)),
                 owner_order: None,
+                production_condition_always_false: false,
             }],
             ..TeamFactoryChunkPersist::default()
         };
@@ -1787,6 +1805,61 @@ mod tests {
         assert!(player.units_should_hunt);
         assert_eq!(player.selected_objects, vec![ObjectId(11), ObjectId(22)]);
         assert!(player.did_preorder);
+    }
+
+    #[test]
+    fn team_prototype_always_false_latch_round_trips_through_factory_chunk() {
+        // hq-7oe2r / C++ Team.cpp:1195 — m_productionConditionAlwaysFalse.
+        let source = GameLogic::new();
+        let mut destination = GameLogic::new();
+        {
+            let mut factory = source.team_factory.lock().expect("source factory");
+            let mut prototype = gamelogic::team::TeamPrototype::new("AlwaysFalseTeam".into());
+            prototype.set_id(91);
+            prototype.set_production_condition_always_false(true);
+            factory.replace_team_prototype(prototype);
+        }
+        {
+            let mut factory = destination.team_factory.lock().expect("dest factory");
+            let mut prototype = gamelogic::team::TeamPrototype::new("AlwaysFalseTeam".into());
+            prototype.set_id(91);
+            prototype.set_production_condition_always_false(false);
+            factory.replace_team_prototype(prototype);
+        }
+
+        let chunks = stamp_from_live(&source).expect("capture");
+        let mut bytes = Cursor::new(Vec::<u8>::new());
+        {
+            let mut xfer = CommonXferSave::new(&mut bytes, 1);
+            write_team_factory_block(&mut xfer, &chunks).expect("write");
+        }
+        let parsed = parse_team_factory_block(&bytes.into_inner()).expect("parse");
+        assert!(
+            parsed.prototypes[0].production_condition_always_false,
+            "v9 chunk must carry always-false latch"
+        );
+
+        apply_pending(
+            &mut destination,
+            &PlayerTeamChunks {
+                players: None,
+                teams: Some(parsed),
+            },
+        )
+        .expect("restore");
+        let dest = destination.team_factory.lock().expect("dest");
+        assert!(
+            dest.find_team_prototype("AlwaysFalseTeam")
+                .expect("proto")
+                .production_condition_always_false()
+        );
+        let src = source.team_factory.lock().expect("src");
+        assert!(
+            src.find_team_prototype("AlwaysFalseTeam")
+                .expect("proto")
+                .production_condition_always_false(),
+            "peer source unchanged"
+        );
     }
 
     #[test]
