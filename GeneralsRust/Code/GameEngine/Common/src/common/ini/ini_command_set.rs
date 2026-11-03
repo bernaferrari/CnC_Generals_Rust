@@ -483,12 +483,17 @@ impl Default for CommandSetManager {
 }
 
 /// Global command set manager instance
-static COMMAND_SET_MANAGER: OnceCell<RwLock<CommandSetManager>> = OnceCell::new();
+struct CommandSetManagerSlot(OnceCell<RwLock<CommandSetManager>>);
+impl std::ops::Deref for CommandSetManagerSlot {
+    type Target = OnceCell<RwLock<CommandSetManager>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static COMMAND_SET_MANAGER: CommandSetManagerSlot = CommandSetManagerSlot(OnceCell::new());
 
 /// Initialize the global command set manager
 pub fn initialize_command_set_manager() {
-    if COMMAND_SET_MANAGER.get().is_none() {
-        let _ = COMMAND_SET_MANAGER.set(RwLock::new(CommandSetManager::new()));
+    if COMMAND_SET_MANAGER.0.get().is_none() {
+        let _ = COMMAND_SET_MANAGER.0.set(RwLock::new(CommandSetManager::new()));
     }
 }
 

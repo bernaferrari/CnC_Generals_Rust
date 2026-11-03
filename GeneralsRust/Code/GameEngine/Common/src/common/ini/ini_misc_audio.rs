@@ -680,7 +680,12 @@ audio_event_parser!(
 audio_event_parser!(parse_aircraft_wheel_screech, aircraft_wheel_screech);
 
 /// Global MiscAudio instance (thread-safe)
-static MISC_AUDIO: OnceCell<Arc<RwLock<MiscAudio>>> = OnceCell::new();
+struct MiscAudioSlot(OnceCell<Arc<RwLock<MiscAudio>>>);
+impl std::ops::Deref for MiscAudioSlot {
+    type Target = OnceCell<Arc<RwLock<MiscAudio>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static MISC_AUDIO: MiscAudioSlot = MiscAudioSlot(OnceCell::new());
 
 /// Ensure the misc audio collection exists and return a handle to it
 pub fn ensure_misc_audio() -> Arc<RwLock<MiscAudio>> {
@@ -697,7 +702,7 @@ pub fn init_global_misc_audio() {
 
 /// Get a handle to the global misc audio if initialized
 pub fn get_misc_audio() -> Option<Arc<RwLock<MiscAudio>>> {
-    MISC_AUDIO.get().cloned()
+    MISC_AUDIO.0.get().cloned()
 }
 
 /// INI parsing function for MiscAudio definition (matches C++ interface)

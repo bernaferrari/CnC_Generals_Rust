@@ -7,7 +7,12 @@ use game_engine::common::rts::player_template::{
 };
 use std::sync::Mutex;
 
-static TEST_LOCK: Mutex<()> = Mutex::new(());
+struct TestLockSlot(Mutex<()>);
+impl std::ops::Deref for TestLockSlot {
+    type Target = Mutex<()>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static TEST_LOCK: TestLockSlot = TestLockSlot(Mutex::new(()));
 
 fn reset_player_template_test_state() {
     Language::clear_localized_strings();
@@ -25,7 +30,7 @@ fn parse_player_templates(source: &str) {
 
 #[test]
 fn player_template_display_name_translates_full_label_token() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = TEST_LOCK.0.lock().unwrap();
     reset_player_template_test_state();
     Language::register_localized_string("GUI:America", "United States");
     Language::register_localized_string("INI:FactionChina", "China");
@@ -59,7 +64,7 @@ End
 
 #[test]
 fn player_template_reparse_same_name_updates_existing_store_len_stays_one() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = TEST_LOCK.0.lock().unwrap();
     reset_player_template_test_state();
 
     parse_player_templates(
@@ -102,7 +107,7 @@ End
 
 #[test]
 fn player_template_faction_america_like_fields_round_trip_from_store() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = TEST_LOCK.0.lock().unwrap();
     reset_player_template_test_state();
 
     parse_player_templates(
@@ -141,7 +146,7 @@ End
 
 #[test]
 fn player_template_ini_parse_starting_units_money_production_and_store() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = TEST_LOCK.0.lock().unwrap();
     reset_player_template_test_state();
 
     parse_player_templates(
@@ -283,7 +288,7 @@ End
 
 #[test]
 fn parse_player_template_definition_finds_or_creates_by_namekey() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = TEST_LOCK.0.lock().unwrap();
     reset_player_template_test_state();
 
     parse_player_templates(
@@ -322,7 +327,7 @@ End
 
 #[test]
 fn player_template_omitted_playable_side_stays_false() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = TEST_LOCK.0.lock().unwrap();
     reset_player_template_test_state();
 
     parse_player_templates(
@@ -357,7 +362,7 @@ End
 
 #[test]
 fn player_template_ini_parses_sciences_production_and_shortcut_fields() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = TEST_LOCK.0.lock().unwrap();
     reset_player_template_test_state();
 
     parse_player_templates(
@@ -440,7 +445,7 @@ End
 
 #[test]
 fn player_template_store_init_clears_but_reset_retains() {
-    let _guard = TEST_LOCK.lock().unwrap();
+    let _guard = TEST_LOCK.0.lock().unwrap();
     reset_player_template_test_state();
     {
         let mut store = get_player_template_store_mut();

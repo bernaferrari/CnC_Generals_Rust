@@ -1068,14 +1068,19 @@ impl Snapshotable for ModuleFactory {
 }
 
 /// Global module factory singleton
-static MODULE_FACTORY: Mutex<Option<ModuleFactory>> = Mutex::new(None);
+struct ModuleFactorySlot(Mutex<Option<ModuleFactory>>);
+impl std::ops::Deref for ModuleFactorySlot {
+    type Target = Mutex<Option<ModuleFactory>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static MODULE_FACTORY: ModuleFactorySlot = ModuleFactorySlot(Mutex::new(None));
 
 /// Get the global module factory instance
 pub fn get_module_factory() -> Result<
     std::sync::MutexGuard<'static, Option<ModuleFactory>>,
     std::sync::PoisonError<std::sync::MutexGuard<'static, Option<ModuleFactory>>>,
 > {
-    MODULE_FACTORY.lock()
+    MODULE_FACTORY.0.lock()
 }
 
 /// Initialize the retained compatibility factory in place. Like C++ init(),

@@ -468,10 +468,15 @@ impl Default for SpecialPowerStore {
 }
 
 /// Global special power store instance
-static SPECIAL_POWER_STORE: OnceCell<RwLock<SpecialPowerStore>> = OnceCell::new();
+struct SpecialPowerStoreSlot(OnceCell<RwLock<SpecialPowerStore>>);
+impl std::ops::Deref for SpecialPowerStoreSlot {
+    type Target = OnceCell<RwLock<SpecialPowerStore>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static SPECIAL_POWER_STORE: SpecialPowerStoreSlot = SpecialPowerStoreSlot(OnceCell::new());
 
 fn special_power_store_cell() -> &'static RwLock<SpecialPowerStore> {
-    SPECIAL_POWER_STORE.get_or_init(|| RwLock::new(SpecialPowerStore::new()))
+    SPECIAL_POWER_STORE.0.get_or_init(|| RwLock::new(SpecialPowerStore::new()))
 }
 
 fn special_power_store_mut() -> RwLockWriteGuard<'static, SpecialPowerStore> {

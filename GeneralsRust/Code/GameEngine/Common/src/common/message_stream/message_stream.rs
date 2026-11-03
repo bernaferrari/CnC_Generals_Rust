@@ -75,8 +75,12 @@ pub enum GameMessageDisposition {
 
 type CommandListAppendFn = dyn Fn(Vec<GameMessage>) + Send + Sync + 'static;
 
-static COMMAND_LIST_APPEND_FN: std::sync::Mutex<Option<Box<CommandListAppendFn>>> =
-    std::sync::Mutex::new(None);
+struct CommandListAppendFnSlot(std::sync::Mutex<Option<Box<CommandListAppendFn>>>);
+impl std::ops::Deref for CommandListAppendFnSlot {
+    type Target = std::sync::Mutex<Option<Box<CommandListAppendFn>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static COMMAND_LIST_APPEND_FN: CommandListAppendFnSlot = CommandListAppendFnSlot(std::sync::Mutex::new(None));
 
 /// Register the live `TheCommandList::appendMessageList` sink.
 /// C++ `MessageStream::propagateMessages` (MessageStream.cpp:1086) transfers
@@ -1186,9 +1190,14 @@ mod tests {
             return;
         }
         use std::sync::Mutex;
-        static DELIVERED: Mutex<Vec<GameMessageType>> = Mutex::new(Vec::new());
+        struct DeliveredSlot(Mutex<Vec<GameMessageType>>);
+        impl std::ops::Deref for DeliveredSlot {
+            type Target = Mutex<Vec<GameMessageType>>;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static DELIVERED: DeliveredSlot = DeliveredSlot(Mutex::new(Vec::new()));
         {
-            let mut delivered = DELIVERED.lock().unwrap();
+            let mut delivered = DELIVERED.0.lock().unwrap();
             delivered.clear();
         }
         register_command_list_append(|messages| {
@@ -1202,7 +1211,7 @@ mod tests {
         stream.append_message(GameMessageType::Invalid);
         let _ = stream.propagate_messages().unwrap();
 
-        let delivered = DELIVERED.lock().unwrap().clone();
+        let delivered = DELIVERED.0.lock().unwrap().clone();
         assert_eq!(delivered, vec![GameMessageType::Invalid]);
         register_command_list_append(|_| {});
     }

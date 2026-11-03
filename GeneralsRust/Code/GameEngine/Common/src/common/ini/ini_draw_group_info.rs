@@ -459,7 +459,12 @@ pub fn parse_drop_shadow_offset_y(
 }
 
 /// Global DrawGroupInfo instance (thread-safe)
-static DRAW_GROUP_INFO: OnceCell<Arc<RwLock<DrawGroupInfo>>> = OnceCell::new();
+struct DrawGroupInfoSlot(OnceCell<Arc<RwLock<DrawGroupInfo>>>);
+impl std::ops::Deref for DrawGroupInfoSlot {
+    type Target = OnceCell<Arc<RwLock<DrawGroupInfo>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static DRAW_GROUP_INFO: DrawGroupInfoSlot = DrawGroupInfoSlot(OnceCell::new());
 
 /// Ensure the DrawGroupInfo exists and return a handle to it
 pub fn ensure_draw_group_info() -> Arc<RwLock<DrawGroupInfo>> {
@@ -476,7 +481,7 @@ pub fn init_global_draw_group_info() {
 
 /// Get a handle to the global DrawGroupInfo if initialized
 pub fn get_draw_group_info() -> Option<Arc<RwLock<DrawGroupInfo>>> {
-    DRAW_GROUP_INFO.get().cloned()
+    DRAW_GROUP_INFO.0.get().cloned()
 }
 
 /// INI parsing function for DrawGroupNumber definition (matches C++ interface)

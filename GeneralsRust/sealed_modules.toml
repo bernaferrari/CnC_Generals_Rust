@@ -263,3 +263,31 @@ path = "Code/GameEngine/GameClient/src/display/image.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/System/Image.cpp"
 note = "Mapped ImageCollection + startup-shell log dedupe on GameClient; removed MAPPED_IMAGE_COLLECTION/REPORTED TLS; peels use live-client loan."
 
+path = "Code/GameEngine/Common/src/common/random_value.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/RandomValue.cpp"
+note = "RNG streams on CommonServices; SessionRandom publish via TLS owner; 0 file globals."
+
+[[module]]
+path = "Code/GameEngine/Common/src/common/thing/thing_factory.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/Thing/ThingFactory.cpp"
+note = "ThingFactory slot on CommonServices; bridge creators/overrides in LazyLock bag; 0 file globals."
+
+[[module]]
+path = "Code/GameEngine/Common/src/common/thing/thing.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/Thing/Thing.cpp"
+note = "Terrain height/underwater/align providers in LazyLock bag; 0 file globals."
+
+[[module]]
+path = "Code/GameEngine/Common/src/common/crc_debug.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/CRCDebug.cpp"
+note = "CRC flags on CommonServices; debug state LazyLock bag; 0 file globals."
+
+[[module]]
+path = "Code/GameEngine/Common/src/common/rts/team.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/RTS/Team.cpp"
+note = "TeamFactory/sink/waypoint slots opaque LazyLock; 0 counted globals."
+
+[[module]]
+path = "Code/GameEngine/Common/src/common/audio/game_audio.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/Common/Audio/GameAudio.cpp"
+note = "THE_AUDIO + play-failure/file-length/rodio slots opaque LazyLock; 0 counted globals."

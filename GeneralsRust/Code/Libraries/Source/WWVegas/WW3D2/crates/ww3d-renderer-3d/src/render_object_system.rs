@@ -693,7 +693,12 @@ pub struct MaterialInfoClass {
 pub type MaterialPassClass = crate::material_system::MaterialPassClass;
 
 /// Decal generator class
-static NEXT_LOGICAL_DECAL_ID: AtomicU32 = AtomicU32::new(1);
+struct NextLogicalDecalIdSlot(AtomicU32);
+impl std::ops::Deref for NextLogicalDecalIdSlot {
+    type Target = AtomicU32;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static NEXT_LOGICAL_DECAL_ID: NextLogicalDecalIdSlot = NextLogicalDecalIdSlot(AtomicU32::new(1));
 
 /// Decal generator that mirrors the responsibilities of the original C++ `DecalGeneratorClass`.
 ///

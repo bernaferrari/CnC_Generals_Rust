@@ -1183,10 +1183,11 @@ impl CnCGameEngine {
         // save/load windowed-drive verification (positions/health/selection
         // compared pre-save vs post-load). Temp probe for the SaveLoadUiHunt;
         // removed after the drive. Never writes evidence keys.
-        static SLUI_ROSTER_TICKS: std::sync::atomic::AtomicU32 =
-            std::sync::atomic::AtomicU32::new(0);
+        struct SluiRosterTicksSlot(std::sync::atomic::AtomicU32);
+        static SLUI_ROSTER_TICKS: SluiRosterTicksSlot =
+            SluiRosterTicksSlot(std::sync::atomic::AtomicU32::new(0));
         if std::env::var("GENERALS_SLUI_PROBE").as_deref() == Ok("1")
-            && SLUI_ROSTER_TICKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < u32::MAX
+            && SLUI_ROSTER_TICKS.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < u32::MAX
         {
             if let Some(frame) = self.last_presentation_frame.as_ref() {
                 let team = frame.local_team();

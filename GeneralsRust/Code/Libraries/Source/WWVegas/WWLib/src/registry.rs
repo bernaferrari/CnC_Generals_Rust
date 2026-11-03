@@ -27,7 +27,12 @@ use windows::Win32::System::Registry::{
     RegSetValueExW,
 };
 
-static IS_LOCKED: AtomicBool = AtomicBool::new(false);
+struct IsLockedSlot(AtomicBool);
+impl std::ops::Deref for IsLockedSlot {
+    type Target = AtomicBool;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static IS_LOCKED: IsLockedSlot = IsLockedSlot(AtomicBool::new(false));
 
 #[derive(Debug)]
 pub struct RegistryClass {

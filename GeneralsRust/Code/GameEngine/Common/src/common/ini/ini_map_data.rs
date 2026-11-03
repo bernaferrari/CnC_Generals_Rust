@@ -534,13 +534,18 @@ impl MapData {
 }
 
 /// Global MapData instance (placeholder for actual global)
-static MAP_DATA: OnceCell<RwLock<MapData>> = OnceCell::new();
+struct MapDataSlot(OnceCell<RwLock<MapData>>);
+impl std::ops::Deref for MapDataSlot {
+    type Target = OnceCell<RwLock<MapData>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static MAP_DATA: MapDataSlot = MapDataSlot(OnceCell::new());
 
 /// Initialize the global map data
 pub fn init_global_map_data() {
-    if MAP_DATA.get().is_none() {
-        let _ = MAP_DATA.set(RwLock::new(MapData::new()));
-    } else if let Some(data) = MAP_DATA.get() {
+    if MAP_DATA.0.get().is_none() {
+        let _ = MAP_DATA.0.set(RwLock::new(MapData::new()));
+    } else if let Some(data) = MAP_DATA.0.get() {
         if let Ok(mut guard) = data.write() {
             *guard = MapData::new();
         }

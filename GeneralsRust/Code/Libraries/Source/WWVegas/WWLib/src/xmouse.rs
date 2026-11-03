@@ -30,7 +30,12 @@ pub trait Mouse: Send + Sync {
     fn convert_coordinate(&self, x: &mut i32, y: &mut i32);
 }
 
-static MOUSE_CURSOR: OnceLock<Mutex<Option<Arc<dyn Mouse>>>> = OnceLock::new();
+struct MouseCursorSlot(OnceLock<Mutex<Option<Arc<dyn Mouse>>>>);
+impl std::ops::Deref for MouseCursorSlot {
+    type Target = OnceLock<Mutex<Option<Arc<dyn Mouse>>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static MOUSE_CURSOR: MouseCursorSlot = MouseCursorSlot(OnceLock::new());
 
 pub fn set_mouse_cursor(cursor: Option<Arc<dyn Mouse>>) {
     let lock = MOUSE_CURSOR.get_or_init(|| Mutex::new(None));

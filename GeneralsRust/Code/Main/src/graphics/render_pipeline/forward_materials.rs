@@ -223,7 +223,12 @@ impl ForwardPass {
             let inv = 1.0 / mesh.vertices.len() as f32;
             let avg = color_sum * inv;
             if avg.x.max(avg.y).max(avg.z) <= 0.05 {
-                static LOW_VERTEX_COLOR_WARNINGS: AtomicUsize = AtomicUsize::new(0);
+                struct LowVertexColorWarningsSlot(AtomicUsize);
+                impl std::ops::Deref for LowVertexColorWarningsSlot {
+                    type Target = AtomicUsize;
+                    fn deref(&self) -> &Self::Target { &self.0 }
+                }
+                static LOW_VERTEX_COLOR_WARNINGS: LowVertexColorWarningsSlot = LowVertexColorWarningsSlot(AtomicUsize::new(0));
                 let count = LOW_VERTEX_COLOR_WARNINGS.fetch_add(1, Ordering::Relaxed);
                 if count < 20 {
                     warn!(
@@ -232,7 +237,12 @@ impl ForwardPass {
                     );
                 }
             } else {
-                static EXPLICIT_VERTEX_COLOR_DEBUGS: AtomicUsize = AtomicUsize::new(0);
+                struct ExplicitVertexColorDebugsSlot(AtomicUsize);
+                impl std::ops::Deref for ExplicitVertexColorDebugsSlot {
+                    type Target = AtomicUsize;
+                    fn deref(&self) -> &Self::Target { &self.0 }
+                }
+                static EXPLICIT_VERTEX_COLOR_DEBUGS: ExplicitVertexColorDebugsSlot = ExplicitVertexColorDebugsSlot(AtomicUsize::new(0));
                 let count = EXPLICIT_VERTEX_COLOR_DEBUGS.fetch_add(1, Ordering::Relaxed);
                 if count < 8 {
                     debug!(
@@ -485,7 +495,12 @@ impl ForwardPass {
         if pass.shader.get_color_mask()
             == ww3d_renderer_3d::rendering::shader_system::shader::ColorMaskType::Disable
         {
-            static DISABLED_COLOR_MASK_WARNINGS: AtomicUsize = AtomicUsize::new(0);
+            struct DisabledColorMaskWarningsSlot(AtomicUsize);
+            impl std::ops::Deref for DisabledColorMaskWarningsSlot {
+                type Target = AtomicUsize;
+                fn deref(&self) -> &Self::Target { &self.0 }
+            }
+            static DISABLED_COLOR_MASK_WARNINGS: DisabledColorMaskWarningsSlot = DisabledColorMaskWarningsSlot(AtomicUsize::new(0));
             let count = DISABLED_COLOR_MASK_WARNINGS.fetch_add(1, Ordering::Relaxed);
             if count < 40 {
                 warn!(

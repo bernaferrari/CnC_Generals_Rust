@@ -39,7 +39,12 @@ enum Slot {
 // handles — thread-local storage would drop them from a TLS destructor after
 // wgpu's own TLS has been destroyed.
 fn slot() -> &'static parking_lot::Mutex<Slot> {
-    static SLOT: OnceLock<parking_lot::Mutex<Slot>> = OnceLock::new();
+    struct SlotSlot(OnceLock<parking_lot::Mutex<Slot>>);
+    impl std::ops::Deref for SlotSlot {
+        type Target = OnceLock<parking_lot::Mutex<Slot>>;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static SLOT: SlotSlot = SlotSlot(OnceLock::new());
     SLOT.get_or_init(|| parking_lot::Mutex::new(Slot::Vacant))
 }
 
@@ -148,7 +153,12 @@ mod tests {
     use super::*;
 
     fn isolated(test: impl FnOnce()) {
-        static TEST_LOCK: OnceLock<parking_lot::Mutex<()>> = OnceLock::new();
+        struct TestLockSlot(OnceLock<parking_lot::Mutex<()>>);
+        impl std::ops::Deref for TestLockSlot {
+            type Target = OnceLock<parking_lot::Mutex<()>>;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static TEST_LOCK: TestLockSlot = TestLockSlot(OnceLock::new());
         let _serial = TEST_LOCK.get_or_init(|| parking_lot::Mutex::new(())).lock();
         reset_device_authority_for_tests();
         test();

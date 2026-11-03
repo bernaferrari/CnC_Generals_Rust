@@ -225,7 +225,12 @@ pub struct NetworkInterface {
 }
 
 fn active_interface_slot() -> &'static StdRwLock<Option<Arc<RwLock<NetworkInterface>>>> {
-    static SLOT: OnceLock<StdRwLock<Option<Arc<RwLock<NetworkInterface>>>>> = OnceLock::new();
+    struct SlotSlot(OnceLock<StdRwLock<Option<Arc<RwLock<NetworkInterface>>>>>);
+    impl std::ops::Deref for SlotSlot {
+        type Target = OnceLock<StdRwLock<Option<Arc<RwLock<NetworkInterface>>>>>;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static SLOT: SlotSlot = SlotSlot(OnceLock::new());
     SLOT.get_or_init(|| StdRwLock::new(None))
 }
 

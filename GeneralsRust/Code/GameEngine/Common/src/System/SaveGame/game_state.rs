@@ -71,10 +71,15 @@ struct PostLoadHooks {
     world_dict_map_name: Option<Box<WorldDictMapNameFn>>,
 }
 
-static POST_LOAD_HOOKS: std::sync::Mutex<PostLoadHooks> = std::sync::Mutex::new(PostLoadHooks {
+struct PostLoadHooksSlot(std::sync::Mutex<PostLoadHooks>);
+impl std::ops::Deref for PostLoadHooksSlot {
+    type Target = std::sync::Mutex<PostLoadHooks>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static POST_LOAD_HOOKS: PostLoadHooksSlot = PostLoadHooksSlot(std::sync::Mutex::new(PostLoadHooks {
     partition_update: None,
     world_dict_map_name: None,
-});
+}));
 
 /// Register `ThePartitionManager->update()` (GameState.cpp:1529).
 /// Must run after snapshot post-process and before the script engine's first run.
@@ -1436,7 +1441,12 @@ mod tests {
 
     include!("load_fixup_tests.rs");
 
-    static HOOK_TEST_LOCK: Mutex<()> = Mutex::new(());
+    struct HookTestLockSlot(Mutex<()>);
+    impl std::ops::Deref for HookTestLockSlot {
+        type Target = Mutex<()>;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static HOOK_TEST_LOCK: HookTestLockSlot = HookTestLockSlot(Mutex::new(()));
 
     // NOTE: registered snapshots require `Send`, so these shared test counters use
     // `Arc<AtomicU32>` for Send-safe shared observation; Cell is not Sync.
@@ -1610,7 +1620,7 @@ mod tests {
 
     #[test]
     fn save_game_refreshes_map_label_from_runtime_map_name() {
-        let _guard = HOOK_TEST_LOCK.lock().expect("hook test lock");
+        let _guard = HOOK_TEST_LOCK.0.lock().expect("hook test lock");
         register_world_dict_map_name(|| None);
 
         let save_dir = unique_temp_save_dir("map_label_refresh");
@@ -1644,7 +1654,7 @@ mod tests {
 
     #[test]
     fn registered_snapshot_blocks_replace_placeholders_and_round_trip() {
-        let _guard = HOOK_TEST_LOCK.lock().expect("hook test lock");
+        let _guard = HOOK_TEST_LOCK.0.lock().expect("hook test lock");
         let save_dir = unique_temp_save_dir("snapshot_bridge");
         let pristine_map = save_dir.with_extension("map");
         fs::write(&pristine_map, b"snapshot fixture map").unwrap();
@@ -1778,7 +1788,7 @@ mod tests {
     /// C++ GameState.cpp:1528-1529 — PartitionManager->update after snapshot post-process.
     #[test]
     fn post_process_load_invokes_partition_manager_update() {
-        let _guard = HOOK_TEST_LOCK.lock().expect("hook test lock");
+        let _guard = HOOK_TEST_LOCK.0.lock().expect("hook test lock");
         use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
         let calls = Arc::new(AtomicUsize::new(0));
         let observed = Arc::clone(&calls);
@@ -1798,7 +1808,7 @@ mod tests {
     /// C++ GameState.cpp:1587-1609 — world-dict mapName wins over the map filename leaf.
     #[test]
     fn map_label_prefers_world_dict_map_name() {
-        let _guard = HOOK_TEST_LOCK.lock().expect("hook test lock");
+        let _guard = HOOK_TEST_LOCK.0.lock().expect("hook test lock");
         crate::common::ini::ini_game_data::init_global_data();
         if let Some(global) = crate::common::ini::ini_game_data::get_global_data() {
             global.write().map_name = "Maps\\Skirmish\\FrozenValley.map".to_string();
@@ -1855,7 +1865,7 @@ mod tests {
     /// C++ GameState.cpp:696-701 — failed load calls clearGameData + reset.
     #[test]
     fn load_game_failure_clears_game_data() {
-        let _guard = HOOK_TEST_LOCK.lock().expect("hook test lock");
+        let _guard = HOOK_TEST_LOCK.0.lock().expect("hook test lock");
         let clears = Arc::new(AtomicUsize::new(0));
         let observed = Arc::clone(&clears);
         register_save_load_mission_hooks(

@@ -49,7 +49,12 @@ impl Default for CommandSystem {
 }
 
 /// Global command system instance
-pub(super) static COMMAND_SYSTEM: OnceLock<Mutex<CommandSystem>> = OnceLock::new();
+struct CommandSystemSlot(OnceLock<Mutex<CommandSystem>>);
+impl std::ops::Deref for CommandSystemSlot {
+    type Target = OnceLock<Mutex<CommandSystem>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static COMMAND_SYSTEM: CommandSystemSlot = CommandSystemSlot(OnceLock::new());
 
 /// Initialize the global command system
 pub fn init_command_system() {

@@ -17,9 +17,24 @@ use ww3d_renderer_3d::render_object_system::RenderObjClass;
 use ww3d_renderer_3d::rendering::shader_system::shader::ShaderClass;
 use ww3d_renderer_3d::texture_system::TextureClass;
 
-static EMITTER_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
-static PARTICLE_DEBUG_DISABLE: AtomicBool = AtomicBool::new(false);
-static DEFAULT_REMOVE_ON_COMPLETE: AtomicBool = AtomicBool::new(true);
+struct EmitterIdCounterSlot(AtomicU32);
+impl std::ops::Deref for EmitterIdCounterSlot {
+    type Target = AtomicU32;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static EMITTER_ID_COUNTER: EmitterIdCounterSlot = EmitterIdCounterSlot(AtomicU32::new(0));
+struct ParticleDebugDisableSlot(AtomicBool);
+impl std::ops::Deref for ParticleDebugDisableSlot {
+    type Target = AtomicBool;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static PARTICLE_DEBUG_DISABLE: ParticleDebugDisableSlot = ParticleDebugDisableSlot(AtomicBool::new(false));
+struct DefaultRemoveOnCompleteSlot(AtomicBool);
+impl std::ops::Deref for DefaultRemoveOnCompleteSlot {
+    type Target = AtomicBool;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static DEFAULT_REMOVE_ON_COMPLETE: DefaultRemoveOnCompleteSlot = DefaultRemoveOnCompleteSlot(AtomicBool::new(true));
 
 /// Particle property with keyframes
 #[derive(Debug, Clone)]

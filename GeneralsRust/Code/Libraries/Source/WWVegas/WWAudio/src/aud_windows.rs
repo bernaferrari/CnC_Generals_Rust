@@ -277,7 +277,12 @@ pub struct ExtendedAudioFormat {
 
 /// Global window handle for DirectSound cooperation
 // THREAD: game thread sets the window handle, audio service thread reads it
-static AUDIO_MAIN_WINDOW_HANDLE: Mutex<Option<isize>> = Mutex::new(None);
+struct AudioMainWindowHandleSlot(Mutex<Option<isize>>);
+impl std::ops::Deref for AudioMainWindowHandleSlot {
+    type Target = Mutex<Option<isize>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static AUDIO_MAIN_WINDOW_HANDLE: AudioMainWindowHandleSlot = AudioMainWindowHandleSlot(Mutex::new(None));
 
 impl AudThread {
     /// Create a new audio thread

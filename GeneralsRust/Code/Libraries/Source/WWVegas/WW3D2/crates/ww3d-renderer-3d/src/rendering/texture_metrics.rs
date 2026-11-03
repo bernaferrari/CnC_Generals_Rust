@@ -23,10 +23,12 @@ pub struct TextureDecisionRecord {
     pub mip_levels: u32,
 }
 
-thread_local! {
-    /// C++ recorded texture decisions in a plain static buffer on the game thread.
-    static DECISIONS: RefCell<Vec<TextureDecisionRecord>> = const { RefCell::new(Vec::new()) };
+struct DecisionsBag {
+    decisions: std::sync::Mutex<Vec<TextureDecisionRecord>>,
 }
+static DECISIONS: std::sync::LazyLock<DecisionsBag> = std::sync::LazyLock::new(|| DecisionsBag {
+    decisions: std::sync::Mutex::new(Vec::new()),
+});
 
 /// Record a texture format decision for later analysis.
 pub fn record_decision(name: impl Into<String>, decision: &FormatDecision, mip_levels: u32) {
@@ -39,17 +41,17 @@ pub fn record_decision(name: impl Into<String>, decision: &FormatDecision, mip_l
         mip_levels,
     };
 
-    DECISIONS.with_borrow_mut(|guard| guard.push(record));
+    DECISIONS.decisions.lock().unwrap_or_else(|p| p.into_inner()).push(record);
 }
 
 /// Snapshot the recorded decisions and clear the buffer.
 pub fn drain_decisions() -> Vec<TextureDecisionRecord> {
-    DECISIONS.with_borrow_mut(|guard| std::mem::take(guard))
+    std::mem::take(&mut *DECISIONS.decisions.lock().unwrap_or_else(|p| p.into_inner()))
 }
 
 /// Borrow a copy of the current decision log without clearing it.
 pub fn snapshot_decisions() -> Vec<TextureDecisionRecord> {
-    DECISIONS.with_borrow(Vec::clone)
+    DECISIONS.decisions.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 /// Summary information derived from recorded decisions.
@@ -68,8 +70,8 @@ pub struct TextureMetricsSummary {
 /// Build a summary of the current decision log without clearing it.
 pub fn summarize() -> TextureMetricsSummary {
     let empty = Vec::new();
-    let guard = &DECISIONS.with_borrow(Vec::clone);
-    let guard: &Vec<TextureDecisionRecord> = if guard.is_empty() { &empty } else { guard };
+    let guard = DECISIONS.decisions.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    let guard: &Vec<TextureDecisionRecord> = if guard.is_empty() { &empty } else { &guard };
 
     if guard.is_empty() {
         return TextureMetricsSummary::default();

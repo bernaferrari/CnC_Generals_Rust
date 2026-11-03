@@ -360,13 +360,18 @@ pub fn debug_assert_impl(condition: bool, message: &str, file: &str, line: u32) 
 }
 
 /// Global debug system instance
-static DEBUG_SYSTEM: OnceCell<Arc<Mutex<DebugSystem>>> = OnceCell::new();
+struct DebugSystemSlot(OnceCell<Arc<Mutex<DebugSystem>>>);
+impl std::ops::Deref for DebugSystemSlot {
+    type Target = OnceCell<Arc<Mutex<DebugSystem>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static DEBUG_SYSTEM: DebugSystemSlot = DebugSystemSlot(OnceCell::new());
 
 /// Initialize the global debug system
 pub fn init_debug_system() {
-    if DEBUG_SYSTEM.get().is_none() {
-        let _ = DEBUG_SYSTEM.set(Arc::new(Mutex::new(DebugSystem::default())));
-    } else if let Some(system) = DEBUG_SYSTEM.get() {
+    if DEBUG_SYSTEM.0.get().is_none() {
+        let _ = DEBUG_SYSTEM.0.set(Arc::new(Mutex::new(DebugSystem::default())));
+    } else if let Some(system) = DEBUG_SYSTEM.0.get() {
         if let Ok(mut guard) = system.lock() {
             *guard = DebugSystem::default();
         }
@@ -375,7 +380,7 @@ pub fn init_debug_system() {
 
 /// Get reference to the global debug system
 pub fn get_debug_system() -> Option<Arc<Mutex<DebugSystem>>> {
-    DEBUG_SYSTEM.get().cloned()
+    DEBUG_SYSTEM.0.get().cloned()
 }
 
 /// Global profiler instance

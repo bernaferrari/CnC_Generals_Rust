@@ -1046,11 +1046,16 @@ impl Default for WeaponStore {
 }
 
 /// Global weapon store instance
-static WEAPON_STORE: OnceCell<RwLock<WeaponStore>> = OnceCell::new();
+struct WeaponStoreSlot(OnceCell<RwLock<WeaponStore>>);
+impl std::ops::Deref for WeaponStoreSlot {
+    type Target = OnceCell<RwLock<WeaponStore>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static WEAPON_STORE: WeaponStoreSlot = WeaponStoreSlot(OnceCell::new());
 
 /// Initialize the global weapon store
 pub fn initialize_weapon_store() {
-    WEAPON_STORE.get_or_init(|| RwLock::new(WeaponStore::new()));
+    WEAPON_STORE.0.get_or_init(|| RwLock::new(WeaponStore::new()));
 }
 
 /// Explicitly clear registered weapon definitions.
@@ -1060,7 +1065,7 @@ pub fn initialize_weapon_store() {
 /// left the store containing only the final weapon.
 pub fn reset_weapon_store() {
     initialize_weapon_store();
-    if let Some(store) = WEAPON_STORE.get() {
+    if let Some(store) = WEAPON_STORE.0.get() {
         if let Ok(mut guard) = store.write() {
             guard.clear();
         }

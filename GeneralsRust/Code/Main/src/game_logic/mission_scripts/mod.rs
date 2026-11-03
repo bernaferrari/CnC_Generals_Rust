@@ -23,7 +23,12 @@ const SPEECH_SUBTITLE_DURATION_MS: i32 = 8000;
 /// keeping the counter there would let a delayed acknowledgement for old popup
 /// #1 accidentally match a new world's popup #1.  It is neither gameplay nor
 /// presentation/save/Xfer data.
-static NEXT_LIVE_POPUP_GENERATION: AtomicUsize = AtomicUsize::new(1);
+struct NextLivePopupGenerationSlot(AtomicUsize);
+impl std::ops::Deref for NextLivePopupGenerationSlot {
+    type Target = AtomicUsize;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static NEXT_LIVE_POPUP_GENERATION: NextLivePopupGenerationSlot = NextLivePopupGenerationSlot(AtomicUsize::new(1));
 
 fn next_live_popup_generation() -> usize {
     // Zero is the explicit fail-closed "no active host popup" value.  Skip it

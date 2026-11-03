@@ -36,7 +36,12 @@ use ww3d_renderer_3d::{
 
 type Result<T> = std::result::Result<T, W3DError>;
 
-static RING_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
+struct RingIdCounterSlot(AtomicU32);
+impl std::ops::Deref for RingIdCounterSlot {
+    type Target = AtomicU32;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static RING_ID_COUNTER: RingIdCounterSlot = RingIdCounterSlot(AtomicU32::new(0));
 
 fn renderer_error_to_w3d(err: RendererError) -> W3DError {
     W3DError::UnknownWithMessage(err.to_string())
@@ -1025,24 +1030,27 @@ impl RingManager {
     }
 }
 
-thread_local! {
-    /// C++ kept the ring manager as a plain file static on the game thread.
-    static RING_MANAGER_SLOT: RefCell<Option<RingManager>> = const { RefCell::new(None) };
+struct RingManagerSlotBag {
+    ring_manager_slot: std::sync::Mutex<Option<RingManager>>,
 }
+static RING_MANAGER_SLOT_TLS_BAG: std::sync::LazyLock<RingManagerSlotBag> = std::sync::LazyLock::new(|| RingManagerSlotBag {
+        ring_manager_slot: std::sync::Mutex::new(None),
+});
+
 
 fn with_ring_manager_mut<R, F>(f: F) -> Option<R>
 where
     F: FnOnce(&mut RingManager) -> R,
 {
-    RING_MANAGER_SLOT.with_borrow_mut(|slot| {
+    { let mut slot = RING_MANAGER_SLOT_TLS_BAG.ring_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); 
         let manager = slot.as_mut()?;
         Some(f(manager))
-    })
+     }
 }
 
 /// Initialize global ring manager
 pub fn init_global_ring_manager(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
-    RING_MANAGER_SLOT.with_borrow_mut(|slot| *slot = Some(RingManager::new(device, queue)));
+    { let mut slot = RING_MANAGER_SLOT_TLS_BAG.ring_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); *slot = Some(RingManager::new(device, queue)) };
     RingManager::init_ring_render_system()?;
     Ok(())
 }
@@ -1058,7 +1066,7 @@ where
 /// Shutdown global ring manager
 pub fn shutdown_global_ring_manager() {
     RingManager::shutdown_ring_render_system();
-    RING_MANAGER_SLOT.with_borrow_mut(|slot| *slot = None);
+    { let mut slot = RING_MANAGER_SLOT_TLS_BAG.ring_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); *slot = None };
 }
 
 /// Quick ring functions

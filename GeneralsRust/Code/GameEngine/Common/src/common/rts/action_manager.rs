@@ -232,15 +232,18 @@ pub trait ObjectDataProvider: Send + Sync {
 // provider that reads `OBJECT_REGISTRY` / GameLogic objects, and tests can set/clear
 // a mock without `static mut`.
 // THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static OBJECT_DATA_PROVIDER: RefCell<Option<Arc<dyn ObjectDataProvider + Send + Sync>>> =
-        const { RefCell::new(None) };
+struct ObjectDataProviderBag {
+    value: std::sync::Mutex<Option<Arc<dyn ObjectDataProvider + Send + Sync>>>,
 }
+static OBJECT_DATA_PROVIDER: std::sync::LazyLock<ObjectDataProviderBag> = std::sync::LazyLock::new(|| ObjectDataProviderBag {
+    value: std::sync::Mutex::new(None),
+});
+
 
 fn write_provider(
     provider: Option<Arc<dyn ObjectDataProvider + Send + Sync>>,
 ) -> Option<Arc<dyn ObjectDataProvider + Send + Sync>> {
-    OBJECT_DATA_PROVIDER.with_borrow_mut(|slot| std::mem::replace(slot, provider))
+    { let mut slot = OBJECT_DATA_PROVIDER.value.lock().unwrap_or_else(|p| p.into_inner()); std::mem::replace(&mut *slot, provider) }
 }
 
 /// Install the global object data provider. Called during GameLogic init.
@@ -262,7 +265,7 @@ pub fn object_data_provider_is_set() -> bool {
 
 /// Clone the installed provider, if any. Borrow is not held across queries.
 fn get_provider() -> Option<Arc<dyn ObjectDataProvider + Send + Sync>> {
-    OBJECT_DATA_PROVIDER.with_borrow(|slot| slot.clone())
+    { let slot = OBJECT_DATA_PROVIDER.value.lock().unwrap_or_else(|p| p.into_inner()); slot.clone() }
 }
 
 // ================================================================================================

@@ -79,11 +79,21 @@ const BOX_VERTEX_NORMALS: [Vec3; NUM_BOX_VERTS] = [
 /// Display mask for controlling which boxes are rendered
 /// C++ Reference: boxrobj.cpp line 160 (static int DisplayMask)
 /// Rust Implementation: Uses AtomicI32 with Relaxed ordering for thread-safe access
-static BOX_DISPLAY_MASK: AtomicI32 = AtomicI32::new(0);
+struct BoxDisplayMaskSlot(AtomicI32);
+impl std::ops::Deref for BoxDisplayMaskSlot {
+    type Target = AtomicI32;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static BOX_DISPLAY_MASK: BoxDisplayMaskSlot = BoxDisplayMaskSlot(AtomicI32::new(0));
 
 /// System initialization flag
 /// C++ Reference: boxrobj.cpp line 159 (static bool IsInitted)
-static IS_INITTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+struct IsInittedSlot(std::sync::atomic::AtomicBool);
+impl std::ops::Deref for IsInittedSlot {
+    type Target = std::sync::atomic::AtomicBool;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static IS_INITTED: IsInittedSlot = IsInittedSlot(std::sync::atomic::AtomicBool::new(false));
 
 /// Base class for box rendering objects
 pub struct BoxRenderObjClass {

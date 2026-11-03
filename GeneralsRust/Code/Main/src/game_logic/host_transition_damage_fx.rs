@@ -1126,10 +1126,17 @@ pub fn spawn_transition_particles(
 pub const YELLOW_DAMAGE_PERCENT: f32 = 0.25;
 
 #[cfg(test)]
-thread_local! {
-    static DISPATCHED_ARMOR_DAMAGE_FX: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-    static VOICE_FEAR_ROLL: Cell<Option<i32>> = const { Cell::new(None) };
+struct TransitionDamageFxState {
+    dispatched_armor_damage_fx: std::sync::Mutex<Vec<String>>,
+    voice_fear_roll: std::sync::Mutex<Option<i32>>,
 }
+
+#[cfg(test)]
+static TRANSITION_DAMAGE_FX_STATE: std::sync::LazyLock<TransitionDamageFxState> =
+    std::sync::LazyLock::new(|| TransitionDamageFxState {
+        dispatched_armor_damage_fx: std::sync::Mutex::new(Vec::new()),
+        voice_fear_roll: std::sync::Mutex::new(None),
+    });
 
 /// C++ `ActiveBody.cpp:625-631` yellow-health VoiceFear gate + 25% roll.
 pub fn voice_fear_should_play(
@@ -1148,7 +1155,7 @@ pub fn voice_fear_should_play(
 
 #[cfg(test)]
 pub fn set_test_voice_fear_roll(roll: Option<i32>) {
-    VOICE_FEAR_ROLL.set(roll);
+    *TRANSITION_DAMAGE_FX_STATE.voice_fear_roll.lock().unwrap_or_else(|p| p.into_inner()) = roll;
 }
 
 /// Draw the ActiveBody fear chance from the session that owns the damage
@@ -1157,7 +1164,7 @@ pub fn take_voice_fear_roll_from_session(
     random: &game_engine::common::random_value::SessionRandom,
 ) -> i32 {
     #[cfg(test)]
-    if let Some(roll) = VOICE_FEAR_ROLL.get() {
+    if let Some(roll) = TRANSITION_DAMAGE_FX_STATE.voice_fear_roll.lock().unwrap_or_else(|p| p.into_inner()).clone() {
         return roll;
     }
     random.next_int(0, 99)
@@ -1167,7 +1174,7 @@ pub fn take_voice_fear_roll_from_session(
 /// draw separately from the receiving GameLogic path.
 pub(crate) fn take_detached_voice_fear_roll() -> i32 {
     #[cfg(test)]
-    if let Some(roll) = VOICE_FEAR_ROLL.get() {
+    if let Some(roll) = TRANSITION_DAMAGE_FX_STATE.voice_fear_roll.lock().unwrap_or_else(|p| p.into_inner()).clone() {
         return roll;
     }
     game_engine::common::random_value::get_game_logic_random_value(0, 99)
@@ -1423,9 +1430,9 @@ fn finish_armor_damage_fx(
     }
     #[cfg(test)]
     {
-        DISPATCHED_ARMOR_DAMAGE_FX.with(|v| v.borrow_mut().push(dfx_name.clone()));
+        TRANSITION_DAMAGE_FX_STATE.dispatched_armor_damage_fx.lock().unwrap_or_else(|p| p.into_inner()).push(dfx_name.clone());
         if let Some(list) = &list_name {
-            DISPATCHED_ARMOR_DAMAGE_FX.with(|v| v.borrow_mut().push(list.clone()));
+            TRANSITION_DAMAGE_FX_STATE.dispatched_armor_damage_fx.lock().unwrap_or_else(|p| p.into_inner()).push(list.clone());
         }
     }
     list_name.or(Some(dfx_name))
@@ -1433,7 +1440,7 @@ fn finish_armor_damage_fx(
 
 #[cfg(test)]
 pub fn take_dispatched_armor_damage_fx() -> Vec<String> {
-    DISPATCHED_ARMOR_DAMAGE_FX.with(|v| std::mem::take(&mut *v.borrow_mut()))
+    std::mem::take(&mut *TRANSITION_DAMAGE_FX_STATE.dispatched_armor_damage_fx.lock().unwrap_or_else(|p| p.into_inner()))
 }
 
 #[cfg(test)]

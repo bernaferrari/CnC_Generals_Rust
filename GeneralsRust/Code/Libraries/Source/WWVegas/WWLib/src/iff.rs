@@ -42,12 +42,22 @@ pub struct CompHeaderType {
 }
 
 fn iff_files() -> &'static Mutex<Vec<Option<WWFile>>> {
-    static FILES: OnceLock<Mutex<Vec<Option<WWFile>>>> = OnceLock::new();
+    struct FilesSlot(OnceLock<Mutex<Vec<Option<WWFile>>>>);
+    impl std::ops::Deref for FilesSlot {
+        type Target = OnceLock<Mutex<Vec<Option<WWFile>>>>;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static FILES: FilesSlot = FilesSlot(OnceLock::new());
     FILES.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 fn uncomp_buffer() -> &'static Mutex<Option<Vec<u8>>> {
-    static BUFFER: OnceLock<Mutex<Option<Vec<u8>>>> = OnceLock::new();
+    struct BufferSlot(OnceLock<Mutex<Option<Vec<u8>>>>);
+    impl std::ops::Deref for BufferSlot {
+        type Target = OnceLock<Mutex<Option<Vec<u8>>>>;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static BUFFER: BufferSlot = BufferSlot(OnceLock::new());
     BUFFER.get_or_init(|| Mutex::new(None))
 }
 

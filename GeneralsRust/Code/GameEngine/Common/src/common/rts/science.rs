@@ -1244,7 +1244,12 @@ impl Default for ScienceStore {
 /// In the original C++, this was a global pointer.
 /// In Rust, we'd typically use a different pattern, but
 /// this maintains API compatibility.
-static SCIENCE_STORE: OnceCell<RwLock<ScienceStore>> = OnceCell::new();
+struct ScienceStoreSlot(OnceCell<RwLock<ScienceStore>>);
+impl std::ops::Deref for ScienceStoreSlot {
+    type Target = OnceCell<RwLock<ScienceStore>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static SCIENCE_STORE: ScienceStoreSlot = ScienceStoreSlot(OnceCell::new());
 
 /// Get the global science store
 pub fn get_science_store() -> Option<RwLockReadGuard<'static, ScienceStore>> {
@@ -1255,9 +1260,9 @@ pub fn get_science_store() -> Option<RwLockReadGuard<'static, ScienceStore>> {
 
 /// Initialize the global science store
 pub fn init_science_store() {
-    if SCIENCE_STORE.get().is_none() {
-        let _ = SCIENCE_STORE.set(RwLock::new(ScienceStore::new()));
-    } else if let Some(store) = SCIENCE_STORE.get() {
+    if SCIENCE_STORE.0.get().is_none() {
+        let _ = SCIENCE_STORE.0.set(RwLock::new(ScienceStore::new()));
+    } else if let Some(store) = SCIENCE_STORE.0.get() {
         if let Ok(mut guard) = store.write() {
             *guard = ScienceStore::new();
         }

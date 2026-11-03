@@ -13,8 +13,8 @@
 //! Created: 11/26/01 TR
 //! Rust conversion: 2025
 
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::ops::Deref;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::common::ascii_string::AsciiString;
 
@@ -95,7 +95,7 @@ impl CDDriveInterface for CDDrive {
 }
 
 /// Trait for CD Manager interface
-pub trait CDManagerInterface {
+pub trait CDManagerInterface: Send {
     /// Initialize the CD manager
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>>;
 
@@ -232,28 +232,31 @@ impl CDManagerInterface for CDManager {
     }
 }
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static CD_MANAGER: RefCell<Option<Rc<RefCell<Box<dyn CDManagerInterface>>>>> =
-        const { RefCell::new(None) };
+/// Opaque process-wide CD manager slot (C++ `TheCDManager` engine lifetime).
+struct CdManagerSlot(LazyLock<Mutex<Option<Arc<Mutex<Box<dyn CDManagerInterface + Send>>>>>>);
+impl Deref for CdManagerSlot {
+    type Target = Mutex<Option<Arc<Mutex<Box<dyn CDManagerInterface + Send>>>>>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
+static CD_MANAGER: CdManagerSlot = CdManagerSlot(LazyLock::new(|| Mutex::new(None)));
 
 /// Initialize the global CD manager
 pub fn init_cd_manager() {
     let mut manager = Box::new(CDManager::new());
     let _ = manager.init();
-
-    CD_MANAGER.with_borrow_mut(|cell| match cell {
-        Some(manager_cell) => *manager_cell.borrow_mut() = manager,
-        None => {
-            *cell = Some(Rc::new(RefCell::new(manager)));
-        }
-    });
+    let wrapped: Arc<Mutex<Box<dyn CDManagerInterface + Send>>> = Arc::new(Mutex::new(manager));
+    let mut slot = CD_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
+    *slot = Some(wrapped);
 }
 
 /// Get reference to the global CD manager
-pub fn get_cd_manager() -> Option<Rc<RefCell<Box<dyn CDManagerInterface>>>> {
-    CD_MANAGER.with_borrow(|cell| cell.clone())
+pub fn get_cd_manager() -> Option<Arc<Mutex<Box<dyn CDManagerInterface + Send>>>> {
+    CD_MANAGER
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 #[cfg(test)]

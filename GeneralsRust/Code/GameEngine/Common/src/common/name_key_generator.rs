@@ -139,10 +139,13 @@ impl NameKeyNamespace {
 
 // Shared state for the generator.
 // THREAD: C++ plain static; driven only by the single game/client thread.
-thread_local! {
-    static NAME_KEY_STATE: RefCell<NameKeyNamespace> =
-        RefCell::new(NameKeyNamespace::new());
+struct NameKeyStateBag {
+    value: std::sync::Mutex<NameKeyNamespace>,
 }
+static NAME_KEY_STATE: std::sync::LazyLock<NameKeyStateBag> = std::sync::LazyLock::new(|| NameKeyStateBag {
+    value: std::sync::Mutex::new(NameKeyNamespace::new()),
+});
+
 
 /// Name key generator mirroring the original C++ behaviour.
 pub struct NameKeyGenerator;
@@ -150,7 +153,7 @@ pub struct NameKeyGenerator;
 impl NameKeyGenerator {
     /// Reset the generator to its initial state (`init` in the legacy engine).
     pub fn init() {
-        NAME_KEY_STATE.with_borrow_mut(|state| state.reset());
+        { let mut state = NAME_KEY_STATE.value.lock().unwrap_or_else(|p| p.into_inner()); state.reset( ) };
     }
 
     /// Convert a name string to a key (case-sensitive, matches C++
@@ -167,7 +170,7 @@ impl NameKeyGenerator {
     /// folding case would merge C++-distinct keys and shift allocation
     /// order away from the legacy engine.
     pub fn name_to_key(name: &str) -> NameKeyType {
-        NAME_KEY_STATE.with_borrow_mut(|state| state.name_to_key(name))
+        { let mut state = NAME_KEY_STATE.value.lock().unwrap_or_else(|p| p.into_inner()); state.name_to_key(name ) }
     }
 
     /// Convert a name string to a key with case sensitivity explicitly requested.
@@ -180,12 +183,12 @@ impl NameKeyGenerator {
     /// Convert a name to a key using case-insensitive comparison
     /// (matches `nameToLowercaseKey`).
     pub fn name_to_key_lowercase(name: &str) -> NameKeyType {
-        NAME_KEY_STATE.with_borrow_mut(|state| state.name_to_lowercase_key(name))
+        { let mut state = NAME_KEY_STATE.value.lock().unwrap_or_else(|p| p.into_inner()); state.name_to_lowercase_key(name ) }
     }
 
     /// Resolve a key back to the string that first produced it.
     pub fn key_to_name(key: NameKeyType) -> Option<String> {
-        NAME_KEY_STATE.with_borrow(|state| state.key_to_name(key))
+        { let state = NAME_KEY_STATE.value.lock().unwrap_or_else(|p| p.into_inner()); state.key_to_name(key) }
     }
 
     /// Clear all registered names (used by save/load and tests).
@@ -266,15 +269,14 @@ mod tests {
     fn reset_allocates_sequential_ids_from_one() {
         // C++ NameKeyGenerator::init/reset sets m_nextID = 1; nameToKey increments.
         // Borrow the thread-local state for the whole assertion block.
-        NAME_KEY_STATE.with_borrow_mut(|state| {
-            state.reset();
-            assert_eq!(state.name_to_key("First"), 1);
-            assert_eq!(state.name_to_key("Second"), 2);
-            assert_eq!(state.name_to_key("Third"), 3);
-            assert_eq!(state.name_to_key("First"), 1);
-            assert!(state.key_to_name(0).is_none());
-            assert!(state.key_to_name(999999).is_none());
-        });
+        let mut state = NAME_KEY_STATE.value.lock().unwrap_or_else(|p| p.into_inner());
+        state.reset();
+        assert_eq!(state.name_to_key("First"), 1);
+        assert_eq!(state.name_to_key("Second"), 2);
+        assert_eq!(state.name_to_key("Third"), 3);
+        assert_eq!(state.name_to_key("First"), 1);
+        assert!(state.key_to_name(0).is_none());
+        assert!(state.key_to_name(999999).is_none());
     }
 
     #[test]

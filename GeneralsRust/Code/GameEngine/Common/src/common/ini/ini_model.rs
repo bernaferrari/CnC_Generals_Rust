@@ -830,7 +830,12 @@ impl ModelManager {
 }
 
 /// Global model manager instance (thread-safe)
-static MODEL_MANAGER: OnceCell<Arc<RwLock<ModelManager>>> = OnceCell::new();
+struct ModelManagerSlot(OnceCell<Arc<RwLock<ModelManager>>>);
+impl std::ops::Deref for ModelManagerSlot {
+    type Target = OnceCell<Arc<RwLock<ModelManager>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static MODEL_MANAGER: ModelManagerSlot = ModelManagerSlot(OnceCell::new());
 
 /// Ensure the model manager exists and return a handle to it
 pub fn ensure_model_manager() -> Arc<RwLock<ModelManager>> {
@@ -851,7 +856,7 @@ pub fn init_global_model_manager() {
 
 /// Get a handle to the model manager if it has been initialized
 pub fn get_model_manager() -> Option<Arc<RwLock<ModelManager>>> {
-    MODEL_MANAGER.get().cloned()
+    MODEL_MANAGER.0.get().cloned()
 }
 
 /// INI parsing function for Model definition (matches C++ interface)

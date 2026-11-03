@@ -7,7 +7,12 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicI32, Ordering};
 
 /// C++ GameLogic::m_scriptHulkMaxLifetimeOverride (default -1 = unused).
-static HULK_MAX_LIFETIME_OVERRIDE: AtomicI32 = AtomicI32::new(-1);
+struct HulkMaxLifetimeOverrideSlot(AtomicI32);
+impl std::ops::Deref for HulkMaxLifetimeOverrideSlot {
+    type Target = AtomicI32;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static HULK_MAX_LIFETIME_OVERRIDE: HulkMaxLifetimeOverrideSlot = HulkMaxLifetimeOverrideSlot(AtomicI32::new(-1));
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HostLifetimeUpdateData {

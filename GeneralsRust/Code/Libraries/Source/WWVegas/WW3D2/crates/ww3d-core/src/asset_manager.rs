@@ -459,21 +459,22 @@ impl CacheStats {
     }
 }
 
-thread_local! {
-    /// C++ kept the `WW3DAssetManager` as a plain global; the game thread is its
-    /// only writer, so the port carries it in thread-local storage instead of a
-    /// shared mutex.
-    static GLOBAL_ASSET_MANAGER: RefCell<AssetManager> = RefCell::new(AssetManager::new());
+struct GlobalAssetManagerBag {
+    global_asset_manager: std::sync::Mutex<AssetManager>,
 }
+static GLOBAL_ASSET_MANAGER_TLS_BAG: std::sync::LazyLock<GlobalAssetManagerBag> = std::sync::LazyLock::new(|| GlobalAssetManagerBag {
+        global_asset_manager: std::sync::Mutex::new(AssetManager::new()),
+});
+
 
 /// Run `f` with mutable access to the global asset manager.
 pub fn with_global_asset_manager<R>(f: impl FnOnce(&mut AssetManager) -> R) -> R {
-    GLOBAL_ASSET_MANAGER.with(|mgr| f(&mut mgr.borrow_mut()))
+    { let mut mgr = GLOBAL_ASSET_MANAGER_TLS_BAG.global_asset_manager.lock().unwrap_or_else(|p| p.into_inner()); f(&mut mgr) }
 }
 
 /// Run `f` with shared access to the global asset manager.
 pub fn with_global_asset_manager_ref<R>(f: impl FnOnce(&AssetManager) -> R) -> R {
-    GLOBAL_ASSET_MANAGER.with(|mgr| f(&mgr.borrow()))
+    { let mut mgr = GLOBAL_ASSET_MANAGER_TLS_BAG.global_asset_manager.lock().unwrap_or_else(|p| p.into_inner()); f(&mgr) }
 }
 
 #[cfg(test)]

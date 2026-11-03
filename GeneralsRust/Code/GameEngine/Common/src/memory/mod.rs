@@ -5,7 +5,7 @@
 //! macros with a safe, ergonomic Rust API that:
 //!
 //! - Uses generational indices for stable object IDs
-//! - Single-owner pool access (RefCell), matching the C++ thread model
+//! - Mutex pool access for multi-instance safety
 //! - Implements cache-friendly memory layouts
 //! - Tracks detailed allocation statistics
 //! - Prevents use-after-free via compile-time guarantees

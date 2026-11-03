@@ -10,7 +10,12 @@ use super::*;
 
 /// Serialize tests that mutate process-global GameEngine UI state
 /// (TheInGameUI store, radar force-on, in-game chat type, window manager).
-static HUD_FEEDBACK_CHAIN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+struct HudFeedbackChainLockSlot(std::sync::Mutex<()>);
+impl std::ops::Deref for HudFeedbackChainLockSlot {
+    type Target = std::sync::Mutex<()>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static HUD_FEEDBACK_CHAIN_LOCK: HudFeedbackChainLockSlot = HudFeedbackChainLockSlot(std::sync::Mutex::new(()));
 
 const SW_POWER_NAME: &str = "SWHudChainScudStorm";
 const UC_OBJECT_ID: u32 = 972_771;

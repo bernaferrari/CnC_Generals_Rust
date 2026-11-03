@@ -506,30 +506,33 @@ const BPT_EPSILON: f32 = 0.0001;
 #[allow(dead_code)] // C++ parity
 const BPT_COINCIDENCE_EPSILON: f32 = 0.000001;
 
-thread_local! {
-    /// C++ kept the shatter system as a plain file static on the game thread.
-    static SHATTER_SYSTEM_SLOT: RefCell<Option<ShatterSystem>> = const { RefCell::new(None) };
+struct ShatterSystemSlotBag {
+    shatter_system_slot: std::sync::Mutex<Option<ShatterSystem>>,
 }
+static SHATTER_SYSTEM_SLOT_TLS_BAG: std::sync::LazyLock<ShatterSystemSlotBag> = std::sync::LazyLock::new(|| ShatterSystemSlotBag {
+        shatter_system_slot: std::sync::Mutex::new(None),
+});
+
 
 fn with_shatter_system_mut<R, F>(f: F) -> Option<R>
 where
     F: FnOnce(&mut ShatterSystem) -> R,
 {
-    SHATTER_SYSTEM_SLOT.with_borrow_mut(|slot| {
+    { let mut slot = SHATTER_SYSTEM_SLOT_TLS_BAG.shatter_system_slot.lock().unwrap_or_else(|p| p.into_inner()); 
         let system = slot.as_mut()?;
         Some(f(system))
-    })
+     }
 }
 
 /// Initialize shatter system
 pub fn init_shatter_system() -> Result<()> {
-    SHATTER_SYSTEM_SLOT.with_borrow_mut(|slot| *slot = Some(ShatterSystem::new()));
+    { let mut slot = SHATTER_SYSTEM_SLOT_TLS_BAG.shatter_system_slot.lock().unwrap_or_else(|p| p.into_inner()); *slot = Some(ShatterSystem::new()) };
     Ok(())
 }
 
 /// Shutdown shatter system
 pub fn shutdown_shatter_system() {
-    SHATTER_SYSTEM_SLOT.with_borrow_mut(|slot| *slot = None);
+    { let mut slot = SHATTER_SYSTEM_SLOT_TLS_BAG.shatter_system_slot.lock().unwrap_or_else(|p| p.into_inner()); *slot = None };
 }
 
 /// Quick shatter function

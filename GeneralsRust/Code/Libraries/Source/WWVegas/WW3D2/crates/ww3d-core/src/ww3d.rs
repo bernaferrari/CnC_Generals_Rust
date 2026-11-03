@@ -92,11 +92,11 @@ pub trait RendererBackend: Any {
 
 type RendererHandle = Rc<RefCell<Box<dyn RendererBackend>>>;
 
+// Rc renderer handle is !Send; keep TLS (C++ plain static on the game thread).
 thread_local! {
-    /// C++ kept the registered renderer in a plain static driven from the game
-    /// thread; the port mirrors that with thread-local ownership.
     static RENDERER_STORAGE: RefCell<Option<RendererHandle>> = const { RefCell::new(None) };
 }
+
 
 /// C++ `WW3D::PrelitModeEnum` (`ww3d.h`). Selects which prelit material
 /// wrapper (`W3D_CHUNK_PRELIT_*`) a mesh load consumes.
@@ -118,9 +118,11 @@ struct WW3DState {
     prelit_mode: PrelitMode,
 }
 
-thread_local! {
-    /// C++ kept these toggles as plain statics on the game thread.
-    static WW3D_STATE: RefCell<WW3DState> = RefCell::new(WW3DState {
+struct Ww3DStateBag {
+    ww3d_state: std::sync::Mutex<WW3DState>,
+}
+static WW3D_STATE_TLS_BAG: std::sync::LazyLock<Ww3DStateBag> = std::sync::LazyLock::new(|| Ww3DStateBag {
+        ww3d_state: std::sync::Mutex::new(WW3DState {
         is_sorting_enabled: true,
         // C++ WW3D defaults this false, then W3DDisplay::init enables it
         // for the whole session. No Device/Main boot hook exists here, so
@@ -130,8 +132,9 @@ thread_local! {
         decal_rejection_distance: 1_000_000.0,
         pending_static_sort: Vec::new(),
         prelit_mode: PrelitMode::LightmapMultiPass,
-    });
-}
+    }),
+});
+
 
 #[derive(Default)]
 struct SyncState {
@@ -178,7 +181,7 @@ impl WW3D {
         }
 
         let (sorting_enabled, static_sort_enabled, decals_enabled, pending_items) =
-            WW3D_STATE.with_borrow_mut(|state| {
+            { let mut state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); 
                 let pending = std::mem::take(&mut state.pending_static_sort);
                 (
                     state.is_sorting_enabled,
@@ -186,7 +189,7 @@ impl WW3D {
                     state.decals_enabled,
                     pending,
                 )
-            });
+             };
 
         let mut restore_pending: Option<Vec<(Arc<dyn Any + Send + Sync>, u32)>> = None;
 
@@ -211,7 +214,7 @@ impl WW3D {
         }
 
         if let Some(pending) = restore_pending {
-            WW3D_STATE.with_borrow_mut(|state| state.pending_static_sort.extend(pending));
+            { let mut state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); state.pending_static_sort.extend(pending) };
         }
 
         true
@@ -271,20 +274,20 @@ impl WW3D {
 
     /// Globally enable or disable render-object sorting.
     pub fn enable_sorting(enable: bool) -> W3DResult<()> {
-        let already = WW3D_STATE.with_borrow_mut(|state| {
+        let already = { let mut state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); 
             if state.is_sorting_enabled == enable {
                 true
             } else {
                 state.is_sorting_enabled = enable;
                 false
             }
-        });
+         };
         if already {
             return Ok(());
         }
 
         if let Some(Err(err)) = WW3D::with_renderer(|backend| backend.set_sorting_enabled(enable)) {
-            WW3D_STATE.with_borrow_mut(|state| state.is_sorting_enabled = !enable);
+            { let mut state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); state.is_sorting_enabled = !enable };
             return Err(err);
         }
         Ok(())
@@ -292,19 +295,19 @@ impl WW3D {
 
     /// Query whether render-object sorting is enabled.
     pub fn is_sorting_enabled() -> bool {
-        WW3D_STATE.with_borrow(|state| state.is_sorting_enabled)
+        { let state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); state.is_sorting_enabled }
     }
 
     /// Enable or disable the static sort lists.
     pub fn set_static_sort_lists_enabled(enable: bool) -> W3DResult<()> {
-        let already = WW3D_STATE.with_borrow_mut(|state| {
+        let already = { let mut state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); 
             if state.static_sort_lists_enabled == enable {
                 true
             } else {
                 state.static_sort_lists_enabled = enable;
                 false
             }
-        });
+         };
         if already {
             return Ok(());
         }
@@ -312,7 +315,7 @@ impl WW3D {
         if let Some(Err(err)) =
             WW3D::with_renderer(|backend| backend.set_static_sort_lists_enabled(enable))
         {
-            WW3D_STATE.with_borrow_mut(|state| state.static_sort_lists_enabled = !enable);
+            { let mut state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); state.static_sort_lists_enabled = !enable };
             return Err(err);
         }
         Ok(())
@@ -320,25 +323,25 @@ impl WW3D {
 
     /// Query whether static sort lists are enabled.
     pub fn are_static_sort_lists_enabled() -> bool {
-        WW3D_STATE.with_borrow(|state| state.static_sort_lists_enabled)
+        { let state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); state.static_sort_lists_enabled }
     }
 
     /// Enable or disable decals globally.
     pub fn set_decals_enabled(enable: bool) -> W3DResult<()> {
-        let already = WW3D_STATE.with_borrow_mut(|state| {
+        let already = { let mut state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); 
             if state.decals_enabled == enable {
                 true
             } else {
                 state.decals_enabled = enable;
                 false
             }
-        });
+         };
         if already {
             return Ok(());
         }
 
         if let Some(Err(err)) = WW3D::with_renderer(|backend| backend.set_decals_enabled(enable)) {
-            WW3D_STATE.with_borrow_mut(|state| state.decals_enabled = !enable);
+            { let mut state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); state.decals_enabled = !enable };
             return Err(err);
         }
         Ok(())
@@ -346,17 +349,17 @@ impl WW3D {
 
     /// Query whether decals are enabled.
     pub fn are_decals_enabled() -> bool {
-        WW3D_STATE.with_borrow(|state| state.decals_enabled)
+        { let state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); state.decals_enabled }
     }
 
     /// Set the global decal rejection distance.
     pub fn set_decal_rejection_distance(distance: f32) {
-        WW3D_STATE.with_borrow_mut(|state| state.decal_rejection_distance = distance.max(0.0));
+        { let mut state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); state.decal_rejection_distance = distance.max(0.0) };
     }
 
     /// Retrieve the decal rejection distance.
     pub fn decal_rejection_distance() -> f32 {
-        WW3D_STATE.with_borrow(|state| state.decal_rejection_distance)
+        { let state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); state.decal_rejection_distance }
     }
 
     /// Queue an object into the static sort list. If the renderer is not yet available the object
@@ -365,7 +368,7 @@ impl WW3D {
     where
         T: Any + Send + Sync + 'static,
     {
-        let rejected = WW3D_STATE.with_borrow(|state| {
+        let rejected = { let state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); 
             if !state.is_sorting_enabled {
                 Some("sorting is currently disabled".to_string())
             } else if !state.static_sort_lists_enabled {
@@ -373,7 +376,7 @@ impl WW3D {
             } else {
                 None
             }
-        });
+         };
         if let Some(reason) = rejected {
             return Err(W3DError::FeatureDisabled(reason));
         }
@@ -386,13 +389,17 @@ impl WW3D {
             match result {
                 Ok(_) => Ok(()),
                 Err(err) => {
-                    WW3D_STATE
-                        .with_borrow_mut(|state| state.pending_static_sort.push((arc_any, sort_level)));
+                    WW3D_STATE_TLS_BAG
+                        .ww3d_state
+                        .lock()
+                        .unwrap_or_else(|err| err.into_inner())
+                        .pending_static_sort
+                        .push((arc_any, sort_level));
                     Err(err)
                 }
             }
         } else {
-            WW3D_STATE.with_borrow_mut(|state| state.pending_static_sort.push((arc_any, sort_level)));
+            { let mut state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); state.pending_static_sort.push((arc_any, sort_level)) };
             Err(W3DError::RendererUnavailable)
         }
     }
@@ -408,12 +415,12 @@ impl WW3D {
 
     /// C++ `WW3D::Set_Prelit_Mode`.
     pub fn set_prelit_mode(mode: PrelitMode) {
-        WW3D_STATE.with_borrow_mut(|state| state.prelit_mode = mode);
+        { let mut state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); state.prelit_mode = mode };
     }
 
     /// C++ `WW3D::Get_Prelit_Mode`. Defaults to lightmap multi-pass.
     pub fn get_prelit_mode() -> PrelitMode {
-        WW3D_STATE.with_borrow(|state| state.prelit_mode)
+        { let state = WW3D_STATE_TLS_BAG.ww3d_state.lock().unwrap_or_else(|p| p.into_inner()); state.prelit_mode }
     }
 }
 

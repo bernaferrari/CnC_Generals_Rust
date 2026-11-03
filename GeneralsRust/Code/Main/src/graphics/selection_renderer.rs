@@ -959,7 +959,12 @@ fn resolve_show_object_health(parsed: Option<bool>, retail_game_data_source_pres
 
 /// Cached probe: 0 unresolved, 1 a GameData INI source resolves on this
 /// install, 2 none resolves.
-static RETAIL_GAME_DATA_PROBE: AtomicU8 = AtomicU8::new(0);
+struct RetailGameDataProbeSlot(AtomicU8);
+impl std::ops::Deref for RetailGameDataProbeSlot {
+    type Target = AtomicU8;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static RETAIL_GAME_DATA_PROBE: RetailGameDataProbeSlot = RetailGameDataProbeSlot(AtomicU8::new(0));
 
 /// Whether any boot GameData INI source (`Data/INI/GameData.ini` or
 /// `Data/INI/Default/GameData.ini`, the `bootstrap_global_data_from_ini`

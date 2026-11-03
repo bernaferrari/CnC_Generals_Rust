@@ -15,9 +15,13 @@ pub struct HostFireIntentEvent {
     pub fire_intent_count: u32,
 }
 
-thread_local! {
-    static LOG: RefCell<Vec<HostFireIntentEvent>> = RefCell::new(Vec::new());
+struct HostFireIntentLogLogBag {
+    value: std::sync::Mutex<Vec<HostFireIntentEvent>>,
 }
+static LOG: std::sync::LazyLock<HostFireIntentLogLogBag> = std::sync::LazyLock::new(|| HostFireIntentLogLogBag {
+    value: std::sync::Mutex::new(Vec::new()),
+});
+
 
 pub fn record(
     object: ObjectId,
@@ -29,8 +33,8 @@ pub fn record(
     last_fire_frame: u32,
     fire_intent_count: u32,
 ) {
-    LOG.with(|log| {
-        log.borrow_mut().push(HostFireIntentEvent {
+    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); 
+        log.push(HostFireIntentEvent {
             object,
             last_fire_victim_host,
             last_fire_slot,
@@ -40,21 +44,21 @@ pub fn record(
             last_fire_frame,
             fire_intent_count,
         });
-    });
+     };
 }
 
 pub fn has_pending(object: ObjectId) -> bool {
-    LOG.with(|log| log.borrow().iter().any(|e| e.object == object))
+    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); log.iter().any(|e| e.object == object) }
 }
 
 pub fn drain() -> Vec<HostFireIntentEvent> {
-    LOG.with(|log| std::mem::take(&mut *log.borrow_mut()))
+    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); std::mem::take(&mut log) }
 }
 
 pub fn len() -> usize {
-    LOG.with(|log| log.borrow().len())
+    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); log.len() }
 }
 
 pub fn clear() {
-    LOG.with(|log| log.borrow_mut().clear());
+    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); log.clear() };
 }

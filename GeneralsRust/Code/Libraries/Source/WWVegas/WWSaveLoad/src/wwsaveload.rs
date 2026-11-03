@@ -242,8 +242,18 @@ impl DefinitionManager {
 }
 
 /// Global definition manager instance
-static THE_DEFINITION_MGR: OnceLock<Mutex<DefinitionManager>> = OnceLock::new();
-static DEFINITION_MGR_LOCK: RwLock<()> = RwLock::new(());
+struct TheDefinitionMgrSlot(OnceLock<Mutex<DefinitionManager>>);
+impl std::ops::Deref for TheDefinitionMgrSlot {
+    type Target = OnceLock<Mutex<DefinitionManager>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static THE_DEFINITION_MGR: TheDefinitionMgrSlot = TheDefinitionMgrSlot(OnceLock::new());
+struct DefinitionMgrLockSlot(RwLock<()>);
+impl std::ops::Deref for DefinitionMgrLockSlot {
+    type Target = RwLock<()>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static DEFINITION_MGR_LOCK: DefinitionMgrLockSlot = DefinitionMgrLockSlot(RwLock::new(()));
 
 /// Get a reference to the global definition manager
 fn get_definition_manager() -> std::sync::MutexGuard<'static, DefinitionManager> {

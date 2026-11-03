@@ -57,7 +57,12 @@ fn shroud_runtime_active(
 #[cfg(test)]
 pub fn shroud_test_isolation_lock() -> &'static std::sync::Mutex<()> {
     use std::sync::{Mutex, OnceLock};
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    struct LockSlot(OnceLock<Mutex<()>>);
+    impl std::ops::Deref for LockSlot {
+        type Target = OnceLock<Mutex<()>>;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static LOCK: LockSlot = LockSlot(OnceLock::new());
     LOCK.get_or_init(|| Mutex::new(()))
 }
 

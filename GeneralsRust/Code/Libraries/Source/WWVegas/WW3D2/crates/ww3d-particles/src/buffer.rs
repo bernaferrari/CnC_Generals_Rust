@@ -149,11 +149,14 @@ const PERMUTATION_ARRAY: [u32; 16] = [11, 3, 7, 14, 0, 13, 1, 2, 5, 12, 15, 6, 9
 const NO_MAX_SCREEN_SIZE: f32 = f32::MAX;
 
 // LOD max screen sizes for 17 possible LOD levels
-thread_local! {
-    /// C++ kept the LOD screen-size table as a plain static array on the game thread.
-    static LOD_MAX_SCREEN_SIZES: std::cell::Cell<[f32; 17]> =
-        const { std::cell::Cell::new([NO_MAX_SCREEN_SIZE; 17]) };
+struct LodMaxScreenSizesBag {
+    lod_max_screen_sizes: std::sync::Mutex<[f32; 17]>,
 }
+static LOD_MAX_SCREEN_SIZES_TLS_BAG: std::sync::LazyLock<LodMaxScreenSizesBag> =
+    std::sync::LazyLock::new(|| LodMaxScreenSizesBag {
+        lod_max_screen_sizes: std::sync::Mutex::new([NO_MAX_SCREEN_SIZE; 17]),
+    });
+
 
 // Predictive LOD value markers
 const AT_MIN_LOD: f32 = -1.0;
@@ -1073,7 +1076,7 @@ impl ParticleBuffer {
         // Calculate value heuristic
         let mut lod = 0;
         {
-            let lod_sizes = LOD_MAX_SCREEN_SIZES.with(std::cell::Cell::get);
+            let lod_sizes = LOD_MAX_SCREEN_SIZES_TLS_BAG.lod_max_screen_sizes.lock().unwrap_or_else(|p| p.into_inner()).clone();
             // Find first LOD where MaxScreenSize >= screen_area
             while lod < self.lod_count && lod_sizes[lod] < screen_area {
                 self.value[lod] = AT_MIN_LOD;
@@ -1158,7 +1161,7 @@ impl ParticleBuffer {
     /// Set global LOD max screen size for a specific level
     pub fn set_lod_max_screen_size(lod_level: usize, max_screen_size: f32) {
         if lod_level < 17 {
-            let mut sizes = LOD_MAX_SCREEN_SIZES.with(std::cell::Cell::get);
+            let mut sizes = LOD_MAX_SCREEN_SIZES_TLS_BAG.lod_max_screen_sizes.lock().unwrap_or_else(|p| p.into_inner()).clone();
             sizes[lod_level] = max_screen_size;
         }
     }
@@ -1166,7 +1169,7 @@ impl ParticleBuffer {
     /// Get global LOD max screen size for a specific level
     pub fn get_lod_max_screen_size(lod_level: usize) -> f32 {
         if lod_level < 17 {
-            LOD_MAX_SCREEN_SIZES.with(std::cell::Cell::get)[lod_level]
+            LOD_MAX_SCREEN_SIZES_TLS_BAG.lod_max_screen_sizes.lock().unwrap_or_else(|p| p.into_inner()).clone()[lod_level]
         } else {
             NO_MAX_SCREEN_SIZE
         }

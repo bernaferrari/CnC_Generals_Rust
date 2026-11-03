@@ -259,10 +259,15 @@ impl Version {
 }
 
 /// Global version instance stored in a thread-safe container.
-static VERSION_INSTANCE: OnceLock<RwLock<Version>> = OnceLock::new();
+struct VersionInstanceSlot(OnceLock<RwLock<Version>>);
+impl std::ops::Deref for VersionInstanceSlot {
+    type Target = OnceLock<RwLock<Version>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static VERSION_INSTANCE: VersionInstanceSlot = VersionInstanceSlot(OnceLock::new());
 
 fn version_lock() -> &'static RwLock<Version> {
-    VERSION_INSTANCE.get_or_init(|| RwLock::new(Version::new()))
+    VERSION_INSTANCE.0.get_or_init(|| RwLock::new(Version::new()))
 }
 
 /// Initialize the global version instance with default values.
@@ -307,7 +312,7 @@ pub fn get_version_mut() -> RwLockWriteGuard<'static, Version> {
 
 /// Check if version is initialized.
 pub fn is_version_initialized() -> bool {
-    VERSION_INSTANCE.get().is_some()
+    VERSION_INSTANCE.0.get().is_some()
 }
 
 #[cfg(test)]

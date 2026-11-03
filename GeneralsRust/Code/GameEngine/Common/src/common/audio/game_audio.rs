@@ -246,35 +246,37 @@ where
 // one. Each failing event name logs once per session (rate limit) instead of
 // once per frame.
 //
-// THREAD: plain static in C++, touched only from the single GameLogic/client
-// thread, so this is a thread-local RefCell instead of a Mutex.
-thread_local! {
-    static PLAY_FAILURE_REPORTS: RefCell<HashMap<AsciiString, AsciiString>> =
-        RefCell::new(HashMap::new());
+struct PlayFailureReports {
+    reports: std::sync::Mutex<HashMap<AsciiString, AsciiString>>,
 }
+
+static PLAY_FAILURE_REPORTS: LazyLock<PlayFailureReports> = LazyLock::new(|| PlayFailureReports {
+    reports: std::sync::Mutex::new(HashMap::new()),
+});
 
 /// Report a TheAudio play failure for `event_name`, rate-limited to one
 /// `warn!` per event name per session. Returns true when this call logged.
 fn report_play_failure_once(event_name: &str, reason: &str) -> Bool {
-    PLAY_FAILURE_REPORTS.with(|reports| {
-        let mut reports = reports.borrow_mut();
-        if reports.contains_key(event_name) {
-            return false;
-        }
-        reports.insert(event_name.to_string(), reason.to_string());
-        log::warn!("TheAudio play failed {event_name}: {reason}");
-        true
-    })
+    let mut reports = PLAY_FAILURE_REPORTS
+        .reports
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if reports.contains_key(event_name) {
+        return false;
+    }
+    reports.insert(event_name.to_string(), reason.to_string());
+    log::warn!("TheAudio play failed {event_name}: {reason}");
+    true
 }
 
 #[cfg(test)]
 fn reset_play_failure_reports_for_tests() {
-    PLAY_FAILURE_REPORTS.with(|reports| reports.borrow_mut().clear());
+    PLAY_FAILURE_REPORTS.reports.lock().unwrap_or_else(|p| p.into_inner()).clear();
 }
 
 #[cfg(test)]
 fn play_failure_report_reason_for_tests(event_name: &str) -> Option<AsciiString> {
-    PLAY_FAILURE_REPORTS.with(|reports| reports.borrow().get(event_name).cloned())
+    PLAY_FAILURE_REPORTS.reports.lock().unwrap_or_else(|p| p.into_inner()).get(event_name).cloned()
 }
 
 fn with_audio_locality_resolver<F, R>(f: F) -> Option<R>
@@ -1181,15 +1183,16 @@ impl AudioManager {
             return 0.0;
         }
 
-        // THREAD: plain function-local static in C++, read/written only from
-        // the single GameLogic/client thread; RefCell instead of Mutex.
-        thread_local! {
-            static FILE_LENGTH_CACHE: RefCell<HashMap<AsciiString, Real>> =
-                RefCell::new(HashMap::new());
-        }
+        struct FileLengthCache(std::sync::Mutex<HashMap<AsciiString, Real>>);
+        static FILE_LENGTH_CACHE: LazyLock<FileLengthCache> =
+            LazyLock::new(|| FileLengthCache(std::sync::Mutex::new(HashMap::new())));
 
-        if let Some(length) =
-            FILE_LENGTH_CACHE.with(|cache| cache.borrow().get(normalized).copied())
+        if let Some(length) = FILE_LENGTH_CACHE
+            .0
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(normalized)
+            .copied()
         {
             return length;
         }
@@ -1198,9 +1201,11 @@ impl AudioManager {
             .and_then(|bytes| Self::duration_ms_from_audio_data(&bytes))
             .unwrap_or(0.0);
 
-        FILE_LENGTH_CACHE.with(|cache| {
-            cache.borrow_mut().insert(normalized.to_string(), length);
-        });
+        FILE_LENGTH_CACHE
+            .0
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(normalized.to_string(), length);
 
         length
     }
@@ -3259,21 +3264,22 @@ impl Default for AudioManager {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+struct RodioStreamState {
+    state: std::sync::Mutex<Option<(OutputStream, OutputStreamHandle)>>,
+}
+
 fn get_rodio_stream_handle() -> Option<OutputStreamHandle> {
-    thread_local! {
-        static STATE: RefCell<Option<(OutputStream, OutputStreamHandle)>> = const { RefCell::new(None) };
-    }
+    static STATE: LazyLock<RodioStreamState> = LazyLock::new(|| RodioStreamState {
+        state: std::sync::Mutex::new(None),
+    });
 
-    STATE.with(|state| {
-        let mut state = state.borrow_mut();
-        if state.is_none() {
-            if let Ok((stream, handle)) = OutputStream::try_default() {
-                *state = Some((stream, handle));
-            }
+    let mut state = STATE.state.lock().unwrap_or_else(|p| p.into_inner());
+    if state.is_none() {
+        if let Ok((stream, handle)) = OutputStream::try_default() {
+            *state = Some((stream, handle));
         }
-
-        state.as_ref().map(|(_, handle)| handle.clone())
-    })
+    }
+    state.as_ref().map(|(_, handle)| handle.clone())
 }
 static LIVE_AUDIO_FILE_CACHE: LazyLock<AudioFileCache> =
     LazyLock::new(|| AudioFileCache::new(16 * 1024 * 1024));
@@ -3840,7 +3846,12 @@ const AHSV_FIRST_HANDLE: AudioHandle = 1000;
 // THREAD: kept locked - the public handle handed out by
 // `get_global_audio_manager`/`initialize_global_audio_manager` (dozens of
 // callers across GameLogic/GameClient/Main) and reached from the hook paths.
-static THE_AUDIO: OnceLock<Arc<Mutex<AudioManager>>> = OnceLock::new();
+struct TheAudioSlot(OnceLock<Arc<Mutex<AudioManager>>>);
+impl std::ops::Deref for TheAudioSlot {
+    type Target = OnceLock<Arc<Mutex<AudioManager>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static THE_AUDIO: TheAudioSlot = TheAudioSlot(OnceLock::new());
 
 struct AnimatedSoundBridge {
     audio: Arc<Mutex<AudioManager>>,
@@ -3967,7 +3978,7 @@ pub fn register_animation_sound_library(manager: Arc<Mutex<AudioManager>>) {
 
 /// Initialize the global audio manager singleton.
 pub fn initialize_global_audio_manager() -> Arc<Mutex<AudioManager>> {
-    if let Some(existing) = THE_AUDIO.get() {
+    if let Some(existing) = THE_AUDIO.0.get() {
         return existing.clone();
     }
 
@@ -3976,8 +3987,8 @@ pub fn initialize_global_audio_manager() -> Arc<Mutex<AudioManager>> {
     // `new()` leaves effective music/sound/speech volumes at 0 until init.
     created.init();
     let manager = Arc::new(Mutex::new(created));
-    if THE_AUDIO.set(manager.clone()).is_err() {
-        THE_AUDIO.get().expect("THE_AUDIO set but missing").clone()
+    if THE_AUDIO.0.set(manager.clone()).is_err() {
+        THE_AUDIO.0.get().expect("THE_AUDIO set but missing").clone()
     } else {
         #[cfg(not(target_arch = "wasm32"))]
         register_rodio_playback_hook();
@@ -3992,7 +4003,7 @@ pub fn initialize_global_audio_manager() -> Arc<Mutex<AudioManager>> {
 
 /// Access the global audio manager if it has been initialised.
 pub fn get_global_audio_manager() -> Option<Arc<Mutex<AudioManager>>> {
-    THE_AUDIO.get().cloned()
+    THE_AUDIO.0.get().cloned()
 }
 
 /// C++ `AudioManager::init` (GameAudio.cpp:186-202) loads AudioSettings.ini,

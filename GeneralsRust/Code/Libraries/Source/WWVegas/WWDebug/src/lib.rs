@@ -549,7 +549,12 @@ pub use high_level::ProfileId as HighLevelId;
 
 #[cfg(test)]
 pub(crate) fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    struct LockSlot(std::sync::OnceLock<std::sync::Mutex<()>>);
+    impl std::ops::Deref for LockSlot {
+        type Target = std::sync::OnceLock<std::sync::Mutex<()>>;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static LOCK: LockSlot = LockSlot(std::sync::OnceLock::new());
     LOCK.get_or_init(|| std::sync::Mutex::new(()))
         .lock()
         .expect("profile test lock")

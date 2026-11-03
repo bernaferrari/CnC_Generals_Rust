@@ -36,8 +36,12 @@ pub struct ShdDefManager {
 }
 
 /// Global shader definition manager instance
-static GLOBAL_MANAGER: Lazy<RwLock<ShdDefManager>> =
-    Lazy::new(|| RwLock::new(ShdDefManager::new()));
+struct GlobalManagerSlot(Lazy<RwLock<ShdDefManager>>);
+impl std::ops::Deref for GlobalManagerSlot {
+    type Target = Lazy<RwLock<ShdDefManager>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static GLOBAL_MANAGER: GlobalManagerSlot = GlobalManagerSlot(Lazy::new(|| RwLock::new(ShdDefManager::new())));
 
 impl ShdDefManager {
     /// Create a new shader definition manager
@@ -410,7 +414,12 @@ mod tests {
     }
 
     fn setup_test() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        struct LockSlot(std::sync::OnceLock<std::sync::Mutex<()>>);
+        impl std::ops::Deref for LockSlot {
+            type Target = std::sync::OnceLock<std::sync::Mutex<()>>;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static LOCK: LockSlot = LockSlot(std::sync::OnceLock::new());
         let guard = LOCK
             .get_or_init(|| std::sync::Mutex::new(()))
             .lock()

@@ -248,7 +248,7 @@ fn demo_global_registry() {
     // Create and register pools (registry is a thread-local, like the C++
     // plain statics it ports)
     let unit_pool = ObjectPool::<Unit>::new(PoolConfig::for_game_objects("Units")).unwrap();
-    POOL_REGISTRY.with(|registry| registry.register("Units".to_string(), unit_pool.clone()));
+    POOL_REGISTRY.register("Units".to_string(), unit_pool.clone());
 
     println!("✓ Registered 'Units' pool");
 
@@ -257,11 +257,11 @@ fn demo_global_registry() {
 
     // Retrieve from registry
     let _retrieved_pool =
-        POOL_REGISTRY.with(|registry| registry.get::<Unit>("Units")).unwrap();
+        POOL_REGISTRY.get::<Unit>("Units").unwrap();
     println!("  Retrieved pool from registry ✓");
 
     // Get global stats
-    let global_stats = POOL_REGISTRY.with(|registry| registry.memory_stats());
+    let global_stats = POOL_REGISTRY.memory_stats();
     println!("  Total pools:       {}", global_stats.total_pools);
     println!("  Total allocations: {}", global_stats.total_allocations);
 

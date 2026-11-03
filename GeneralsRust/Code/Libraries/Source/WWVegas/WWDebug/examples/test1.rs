@@ -10,7 +10,12 @@ use profile::{Profile, ProfileHighLevel};
 use std::sync::atomic::{AtomicI32, Ordering};
 
 // Global counter equivalent to C++ 'int q'
-static Q: AtomicI32 = AtomicI32::new(0);
+struct QSlot(AtomicI32);
+impl std::ops::Deref for QSlot {
+    type Target = AtomicI32;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static Q: QSlot = QSlot(AtomicI32::new(0));
 
 fn calc_this() {
     Q.fetch_add(1, Ordering::Relaxed);

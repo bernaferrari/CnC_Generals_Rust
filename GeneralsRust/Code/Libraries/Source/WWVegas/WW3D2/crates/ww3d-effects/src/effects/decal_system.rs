@@ -989,7 +989,12 @@ impl DecalMesh for SkinDecalMesh {
 
 /// Global decal ID generator
 /// C++ Reference: decalsys.cpp line 9, decalsys.h line 84
-static DECAL_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
+struct DecalIdCounterSlot(AtomicU32);
+impl std::ops::Deref for DecalIdCounterSlot {
+    type Target = AtomicU32;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static DECAL_ID_COUNTER: DecalIdCounterSlot = DecalIdCounterSlot(AtomicU32::new(0));
 
 /// DecalSystem - main system for managing decals globally
 /// C++ Reference: decalsys.h lines 47-85 (DecalSystemClass)
@@ -1025,14 +1030,17 @@ impl Default for DecalSystem {
     }
 }
 
-thread_local! {
-    /// C++ kept the decal system as a plain file static on the game thread.
-    static DECAL_SYSTEM: RefCell<DecalSystem> = RefCell::new(DecalSystem::new());
+struct DecalSystemBag {
+    decal_system: std::sync::Mutex<DecalSystem>,
 }
+static DECAL_SYSTEM_TLS_BAG: std::sync::LazyLock<DecalSystemBag> = std::sync::LazyLock::new(|| DecalSystemBag {
+        decal_system: std::sync::Mutex::new(DecalSystem::new()),
+});
+
 
 /// Run `f` with mutable access to the global decal system.
 pub fn with_decal_system<R>(f: impl FnOnce(&mut DecalSystem) -> R) -> R {
-    DECAL_SYSTEM.with(|system| f(&mut system.borrow_mut()))
+    { let mut system = DECAL_SYSTEM_TLS_BAG.decal_system.lock().unwrap_or_else(|p| p.into_inner()); f(&mut system) }
 }
 
 pub fn init_decal_system() {

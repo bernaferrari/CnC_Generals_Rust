@@ -821,7 +821,12 @@ mod tests {
         post_load_registered: bool,
     }
 
-    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+    struct NextIdSlot(AtomicU64);
+    impl std::ops::Deref for NextIdSlot {
+        type Target = AtomicU64;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static NEXT_ID: NextIdSlot = NextIdSlot(AtomicU64::new(1));
 
     impl TestObject {
         fn new(data: u32) -> Self {

@@ -15,11 +15,15 @@ struct ClassRecord {
     type_id: Option<TypeId>,
 }
 
-thread_local! {
-    /// C++ kept the class registry in plain globals driven from the game thread.
-    static REGISTRY_BY_ID: RefCell<HashMap<u32, ClassRecord>> = RefCell::new(HashMap::new());
-    static REGISTRY_BY_TYPE: RefCell<HashMap<TypeId, u32>> = RefCell::new(HashMap::new());
+struct RegistryByIdBag {
+    registry_by_id: std::sync::Mutex<HashMap<u32, ClassRecord>>,
+    registry_by_type: std::sync::Mutex<HashMap<TypeId, u32>>,
 }
+static REGISTRY_BY_ID_TLS_BAG: std::sync::LazyLock<RegistryByIdBag> = std::sync::LazyLock::new(|| RegistryByIdBag {
+        registry_by_id: std::sync::Mutex::new(HashMap::new()),
+        registry_by_type: std::sync::Mutex::new(HashMap::new()),
+});
+
 
 const CLASSID_NAME_TABLE: &[(u32, &str)] = &[
     (ClassID::IndirectTextureClass as u32, "IndirectTextureClass"),
@@ -160,20 +164,21 @@ pub fn register_class<T: 'static>(id: u32, name: &'static str) -> Result<(), Cla
     register_class_name(id, name)?;
 
     let type_id = TypeId::of::<T>();
-    let duplicated = REGISTRY_BY_TYPE.with(|by_type| {
-        let mut by_type = by_type.borrow_mut();
+    let duplicated = { let mut by_type = REGISTRY_BY_ID_TLS_BAG.registry_by_type.lock().unwrap_or_else(|p| p.into_inner()); 
+        let mut by_type = by_type;
         if let Some(existing_id) = by_type.get(&type_id) {
-            let existing = REGISTRY_BY_ID.with_borrow(|by_id| {
+            let existing = { let by_id = REGISTRY_BY_ID_TLS_BAG.registry_by_id.lock().unwrap_or_else(|p| p.into_inner()); 
                 let record = by_id
                     .get(existing_id)
                     .expect("type map and id map out of sync");
                 (record.id, record.name)
-            });
-            return Some(existing);
+             };
+            Some(existing)
+        } else {
+            by_type.insert(type_id, id);
+            None
         }
-        by_type.insert(type_id, id);
-        None
-    });
+     };
 
     if let Some((existing_id, existing_name)) = duplicated {
         return Err(ClassRegistryError::TypeAlreadyRegistered {
@@ -182,17 +187,17 @@ pub fn register_class<T: 'static>(id: u32, name: &'static str) -> Result<(), Cla
         });
     }
 
-    REGISTRY_BY_ID.with_borrow_mut(|by_id| {
+    { let mut by_id = REGISTRY_BY_ID_TLS_BAG.registry_by_id.lock().unwrap_or_else(|p| p.into_inner()); 
         if let Some(record) = by_id.get_mut(&id) {
             record.type_id = Some(type_id);
         }
-    });
+     };
     Ok(())
 }
 
 /// Registers a class identifier without binding it to a Rust type.
 pub fn register_class_name(id: u32, name: &'static str) -> Result<(), ClassRegistryError> {
-    REGISTRY_BY_ID.with_borrow_mut(|by_id| {
+    { let mut by_id = REGISTRY_BY_ID_TLS_BAG.registry_by_id.lock().unwrap_or_else(|p| p.into_inner()); 
         if let Some(existing) = by_id.get(&id) {
             if existing.name == name {
                 return Ok(());
@@ -211,7 +216,7 @@ pub fn register_class_name(id: u32, name: &'static str) -> Result<(), ClassRegis
             },
         );
         Ok(())
-    })
+     }
 }
 
 /// Registers all builtin WW3D class names so lookups succeed even before Rust
@@ -227,29 +232,29 @@ pub fn register_builtin_class_names() {
 
 /// Looks up the human-readable name for a class identifier.
 pub fn class_name_from_id(id: u32) -> Option<&'static str> {
-    REGISTRY_BY_ID.with_borrow(|map| map.get(&id).map(|record| record.name))
+    { let map = REGISTRY_BY_ID_TLS_BAG.registry_by_id.lock().unwrap_or_else(|p| p.into_inner()); map.get(&id).map(|record| record.name) }
 }
 
 /// Returns the class identifier that was registered for the supplied type.
 pub fn class_id_for_type<T: 'static>() -> Option<u32> {
     let type_id = TypeId::of::<T>();
-    REGISTRY_BY_TYPE.with_borrow(|map| map.get(&type_id).copied())
+    { let map = REGISTRY_BY_ID_TLS_BAG.registry_by_type.lock().unwrap_or_else(|p| p.into_inner()); map.get(&type_id).copied() }
 }
 
 /// Returns the `TypeId` associated with a class identifier, if one is known.
 pub fn type_id_from_class(id: u32) -> Option<TypeId> {
-    REGISTRY_BY_ID.with_borrow(|map| map.get(&id).and_then(|record| record.type_id))
+    { let map = REGISTRY_BY_ID_TLS_BAG.registry_by_id.lock().unwrap_or_else(|p| p.into_inner()); map.get(&id).and_then(|record| record.type_id) }
 }
 
 /// Convenience helper to check whether a class identifier has been registered.
 pub fn is_class_registered(id: u32) -> bool {
-    REGISTRY_BY_ID.with_borrow(|map| map.contains_key(&id))
+    { let map = REGISTRY_BY_ID_TLS_BAG.registry_by_id.lock().unwrap_or_else(|p| p.into_inner()); map.contains_key(&id) }
 }
 
 #[cfg(test)]
 pub(crate) fn clear_registry_for_test() {
-    REGISTRY_BY_ID.with_borrow_mut(|map| map.clear());
-    REGISTRY_BY_TYPE.with_borrow_mut(|map| map.clear());
+    { let mut map = REGISTRY_BY_ID_TLS_BAG.registry_by_id.lock().unwrap_or_else(|p| p.into_inner()); map.clear() };
+    { let mut map = REGISTRY_BY_ID_TLS_BAG.registry_by_type.lock().unwrap_or_else(|p| p.into_inner()); map.clear() };
 }
 
 #[cfg(test)]

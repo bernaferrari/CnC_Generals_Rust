@@ -2,10 +2,13 @@
 
 use std::cell::Cell;
 
-thread_local! {
-    /// Recursion depth of the Miles-style lock held on this thread.
-    static MSS_LOCK_DEPTH: Cell<u32> = const { Cell::new(0) };
+struct MssLockDepthBag {
+    mss_lock_depth: std::sync::Mutex<u32>,
 }
+static MSS_LOCK_DEPTH_TLS_BAG: std::sync::LazyLock<MssLockDepthBag> = std::sync::LazyLock::new(|| MssLockDepthBag {
+        mss_lock_depth: std::sync::Mutex::new(0),
+});
+
 
 /// RAII lock matching MMSLockClass behavior.
 ///
@@ -24,7 +27,7 @@ struct MMSLockGuard;
 
 impl MMSLockClass {
     pub fn new() -> Self {
-        MSS_LOCK_DEPTH.with(|depth| depth.set(depth.get() + 1));
+        { let mut depth = MSS_LOCK_DEPTH_TLS_BAG.mss_lock_depth.lock().unwrap_or_else(|p| p.into_inner()); *depth = depth.clone( + 1) };
         Self {
             _guard: MMSLockGuard,
         }
@@ -39,7 +42,7 @@ impl Default for MMSLockClass {
 
 impl Drop for MMSLockClass {
     fn drop(&mut self) {
-        MSS_LOCK_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+        { let mut depth = MSS_LOCK_DEPTH_TLS_BAG.mss_lock_depth.lock().unwrap_or_else(|p| p.into_inner()); *depth = depth.clone(.saturating_sub(1)) };
     }
 }
 

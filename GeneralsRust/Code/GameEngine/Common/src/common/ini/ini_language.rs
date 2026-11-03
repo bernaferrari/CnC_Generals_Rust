@@ -235,27 +235,32 @@ impl GlobalLanguage {
 // Global Language Instance Management
 // ============================================================================
 
-static GLOBAL_LANGUAGE: OnceCell<Arc<RwLock<GlobalLanguage>>> = OnceCell::new();
+struct GlobalLanguageSlot(OnceCell<Arc<RwLock<GlobalLanguage>>>);
+impl std::ops::Deref for GlobalLanguageSlot {
+    type Target = OnceCell<Arc<RwLock<GlobalLanguage>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static GLOBAL_LANGUAGE: GlobalLanguageSlot = GlobalLanguageSlot(OnceCell::new());
 
 /// Initialize the global language settings
 pub fn init_global_language() {
-    let _ = GLOBAL_LANGUAGE.get_or_init(|| Arc::new(RwLock::new(GlobalLanguage::new())));
+    let _ = GLOBAL_LANGUAGE.0.get_or_init(|| Arc::new(RwLock::new(GlobalLanguage::new())));
 }
 
 /// Get a read reference to the global language settings
 pub fn get_global_language() -> Option<Arc<RwLock<GlobalLanguage>>> {
-    GLOBAL_LANGUAGE.get().cloned()
+    GLOBAL_LANGUAGE.0.get().cloned()
 }
 
 /// Get a read guard to the global language settings
 pub fn get_global_language_read() -> Option<parking_lot::RwLockReadGuard<'static, GlobalLanguage>> {
-    GLOBAL_LANGUAGE.get().map(|g| g.read())
+    GLOBAL_LANGUAGE.0.get().map(|g| g.read())
 }
 
 /// Get a write guard to the global language settings
 pub fn get_global_language_write() -> Option<parking_lot::RwLockWriteGuard<'static, GlobalLanguage>>
 {
-    GLOBAL_LANGUAGE.get().map(|g| g.write())
+    GLOBAL_LANGUAGE.0.get().map(|g| g.write())
 }
 
 // ============================================================================

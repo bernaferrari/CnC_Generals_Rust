@@ -2434,7 +2434,12 @@ impl AssetSearchResults {
 /// Global asset manager instance
 // THREAD: process-wide asset owner; handed out as `Arc<Mutex<_>>` to the
 // render, audio and GUI callers that each hold it for one call.
-static ASSET_MANAGER: OnceLock<Arc<Mutex<AssetManager>>> = OnceLock::new();
+struct AssetManagerSlot(OnceLock<Arc<Mutex<AssetManager>>>);
+impl std::ops::Deref for AssetManagerSlot {
+    type Target = OnceLock<Arc<Mutex<AssetManager>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static ASSET_MANAGER: AssetManagerSlot = AssetManagerSlot(OnceLock::new());
 
 /// Initialize the global asset manager
 pub async fn init_asset_manager(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {

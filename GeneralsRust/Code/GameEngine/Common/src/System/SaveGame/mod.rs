@@ -22,7 +22,12 @@ pub use campaign_xfer::{
 };
 pub use game_state_map::{GameStateMap, PORTABLE_MAPS, PORTABLE_SAVE, PORTABLE_USER_MAPS};
 
-static THE_GAME_STATE: OnceLock<Mutex<GameState>> = OnceLock::new();
+struct TheGameStateSlot(OnceLock<Mutex<GameState>>);
+impl std::ops::Deref for TheGameStateSlot {
+    type Target = OnceLock<Mutex<GameState>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static THE_GAME_STATE: TheGameStateSlot = TheGameStateSlot(OnceLock::new());
 type ObjectIdCounterGetter = Arc<dyn Fn() -> ObjectID + Send + Sync>;
 type ObjectIdCounterSetter = Arc<dyn Fn(ObjectID) + Send + Sync>;
 type DrawableIdCounterGetter = Arc<dyn Fn() -> DrawableID + Send + Sync>;
@@ -50,7 +55,12 @@ struct RuntimeIdCounterHooks {
     drawable_setter: Option<DrawableIdCounterSetter>,
 }
 
-static RUNTIME_ID_COUNTER_HOOKS: OnceLock<Mutex<RuntimeIdCounterHooks>> = OnceLock::new();
+struct RuntimeIdCounterHooksSlot(OnceLock<Mutex<RuntimeIdCounterHooks>>);
+impl std::ops::Deref for RuntimeIdCounterHooksSlot {
+    type Target = OnceLock<Mutex<RuntimeIdCounterHooks>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static RUNTIME_ID_COUNTER_HOOKS: RuntimeIdCounterHooksSlot = RuntimeIdCounterHooksSlot(OnceLock::new());
 
 #[derive(Default)]
 struct SaveLoadLifecycleHooks {
@@ -69,14 +79,19 @@ struct SaveLoadLifecycleHooks {
     get_campaign_snapshot: Option<CampaignSnapshotHook>,
 }
 
-static SAVE_LOAD_LIFECYCLE_HOOKS: OnceLock<Mutex<SaveLoadLifecycleHooks>> = OnceLock::new();
+struct SaveLoadLifecycleHooksSlot(OnceLock<Mutex<SaveLoadLifecycleHooks>>);
+impl std::ops::Deref for SaveLoadLifecycleHooksSlot {
+    type Target = OnceLock<Mutex<SaveLoadLifecycleHooks>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static SAVE_LOAD_LIFECYCLE_HOOKS: SaveLoadLifecycleHooksSlot = SaveLoadLifecycleHooksSlot(OnceLock::new());
 
 fn id_counter_hooks() -> &'static Mutex<RuntimeIdCounterHooks> {
-    RUNTIME_ID_COUNTER_HOOKS.get_or_init(|| Mutex::new(RuntimeIdCounterHooks::default()))
+    RUNTIME_ID_COUNTER_HOOKS.0.get_or_init(|| Mutex::new(RuntimeIdCounterHooks::default()))
 }
 
 fn save_load_hooks() -> &'static Mutex<SaveLoadLifecycleHooks> {
-    SAVE_LOAD_LIFECYCLE_HOOKS.get_or_init(|| Mutex::new(SaveLoadLifecycleHooks::default()))
+    SAVE_LOAD_LIFECYCLE_HOOKS.0.get_or_init(|| Mutex::new(SaveLoadLifecycleHooks::default()))
 }
 
 fn default_save_directory() -> PathBuf {
@@ -96,7 +111,7 @@ fn default_save_directory() -> PathBuf {
 }
 
 pub fn get_game_state() -> std::sync::MutexGuard<'static, GameState> {
-    let lock = THE_GAME_STATE.get_or_init(|| {
+    let lock = THE_GAME_STATE.0.get_or_init(|| {
         let mut state = GameState::new(default_save_directory());
         state.init();
         Mutex::new(state)
@@ -105,7 +120,7 @@ pub fn get_game_state() -> std::sync::MutexGuard<'static, GameState> {
 }
 
 pub fn init_game_state(save_directory: PathBuf) {
-    let lock = THE_GAME_STATE.get_or_init(|| Mutex::new(GameState::new(save_directory.clone())));
+    let lock = THE_GAME_STATE.0.get_or_init(|| Mutex::new(GameState::new(save_directory.clone())));
     let mut state = lock.lock().expect("TheGameState mutex poisoned");
     state.reset_for_init(save_directory);
     state.init();

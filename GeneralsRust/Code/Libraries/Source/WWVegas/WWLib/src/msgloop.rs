@@ -39,13 +39,28 @@ impl PartialEq for AcceleratorTracker {
 }
 
 #[cfg(target_os = "windows")]
-static MODELESS_DIALOGS: OnceLock<Mutex<DynamicVectorClass<HWND>>> = OnceLock::new();
+struct ModelessDialogsSlot(OnceLock<Mutex<DynamicVectorClass<HWND>>>);
+impl std::ops::Deref for ModelessDialogsSlot {
+    type Target = OnceLock<Mutex<DynamicVectorClass<HWND>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static MODELESS_DIALOGS: ModelessDialogsSlot = ModelessDialogsSlot(OnceLock::new());
 
 #[cfg(target_os = "windows")]
-static ACCELERATORS: OnceLock<Mutex<DynamicVectorClass<AcceleratorTracker>>> = OnceLock::new();
+struct AcceleratorsSlot(OnceLock<Mutex<DynamicVectorClass<AcceleratorTracker>>>);
+impl std::ops::Deref for AcceleratorsSlot {
+    type Target = OnceLock<Mutex<DynamicVectorClass<AcceleratorTracker>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static ACCELERATORS: AcceleratorsSlot = AcceleratorsSlot(OnceLock::new());
 
 #[cfg(target_os = "windows")]
-pub static MESSAGE_INTERCEPT_HANDLER: Mutex<Option<fn(&mut MSG) -> bool>> = Mutex::new(None);
+struct MessageInterceptHandlerSlot(Mutex<Option<fn(&mut MSG) -> bool>>);
+impl std::ops::Deref for MessageInterceptHandlerSlot {
+    type Target = Mutex<Option<fn(&mut MSG) -> bool>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static MESSAGE_INTERCEPT_HANDLER: MessageInterceptHandlerSlot = MessageInterceptHandlerSlot(Mutex::new(None));
 
 #[cfg(target_os = "windows")]
 fn modeless_dialogs() -> std::sync::MutexGuard<'static, DynamicVectorClass<HWND>> {

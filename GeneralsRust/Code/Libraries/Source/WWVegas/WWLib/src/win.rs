@@ -7,13 +7,28 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use windows::Win32::Foundation::{GetLastError, HINSTANCE, HWND};
 
 #[cfg(target_os = "windows")]
-pub static PROGRAM_INSTANCE: AtomicIsize = AtomicIsize::new(0);
+struct ProgramInstanceSlot(AtomicIsize);
+impl std::ops::Deref for ProgramInstanceSlot {
+    type Target = AtomicIsize;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static PROGRAM_INSTANCE: ProgramInstanceSlot = ProgramInstanceSlot(AtomicIsize::new(0));
 
 #[cfg(target_os = "windows")]
-pub static MAIN_WINDOW: AtomicIsize = AtomicIsize::new(0);
+struct MainWindowSlot(AtomicIsize);
+impl std::ops::Deref for MainWindowSlot {
+    type Target = AtomicIsize;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static MAIN_WINDOW: MainWindowSlot = MainWindowSlot(AtomicIsize::new(0));
 
 #[cfg(target_os = "windows")]
-pub static GAME_IN_FOCUS: AtomicBool = AtomicBool::new(false);
+struct GameInFocusSlot(AtomicBool);
+impl std::ops::Deref for GameInFocusSlot {
+    type Target = AtomicBool;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static GAME_IN_FOCUS: GameInFocusSlot = GameInFocusSlot(AtomicBool::new(false));
 
 #[cfg(target_os = "windows")]
 pub fn set_game_in_focus(value: bool) {

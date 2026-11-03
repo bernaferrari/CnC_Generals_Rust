@@ -1794,7 +1794,12 @@ impl Default for ControlBarSchemeManager {
 }
 
 /// Global control bar scheme manager instance (thread-safe)
-static CONTROL_BAR_SCHEME_MANAGER: OnceCell<Arc<RwLock<ControlBarSchemeManager>>> = OnceCell::new();
+struct ControlBarSchemeManagerSlot(OnceCell<Arc<RwLock<ControlBarSchemeManager>>>);
+impl std::ops::Deref for ControlBarSchemeManagerSlot {
+    type Target = OnceCell<Arc<RwLock<ControlBarSchemeManager>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static CONTROL_BAR_SCHEME_MANAGER: ControlBarSchemeManagerSlot = ControlBarSchemeManagerSlot(OnceCell::new());
 
 /// Ensure the control bar scheme manager exists and return a handle to it
 pub fn ensure_control_bar_scheme_manager() -> Arc<RwLock<ControlBarSchemeManager>> {
@@ -1824,7 +1829,7 @@ fn load_control_bar_scheme_files() {
 
 /// Get the control bar scheme manager if it has been initialized
 pub fn get_control_bar_scheme_manager() -> Option<Arc<RwLock<ControlBarSchemeManager>>> {
-    CONTROL_BAR_SCHEME_MANAGER.get().cloned()
+    CONTROL_BAR_SCHEME_MANAGER.0.get().cloned()
 }
 
 /// Parse control bar scheme definition from INI file

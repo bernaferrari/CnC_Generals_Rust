@@ -1911,7 +1911,12 @@ fn write_screenshot_png(
 fn unique_temp_path(path: &Path) -> PathBuf {
     // Wall-clock resolution is too coarse to distinguish concurrent writers.
     // This sequence identifies files only; it owns no simulation state.
-    static NEXT_TEMP_FILE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    struct NextTempFileSlot(std::sync::atomic::AtomicU64);
+    impl std::ops::Deref for NextTempFileSlot {
+        type Target = std::sync::atomic::AtomicU64;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static NEXT_TEMP_FILE: NextTempFileSlot = NextTempFileSlot(std::sync::atomic::AtomicU64::new(0));
     let sequence = NEXT_TEMP_FILE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2097,7 +2102,12 @@ fn select_alpha_mode(supported: &[wgpu::CompositeAlphaMode]) -> wgpu::CompositeA
 }
 
 /// Global engine singleton mirroring the original static WW3D API.
-static ENGINE: OnceCell<Mutex<Option<Engine>>> = OnceCell::new();
+struct EngineSlot(OnceCell<Mutex<Option<Engine>>>);
+impl std::ops::Deref for EngineSlot {
+    type Target = OnceCell<Mutex<Option<Engine>>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+static ENGINE: EngineSlot = EngineSlot(OnceCell::new());
 
 fn global_engine() -> &'static Mutex<Option<Engine>> {
     ENGINE.get_or_init(|| Mutex::new(None))
@@ -2569,9 +2579,10 @@ mod tests {
 
     /// Serialize the GPU-backed engine tests in this binary.
     fn engine_test_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: std::sync::LazyLock<std::sync::Mutex<()>> =
-            std::sync::LazyLock::new(|| std::sync::Mutex::new(()));
-        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+        struct LockSlot(std::sync::LazyLock<std::sync::Mutex<()>>);
+        static LOCK: LockSlot =
+            LockSlot(std::sync::LazyLock::new(|| std::sync::Mutex::new(())));
+        LOCK.0.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn headless_engine() -> Engine {

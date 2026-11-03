@@ -13,8 +13,13 @@ use game_engine::common::rts::handles::ObjectHandle;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 fn provider_test_lock() -> MutexGuard<'static, ()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    struct LockSlot(OnceLock<Mutex<()>>);
+    impl std::ops::Deref for LockSlot {
+        type Target = OnceLock<Mutex<()>>;
+        fn deref(&self) -> &Self::Target { &self.0 }
+    }
+    static LOCK: LockSlot = LockSlot(OnceLock::new());
+    LOCK.0.get_or_init(|| Mutex::new(()))
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }

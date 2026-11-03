@@ -328,7 +328,12 @@ pub async fn run_cnc_game(
             }
 
             let update_elapsed = update_started.elapsed();
-            static DRIVE_FRAME_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            struct DriveFrameCountSlot(std::sync::atomic::AtomicU32);
+            impl std::ops::Deref for DriveFrameCountSlot {
+                type Target = std::sync::atomic::AtomicU32;
+                fn deref(&self) -> &Self::Target { &self.0 }
+            }
+            static DRIVE_FRAME_COUNT: DriveFrameCountSlot = DriveFrameCountSlot(std::sync::atomic::AtomicU32::new(0));
             let dfn = DRIVE_FRAME_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if dfn < 15 || (dfn < 50 && matches!(engine.get_state(), GameState::Menu)) {
                 info!("drive_frame #{} update_done {:?} state={:?} render_frame={}", dfn, update_elapsed, engine.get_state(), render_frame);
