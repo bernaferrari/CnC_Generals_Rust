@@ -11,7 +11,7 @@ use crate::common::system::{Xfer, XferMode};
 use crate::common::time;
 
 use super::handles::{FrameNumber, ObjectHandle, PlayerHandle};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 /// Energy management system
 ///
@@ -438,12 +438,16 @@ pub trait EnergyObjectLookup: Send + Sync {
     fn energy_bonus(&self, obj: ObjectHandle) -> i32;
 }
 
-static ENERGY_OBJECT_LOOKUP: OnceLock<Arc<dyn EnergyObjectLookup>> = OnceLock::new();
-
 pub fn set_energy_object_lookup(
     lookup: Arc<dyn EnergyObjectLookup>,
 ) -> Result<(), Arc<dyn EnergyObjectLookup>> {
-    ENERGY_OBJECT_LOOKUP.set(lookup)
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .energy_object_lookup
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    *slot = Some(lookup);
+    Ok(())
 }
 
 /// Get energy production/consumption from an object's template.
@@ -456,8 +460,13 @@ pub fn set_energy_object_lookup(
 /// - Negative: Building consumes power (e.g., barracks = -1)
 /// - Zero: Building is power-neutral
 fn get_object_energy_production(obj: ObjectHandle) -> i32 {
-    let lookup = ENERGY_OBJECT_LOOKUP
-        .get()
+    let services = crate::common::common_services::common_services();
+    let slot = services
+        .energy_object_lookup
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let lookup = slot
+        .as_ref()
         .expect("EnergyObjectLookup must be registered before energy queries");
     lookup.energy_production(obj)
 }
@@ -470,8 +479,13 @@ fn get_object_energy_production(obj: ObjectHandle) -> i32 {
 /// The energy bonus is used for upgrades like the American "Control Rods" upgrade
 /// to the Cold Fusion Reactor, which grants +3 bonus energy production.
 fn get_object_energy_bonus(obj: ObjectHandle) -> i32 {
-    let lookup = ENERGY_OBJECT_LOOKUP
-        .get()
+    let services = crate::common::common_services::common_services();
+    let slot = services
+        .energy_object_lookup
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    let lookup = slot
+        .as_ref()
         .expect("EnergyObjectLookup must be registered before energy queries");
     lookup.energy_bonus(obj)
 }
@@ -485,12 +499,16 @@ pub trait EnergyOwnerCallbacks: Send + Sync {
     fn on_power_brown_out_change(&self, player: PlayerHandle, brown_out: bool);
 }
 
-static ENERGY_OWNER_CALLBACKS: OnceLock<Arc<dyn EnergyOwnerCallbacks>> = OnceLock::new();
-
 pub fn set_energy_owner_callbacks(
     callbacks: Arc<dyn EnergyOwnerCallbacks>,
 ) -> Result<(), Arc<dyn EnergyOwnerCallbacks>> {
-    ENERGY_OWNER_CALLBACKS.set(callbacks)
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .energy_owner_callbacks
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    *slot = Some(callbacks);
+    Ok(())
 }
 
 /// Notify player of power brownout state change
@@ -508,7 +526,12 @@ pub fn set_energy_owner_callbacks(
 /// fully integrated into the Rust architecture.
 #[allow(dead_code)] // C++ parity: awaiting Player callback system integration
 fn notify_player_brownout_change(_player: PlayerHandle, _brown_out: bool) {
-    if let Some(callbacks) = ENERGY_OWNER_CALLBACKS.get() {
+    let services = crate::common::common_services::common_services();
+    let slot = services
+        .energy_owner_callbacks
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if let Some(callbacks) = slot.as_ref() {
         callbacks.on_power_brown_out_change(_player, _brown_out);
     }
 }

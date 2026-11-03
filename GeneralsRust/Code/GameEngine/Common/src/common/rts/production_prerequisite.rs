@@ -42,7 +42,6 @@ use crate::common::{
     system::{Snapshotable, Xfer},
     thing::thing_factory::get_thing_factory,
 };
-use std::sync::OnceLock;
 
 /// Maximum number of prerequisites that can be efficiently processed
 ///
@@ -174,12 +173,14 @@ pub trait PrereqObjectCounter: Send + Sync {
     );
 }
 
-static PREREQ_OBJECT_COUNTER: OnceLock<Box<dyn PrereqObjectCounter>> = OnceLock::new();
-
 pub fn set_prereq_object_counter(counter: Box<dyn PrereqObjectCounter>) -> Result<(), String> {
-    PREREQ_OBJECT_COUNTER
-        .set(counter)
-        .map_err(|_| "PrereqObjectCounter already set".to_string())
+    let services = crate::common::common_services::common_services();
+    let mut slot = services
+        .prereq_object_counter
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    *slot = Some(counter);
+    Ok(())
 }
 
 impl ProductionPrerequisite {
@@ -265,7 +266,12 @@ impl ProductionPrerequisite {
             .iter()
             .map(|rec| rec.unit.unwrap_or(ThingTemplateHandle::INVALID))
             .collect();
-        if let Some(counter) = PREREQ_OBJECT_COUNTER.get() {
+        let services = crate::common::common_services::common_services();
+        let slot = services
+            .prereq_object_counter
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if let Some(counter) = slot.as_ref() {
             counter.count_objects_by_thing_template(player, &templates, false, &mut counts[..cnt]);
             return cnt;
         }
@@ -358,7 +364,12 @@ impl ProductionPrerequisite {
         self.is_satisfied_with_counter(
             |science| player.has_science(science),
             |templates, ignore_dead, counts| {
-                if let Some(counter) = PREREQ_OBJECT_COUNTER.get() {
+                let services = crate::common::common_services::common_services();
+                let slot = services
+                    .prereq_object_counter
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                if let Some(counter) = slot.as_ref() {
                     counter.count_objects_by_thing_template(player, templates, ignore_dead, counts);
                 } else {
                     counts.fill(0);
