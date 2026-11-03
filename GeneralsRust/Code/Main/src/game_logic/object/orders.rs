@@ -1587,6 +1587,13 @@ impl Object {
     /// C++ OpenContain default `m_passengersAllowedToFire = FALSE`.
     /// `PassengersFireUpgrade` (Battle Bunker) sets the flag later.
     /// HelixContain still applies WEAPONBONUSCONDITION_GARRISONED on enter.
+    /// C++ OCL `ContainInsideSourceObject` portable-structure admission:
+    /// native HelixContain slot or authored OverlordContain (hq-2qedt.1).
+    pub(crate) fn admits_ocl_portable_structure(&self) -> bool {
+        let contain = &self.thing().template.contain_module;
+        (self.is_helix_transport && contain.is_helix_contain) || contain.is_overlord_contain
+    }
+
     pub fn install_helix_transport(&mut self) {
         self.is_helix_transport = true;
         self.max_transport = crate::game_logic::host_overlord_addons::HELIX_TRANSPORT_SLOTS;
