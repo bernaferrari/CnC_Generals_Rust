@@ -13,6 +13,7 @@
 use crate::common::random_value::{RandomState, SessionRandom};
 use crate::common::thing::thing_factory::ThingFactory;
 use crate::common::rts::player::PlayerObjectWorld;
+use crate::common::rts::academy_stats::AcademyTemplateContextProvider;
 use crate::common::time::SimulationClock;
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -104,6 +105,8 @@ pub struct CommonServices {
     pub pending_income: Mutex<HashSet<i32>>,
     /// Optional PlayerObjectWorld bridge (was process PLAYER_OBJECT_WORLD bag).
     pub player_object_world: Mutex<Option<Arc<dyn PlayerObjectWorld>>>,
+    /// Academy template context provider (was process ACADEMY_TEMPLATE_CONTEXT bag).
+    pub academy_template_context: Mutex<Option<AcademyTemplateContextProvider>>,
 }
 
 impl Default for CommonServices {
@@ -116,6 +119,7 @@ impl Default for CommonServices {
             sim_clock: Mutex::new(SimulationClock::default()),
             pending_income: Mutex::new(HashSet::new()),
             player_object_world: Mutex::new(None),
+            academy_template_context: Mutex::new(None),
         }
     }
 }
