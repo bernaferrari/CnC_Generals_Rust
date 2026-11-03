@@ -87,6 +87,8 @@ pub struct CreditsManager {
     title_font: FontDesc,
     position_font: FontDesc,
     normal_font: FontDesc,
+    /// Residual peel latch (was process atomics).
+    residual_last_action: u8,
 }
 
 impl Default for CreditsManager {
@@ -110,6 +112,7 @@ impl CreditsManager {
             current_style: CreditStyle::Normal,
             is_finished: false,
             frames_since_started: 0,
+            residual_last_action: 0,
             normal_font_height: 10,
             title_font: FontDesc::new("Arial", 18, false),
             position_font: FontDesc::new("Arial", 14, false),
@@ -655,32 +658,17 @@ pub enum ResidualCreditsAction {
     FinishProbe = 6,
 }
 
-static RESIDUAL_CREDITS_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_CREDITS_LINE_COUNT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-static RESIDUAL_CREDITS_FINISHED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-static RESIDUAL_CREDITS_FRAMES: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
-
-fn residual_credits_action_store(action: ResidualCreditsAction) {
-    RESIDUAL_CREDITS_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+fn residual_credits_action_store(manager: &mut CreditsManager, action: ResidualCreditsAction) {
+    manager.residual_last_action = action as u8;
 }
 
-fn residual_credits_sync(manager: &CreditsManager) {
-    RESIDUAL_CREDITS_LINE_COUNT.store(
-        manager.credit_lines.len(),
-        std::sync::atomic::Ordering::Relaxed,
-    );
-    RESIDUAL_CREDITS_FINISHED.store(manager.is_finished, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_CREDITS_FRAMES.store(
-        manager.frames_since_started,
-        std::sync::atomic::Ordering::Relaxed,
-    );
+fn residual_credits_sync(_manager: &CreditsManager) {
+    // Line count / finished / frames are read from the manager itself.
 }
 
 /// Residual: last Credits residual action.
-pub fn residual_credits_last_action() -> ResidualCreditsAction {
-    match RESIDUAL_CREDITS_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+pub fn residual_credits_last_action(manager: &CreditsManager) -> ResidualCreditsAction {
+    match manager.residual_last_action {
         1 => ResidualCreditsAction::Init,
         2 => ResidualCreditsAction::Reset,
         3 => ResidualCreditsAction::AddText,
@@ -692,18 +680,18 @@ pub fn residual_credits_last_action() -> ResidualCreditsAction {
 }
 
 /// Residual: credit line count latch.
-pub fn residual_credits_line_count() -> usize {
-    RESIDUAL_CREDITS_LINE_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_credits_line_count(manager: &CreditsManager) -> usize {
+    manager.credit_lines.len()
 }
 
 /// Residual: finished latch.
-pub fn residual_credits_is_finished() -> bool {
-    RESIDUAL_CREDITS_FINISHED.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_credits_is_finished(manager: &CreditsManager) -> bool {
+    manager.is_finished
 }
 
 /// Residual: frames since started latch.
-pub fn residual_credits_frames_since_started() -> i32 {
-    RESIDUAL_CREDITS_FRAMES.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_credits_frames_since_started(manager: &CreditsManager) -> i32 {
+    manager.frames_since_started
 }
 
 /// Residual: init credits without INI/fonts load.
@@ -713,8 +701,8 @@ pub fn simulate_credits_init(owner: &crate::gui::window_manager::WindowManagerOw
         |guard, screen_size| {
             guard.init();
             residual_credits_sync(&guard);
-            residual_credits_action_store(ResidualCreditsAction::Init);
-            !residual_credits_is_finished()
+            residual_credits_action_store(guard, ResidualCreditsAction::Init);
+            !residual_credits_is_finished(&guard)
         },
     )
     .unwrap_or(false)
@@ -727,8 +715,8 @@ pub fn simulate_credits_reset(owner: &crate::gui::window_manager::WindowManagerO
         |guard, screen_size| {
             guard.reset();
             residual_credits_sync(&guard);
-            residual_credits_action_store(ResidualCreditsAction::Reset);
-            residual_credits_line_count() == 0 && !residual_credits_is_finished()
+            residual_credits_action_store(guard, ResidualCreditsAction::Reset);
+            residual_credits_line_count(&guard) == 0 && !residual_credits_is_finished(&guard)
         },
     )
     .unwrap_or(false)
@@ -747,8 +735,8 @@ pub fn simulate_credits_add_text(
         |guard, screen_size| {
             guard.add_text(text);
             residual_credits_sync(&guard);
-            residual_credits_action_store(ResidualCreditsAction::AddText);
-            residual_credits_line_count() > 0
+            residual_credits_action_store(guard, ResidualCreditsAction::AddText);
+            residual_credits_line_count(&guard) > 0
         },
     )
     .unwrap_or(false)
@@ -762,8 +750,8 @@ pub fn simulate_credits_add_blank(owner: &crate::gui::window_manager::WindowMana
             let before = guard.credit_lines.len();
             guard.add_blank();
             residual_credits_sync(&guard);
-            residual_credits_action_store(ResidualCreditsAction::AddBlank);
-            residual_credits_line_count() == before + 1
+            residual_credits_action_store(guard, ResidualCreditsAction::AddBlank);
+            residual_credits_line_count(&guard) == before + 1
         },
     )
     .unwrap_or(false)
@@ -776,7 +764,7 @@ pub fn simulate_credits_update(owner: &crate::gui::window_manager::WindowManager
         |guard, screen_size| {
             guard.update(screen_size);
             residual_credits_sync(&guard);
-            residual_credits_action_store(ResidualCreditsAction::Update);
+            residual_credits_action_store(guard, ResidualCreditsAction::Update);
             true
         },
     )
@@ -792,8 +780,8 @@ pub fn simulate_credits_is_finished_probe(
         |guard, screen_size| {
             let finished = guard.is_finished();
             residual_credits_sync(&guard);
-            residual_credits_action_store(ResidualCreditsAction::FinishProbe);
-            residual_credits_is_finished() == finished
+            residual_credits_action_store(guard, ResidualCreditsAction::FinishProbe);
+            residual_credits_is_finished(&guard) == finished
         },
     )
     .unwrap_or(false)
@@ -818,7 +806,10 @@ pub fn simulate_credits_prepare_short_roll(
     if !simulate_credits_add_text(owner, "GENERALS ZERO HOUR") {
         return false;
     }
-    residual_credits_line_count() >= 3 && !residual_credits_is_finished()
+    crate::gui::callbacks::owned_credits_menu::with_credits_for_owner(owner, |guard, _| {
+        residual_credits_line_count(guard) >= 3 && !residual_credits_is_finished(guard)
+    })
+    .unwrap_or(false)
 }
 
 /// Human click-through: OS LeftDown/Up on `CreditsMenu.wnd:ParentCreditsWindow`
@@ -883,17 +874,23 @@ use crate::gui::game_window::WindowEventEffects;
             let _ = parent.borrow_mut().hide_without_manager_side_effects(false);
         });
         // drive_os_wnd_* still needs a receiving owner/effects path — keep owner alive
-        let _owner = owner;
+        let owner = owner;
         assert!(
             WindowEventEffects::with_standalone(|effects| drive_os_wnd_credits_roll_prepare_like_cpp(effects)),
             "OS WND click on ParentCreditsWindow must prepare short credits roll"
         );
-        assert!(residual_credits_line_count() >= 3);
-        assert!(!residual_credits_is_finished());
+        assert!(crate::gui::callbacks::owned_credits_menu::with_credits_for_owner(
+            &owner,
+            |guard, _| residual_credits_line_count(guard) >= 3 && !residual_credits_is_finished(guard),
+        )
+        .unwrap_or(false));
         assert!(WindowEventEffects::with_standalone(|effects| drive_os_wnd_credits_roll_update_like_cpp(effects)));
         assert_eq!(
-            residual_credits_last_action(),
-            ResidualCreditsAction::Update
+            crate::gui::callbacks::owned_credits_menu::with_credits_for_owner(
+                &owner,
+                |guard, _| residual_credits_last_action(guard),
+            ),
+            Some(ResidualCreditsAction::Update)
         );
     }
 }

@@ -11,7 +11,6 @@
 
 use crate::message_stream::game_message::Coord3D;
 use log::{info, warn};
-use std::cell::RefCell;
 
 /// Matches the fuzzy comparison used by GameLogic when pairing commands with
 /// already-active beacons.  Using the same tolerance keeps the client-side UI
@@ -40,9 +39,11 @@ pub enum BeaconNotification {
 }
 
 #[derive(Default)]
-struct BeaconDisplayState {
+pub struct BeaconDisplayState {
     markers: Vec<BeaconMarker>,
     pending: Vec<BeaconNotification>,
+    residual_last_action: u8,
+    residual_marker_count: usize,
 }
 
 impl BeaconDisplayState {
@@ -107,14 +108,18 @@ fn distance(a: &Coord3D, b: &Coord3D) -> f32 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
-// THREAD: main thread only — beacons are recorded by client message handling
-// and drained by the display update on the same game thread.
-thread_local! {
-    static BEACON_DISPLAY: RefCell<BeaconDisplayState> = RefCell::new(BeaconDisplayState::default());
+fn with_beacon_display<R>(f: impl FnOnce(&mut BeaconDisplayState) -> R) -> R {
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        f.take().expect("beacon callback")(client.beacons_mut())
+    }) {
+        return result;
+    }
+    f.take().expect("beacon callback")(&mut BeaconDisplayState::default())
 }
 
 pub fn record_beacon_placed(player_id: i32, position: Coord3D, text: Option<String>) {
-    BEACON_DISPLAY.with_borrow_mut(|state| {
+    with_beacon_display(|state| {
         info!(
             "Player {} placed beacon at ({:.1}, {:.1}, {:.1})",
             player_id, position.x, position.y, position.z
@@ -128,19 +133,19 @@ pub fn record_beacon_placed(player_id: i32, position: Coord3D, text: Option<Stri
 }
 
 pub fn record_beacon_removed(player_id: i32, position: Coord3D) {
-    BEACON_DISPLAY.with_borrow_mut(|state| state.remove(player_id, &position));
+    with_beacon_display(|state| state.remove(player_id, &position));
 }
 
 pub fn record_beacon_text(player_id: i32, position: Coord3D, text: String) {
-    BEACON_DISPLAY.with_borrow_mut(|state| state.update_text(player_id, &position, text));
+    with_beacon_display(|state| state.update_text(player_id, &position, text));
 }
 
 pub fn drain_notifications() -> Vec<BeaconNotification> {
-    BEACON_DISPLAY.with_borrow_mut(|state| state.drain_notifications())
+    with_beacon_display(|state| state.drain_notifications())
 }
 
 pub fn snapshot_markers() -> Vec<BeaconMarker> {
-    BEACON_DISPLAY.with_borrow(|state| state.markers.clone())
+    with_beacon_display(|state| state.markers.clone())
 }
 
 /// Residual: last Beacon display action requested by residual peels.
@@ -154,17 +159,13 @@ pub enum ResidualBeaconAction {
     Drain = 4,
 }
 
-static RESIDUAL_BEACON_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_BEACON_COUNT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-
-fn residual_beacon_action_store(action: ResidualBeaconAction) {
-    RESIDUAL_BEACON_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+fn residual_beacon_action_store(state: &mut BeaconDisplayState, action: ResidualBeaconAction) {
+    state.residual_last_action = action as u8;
 }
 
 /// Residual: last Beacon residual action.
-pub fn residual_beacon_last_action() -> ResidualBeaconAction {
-    match RESIDUAL_BEACON_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+pub fn residual_beacon_last_action(state: &BeaconDisplayState) -> ResidualBeaconAction {
+    match state.residual_last_action {
         1 => ResidualBeaconAction::Place,
         2 => ResidualBeaconAction::Remove,
         3 => ResidualBeaconAction::Text,
@@ -174,29 +175,32 @@ pub fn residual_beacon_last_action() -> ResidualBeaconAction {
 }
 
 /// Residual: current residual marker count (from snapshot).
-pub fn residual_beacon_marker_count() -> usize {
-    RESIDUAL_BEACON_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+pub fn residual_beacon_marker_count(state: &BeaconDisplayState) -> usize {
+    state.residual_marker_count
 }
 
-fn residual_beacon_sync_count() {
-    let n = snapshot_markers().len();
-    RESIDUAL_BEACON_COUNT.store(n, std::sync::atomic::Ordering::Relaxed);
+fn residual_beacon_sync_count(state: &mut BeaconDisplayState) {
+    state.residual_marker_count = state.markers.len();
 }
 
 /// Residual: place beacon without multiplayer/command stream.
 pub fn simulate_beacon_place(player_id: i32, x: f32, y: f32, z: f32, text: Option<&str>) -> bool {
     record_beacon_placed(player_id, Coord3D { x, y, z }, text.map(|s| s.to_string()));
-    residual_beacon_sync_count();
-    residual_beacon_action_store(ResidualBeaconAction::Place);
-    residual_beacon_marker_count() > 0
+    with_beacon_display(|state| {
+        residual_beacon_sync_count(state);
+        residual_beacon_action_store(state, ResidualBeaconAction::Place);
+        residual_beacon_marker_count(state) > 0
+    })
 }
 
 /// Residual: remove beacon without multiplayer/command stream.
 pub fn simulate_beacon_remove(player_id: i32, x: f32, y: f32, z: f32) -> bool {
     record_beacon_removed(player_id, Coord3D { x, y, z });
-    residual_beacon_sync_count();
-    residual_beacon_action_store(ResidualBeaconAction::Remove);
-    true
+    with_beacon_display(|state| {
+        residual_beacon_sync_count(state);
+        residual_beacon_action_store(state, ResidualBeaconAction::Remove);
+        true
+    })
 }
 
 /// Residual: update beacon text without edit widget.
@@ -205,20 +209,24 @@ pub fn simulate_beacon_set_text(player_id: i32, x: f32, y: f32, z: f32, text: &s
         return false;
     }
     record_beacon_text(player_id, Coord3D { x, y, z }, text.to_string());
-    residual_beacon_sync_count();
-    residual_beacon_action_store(ResidualBeaconAction::Text);
-    true
+    with_beacon_display(|state| {
+        residual_beacon_sync_count(state);
+        residual_beacon_action_store(state, ResidualBeaconAction::Text);
+        true
+    })
 }
 
-/// Residual: drain notifications residual (consumes pending queue).
+/// Residual: drain pending beacon notifications.
 pub fn simulate_beacon_drain_notifications() -> usize {
     let n = drain_notifications().len();
-    residual_beacon_action_store(ResidualBeaconAction::Drain);
-    residual_beacon_sync_count();
+    with_beacon_display(|state| {
+        residual_beacon_action_store(state, ResidualBeaconAction::Drain);
+        residual_beacon_sync_count(state);
+    });
     n
 }
 
-/// Residual: place + text composite.
+/// Residual: place then set text composite.
 pub fn simulate_beacon_prepare_place_with_text(
     player_id: i32,
     x: f32,
@@ -231,3 +239,4 @@ pub fn simulate_beacon_prepare_place_with_text(
     }
     simulate_beacon_set_text(player_id, x, y, z, text)
 }
+

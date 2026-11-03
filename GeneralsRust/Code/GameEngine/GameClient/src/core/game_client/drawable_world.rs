@@ -47,6 +47,7 @@ impl std::ops::DerefMut for DrawableWorld {
 pub struct DrawableState {
     pub(super) fx: crate::fx_list::FxClientState,
     pub(super) tracers: crate::effects::tracer_fx::TracerFxState,
+    pub(super) beacons: crate::system::beacon_display::BeaconDisplayState,
     pub(super) next_drawable_id: DrawableId,
     pub(super) ray_effects: crate::effects::ray_effect_registry::RayEffectSystem,
     /// C++ GameClient.cpp480 prepends each newly constructed Drawable.
@@ -73,6 +74,7 @@ impl DrawableState {
         Self {
             fx: Default::default(),
             tracers: Default::default(),
+            beacons: Default::default(),
             next_drawable_id: DrawableId(1),
             ray_effects: Default::default(),
             native_drawable_order: Vec::new(),
@@ -320,5 +322,13 @@ impl GameClient {
 
     pub fn tracers_mut(&mut self) -> &mut crate::effects::tracer_fx::TracerFxState {
         &mut self.drawables.tracers
+    }
+
+    pub fn beacons(&self) -> &crate::system::beacon_display::BeaconDisplayState {
+        &self.drawables.beacons
+    }
+
+    pub fn beacons_mut(&mut self) -> &mut crate::system::beacon_display::BeaconDisplayState {
+        &mut self.drawables.beacons
     }
 }
