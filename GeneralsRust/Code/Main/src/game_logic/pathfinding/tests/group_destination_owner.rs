@@ -267,6 +267,10 @@ fn logical_extent_queue_admission_uses_driving_active_boundary_and_constructor_i
         module_path!(),
         "logical_extent_queue_admission_uses_driving_active_boundary_and_constructor_is_inert",
         || {
+            let common = std::sync::Arc::new(
+                game_engine::common::common_services::CommonServices::new(),
+            );
+            game_engine::common::common_services::with_common_services(&common, || {
             fn admit_boundary(world: &mut GameLogic, cells: i32) {
                 let mut data = gamelogic::system::map_loader::MapData::new();
                 data.width = 32;
@@ -380,6 +384,7 @@ fn logical_extent_queue_admission_uses_driving_active_boundary_and_constructor_i
                         .grid
                         .in_logical_extent(GridPos::new(56, 56))
                 );
+            });
             });
         },
     );
