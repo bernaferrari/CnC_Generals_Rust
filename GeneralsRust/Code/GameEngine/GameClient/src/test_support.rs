@@ -59,9 +59,4 @@ mod ambient_host {
             *slot.borrow_mut() = Some(core);
         });
     }
-
-    #[ctor::ctor]
-    fn boot_ambient_host() {
-        ensure_ambient_host();
-    }
 }
