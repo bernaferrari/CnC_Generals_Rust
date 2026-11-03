@@ -3114,7 +3114,9 @@ mod tests {
 
         let cb = registry.get_layout_init("TestInit").unwrap();
         let layout = WindowLayout::new("test".to_string());
-        cb(&layout);
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            cb(&layout, effects);
+        });
         assert!(called.load(std::sync::atomic::Ordering::Relaxed));
 
         assert!(registry.get_layout_init("None").is_none());
@@ -3212,7 +3214,7 @@ mod tests {
             assert!(registry.get_layout_init(name).is_some(), "missing {name}");
         }
 
-        let win = GameWindow::new();
+        let mut win = GameWindow::new();
         let login = registry.get_win_system("WOLLoginMenuSystem").unwrap();
         assert_eq!(
             login(&win, WindowMessage::Create, 0, 0),
@@ -3244,16 +3246,16 @@ mod tests {
             WindowMsgHandled::Ignored
         });
 
-        let win = GameWindow::new();
+        let mut win = GameWindow::new();
         assert_eq!(
-            created(&win, WindowMessage::Create, 0, 0),
+            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| created(&mut win, WindowMessage::Create, 0, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(hits.load(Ordering::Relaxed), 1);
 
         let replacement = registry.create_system_callback("OwnedSystem").unwrap();
         assert_eq!(
-            replacement(&win, WindowMessage::Create, 0, 0),
+            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| replacement(&mut win, WindowMessage::Create, 0, 0, effects)),
             WindowMsgHandled::Ignored
         );
         assert_eq!(hits.load(Ordering::Relaxed), 1);
@@ -3275,9 +3277,9 @@ mod tests {
             // registry dropped here
         };
 
-        let win = GameWindow::new();
+        let mut win = GameWindow::new();
         assert_eq!(
-            created(&win, WindowMessage::LeftDown, 0, 0),
+            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| created(&mut win, WindowMessage::LeftDown, 0, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(hits.load(Ordering::Relaxed), 1);
@@ -3306,10 +3308,10 @@ mod tests {
         registry.register_win_tooltip("OwnedTooltip", |_win, _time, _mouse| {});
         registry.register_win_draw("OwnedDraw", |_win, _inst, _draw_context| {});
 
-        let win = GameWindow::new();
+        let mut win = GameWindow::new();
         let inst = WindowInstanceData::default();
         tooltip(&win, 7, &mut crate::input::Mouse::new());
-        draw(&win, &inst);
+        { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); draw(&win, &inst, &mut __dc); }
         assert_eq!(tooltip_hits.load(Ordering::Relaxed), 7);
         assert_eq!(draw_hits.load(Ordering::Relaxed), 1);
     }

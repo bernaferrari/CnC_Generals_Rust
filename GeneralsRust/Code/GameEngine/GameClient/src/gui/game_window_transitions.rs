@@ -2975,7 +2975,7 @@ impl GameWindowTransitionsHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::window_manager::{CaptureFlags, TransitionWindowAccess};
+    use crate::gui::window_manager::{CaptureFlags, TransitionWindowAccess};
 
     fn with_access<R>(f: impl FnOnce(&mut TransitionWindowAccess<'_, '_>) -> R) -> R {
         let mut keyboard_focus = None;

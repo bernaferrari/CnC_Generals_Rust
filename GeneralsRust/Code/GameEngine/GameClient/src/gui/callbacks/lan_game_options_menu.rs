@@ -1362,18 +1362,15 @@ use crate::gui::game_window::WindowEventEffects;
         let mut window = GameWindow::new();
         set_lan_button_pushed(&owner, false);
 
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
         assert_eq!(
-            WindowEventEffects::with_standalone(|effects| {
-                effects.window_manager_owner = Some(&owner);
-                lan_game_options_menu_input(&mut window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0, effects)
-            }),
+            lan_game_options_menu_input(&mut window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0, &mut effects),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            WindowEventEffects::with_standalone(|effects| {
-                effects.window_manager_owner = Some(&owner);
-                lan_game_options_menu_input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)
-            }),
+            lan_game_options_menu_input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, &mut effects),
             WindowMsgHandled::Ignored
         );
     }
@@ -1384,17 +1381,17 @@ use crate::gui::game_window::WindowEventEffects;
         let mut window = GameWindow::new();
         set_lan_button_pushed(&owner, true);
 
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
         assert_eq!(
-            WindowEventEffects::with_standalone(|effects| {
-                effects.window_manager_owner = Some(&owner);
-                lan_game_options_menu_input(
-                    &mut window,
-                    WindowMessage::Char,
-                    KEY_ESC as WindowMsgData,
-                    KEY_STATE_UP,
-                    effects,
-                )
-            }),
+            lan_game_options_menu_input(
+                &mut window,
+                WindowMessage::Char,
+                KEY_ESC as WindowMsgData,
+                KEY_STATE_UP,
+                &mut effects,
+            ),
             WindowMsgHandled::Ignored
         );
 
