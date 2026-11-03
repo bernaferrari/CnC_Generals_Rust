@@ -158,7 +158,7 @@ impl GameLogic {
             sync_started.elapsed().as_secs_f32(),
             parse_only.elapsed().as_secs_f32(),
             stage_started.elapsed().as_secs_f32(),
-            blend_tile_data.is_some()
+            self.pending_blend_tile_data.is_some()
         );
         stage_started = Instant::now();
         report_progress(
