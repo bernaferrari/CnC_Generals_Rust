@@ -267,7 +267,7 @@ fn sell_command_uses_authored_refund_value_through_world_completion() {
         };
         assert_eq!(
             command_system.execute_command(&sell, &mut logic),
-            CommandResult::Success,
+            Ok(CommandResult::Success),
             "the physical sell command must enter the normal world sell lifecycle"
         );
 
@@ -323,7 +323,7 @@ fn sell_command_uses_authored_refund_value_through_world_completion() {
         };
         assert_eq!(
             command_system.execute_command(&fallback_sell, &mut logic),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
         for frame in 241..=480 {
             logic.set_current_frame(frame);

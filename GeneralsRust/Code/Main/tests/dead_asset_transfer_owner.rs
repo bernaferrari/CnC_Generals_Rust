@@ -120,7 +120,7 @@ fn self_destruct_transfers_dead_and_live_assets_before_source_death() {
         })
         .unwrap();
 
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
     assert!(!world.get_player(1).unwrap().is_alive);
     assert_eq!(world.host_object(live).unwrap().owner_player_id, Some(2));
     assert_eq!(world.host_object(dead).unwrap().owner_player_id, Some(2));

@@ -46,7 +46,8 @@ fn apply_w3d_formation_letter(handle: &DisplayStringHandle) {
 }
 
 fn draw_group_font() -> Option<std::sync::Arc<crate::gui::font::GameFont>> {
-    let info = get_draw_group_info()
+    let __dgi = get_draw_group_info();
+    let info = __dgi
         .read()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let desc = FontDesc::new(&info.font_name, info.font_size, info.font_is_bold);

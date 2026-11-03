@@ -177,7 +177,7 @@ End
         CommandExecutor::new(&mut logic, 0)
             .execute_command(command)
             .unwrap(),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     let state = logic.heli_takeoff_or_landing[&heli];
     assert!(state.landing);

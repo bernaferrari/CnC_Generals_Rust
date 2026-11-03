@@ -169,6 +169,18 @@ impl NameKeyGenerator {
     /// Dict/data-chunk IO) is symmetric on exact-match semantics, and
     /// folding case would merge C++-distinct keys and shift allocation
     /// order away from the legacy engine.
+
+    /// Run a closure against the owning namespace under one lock.
+    /// C++ NameKeyGenerator is a plain static used on the game thread; locking
+    /// once per dict/map parse matches that cost model instead of Mutex/key.
+    pub fn with_namespace<R>(f: impl FnOnce(&mut NameKeyNamespace) -> R) -> R {
+        let mut state = NAME_KEY_STATE
+            .value
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        f(&mut state)
+    }
+
     pub fn name_to_key(name: &str) -> NameKeyType {
         { let mut state = NAME_KEY_STATE.value.lock().unwrap_or_else(|p| p.into_inner()); state.name_to_key(name ) }
     }

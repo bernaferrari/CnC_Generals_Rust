@@ -76,6 +76,21 @@ pub struct GameClient {
     fx_list_store: Option<std::sync::Arc<std::sync::RwLock<crate::fx_list::FXListStore>>>,
     weather_setting: Option<std::sync::Arc<std::sync::RwLock<crate::snow::WeatherSetting>>>,
     snow_manager: Option<std::sync::Arc<std::sync::Mutex<crate::snow::SnowManager>>>,
+    draw_group_info: Option<std::sync::Arc<std::sync::RwLock<crate::draw_group_info::DrawGroupInfo>>>,
+    game_text_store: Option<std::sync::Arc<std::sync::RwLock<crate::game_text::GameText>>>,
+    global_language_data: Option<std::sync::Arc<std::sync::RwLock<crate::global_language::GlobalLanguageData>>>,
+    language_filter: Option<std::sync::Arc<std::sync::RwLock<crate::language_filter::LanguageFilter>>>,
+    smudge_manager: Option<std::sync::Arc<std::sync::Mutex<crate::system::smudge::SmudgeManager>>>,
+    header_template_manager: Option<std::sync::Arc<std::sync::Mutex<crate::gui::header_template::HeaderTemplateManager>>>,
+    translator_presentation_residual: Option<std::sync::Arc<std::sync::RwLock<crate::presentation_translator_residual::TranslatorPresentationResidual>>>,
+    mouse: Option<std::sync::Arc<std::sync::Mutex<crate::input::mouse::Mouse>>>,
+    fx_next_id: std::sync::atomic::AtomicU64,
+    render_bridge_next_line_id: std::sync::atomic::AtomicU64,
+    win_draw_image_commands: std::sync::atomic::AtomicUsize,
+    shipped_ui_draw_commands: std::sync::atomic::AtomicUsize,
+    text_entry_draw_cnt: std::sync::atomic::AtomicU8,
+    asset_id_counter: std::sync::atomic::AtomicU64,
+    device_id_counter: std::sync::atomic::AtomicU64,
     supply_and_tech_images: Option<std::sync::Arc<std::sync::Mutex<crate::map_util::TechAndSupplyImages>>>,
     map_cache_manager: Option<std::sync::Arc<std::sync::Mutex<crate::map_util::MapCache>>>,
     video_player_slot: Option<std::sync::Arc<std::sync::Mutex<Option<crate::video_player::VideoPlayer>>>>,
@@ -125,6 +140,10 @@ pub struct GameClient {
     /// Drawable inventory for this receiving GameClient. The process-global
     /// manager remains only for standalone compatibility callers.
     drawable_manager: crate::drawable::DrawableManager,
+    /// Wave 984 host residual: flash contained presentation drawables on select.
+    host_contained_flash_queue: Vec<u32>,
+    /// C++ TheAnim2DCollection residual.
+    client_anim2d_instances: std::sync::Arc<parking_lot::Mutex<crate::system::anim2_d::Anim2DCollection>>,
 
     // Drawable management
     drawables: drawable_world::DrawableWorld,

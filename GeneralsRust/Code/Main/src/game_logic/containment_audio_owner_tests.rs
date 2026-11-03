@@ -83,14 +83,14 @@ fn remove(
     output: &mut game_engine::common::audio::AudioManager,
 ) {
     assert!(world.unit_command_remove_occupant(container, passenger));
-    assert!(world.unit_command_exit_drop_with_effects(
+    assert_eq!(world.unit_command_exit_drop_with_effects(
         passenger,
         Vec3::new(50.0, 0.0, 50.0),
         &mut ScriptPresentationEffects {
             audio: Some(output),
             ..Default::default()
         }
-    ));
+    ), Ok(true));
     assert_eq!(world.host_object(passenger).unwrap().contained_by, None);
     assert!(
         !world

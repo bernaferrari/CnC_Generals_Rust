@@ -552,7 +552,6 @@ struct SceneLineEntry {
     visible: bool,
 }
 
-static NEXT_LINE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 impl RenderBridge {
     pub fn new() -> Self {
@@ -1851,7 +1850,15 @@ impl SceneSubmissionTrait for RenderBridge {
     ) -> Option<game_engine::common::system::scene_submission::SceneLineId> {
         let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(bridge) = guard.as_mut() {
-            let id = NEXT_LINE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let id = crate::core::game_client::with_live_game_client_mut(|client| {
+                client.next_render_bridge_line_id()
+            })
+            .unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(1)
+            });
             let entry = SceneLineEntry {
                 start: glam::Vec3::new(desc.start.x, desc.start.y, desc.start.z),
                 end: glam::Vec3::new(desc.end.x, desc.end.y, desc.end.z),

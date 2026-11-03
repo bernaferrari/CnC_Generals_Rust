@@ -379,7 +379,7 @@ End
                 name: name.clone(),
                 sender: sender.clone(),
             }));
-            game_client::fx_list::get_fx_list_store_mut().add_fx_list(name, list);
+            game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(name, list); });
             let sound = format!("Sound_{rows}_{level}");
             let manager = game_engine::common::audio::game_audio::get_global_audio_manager()
                 .unwrap_or_else(

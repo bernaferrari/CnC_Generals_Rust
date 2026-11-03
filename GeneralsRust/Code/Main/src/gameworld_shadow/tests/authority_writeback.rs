@@ -1952,7 +1952,7 @@ fn coupled_tick_group_speed_reads_script_damage_from_host_owner_before_shadow_bo
     // Use the actual command executor to establish the authored formation
     // stamp; the later Move is processed by GameLogic::process_commands.
     let formation = CommandExecutor::new(&mut logic, 0).execute_create_formation(&[fast, slow]);
-    assert_eq!(formation, CommandResult::Success);
+    assert_eq!(formation, Ok(CommandResult::Success));
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);

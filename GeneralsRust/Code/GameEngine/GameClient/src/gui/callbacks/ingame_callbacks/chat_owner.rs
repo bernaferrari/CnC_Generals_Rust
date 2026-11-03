@@ -393,7 +393,7 @@ fn toggle_selected(
         let chat_type = get_in_game_chat_type(effects);
         let mask = facts.player_mask(&chat_type);
         let mut filtered = text;
-        get_language_filter().filter_line(&mut filtered);
+        get_language_filter().write().unwrap_or_else(|e| e.into_inner()).filter_line(&mut filtered);
         #[cfg(not(feature = "network"))]
         let network = effects
             .window_manager_owner

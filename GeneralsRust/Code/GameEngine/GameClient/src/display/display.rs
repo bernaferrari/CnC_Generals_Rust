@@ -750,7 +750,8 @@ impl Display {
         let mut manager = get_display_string_manager();
         let display_string = manager.new_display_string();
         let (font_name, font_size, font_bold) = {
-            let lang = crate::global_language::get_global_language_data()
+            let __lang = crate::global_language::get_global_language_data();
+            let lang = __lang
                 .read()
                 .ok();
             if let Some(lang) = lang.as_ref() {

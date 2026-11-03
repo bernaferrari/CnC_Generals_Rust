@@ -2716,7 +2716,7 @@ fn jet_out_of_ammo_paths_to_distant_airfield_then_rearms() {
         assert!(
             jet.movement.target_position.is_some()
                 || !jet.movement.path.is_empty()
-                || matches!(jet.ai_state, AIState::Moving),
+                || matches!(jet.ai_state(), AIState::Moving),
             "should path toward airfield"
         );
         // Ammo still empty until dock.
@@ -3085,7 +3085,7 @@ fn command_button_hunt_named_arms_capture_and_flashbang() {
     logic.frame = 0;
     logic.tick_command_button_hunt_updates();
     let r = logic.host_object(ranger).unwrap();
-    assert_eq!(r.ai_state, AIState::Patrolling);
+    assert_eq!(r.ai_state(), AIState::Patrolling);
     assert_eq!(r.weapon_lock_type, WeaponLockType::LockedTemporarily);
     assert_eq!(r.weapon_lock_slot, 1);
 
@@ -3141,7 +3141,7 @@ fn fire_weapon_command_button_hunt_rearms_lock_every_frame() {
     logic.tick_command_button_hunt_updates();
     {
         let r = logic.host_object(ranger).unwrap();
-        assert_eq!(r.ai_state, AIState::Patrolling);
+        assert_eq!(r.ai_state(), AIState::Patrolling);
         assert_eq!(r.weapon_lock_type, WeaponLockType::LockedTemporarily);
         assert_eq!(r.weapon_lock_slot, 1);
     }

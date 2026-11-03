@@ -106,6 +106,21 @@ impl GameClient {
             fx_list_store: None,
             weather_setting: None,
             snow_manager: None,
+            draw_group_info: None,
+            game_text_store: None,
+            global_language_data: None,
+            language_filter: None,
+            smudge_manager: None,
+            header_template_manager: None,
+            translator_presentation_residual: None,
+            mouse: None,
+            fx_next_id: std::sync::atomic::AtomicU64::new(1),
+            render_bridge_next_line_id: std::sync::atomic::AtomicU64::new(1),
+            win_draw_image_commands: std::sync::atomic::AtomicUsize::new(0),
+            shipped_ui_draw_commands: std::sync::atomic::AtomicUsize::new(0),
+            text_entry_draw_cnt: std::sync::atomic::AtomicU8::new(0),
+            asset_id_counter: std::sync::atomic::AtomicU64::new(1),
+            device_id_counter: std::sync::atomic::AtomicU64::new(1),
             supply_and_tech_images: None,
             map_cache_manager: None,
             video_player_slot: None,
@@ -132,6 +147,10 @@ impl GameClient {
 
             render_bridge: crate::render_bridge::RenderBridge::new(),
             drawable_manager: crate::drawable::DrawableManager::new(),
+            host_contained_flash_queue: Vec::new(),
+            client_anim2d_instances: std::sync::Arc::new(parking_lot::Mutex::new(
+                crate::system::anim2_d::Anim2DCollection::new(),
+            )),
             drawables: drawable_world::DrawableWorld::new(),
             pending_drawable_post_process_order: None,
             drawable_toc: Vec::new(),
@@ -864,6 +883,20 @@ impl GameClient {
 
     pub(crate) fn drawable_manager_mut(&mut self) -> &mut crate::drawable::DrawableManager {
         &mut self.drawable_manager
+    }
+
+    pub(crate) fn local_player_id(&self) -> i32 {
+        self.local_player_id
+    }
+
+    pub(crate) fn host_contained_flash_queue_mut(&mut self) -> &mut Vec<u32> {
+        &mut self.host_contained_flash_queue
+    }
+
+    pub(crate) fn client_anim2d_instances_handle(
+        &self,
+    ) -> std::sync::Arc<parking_lot::Mutex<crate::system::anim2_d::Anim2DCollection>> {
+        self.client_anim2d_instances.clone()
     }
 
 

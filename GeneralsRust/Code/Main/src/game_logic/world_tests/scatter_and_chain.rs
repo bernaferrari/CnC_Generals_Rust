@@ -103,7 +103,7 @@ fn continue_attack_range_chains_to_nearby_same_team_target() {
         Some("DozerMineDisarmingWeapon"),
     );
     let a = logic.objects.get(&atk).unwrap();
-    assert!(matches!(a.ai_state, AIState::Idle) || a.target.is_none());
+    assert!(matches!(a.ai_state(), AIState::Idle) || a.target.is_none());
 }
 
 #[test]

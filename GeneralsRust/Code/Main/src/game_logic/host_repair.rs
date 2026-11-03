@@ -771,7 +771,7 @@ mod tests {
                 &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
-        assert!(logic.try_claim_dock_for_test(dock, wid));
+        assert_eq!(logic.try_claim_dock_for_test(dock, wid), Ok(true));
         let o = logic.host_object(wid).unwrap();
         assert_ne!(
             o.model_condition_bits & (1u128 << docking_beginning_model_bit()),

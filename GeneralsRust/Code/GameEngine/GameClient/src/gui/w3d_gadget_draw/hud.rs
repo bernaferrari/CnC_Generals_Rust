@@ -511,8 +511,8 @@ pub fn w3d_right_hud_draw(
         crate::gui::game_window::default_draw_callback(window, inst_data, draw_context);
     }
     if std::env::var_os("GENERALS_RIGHTHUD_PROBE").is_some() {
-        static ONCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        if !ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        static ONCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        if ONCE.set(()).is_ok() {
             let (x, y) = window.get_screen_position();
             let (w, h) = window.get_size();
             eprintln!(

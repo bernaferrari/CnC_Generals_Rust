@@ -1267,7 +1267,8 @@ impl InGameUI {
         if font.name.is_empty() || *font == FontDesc::default() {
             return None;
         }
-        let size = crate::global_language::get_global_language_data()
+        let __lang = crate::global_language::get_global_language_data();
+        let size = __lang
             .read()
             .map(|data| data.adjust_font_size(font.size))
             .unwrap_or(font.size);

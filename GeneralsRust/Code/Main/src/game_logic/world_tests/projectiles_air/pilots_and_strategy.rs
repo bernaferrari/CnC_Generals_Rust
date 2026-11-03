@@ -627,7 +627,7 @@ fn usa_infantry_auto_find_healing_hospital_path_residual() {
             .host_object(ranger_id)
             .expect("ranger after scan");
         assert_eq!(
-            r.ai_state,
+            r.ai_state(),
             AIState::SeekingHealing,
             "injured AI ranger residual must SeekHealing"
         );

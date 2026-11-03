@@ -48,7 +48,7 @@ fn install() -> Receiver<Observed> {
         });
         let mut list = game_client::fx_list::FXList::from_definition(&definition);
         list.add_fx_nugget(Box::new(Observe(name, sender.clone())));
-        game_client::fx_list::get_fx_list_store_mut().add_fx_list(name.into(), list);
+        game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(name.into(), list); });
     }
     let mut definition = rules::DamageFX::new();
     for dt in [

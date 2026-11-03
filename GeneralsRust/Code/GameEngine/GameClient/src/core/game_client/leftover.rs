@@ -535,12 +535,8 @@ impl GameClient {
 
     /// Sets the local player identifier used for command routing.
     pub fn set_local_player_id(&mut self, player_id: i32) {
+        // Instance field is the owning store; translators peel the live client.
         self.local_player_id = player_id;
-        // Only the admitted application client publishes the input scalar.
-        // Detached worlds and load candidates update their own field only.
-        if owns_live_game_client_slot(self) {
-            set_local_player_id(player_id);
-        }
     }
 
     /// Gets the current frame number

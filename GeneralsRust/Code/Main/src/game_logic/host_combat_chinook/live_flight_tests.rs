@@ -263,7 +263,7 @@ fn authored_evacuation_retains_passenger_through_takeoff_and_landing() {
                 CommandExecutor::new(&mut logic, 0)
                     .execute_command(command)
                     .unwrap(),
-                CommandResult::Success
+                Ok(CommandResult::Success)
             );
             let ai = logic
                 .host_object(transport)

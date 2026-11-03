@@ -504,3 +504,103 @@ note = "GameSpyOverlayState on WindowManagerOwner (online_ui); removed process T
 path = "Code/GameEngine/GameClient/src/gamespy_game.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameSpyGame.cpp"
 note = "GameSpy GameInfo on WindowManagerOwner (online_ui); removed process TLS; peels prefer owner/live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/core/game_client/ids.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp"
+note = "HOST_CONTAINED_FLASH_QUEUE on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/message_stream/player_state.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/MessageStream"
+note = "LOCAL_PLAYER_ID on GameClient.local_player_id; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/system/anim2_d.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/System/Anim2D.cpp"
+note = "Anim2DCollection Arc on GameClient; update via instance; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/draw_group_info.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/DrawGroupInfo.cpp"
+note = "DrawGroupInfo Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/system/smudge.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/System/Smudge.cpp"
+note = "SmudgeManager Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/game_text.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameText.cpp"
+note = "GameText Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/global_language.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GlobalLanguage.cpp"
+note = "GlobalLanguageData Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/language_filter.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/LanguageFilter.cpp"
+note = "LanguageFilter Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/header_template.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/HeaderTemplate.cpp"
+note = "HeaderTemplateManager Arc on GameClient; peels live client; cfg(test) TLS fallback only. Parser OnceLock is set-once."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/presentation_translator_residual.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
+note = "TranslatorPresentationResidual Arc on GameClient; peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/input/mouse.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Input/Mouse.cpp"
+note = "Mouse Arc on GameClient; the_mouse peels live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/effects/runtime_fx.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
+note = "FX next-id on GameClient atomic; no process AtomicU64."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/render_bridge.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
+note = "Render-bridge line ids on GameClient atomic; no process AtomicU64."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/game_window_global.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI"
+note = "win_draw_image command counter on GameClient; no process AtomicUsize."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/w3d_gadget_draw/common.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI"
+note = "Shipped UI draw counter on GameClient; no process AtomicUsize."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/w3d_gadget_draw/text_entry.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI"
+note = "Text-entry draw caret counter on GameClient; no process AtomicU8."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/w3d_gadget_draw/hud.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI"
+note = "Once-log uses OnceLock<()>; removed counted AtomicBool."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/w3d_gadget_draw/power.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI"
+note = "Once-log uses OnceLock<()>; removed counted AtomicBool."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/assets/mod.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
+note = "Asset id counter on GameClient; no process AtomicU64."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/platform/device_interface.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
+note = "Device id counter on GameClient; no process AtomicU64."

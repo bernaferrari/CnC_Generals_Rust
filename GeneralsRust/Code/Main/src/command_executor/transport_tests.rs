@@ -74,7 +74,7 @@ fn execute_exit_unloads_only_the_selected_occupant() {
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_exit(&[a]), CommandResult::Success);
+        assert_eq!(exec.execute_exit(&[a]), Ok(CommandResult::Success));
     }
     let remaining = logic.host_object(transport).unwrap().contained_units();
     assert_eq!(remaining, vec![b], "EXIT must leave the unclicked occupant");
@@ -121,7 +121,7 @@ fn execute_combat_drop_uses_hover_not_land_evac() {
                 &[transport],
                 &DropTarget::Location(Vec3::new(80.0, 0.0, 80.0))
             ),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let t = logic.host_object(transport).unwrap();
@@ -187,7 +187,7 @@ fn execute_combat_drop_plays_voice_combat_drop() {
                 &[transport],
                 &DropTarget::Location(Vec3::new(80.0, 0.0, 80.0))
             ),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     assert!(
@@ -566,7 +566,7 @@ fn execute_exit_staggers_humvee_occupants_and_goes_aggressive() {
     contain_pair(&mut logic, transport, b);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_exit(&[transport]), CommandResult::Success);
+        assert_eq!(exec.execute_exit(&[transport]), Ok(CommandResult::Success));
     }
     let remaining = logic.host_object(transport).unwrap().contained_units();
     assert_eq!(remaining.len(), 1, "ExitDelay must dump one occupant");
@@ -615,7 +615,7 @@ fn execute_exit_holds_battle_bus_in_air() {
     contain_pair(&mut logic, transport, pax);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_exit(&[transport]), CommandResult::Success);
+        assert_eq!(exec.execute_exit(&[transport]), Ok(CommandResult::Success));
     }
     assert_eq!(
         logic.host_object(pax).unwrap().contained_by,
@@ -668,7 +668,7 @@ fn execute_exit_keeps_dumping_while_humvee_moves() {
     contain_pair(&mut logic, transport, b);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_exit(&[transport]), CommandResult::Success);
+        assert_eq!(exec.execute_exit(&[transport]), Ok(CommandResult::Success));
     }
     assert_eq!(
         logic
@@ -747,12 +747,12 @@ fn execute_exit_and_evacuate_ignored_while_subdued() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_exit(&[transport]),
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         );
         assert_eq!(
             exec.execute_evacuate(&[transport])
                 .expect("evacuate command"),
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         );
     }
     assert_eq!(
@@ -796,7 +796,7 @@ fn execute_exit_walks_exit_path_not_idle_ring() {
     contain_pair(&mut logic, transport, pax);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_exit(&[transport]), CommandResult::Success);
+        assert_eq!(exec.execute_exit(&[transport]), Ok(CommandResult::Success));
     }
     let hull = logic.host_object(transport).unwrap().get_position();
     let rider = logic.host_object(pax).unwrap();
@@ -879,7 +879,7 @@ fn execute_exit_airborne_allows_fall_without_hull_velocity_kick() {
     contain_pair(&mut logic, transport, pax);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_exit(&[transport]), CommandResult::Success);
+        assert_eq!(exec.execute_exit(&[transport]), Ok(CommandResult::Success));
     }
     let rider = logic.host_object(pax).unwrap();
     assert!(rider.contained_by.is_none());
@@ -980,7 +980,7 @@ fn execute_exit_tunnel_walks_exit_start_not_idle_drop() {
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_exit(&[pax]), CommandResult::Success);
+        assert_eq!(exec.execute_exit(&[pax]), Ok(CommandResult::Success));
     }
     let hull = logic.host_object(tunnel).unwrap().get_position();
     let rider = logic.host_object(pax).unwrap();
@@ -1047,7 +1047,7 @@ fn combat_drop_into_rejects_faction_structure() {
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(
         exec.execute_combat_drop(&[transport], &DropTarget::Object(bldg)),
-        CommandResult::InvalidCommand
+        Ok(CommandResult::InvalidCommand)
     );
 }
 
@@ -1087,7 +1087,7 @@ fn combat_drop_hover_uses_geometry_height_plus_min_drop() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_combat_drop(&[transport], &DropTarget::Object(bunker)),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let ai = logic
@@ -1243,12 +1243,12 @@ fn execute_exit_garrison_walks_burst_not_six_unit_ring() {
     let (bunker, ranger) = garrison_bunker(&mut logic, "EXIT_GB", "EXIT_GR", origin, None);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_exit(&[bunker]), CommandResult::Success);
+        assert_eq!(exec.execute_exit(&[bunker]), Ok(CommandResult::Success));
     }
     let r = logic.host_object(ranger).unwrap();
     assert!(r.contained_by.is_none());
     assert!(
-        matches!(r.ai_state, AIState::Moving),
+        matches!(r.ai_state(), AIState::Moving),
         "Evacuate/Exit on a garrison must walk, not Idle on a 6-unit ring"
     );
     assert!(r.status.moving);
@@ -1274,12 +1274,12 @@ fn execute_evacuate_garrison_walks_burst_not_six_unit_ring() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_evacuate(&[bunker]).expect("evacuate command"),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let r = logic.host_object(ranger).unwrap();
     assert!(r.contained_by.is_none());
-    assert_eq!(r.ai_state, AIState::Moving);
+    assert_eq!(r.ai_state(), AIState::Moving);
     let dest = r.movement.target_position.expect("evac dest");
     assert!(
         (dest - origin).length() > 8.0,
@@ -1341,7 +1341,7 @@ fn execute_evacuate_marks_stealth_garrison_detected() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_evacuate(&[bunker]).expect("evacuate command"),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let n = logic.host_object(ninja).unwrap();
@@ -1360,11 +1360,11 @@ fn execute_exit_garrison_occupant_inventory_walks_burst() {
     let (_bunker, ranger) = garrison_bunker(&mut logic, "EXIT_GO", "EXIT_GOR", origin, None);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_exit(&[ranger]), CommandResult::Success);
+        assert_eq!(exec.execute_exit(&[ranger]), Ok(CommandResult::Success));
     }
     let r = logic.host_object(ranger).unwrap();
     assert!(r.contained_by.is_none());
-    assert_eq!(r.ai_state, AIState::Moving);
+    assert_eq!(r.ai_state(), AIState::Moving);
     let dest = r.movement.target_position.expect("inventory dest");
     assert!(
         (dest - origin).length() > 8.0,
@@ -1378,10 +1378,10 @@ fn execute_exit_garrison_respects_evac_left() {
     let (bunker, ranger) = garrison_bunker(&mut logic, "EXIT_GL", "EXIT_GLR", Vec3::ZERO, Some(1));
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_exit(&[bunker]), CommandResult::Success);
+        assert_eq!(exec.execute_exit(&[bunker]), Ok(CommandResult::Success));
     }
     let r = logic.host_object(ranger).unwrap();
-    assert!(matches!(r.ai_state, AIState::Moving));
+    assert!(matches!(r.ai_state(), AIState::Moving));
     let dest = r.movement.target_position.expect("left dest");
     assert!(
         dest.z.abs() >= 50.0,
@@ -1400,10 +1400,10 @@ fn execute_exit_garrison_respects_evac_right() {
         garrison_bunker(&mut logic, "EXIT_GRT", "EXIT_GRTR", Vec3::ZERO, Some(2));
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_exit(&[bunker]), CommandResult::Success);
+        assert_eq!(exec.execute_exit(&[bunker]), Ok(CommandResult::Success));
     }
     let r = logic.host_object(ranger).unwrap();
-    assert!(matches!(r.ai_state, AIState::Moving));
+    assert!(matches!(r.ai_state(), AIState::Moving));
     let dest = r.movement.target_position.expect("right dest");
     assert!(
         dest.z.abs() >= 50.0,
@@ -1427,10 +1427,10 @@ fn execute_exit_garrison_walks_without_garrisoned_ai_state() {
     );
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_exit(&[bunker]), CommandResult::Success);
+        assert_eq!(exec.execute_exit(&[bunker]), Ok(CommandResult::Success));
     }
     let r = logic.host_object(ranger).unwrap();
-    assert_eq!(r.ai_state, AIState::Moving);
+    assert_eq!(r.ai_state(), AIState::Moving);
     let dest = r.movement.target_position.expect("idle-ai dest");
     assert!(
         (dest - origin).length() > 8.0,
@@ -1464,7 +1464,7 @@ fn open_contain_exit_ignores_collisions_for_one_second() {
     contain_pair(&mut logic, transport, pax);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_exit(&[pax]), CommandResult::Success);
+        assert_eq!(exec.execute_exit(&[pax]), Ok(CommandResult::Success));
     }
     let rider = logic.host_object(pax).unwrap();
     assert_eq!(rider.ignore_collisions_with, None);
@@ -1530,7 +1530,7 @@ fn railed_evacuate_uses_dock_unload_not_open_contain_walk() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_evacuate(&[ferry]).expect("evacuate command"),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let rider = logic.host_object(pax).unwrap();
@@ -1575,7 +1575,7 @@ fn railed_evacuate_refuses_while_in_transit() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_evacuate(&[ferry]).expect("evacuate command"),
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         );
     }
     assert_eq!(logic.host_object(pax).unwrap().contained_by, Some(ferry));

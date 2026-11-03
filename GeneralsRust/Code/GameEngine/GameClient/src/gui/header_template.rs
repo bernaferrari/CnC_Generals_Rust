@@ -1,7 +1,7 @@
 //! Header template manager for unified UI font styling.
 
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use game_engine::common::ini::ini_webpage_url::get_registry_language;
 use game_engine::common::ini::{
@@ -52,11 +52,12 @@ impl HeaderTemplateManager {
     /// Load INI into the global manager. Must not be called while that mutex is held.
     pub fn load_ini_unlocked() -> Result<(), Box<dyn std::error::Error>> {
         {
-            let mut manager = get_header_template_manager();
+            let __hdr = get_header_template_manager();
+    let mut manager = __hdr.lock().unwrap_or_else(|e| e.into_inner());
             manager.templates.clear();
         }
         load_header_template_ini()?;
-        get_header_template_manager().populate_game_fonts();
+        get_header_template_manager().lock().unwrap_or_else(|e| e.into_inner()).populate_game_fonts();
         Ok(())
     }
 
@@ -130,14 +131,36 @@ fn load_header_template_ini() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-static HEADER_TEMPLATE_MANAGER: OnceLock<Mutex<HeaderTemplateManager>> = OnceLock::new();
 static HEADER_TEMPLATE_PARSER: OnceLock<()> = OnceLock::new();
 
-pub fn get_header_template_manager() -> std::sync::MutexGuard<'static, HeaderTemplateManager> {
-    HEADER_TEMPLATE_MANAGER
-        .get_or_init(|| Mutex::new(HeaderTemplateManager::new()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
+#[cfg(test)]
+thread_local! {
+    static TEST_HEADER_TEMPLATE_MANAGER: std::cell::RefCell<Option<Arc<Mutex<HeaderTemplateManager>>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn header_template_manager_handle() -> Arc<Mutex<HeaderTemplateManager>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_header_template_manager()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_HEADER_TEMPLATE_MANAGER.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| Arc::new(Mutex::new(HeaderTemplateManager::new())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(Mutex::new(HeaderTemplateManager::new()))
+    }
+}
+
+pub fn get_header_template_manager() -> Arc<Mutex<HeaderTemplateManager>> {
+    header_template_manager_handle()
 }
 
 pub fn register_parser() {
@@ -155,7 +178,8 @@ fn parse_header_template_definition(ini: &mut INI) -> INIResult<()> {
         .ok_or(INIError::InvalidData)?
         .to_string();
 
-    let mut manager = get_header_template_manager();
+    let __hdr = get_header_template_manager();
+    let mut manager = __hdr.lock().unwrap_or_else(|e| e.into_inner());
     if manager.find_header_template(&name).is_some() {
         return Err(INIError::InvalidData);
     }

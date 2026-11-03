@@ -1376,7 +1376,7 @@ fn troop_crawler_residual_transport_load_unload() {
         assert!(unit.can_move());
         // C++ OpenContain::exitObjectViaDoor → aiFollowPath: an exiting rider
         // walks out (Moving); Idle only after the walk completes.
-        assert!(matches!(unit.ai_state, AIState::Idle | AIState::Moving));
+        assert!(matches!(unit.ai_state(), AIState::Idle | AIState::Moving));
     }
     {
         let crawler = game_logic.host_object(crawler_id).expect("empty");
@@ -2851,7 +2851,7 @@ fn troop_crawler_death_gives_final_orders() {
     );
     assert!(
         member.target == Some(enemy)
-            || matches!(member.ai_state, AIState::Attacking | AIState::AttackMoving),
+            || matches!(member.ai_state(), AIState::Attacking | AIState::AttackMoving),
         "dead crawler hands the assault attack to the squad"
     );
 }
@@ -3028,7 +3028,7 @@ fn troop_crawler_attack_move_continues_after_target_death() {
         .expect("valid assault transport fixture");
     let crawler = game_logic.host_object(crawler_id).expect("crawler");
     assert!(
-        matches!(crawler.ai_state, AIState::AttackMoving),
+        matches!(crawler.ai_state(), AIState::AttackMoving),
         "attack-move assault continues toward the goal after the target dies"
     );
     assert!(

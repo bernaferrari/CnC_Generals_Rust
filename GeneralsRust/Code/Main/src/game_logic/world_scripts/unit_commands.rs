@@ -3978,7 +3978,7 @@ mod tests {
         let hunter = logic.objects.get(&hunter_id).expect("hunter after tick");
         assert!(!hunter.is_hunting());
         assert!(
-            !matches!(hunter.ai_state, AIState::Patrolling),
+            !matches!(hunter.ai_state(), AIState::Patrolling),
             "Hunt must not resume after the player attack finishes; got {:?}",
             hunter.ai_state()
         );
@@ -4009,7 +4009,7 @@ mod tests {
         let hunter = logic.objects.get(&hunter_id).expect("hunter after tick");
         assert!(!hunter.is_hunting());
         assert!(
-            !matches!(hunter.ai_state, AIState::Patrolling),
+            !matches!(hunter.ai_state(), AIState::Patrolling),
             "Hunt must not resume after the player move finishes; got {:?}",
             hunter.ai_state()
         );

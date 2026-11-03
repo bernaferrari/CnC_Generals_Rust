@@ -175,7 +175,7 @@ fn location_command_distinguishes_owner_hidden_fogged_and_visible() {
             with_foreign_held(|| {
                 assert_eq!(
                     click(&mut hidden, caster, target, SpecialPowerType::Airstrike),
-                    CommandResult::InvalidLocation
+                    Ok(CommandResult::InvalidLocation)
                 );
                 assert!(hidden.is_special_power_ready_for(caster, &SpecialPowerType::Airstrike));
                 assert_eq!(
@@ -185,7 +185,7 @@ fn location_command_distinguishes_owner_hidden_fogged_and_visible() {
                         other_target,
                         SpecialPowerType::Airstrike
                     ),
-                    CommandResult::Success,
+                    Ok(CommandResult::Success),
                     "CPP allows fogged damaging-power locations"
                 );
                 assert!(
@@ -198,11 +198,11 @@ fn location_command_distinguishes_owner_hidden_fogged_and_visible() {
                         visible_target,
                         SpecialPowerType::Airstrike
                     ),
-                    CommandResult::Success
+                    Ok(CommandResult::Success)
                 );
                 assert_eq!(
                     click(&mut hidden, caster, target, SpecialPowerType::Airstrike),
-                    CommandResult::InvalidLocation,
+                    Ok(CommandResult::InvalidLocation),
                     "other owners cannot reveal this map"
                 );
                 assert!(hidden.is_special_power_ready_for(caster, &SpecialPowerType::Airstrike));
@@ -232,7 +232,7 @@ fn location_paradrop_reads_driving_water_before_shroud() {
             with_foreign_held(|| {
                 assert_eq!(
                     click(&mut wet, caster, target, SpecialPowerType::Paradrop),
-                    CommandResult::InvalidLocation
+                    Ok(CommandResult::InvalidLocation)
                 );
                 assert!(wet.is_special_power_ready_for(caster, &SpecialPowerType::Paradrop));
                 assert_eq!(
@@ -242,12 +242,12 @@ fn location_paradrop_reads_driving_water_before_shroud() {
                         other_target,
                         SpecialPowerType::Paradrop
                     ),
-                    CommandResult::Success
+                    Ok(CommandResult::Success)
                 );
                 assert!(!dry.is_special_power_ready_for(other_caster, &SpecialPowerType::Paradrop));
                 assert_eq!(
                     click(&mut wet, caster, target, SpecialPowerType::Paradrop),
-                    CommandResult::InvalidLocation
+                    Ok(CommandResult::InvalidLocation)
                 );
                 assert!(wet.is_special_power_ready_for(caster, &SpecialPowerType::Paradrop));
             });
@@ -267,7 +267,7 @@ fn informational_location_gate_uses_driving_extent_and_inclusive_edges() {
             with_foreign_held(|| {
                 assert_eq!(
                     click(&mut small, caster, target, SpecialPowerType::SpySatellite),
-                    CommandResult::InvalidLocation
+                    Ok(CommandResult::InvalidLocation)
                 );
                 assert!(small.is_special_power_ready_for(caster, &SpecialPowerType::SpySatellite));
                 for position in [Vec3::ZERO, Vec3::new(40.0, 99.0, 40.0)] {

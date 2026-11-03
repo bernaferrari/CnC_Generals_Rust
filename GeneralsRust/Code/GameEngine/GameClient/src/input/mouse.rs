@@ -1202,10 +1202,34 @@ impl Default for Mouse {
 // TheMouse Singleton (matches C++ extern Mouse *TheMouse)
 // ============================================================================
 
-static THE_MOUSE: OnceLock<Arc<Mutex<Mouse>>> = OnceLock::new();
+#[cfg(test)]
+thread_local! {
+    static TEST_MOUSE: std::cell::RefCell<Option<Arc<Mutex<Mouse>>>> =
+        const { std::cell::RefCell::new(None) };
+}
 
-pub fn the_mouse() -> &'static Arc<Mutex<Mouse>> {
-    THE_MOUSE.get_or_init(|| Arc::new(Mutex::new(Mouse::new())))
+fn mouse_handle() -> Arc<Mutex<Mouse>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_mouse()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_MOUSE.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| Arc::new(Mutex::new(Mouse::new())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(Mutex::new(Mouse::new()))
+    }
+}
+
+pub fn the_mouse() -> Arc<Mutex<Mouse>> {
+    mouse_handle()
 }
 
 pub fn with_mouse<R>(f: impl FnOnce(&mut Mouse) -> R) -> R {

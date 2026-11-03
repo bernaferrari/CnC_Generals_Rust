@@ -344,7 +344,7 @@ fn ordinary_command_executor_uses_receiving_interpreter_policy() {
             0,
             -1
         ),
-        crate::command_system::CommandResult::Success
+        Ok(crate::command_system::CommandResult::Success)
     );
     assert_eq!(world.host_object(unit).unwrap().target, Some(near));
     assert_eq!(
@@ -353,7 +353,7 @@ fn ordinary_command_executor_uses_receiving_interpreter_policy() {
             0,
             -1
         ),
-        crate::command_system::CommandResult::Success
+        Ok(crate::command_system::CommandResult::Success)
     );
     assert_eq!(peer.host_object(unit).unwrap().target, Some(far));
     assert_eq!(world.host_object(unit).unwrap().target, Some(near));

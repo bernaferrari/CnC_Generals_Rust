@@ -37,7 +37,7 @@ impl game_client::fx_list::FXNugget for Nugget {
     }
     fn do_fx_obj_host(&self, primary: &HostFxObjectPose, _: Option<&HostFxObjectPose>) {
         // No catalog lock may span a callback. This is the real client nugget.
-        drop(game_client::fx_list::get_fx_list_store_mut());
+        game_client::fx_list::with_fx_list_store_mut(|_| {});
         self.events
             .send(Effect {
                 name: self.name,
@@ -62,7 +62,7 @@ fn install_fx() -> Receiver<Effect> {
             name,
             events: events.clone(),
         }));
-        game_client::fx_list::get_fx_list_store_mut().add_fx_list(name.into(), fx);
+        game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(name.into(), fx); });
     }
     game_client::fx_list::register_fx_list_manager_bridge();
     received

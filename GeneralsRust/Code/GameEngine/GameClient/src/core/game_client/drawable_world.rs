@@ -384,6 +384,134 @@ impl GameClient {
             .clone()
     }
 
+
+    pub fn ensure_draw_group_info(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::RwLock<crate::draw_group_info::DrawGroupInfo>> {
+        self.draw_group_info
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::RwLock::new(
+                    crate::draw_group_info::DrawGroupInfo::default(),
+                ))
+            })
+            .clone()
+    }
+
+    pub fn ensure_game_text_store(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::RwLock<crate::game_text::GameText>> {
+        self.game_text_store
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::RwLock::new(crate::game_text::GameText::default()))
+            })
+            .clone()
+    }
+
+    pub fn ensure_global_language_data(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::RwLock<crate::global_language::GlobalLanguageData>> {
+        self.global_language_data
+            .get_or_insert_with(|| {
+                let mut data = crate::global_language::GlobalLanguageData::default();
+                data.init();
+                std::sync::Arc::new(std::sync::RwLock::new(data))
+            })
+            .clone()
+    }
+
+    pub fn ensure_language_filter(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::RwLock<crate::language_filter::LanguageFilter>> {
+        self.language_filter
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::RwLock::new(
+                    crate::language_filter::LanguageFilter::new(),
+                ))
+            })
+            .clone()
+    }
+
+    pub fn ensure_smudge_manager(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::system::smudge::SmudgeManager>> {
+        self.smudge_manager
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::system::smudge::SmudgeManager::new(),
+                ))
+            })
+            .clone()
+    }
+
+
+    pub fn ensure_translator_presentation_residual(
+        &mut self,
+    ) -> std::sync::Arc<
+        std::sync::RwLock<crate::presentation_translator_residual::TranslatorPresentationResidual>,
+    > {
+        self.translator_presentation_residual
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::RwLock::new(
+                    crate::presentation_translator_residual::TranslatorPresentationResidual::default(),
+                ))
+            })
+            .clone()
+    }
+
+    pub fn ensure_mouse(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::input::mouse::Mouse>> {
+        self.mouse
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(crate::input::mouse::Mouse::new()))
+            })
+            .clone()
+    }
+
+    pub fn next_fx_id(&self) -> u64 {
+        self.fx_next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn next_render_bridge_line_id(&self) -> u64 {
+        self.render_bridge_next_line_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn win_draw_image_commands(&self) -> &std::sync::atomic::AtomicUsize {
+        &self.win_draw_image_commands
+    }
+
+    pub fn shipped_ui_draw_commands(&self) -> &std::sync::atomic::AtomicUsize {
+        &self.shipped_ui_draw_commands
+    }
+
+    pub fn text_entry_draw_cnt(&self) -> &std::sync::atomic::AtomicU8 {
+        &self.text_entry_draw_cnt
+    }
+
+    pub fn next_asset_id(&self) -> u64 {
+        self.asset_id_counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn next_device_id(&self) -> u64 {
+        self.device_id_counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn ensure_header_template_manager(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::gui::header_template::HeaderTemplateManager>> {
+        self.header_template_manager
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::gui::header_template::HeaderTemplateManager::new(),
+                ))
+            })
+            .clone()
+    }
+
     pub fn ensure_snow_manager(
         &mut self,
     ) -> std::sync::Arc<std::sync::Mutex<crate::snow::SnowManager>> {

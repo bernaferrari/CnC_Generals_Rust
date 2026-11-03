@@ -277,7 +277,7 @@ fn clear_local_selection() {
 }
 
 fn filter_beacon_edit_text(mut text: String) -> String {
-    get_language_filter().filter_line(&mut text);
+    get_language_filter().write().unwrap_or_else(|e| e.into_inner()).filter_line(&mut text);
     text
 }
 
@@ -1823,7 +1823,7 @@ mod tests {
 
     #[test]
     fn beacon_edit_text_is_language_filtered() {
-        get_language_filter().set_words_for_test(["badword"]);
+        get_language_filter().write().unwrap_or_else(|e| e.into_inner()).set_words_for_test(["badword"]);
 
         let filtered = filter_beacon_edit_text("hold badword beacon".to_string());
 

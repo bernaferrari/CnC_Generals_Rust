@@ -72,29 +72,48 @@ fn parse_chunk_dict_typed(
     toc: &HashMap<u32, String>,
 ) -> LoaderResult<Dict> {
     let pair_count = reader.read_u16()? as usize;
-    let mut dict = Dict::new();
-    for _ in 0..pair_count {
-        let key_and_type = reader.read_i32()? as u32;
-        let data_type = (key_and_type & 0xFF) as u8;
-        let name_id = key_and_type >> 8;
-        let key_name = toc.get(&name_id).cloned().unwrap_or_default();
-        if key_name.is_empty() {
+    // One NameKey lock for the whole dict — C++ is a plain static on the game
+    // thread; locking per pair was O(pairs) mutex traffic on every ObjectsList walk.
+    NameKeyGenerator::with_namespace(|names| {
+        let mut dict = Dict::new();
+        for _ in 0..pair_count {
+            let key_and_type = reader.read_i32()? as u32;
+            let data_type = (key_and_type & 0xFF) as u8;
+            let name_id = key_and_type >> 8;
+            let key_name = toc.get(&name_id).cloned().unwrap_or_default();
+            if key_name.is_empty() {
+                match data_type {
+                    0 => {
+                        let _ = reader.read_u8()?;
+                    }
+                    1 => {
+                        let _ = reader.read_i32()?;
+                    }
+                    2 => {
+                        let _ = reader.read_f32()?;
+                    }
+                    3 => {
+                        let _ = reader.read_ascii_string()?;
+                    }
+                    4 => {
+                        let _ = reader.read_unicode_string()?;
+                    }
+                    _ => {
+                        return Err(configuration_error(format!(
+                            "Unknown map dict value type {}",
+                            data_type
+                        )));
+                    }
+                }
+                continue;
+            }
+            let key = names.name_to_key(&key_name);
             match data_type {
-                0 => {
-                    let _ = reader.read_u8()?;
-                }
-                1 => {
-                    let _ = reader.read_i32()?;
-                }
-                2 => {
-                    let _ = reader.read_f32()?;
-                }
-                3 => {
-                    let _ = reader.read_ascii_string()?;
-                }
-                4 => {
-                    let _ = reader.read_unicode_string()?;
-                }
+                0 => dict.set_bool(key, reader.read_u8()? != 0),
+                1 => dict.set_int(key, reader.read_i32()?),
+                2 => dict.set_real(key, reader.read_f32()?),
+                3 => dict.set_ascii_string(key, reader.read_ascii_string()?),
+                4 => dict.set_unicode_string(key, reader.read_unicode_string()?),
                 _ => {
                     return Err(configuration_error(format!(
                         "Unknown map dict value type {}",
@@ -102,24 +121,9 @@ fn parse_chunk_dict_typed(
                     )));
                 }
             }
-            continue;
         }
-        let key = NameKeyGenerator::name_to_key(&key_name);
-        match data_type {
-            0 => dict.set_bool(key, reader.read_u8()? != 0),
-            1 => dict.set_int(key, reader.read_i32()?),
-            2 => dict.set_real(key, reader.read_f32()?),
-            3 => dict.set_ascii_string(key, reader.read_ascii_string()?),
-            4 => dict.set_unicode_string(key, reader.read_unicode_string()?),
-            _ => {
-                return Err(configuration_error(format!(
-                    "Unknown map dict value type {}",
-                    data_type
-                )));
-            }
-        }
-    }
-    Ok(dict)
+        Ok(dict)
+    })
 }
 
 fn dict_to_string_map(dict: &Dict) -> HashMap<String, String> {
