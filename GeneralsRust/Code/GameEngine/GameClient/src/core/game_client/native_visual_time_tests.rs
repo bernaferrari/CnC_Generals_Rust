@@ -1,5 +1,5 @@
 use crate::message_stream::message_stream::THE_MESSAGE_STREAM;
-//! Receiving native prefix facts are observed at the original late UI boundary.
+// Receiving native prefix facts are observed at the original late UI boundary.
 use super::*;
 use crate::test_support::with_receiving_ui;
 

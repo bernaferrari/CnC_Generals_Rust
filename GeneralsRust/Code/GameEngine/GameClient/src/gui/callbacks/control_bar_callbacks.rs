@@ -3,6 +3,8 @@
 //! Implements in-game control bar callbacks and radar input handling, matching
 //! the behavior of C++ ControlBarCallback.cpp.
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use crate::display::view::{Point3, with_tactical_view};
 use crate::gui::callbacks::replay_controls::{
     hide_replay_controls, show_replay_controls, toggle_replay_controls,

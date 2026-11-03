@@ -253,11 +253,21 @@ mod tests {
         let catalog = [catalog_unit(7, "AmericaRanger")];
 
         // When: InGameUI createMouseoverHint (catalog path) sees that object
-        let moused = InGameUI::apply_catalog_mouseover_tooltip(&catalog, Some(7), false);
+        let mut mouse = crate::input::Mouse::new();
+        let moused = crate::test_support::with_receiving_ui(|ui| {
+            InGameUI::apply_catalog_mouseover_tooltip(
+                &catalog,
+                Some(7),
+                false,
+                ui,
+                &mut mouse,
+                None,
+            )
+        });
 
-        // Then: leftover Mouse tooltip is the unit name (C++ setCursorTooltip)
+        // Then: receiving Mouse tooltip is the unit name (C++ setCursorTooltip)
         assert_eq!(moused, 7);
-        assert_eq!(cursor_tooltip_text(), "Ranger");
+        assert_eq!(mouse.cursor_tooltip_state().tooltip_text, "Ranger");
 
         Language::clear_localized_strings();
     }
@@ -508,19 +518,13 @@ mod tests {
     #[test]
     fn double_click_attack_move_guard_hint_uses_cpp_predecrement_semantics() {
         let mut timer = 2;
-        assert!(InGameUI::consume_double_click_attack_move_guard_hint(
-            &mut timer
-        ));
+        assert!(crate::test_support::with_receiving_ui(|ui| InGameUI::consume_double_click_attack_move_guard_hint(&mut timer, ui)));
         assert_eq!(timer, 1);
 
-        assert!(!InGameUI::consume_double_click_attack_move_guard_hint(
-            &mut timer
-        ));
+        assert!(!crate::test_support::with_receiving_ui(|ui| InGameUI::consume_double_click_attack_move_guard_hint(&mut timer, ui)));
         assert_eq!(timer, 0);
 
-        assert!(!InGameUI::consume_double_click_attack_move_guard_hint(
-            &mut timer
-        ));
+        assert!(!crate::test_support::with_receiving_ui(|ui| InGameUI::consume_double_click_attack_move_guard_hint(&mut timer, ui)));
         assert_eq!(timer, 0);
     }
 
@@ -538,9 +542,7 @@ mod tests {
         assert_eq!(stash.x, 40.0);
         assert_eq!(stash.y, 50.0);
         assert_eq!(stash.z, 6.0);
-        assert!(InGameUI::consume_double_click_attack_move_guard_hint(
-            &mut timer
-        ));
+        assert!(crate::test_support::with_receiving_ui(|ui| InGameUI::consume_double_click_attack_move_guard_hint(&mut timer, ui)));
         assert_eq!(timer, 10);
     }
 
@@ -977,16 +979,37 @@ mod tests {
 
     #[test]
     fn popup_message_appends_diplomacy_briefing_identifier() {
-        with_receiving_ui(|ui| {
-        crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text("", true);
-        ui.popup_message("SCRIPT:Wave6InGameUIPopup", 10, 20, 80, false, false);
+        use crate::core::game_client::ClientInputAuthority;
+        use crate::gui::callbacks::menu_callbacks::MenuManager;
+        use crate::gui::game_window::WindowEventEffects;
+        let mut menus = MenuManager::new();
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.menus = Some(menus.receiving_menus(ClientInputAuthority::NativeHosted));
+        crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
+            "",
+            true,
+            &mut wm,
+            effects.menus.as_mut().unwrap().diplomacy,
+        );
+        crate::helpers::popup_message(
+            "SCRIPT:Wave6InGameUIPopup",
+            10,
+            20,
+            80,
+            false,
+            false,
+            &mut effects,
+        );
         assert!(
-            crate::gui::callbacks::diplomacy::get_briefing_text_list()
-                .iter()
-                .any(|line| line.contains("SCRIPT:Wave6InGameUIPopup")),
+            crate::gui::callbacks::diplomacy::get_briefing_text_list(
+                effects.menus.as_ref().unwrap().diplomacy,
+            )
+            .iter()
+            .any(|line| line.contains("SCRIPT:Wave6InGameUIPopup")),
             "popupMessage must UpdateDiplomacyBriefingText before opening the modal"
         );
-        });
     }
 
     #[test]
@@ -1032,11 +1055,13 @@ mod tests {
         init_global_language();
         Language::clear_localized_strings();
         Language::register_localized_string("SCRIPT:Briefing", "Hold the line.");
-        apply_military_caption_style((10.0, 340.0), 0xFFFF_FFFF, 12);
-        start_military_subtitle("SCRIPT:Briefing", 5000);
+        let mut hud = crate::gui::ingame_ui::live_hud::LiveHud::default();
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        apply_military_caption_style(&mut hud, (10.0, 340.0), 0xFFFF_FFFF, 12);
         let frame = TheGameLogic::get_frame();
+        start_military_subtitle(&mut hud, "SCRIPT:Briefing", 5000, frame, &mut wm);
         let (text, _, color, pos, _) =
-            live_military_subtitle_draw(frame).expect("live caption must start");
+            live_military_subtitle_draw(&mut hud, frame).expect("live caption must start");
         assert!(
             text.is_empty(),
             "750ms / 22-frame delay must hold the first character"

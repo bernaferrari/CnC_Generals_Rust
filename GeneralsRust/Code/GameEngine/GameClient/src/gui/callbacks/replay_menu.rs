@@ -586,8 +586,9 @@ use crate::gui::game_window::WindowEventEffects;
                 crate::gui::gadgets::ListBox::new(listbox_id as u32, 0, 0, 200, 80),
             ));
 
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        let state_handle = replay_menu_state(&mut wm);
         {
-            let state_handle = replay_menu_state();
             let mut state = state_handle.borrow_mut();
             *state = ReplayMenuState::new();
             state.listbox_id = listbox_id;
@@ -595,14 +596,15 @@ use crate::gui::game_window::WindowEventEffects;
         }
 
         let mut window = GameWindow::new();
-        window.set_user_data(replay_menu_state());
+        window.set_user_data(replay_menu_state(&mut wm));
         assert_eq!(
             WindowEventEffects::with_standalone(|effects| replay_menu_system(
-                &window,
+                &mut window,
                 WindowMessage::User(GLM_DOUBLE_CLICKED),
                 listbox_id as WindowMsgData,
                 (-1isize) as WindowMsgData,
-            effects)),
+                effects,
+            )),
             WindowMsgHandled::Handled
         );
     }
@@ -908,6 +910,7 @@ pub fn drive_os_wnd_replay_menu_copy_like_cpp(
 #[cfg(test)]
 mod os_wnd_tests {
     use super::*;
+    use crate::gui::game_window::WindowEventEffects;
 
     fn install_named_button(owner: &crate::gui::window_manager::WindowManagerOwner, name: &str, x: i32, y: i32) {
         owner.with_manager(|manager| {

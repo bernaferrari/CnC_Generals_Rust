@@ -460,28 +460,25 @@ mod tests {
     #[test]
     fn test_menu_state_transitions() {
         let mut menu = EstablishConnectionsMenu::new();
-
-        // Start with screen off
-        assert_eq!(
-            menu.get_menu_state(),
-            &EstablishConnectionsMenuState::ScreenOff
-        );
-
-        // Initialize menu
-        menu.init_menu().unwrap();
-        assert_eq!(
-            menu.get_menu_state(),
-            &EstablishConnectionsMenuState::ScreenOn
-        );
-        assert!(menu.is_active());
-
-        // End menu
-        menu.end_menu().unwrap();
-        assert_eq!(
-            menu.get_menu_state(),
-            &EstablishConnectionsMenuState::ScreenOff
-        );
-        assert!(!menu.is_active());
+        let mut wm = WindowManager::new();
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            assert_eq!(
+                menu.get_menu_state(),
+                &EstablishConnectionsMenuState::ScreenOff
+            );
+            menu.init_menu(&mut wm, effects).unwrap();
+            assert_eq!(
+                menu.get_menu_state(),
+                &EstablishConnectionsMenuState::ScreenOn
+            );
+            assert!(menu.is_active());
+            menu.end_menu(&mut wm).unwrap();
+            assert_eq!(
+                menu.get_menu_state(),
+                &EstablishConnectionsMenuState::ScreenOff
+            );
+            assert!(!menu.is_active());
+        });
     }
 
     #[test]
@@ -558,13 +555,15 @@ mod tests {
     #[test]
     fn test_abort_sets_state() {
         let mut menu = EstablishConnectionsMenu::new();
-        menu.init_menu().unwrap();
-        assert!(!menu.was_aborted());
-        assert!(menu.is_active());
-
-        menu.abort_game().unwrap();
-        assert!(menu.was_aborted());
-        assert!(!menu.is_active());
+        let mut wm = WindowManager::new();
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            menu.init_menu(&mut wm, effects).unwrap();
+            assert!(!menu.was_aborted());
+            assert!(menu.is_active());
+            menu.abort_game(&mut wm, None).unwrap();
+            assert!(menu.was_aborted());
+            assert!(!menu.is_active());
+        });
     }
 
     #[test]

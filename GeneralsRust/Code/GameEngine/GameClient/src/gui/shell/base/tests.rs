@@ -333,7 +333,7 @@ mod tests {
 
         manager.set_shell_menu_scheme("test_scheme");
         // Should not crash when drawing
-        manager.draw();
+        { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); manager.draw(&mut __dc); }
     }
 
     #[test]
@@ -518,7 +518,7 @@ End
         assert!(!manager.is_finished());
 
         // Animation should not be finished immediately
-        manager.test_update();
+        manager.update();
         // Note: In a real test, we'd need to wait for the duration to pass
     }
 
@@ -652,9 +652,11 @@ End
                 .screen_stack
                 .push(Box::new(ReentrantQueueLayout::new(events.clone())));
         });
-        let pop = crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
-            effects.window_manager_owner = Some(&test_owner);
-            test_owner.with_shell_effects_mut(effects, |shell, effects| shell.pop_immediate(effects))
+        let mut messages = Vec::new();
+        let mut effects = crate::gui::game_window::WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&test_owner);
+        let pop = test_owner.with_shell_effects_mut(&mut effects, |shell, effects| {
+            shell.pop_immediate(effects)
         });
         assert!(matches!(pop, Some(Ok(()))));
         assert_eq!(
@@ -674,18 +676,18 @@ End
             test_owner.queue_shell_operation_with_effects(move |_shell, _effects| {
                 trailing_events.borrow_mut().push("trailing".to_string());
             });
-            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
-                effects.window_manager_owner = Some(&test_owner);
-                let _ = test_owner.with_shell_effects_mut(effects, |_, _| ());
-            });
+            let mut messages = Vec::new();
+            let mut effects = crate::gui::game_window::WindowEventEffects::new(&mut messages);
+            effects.window_manager_owner = Some(&test_owner);
+            let _ = test_owner.with_shell_effects_mut(&mut effects, |_, _| ());
         }));
         assert!(result.is_err());
         assert_eq!(unwind_events.borrow().as_slice(), &["panicking"]);
 
-        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
-            effects.window_manager_owner = Some(&test_owner);
-            let _ = test_owner.with_shell_effects_mut(effects, |_, _| ());
-        });
+        let mut messages = Vec::new();
+        let mut effects = crate::gui::game_window::WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&test_owner);
+        let _ = test_owner.with_shell_effects_mut(&mut effects, |_, _| ());
         assert_eq!(
             unwind_events.borrow().as_slice(),
             &["panicking", "trailing"],
