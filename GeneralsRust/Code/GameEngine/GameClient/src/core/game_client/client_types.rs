@@ -125,6 +125,10 @@ pub struct GameClient {
     /// Drawable inventory for this receiving GameClient. The process-global
     /// manager remains only for standalone compatibility callers.
     drawable_manager: crate::drawable::DrawableManager,
+    /// Wave 984 host residual: flash contained presentation drawables on select.
+    host_contained_flash_queue: Vec<u32>,
+    /// C++ TheAnim2DCollection residual.
+    client_anim2d_instances: std::sync::Arc<parking_lot::Mutex<crate::system::anim2_d::Anim2DCollection>>,
 
     // Drawable management
     drawables: drawable_world::DrawableWorld,
