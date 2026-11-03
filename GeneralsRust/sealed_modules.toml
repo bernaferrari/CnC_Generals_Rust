@@ -374,3 +374,8 @@ note = "RENDERER_STORAGE off TLS onto Arc<Mutex> RendererStorageSlot; RendererBa
 path = "Code/GameEngine/GameClient/src/gui/callbacks/skirmish_map_select_menu.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/SkirmishMapSelectMenu.cpp"
 note = "SkirmishMapSelectState on WindowManagerOwner; removed process TLS; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/skirmish_battle_honor_display.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/SkirmishBattleHonors.cpp"
+note = "Battle-honor row-skip is a populate local; removed process TLS Cell ROWS_TO_SKIP."
