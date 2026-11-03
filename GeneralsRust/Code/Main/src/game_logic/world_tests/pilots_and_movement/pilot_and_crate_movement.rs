@@ -1621,7 +1621,7 @@ fn sticky_bomb_destroyed_when_target_dies() {
     let charge = logic
         .place_remote_demo_charge(Team::USA, glam::Vec3::ZERO, None, Some(tid))
         .expect("charge");
-    logic.destroy_object(tid);
+    logic.destroy_object(tid).unwrap();
     // Ensure target is gone/dead for sticky check.
     if let Some(t) = logic.objects.get_mut(&tid) {
         t.status.effectively_dead = true;

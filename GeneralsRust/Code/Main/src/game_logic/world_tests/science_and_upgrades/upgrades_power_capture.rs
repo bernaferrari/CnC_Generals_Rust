@@ -2506,7 +2506,7 @@ fn construction_complete_radar_and_production_door_cycle() {
             glam::Vec3::new(10.0, 0.0, 0.0),
         )
         .expect("barracks");
-    logic.notify_structure_construction_complete(bid);
+    logic.notify_structure_construction_complete(bid).unwrap();
     assert!(logic.honesty_structure_complete_ok());
     assert!(logic.honesty_radar_construction_event_ok());
     let text = logic
@@ -2570,7 +2570,7 @@ fn construction_complete_does_not_queue_invented_building_complete() {
         )
         .expect("barracks");
     logic.queued_audio_events.clear();
-    logic.notify_structure_construction_complete(bid);
+    logic.notify_structure_construction_complete(bid).unwrap();
     assert!(
         logic
             .queued_audio_events
@@ -2651,7 +2651,7 @@ fn structure_and_unit_complete_notify_local_feedback() {
             glam::Vec3::new(1.0, 0.0, 2.0),
         )
         .expect("pp");
-    logic.notify_structure_construction_complete(sid);
+    logic.notify_structure_construction_complete(sid).unwrap();
     assert!(logic.honesty_structure_complete_ok());
     let bit = construction_complete_model_bit();
     let obj = logic.host_object(sid).expect("o");

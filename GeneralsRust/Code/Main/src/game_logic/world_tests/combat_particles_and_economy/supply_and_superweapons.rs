@@ -598,7 +598,7 @@ fn warehouses_keep_script_values_and_heal_clocks_per_world() {
         first.snapshot_warehouse_crippling_states()[0].1,
         first_clock
     );
-    first.destroy_object(first_id);
+    first.destroy_object(first_id).unwrap();
     first.process_destroy_list();
     first.add_object(replacement);
     assert!(
@@ -612,7 +612,7 @@ fn warehouses_keep_script_values_and_heal_clocks_per_world() {
         second.snapshot_warehouse_crippling_states()[0].1,
         second_clock
     );
-    second.destroy_object(second_id);
+    second.destroy_object(second_id).unwrap();
     second.update_supply_warehouse_crippling();
     assert!(
         second.snapshot_warehouse_crippling_states().is_empty(),

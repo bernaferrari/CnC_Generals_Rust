@@ -2929,7 +2929,7 @@ fn empty_jet_circles_last_airfield_instead_of_bleeding_in_place() {
         "must not bleed while a live airfield exists or while flying home"
     );
 
-    logic.destroy_object(af_id);
+    logic.destroy_object(af_id).unwrap();
     if let Some(af) = logic.objects.get_mut(&af_id) {
         af.status.destroyed = true;
         af.health.current = 0.0;

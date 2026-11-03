@@ -1,5 +1,6 @@
 //! Actual admitted AI module commands; source modules and peer state are real world inputs.
-use super::*;
+use super::super::*;
+use crate::game_logic::AIState;
 
 fn admitted(module: &str) -> (GameLogic, ObjectId) {
     let content = format!(

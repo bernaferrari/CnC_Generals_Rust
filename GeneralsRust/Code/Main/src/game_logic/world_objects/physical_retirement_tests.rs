@@ -118,7 +118,7 @@ fn queue(world: &mut GameLogic, id: ObjectId, death: bool) {
             )
             .unwrap();
     } else {
-        world.destroy_object(id);
+        world.destroy_object(id).unwrap();
     }
     assert!(
         world.objects.contains_key(&id),
@@ -758,7 +758,7 @@ fn bulk_retirement_preserves_prior_queue_then_registration_and_containment_order
         .push(child);
     owner.set_fixture_object_contained_by(child, Some(parent));
     assert_eq!(owner.objects.ordered_ids(), &[last, parent, child, queued]);
-    owner.destroy_object(queued);
+    owner.destroy_object(queued).unwrap();
     let mut probe = OrderedProbe {
         calls: Vec::new(),
         parent,
@@ -854,7 +854,7 @@ fn bridge_actor_deletion_refresh_never_resurrects_or_allocates_a_span() {
     let original_slots = owner.pathfinding_system.grid.admitted_bridge_states();
     assert_eq!(original_slots.len(), 1);
     assert_eq!(original_slots[0].1, id.0);
-    owner.destroy_object(id);
+    owner.destroy_object(id).unwrap();
     owner
         .process_destroy_list_with_effects_checked(&mut Default::default())
         .unwrap();

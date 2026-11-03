@@ -1308,6 +1308,6 @@ fn admitted_builder_native_world() -> (GameLogic, ObjectId, ObjectId) {
             Vec3::new(20., 0., 0.),
             0.,
         )
-        .unwrap();
+        .unwrap().expect("ObjectId");
     (source, dozer, scaffold)
 }

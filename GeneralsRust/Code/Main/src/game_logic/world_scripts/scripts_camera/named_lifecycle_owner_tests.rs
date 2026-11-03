@@ -47,7 +47,7 @@ fn live_dead_removed_and_never_created_names_are_session_owned() {
     assert!(query(&mut world, ConditionType::NamedDying, "Hero"));
     assert!(query(&mut world, ConditionType::NamedDestroyed, "Hero"));
     assert!(!query(&mut world, ConditionType::NamedTotallyDead, "Hero"));
-    world.destroy_object(id);
+    world.destroy_object(id).unwrap();
     world.process_destroy_list();
     assert!(world.host_object(id).is_none());
     assert!(query(&mut world, ConditionType::NamedDestroyed, "Hero"));
@@ -80,7 +80,7 @@ fn renaming_and_actual_snapshot_restore_preserve_history_but_reset_clears_it() {
         ConditionType::NamedCreated,
         "RenamedHero"
     ));
-    world.destroy_object(id);
+    world.destroy_object(id).unwrap();
     world.process_destroy_list();
     let builder = crate::save_load::SnapshotBuilder::new();
     let snapshot = builder.create_world_snapshot(&world).unwrap();

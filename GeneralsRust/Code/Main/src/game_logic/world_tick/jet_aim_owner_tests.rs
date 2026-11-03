@@ -1,5 +1,6 @@
 //! Actual headless Main AIM state observed through ordinary receiving owners.
-use super::*;
+use super::super::*;
+use crate::game_logic::{KindOf, ThingTemplate, Weapon};
 
 fn world(frame: u32) -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();

@@ -820,7 +820,7 @@ fn cancel_construction_refunds_full_build_cost() {
 
     let barracks_id = game_logic
         .create_object_under_construction("TestBarracks", Team::USA, Vec3::ZERO)
-        .expect("under-construction barracks should be created");
+        .expect("under-construction barracks should be created").expect("ObjectId");
 
     let cancel_command = GameCommand {
         command_type: CommandType::DozerCancelConstruct {
@@ -872,7 +872,7 @@ fn cancel_construction_rejects_enemy_structure() {
 
     let barracks_id = game_logic
         .create_object_under_construction("TestBarracks", Team::USA, Vec3::ZERO)
-        .expect("under-construction barracks should be created");
+        .expect("under-construction barracks should be created").expect("ObjectId");
 
     let cancel_command = GameCommand {
         command_type: CommandType::DozerCancelConstruct {

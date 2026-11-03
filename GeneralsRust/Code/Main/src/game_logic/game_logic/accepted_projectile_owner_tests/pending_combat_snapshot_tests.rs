@@ -89,7 +89,7 @@ fn pending_combat_snapshot_accepted_fifo_replaces_in_place_queue_and_keeps_retir
         ]
     );
     assert!(source_world.combat_system.take_fire_ocl().is_empty());
-    source_world.destroy_object(source);
+    source_world.destroy_object(source).unwrap();
     source_world.process_destroy_list_if_needed();
     assert!(!source_world.objects.contains_key(&source));
     // C++ getProducer resolves through the current roster. The original
@@ -162,7 +162,7 @@ fn pending_combat_snapshot_finite_deadline_survives_fresh_and_in_place_same_id_l
     assert_eq!(first.objects[&target].health.current, 100.0);
     assert_eq!(second.objects[&other_target].health.current, 100.0);
     assert_eq!(first.combat_system.projectile_count(), 0);
-    first.destroy_object(source);
+    first.destroy_object(source).unwrap();
     first.process_destroy_list_if_needed();
     assert!(!first.objects.contains_key(&source));
     let first_save = encoded_snapshot(&first);

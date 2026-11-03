@@ -239,7 +239,7 @@ fn accepted_discharge_synchronized_empty_roster_victory_runtime_fallback_keeps_f
 fn accepted_discharge_source_retirement_keeps_the_frozen_shot_once() {
     let mut logic = admitted_world(2);
     accept_shot(&mut logic, 1.0);
-    logic.destroy_object(SOURCE);
+    logic.destroy_object(SOURCE).unwrap();
     logic.process_destroy_list();
     assert!(logic.host_object(SOURCE).is_none());
     let frame = publish(&mut logic);

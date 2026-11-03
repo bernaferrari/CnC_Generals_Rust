@@ -209,7 +209,7 @@ fn under_construction_structure_blocks_path() {
             Team::USA,
             Vec3::new(80.0, 0.0, 80.0),
         )
-        .expect("scaffold");
+        .expect("scaffold").expect("ObjectId");
     let obj = logic.host_object(id).expect("placed");
     assert!(obj.status.under_construction);
     let placed = obj.get_position();

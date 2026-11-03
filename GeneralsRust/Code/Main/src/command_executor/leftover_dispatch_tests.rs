@@ -1114,8 +1114,7 @@ fn replacing_build_task_retains_both_scaffold_builder_ids() {
             Vec3::new(40.0, 0.0, 20.0),
             0.0,
         )
-        .expect("first real scaffold")
-        .expect("first scaffold id");
+        .expect("first real scaffold").expect("ObjectId");
     let second = logic
         .create_object_under_construction_for_player(
             "BuildRetargetScaffold",
@@ -1123,8 +1122,7 @@ fn replacing_build_task_retains_both_scaffold_builder_ids() {
             Vec3::new(80.0, 0.0, 20.0),
             0.0,
         )
-        .expect("second real scaffold")
-        .expect("second scaffold id");
+        .expect("second real scaffold").expect("ObjectId");
     logic.frame = 5;
     logic.dozer_new_task_build(dozer, first);
     let first_dock = logic.host_object(dozer).unwrap().dozer_dock_action();

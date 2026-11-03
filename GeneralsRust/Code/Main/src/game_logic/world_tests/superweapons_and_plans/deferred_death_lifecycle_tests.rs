@@ -124,7 +124,7 @@ fn explicit_destroy_during_active_slow_death_enqueues_once_without_reentering_di
         .unwrap()
         .begin_frame;
     // CPP destroyObject has no onDie latch and no waiting-for-animation gate.
-    world.destroy_object(id);
+    world.destroy_object(id).unwrap();
     assert_eq!(
         world
             .objects_to_destroy
@@ -143,7 +143,7 @@ fn explicit_destroy_during_active_slow_death_enqueues_once_without_reentering_di
         death.is_active(),
         "explicit deletion did not fast-forward the timer"
     );
-    world.destroy_object(id);
+    world.destroy_object(id).unwrap();
     world.mark_object_for_destruction(id, Some(Team::China));
     assert_eq!(
         world
@@ -234,7 +234,7 @@ fn explicit_destroy_after_producer_death_preserves_one_refund_and_queue_identity
     assert!(owner.structure_topple_data.as_ref().unwrap().is_active());
     // An authored animation may remain active, but explicit destroyObject
     // independently requests deletion without repeating the death callback.
-    world.destroy_object(id);
+    world.destroy_object(id).unwrap();
     assert_eq!(
         world
             .objects_to_destroy
@@ -243,7 +243,7 @@ fn explicit_destroy_after_producer_death_preserves_one_refund_and_queue_identity
             .count(),
         1
     );
-    world.destroy_object(id);
+    world.destroy_object(id).unwrap();
     world.mark_object_for_destruction(id, Some(Team::GLA));
     assert_eq!(
         world
@@ -267,7 +267,7 @@ fn repeated_alive_direct_destroy_queues_once_without_entering_die() {
     let id = world
         .create_object("TestInfantry", Team::USA, Vec3::ZERO)
         .unwrap();
-    world.destroy_object(id);
+    world.destroy_object(id).unwrap();
     // CPP GameLogic3935 / Object722: direct deletion has no onDie.
     assert!(!world.host_object(id).unwrap().status.on_die_started);
     assert_eq!(
@@ -278,7 +278,7 @@ fn repeated_alive_direct_destroy_queues_once_without_entering_die() {
             .count(),
         1
     );
-    world.destroy_object(id);
+    world.destroy_object(id).unwrap();
     assert_eq!(
         world
             .objects_to_destroy
@@ -405,7 +405,7 @@ fn declared_movement_authority_shadow_final_deletion_does_not_reenter_death_star
                         1,
                         "actual owner timer queues final destruction despite the onDie latch"
                     );
-                    world.destroy_object(id);
+                    world.destroy_object(id).unwrap();
                     assert_eq!(
                         world
                             .objects_to_destroy
@@ -515,7 +515,7 @@ fn explicit_container_delete_detaches_a_dying_slow_death_passenger_immediately()
             .add_occupant(child)
     );
     world.set_fixture_object_contained_by(child, Some(container));
-    world.destroy_object(container);
+    world.destroy_object(container).unwrap();
     assert!(
         world
             .host_object(container)
@@ -535,7 +535,7 @@ fn explicit_container_delete_detaches_a_dying_slow_death_passenger_immediately()
             .collect::<Vec<_>>(),
         vec![container, child]
     );
-    world.destroy_object(child);
+    world.destroy_object(child).unwrap();
     assert_eq!(world.objects_to_destroy.len(), 2);
     world.process_destroy_list();
     assert!(world.host_object(child).is_none());
@@ -654,7 +654,7 @@ fn coupled_default_structure_completion_retains_objects_until_explicit_delete() 
                     // A duplicate onDie request cannot turn completion into deletion.
                     world.mark_object_for_destruction(id, None);
                     assert!(world.objects_to_destroy.iter().all(|event| event.id != id));
-                    world.destroy_object(id);
+                    world.destroy_object(id).unwrap();
                     assert_eq!(
                         world
                             .objects_to_destroy

@@ -143,7 +143,7 @@ fn overlord_enter_uses_actual_payload_roster_and_preserves_same_id_peer() {
 fn overlord_delete_detaches_payload_and_riders_before_physical_removal() {
     let (mut owner, unit, hull, payload) = world();
     enter(&mut owner, unit, hull);
-    owner.destroy_object(hull);
+    owner.destroy_object(hull).unwrap();
     assert!(owner.host_object(hull).unwrap().status.destroyed);
     assert!(!owner.host_object(hull).unwrap().overlord_redirection_active);
     assert!(

@@ -176,7 +176,7 @@ fn beacon_removal_discards_only_its_session_entry_and_reused_ids_start_clean() {
     let id = place(&mut owner, 0, "remove me");
     let mut peer = world();
     assert_eq!(place(&mut peer, 0, "keep me"), id);
-    owner.destroy_object(id);
+    owner.destroy_object(id).unwrap();
     owner.process_destroy_list();
     assert_eq!(host_beacon_caption(&owner, id), None);
     assert_eq!(host_beacon_caption(&peer, id).as_deref(), Some("keep me"));
@@ -214,7 +214,7 @@ fn encoded_roster_replacement_cannot_reuse_the_previous_beacon_entry() {
     // Admit the same authored Enemy prototype, then save its empty roster.
     let mut source = world();
     let source_id = place(&mut source, 1, "source prototype");
-    source.destroy_object(source_id);
+    source.destroy_object(source_id).unwrap();
     source.process_destroy_list();
     // Preserve the admitted prototype but exercise a valid empty roster whose
     // saved allocator restarts at one, as the replacement boundary permits.

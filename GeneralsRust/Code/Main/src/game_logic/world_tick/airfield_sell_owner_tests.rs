@@ -165,7 +165,7 @@ fn authored_airfield_sell_dispatches_ordered_die_callbacks_without_flushing_othe
         (rack, slots, unrelated),
         (peer_rack, peer_slots, peer_unrelated)
     );
-    world.destroy_object(unrelated);
+    world.destroy_object(unrelated).unwrap();
     assert_eq!(queued(&world), vec![unrelated]);
     assert!(world.start_sell_object(rack));
     assert!(world.host_object(rack).unwrap().status.sold);

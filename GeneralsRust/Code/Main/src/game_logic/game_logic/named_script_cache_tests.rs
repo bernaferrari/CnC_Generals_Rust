@@ -161,8 +161,8 @@ mod receiving_tests {
                     Some(999),
                     "restore never clears foreign tracker"
                 );
-                owner.destroy_object(target);
-                restored.destroy_object(target);
+                owner.destroy_object(target).unwrap();
+                restored.destroy_object(target).unwrap();
                 owner.process_destroy_list();
                 restored.process_destroy_list();
                 assert!(owner.named_script_cache.did_exist("Donor"));

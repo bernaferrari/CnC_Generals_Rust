@@ -247,8 +247,8 @@ fn exercise_retained_body(coupled: bool) {
         }
         world.mark_object_for_destruction(id, Some(Team::GLA));
         assert_corpse(&world, id);
-        world.destroy_object(id);
-        world.destroy_object(id);
+        world.destroy_object(id).unwrap();
+        world.destroy_object(id).unwrap();
         assert_eq!(
             world
                 .objects_to_destroy

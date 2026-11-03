@@ -642,7 +642,7 @@ fn v2_malformed_pending_removal_graph_rejects_before_live_mutation() {
             &crate::game_logic::object::DamageHitContext::default(),
         )
         .unwrap();
-    source.destroy_object(id);
+    source.destroy_object(id).unwrap();
     assert!(source.objects[&id].status.on_die_started);
     assert!(source.objects[&id].status.destroyed);
     for removals in [

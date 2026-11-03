@@ -40,7 +40,7 @@ fn unmapped_dozer_hp_gain_uses_energy_adjusted_build_time_frames() {
 
             let sid = logic
                 .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
-                .expect("scaffold");
+                .expect("scaffold").expect("ObjectId");
             if let Some(site) = logic.host_object_mut(sid) {
                 site.template_mut().build_time = 10.0; // 300 authored frames
                 site.construction_percent = 0.0;
@@ -116,7 +116,7 @@ fn dozer_tick_truncates_handicap_before_player_template_modifier() {
 
     let sid = logic
         .create_object_under_construction("TestBuilding", Team::USA, glam::Vec3::ZERO)
-        .expect("scaffold");
+        .expect("scaffold").expect("ObjectId");
     if let Some(site) = logic.host_object_mut(sid) {
         site.template_mut().build_time = 0.3; // C++ Int(0.3 * 30) = 9 frames
         site.construction_percent = 0.0;
@@ -328,7 +328,7 @@ fn production_world(identity: &str) -> (GameLogic, ObjectId) {
     world.players.get_mut(&0).unwrap().power_produced = 10;
     let producer = world
         .create_object_for_player("TestBarracks", 0, glam::Vec3::ZERO)
-        .unwrap();
+        .unwrap().expect("ObjectId");
     assert!(world.host_object(producer).unwrap().building_data.is_some());
     (world, producer)
 }
