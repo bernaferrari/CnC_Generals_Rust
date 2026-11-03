@@ -245,6 +245,8 @@ impl<'effects> WindowEventEffects<'effects> {
         let mut menu_manager = crate::gui::callbacks::menu_callbacks::MenuManager::new();
         let mut main_menu = crate::gui::shell::main_menu::MainMenu::new();
         let mut menu_host = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+        let mut script_display =
+            crate::core::script_action_handler::ScriptDisplayReceiver::default();
         let mut effects = WindowEventEffects::new(&mut messages);
         effects.window_manager_owner = Some(&owner);
         effects.ime = Some(&mut ime);
@@ -256,6 +258,7 @@ impl<'effects> WindowEventEffects<'effects> {
         effects.menu_host = Some(&mut menu_host);
         effects.menu_world =
             Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts::default());
+        effects.script_display = Some(&mut script_display);
         let result = owner.with_manager(|manager| {
             effects.with_receiving_manager(manager, |effects| operation(effects))
         });

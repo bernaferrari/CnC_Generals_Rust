@@ -615,6 +615,15 @@ mod tests {
                 global.shell_map_name = "ShellMapMD".to_string();
                 global.shell_map_on = true;
             }
+            // Shell-map path rides on the receiving client's host + NewGame message,
+            // not writable GlobalData.pending_file (see native_visual_time_tests).
+            client.configure_shell_map(
+                crate::gui::campaign_launch_host_bridge::ShellMapSettings {
+                    initial_file: String::new(),
+                    enabled: true,
+                    map: "ShellMapMD".into(),
+                },
+            );
             client.message_stream_mut().clear_messages();
             WindowEventEffects::with_standalone(|effects| show_shell_map_if_available(false, effects));
             assert!(!client.window_manager_owner().shell_handle().is_shell_map_on());
@@ -651,7 +660,10 @@ mod tests {
             assert_eq!(before_get_update, Some(true));
             assert_eq!(before_map_pack, Some(true));
 
-            with_shell_menu_effects(client, |effects| {
+            // MainMenuInit calls show_shell_map; that no-ops when MenuWorldFacts
+            // already claims in_shell_game (with_shell_menu_effects). Use the
+            // pre-shell-map world facts so the display-only tail can run.
+            with_menu_effects(client, |effects| {
                 effects.with_main_menu(|menu, effects| menu.init(&*layout.borrow(), None, effects))
             })
             .unwrap();
@@ -666,12 +678,24 @@ mod tests {
             assert_eq!(after_motd, before_motd);
             assert_eq!(after_map_pack, Some(true));
             assert!(client.window_manager_owner().shell_handle().is_shell_map_on());
+            let new_games: Vec<_> = client
+                .message_stream()
+                .get_messages()
+                .iter()
+                .filter(|msg| {
+                    matches!(
+                        msg.get_type(),
+                        crate::message_stream::GameMessageType::NewGame
+                    )
+                })
+                .collect();
+            assert_eq!(new_games.len(), 1);
             assert_eq!(
-                get_global_data()
-                    .expect("global data initialized")
-                    .read()
-                    .pending_file,
-                "ShellMapMD"
+                new_games[0]
+                    .shell_map_launch()
+                    .map(|launch| launch.map.as_str()),
+                Some("ShellMapMD"),
+                "shell map path rides on owned NewGame, not writable GlobalData"
             );
 
             if let Some(global) = get_global_data() {
