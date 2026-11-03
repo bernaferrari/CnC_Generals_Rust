@@ -1562,6 +1562,157 @@ impl GameLogic {
 
     /// C++ idle `isBuildMostImportant` / `isRepairMostImportant` (DozerAIUpdate.cpp:1314).
     /// Call only while the dozer is Idle. Returns true if a pending task was resumed.
+    pub fn dozer_idle_resume_pending_build(&mut self, dozer_id: ObjectId) -> bool {
+        if self.worker_is_acting_as_supply_truck(dozer_id) {
+            return false;
+        }
+        let Some(obj) = self.objects.get(&dozer_id) else {
+            return false;
+        };
+        if !matches!(obj.ai_state(), AIState::Idle) {
+            return false;
+        }
+        if !obj.is_alive() || !obj.can_construct() {
+            return false;
+        }
+        // Drop dead / finished slots so getMostRecentCommand matches C++.
+        let build_id = obj.dozer_task_build_target();
+        let repair_id = obj.dozer_task_repair_target();
+        if let Some(tid) = build_id {
+            let keep = self.objects.get(&tid).is_some_and(|t| {
+                t.is_alive() && t.is_kind_of(KindOf::Structure) && t.status.under_construction
+            });
+            if !keep {
+                self.dozer_internal_task_complete(dozer_id, false);
+            }
+        }
+        if let Some(tid) = repair_id {
+            let keep = self.objects.get(&tid).is_some_and(|t| {
+                t.is_alive()
+                    && !t.status.effectively_dead
+                    && t.is_kind_of(KindOf::Structure)
+                    && !t.is_kind_of(KindOf::Bridge)
+                    && !t.is_kind_of(KindOf::BridgeTower)
+                    && !t.is_rebuild_hole
+                    && !t.status.under_construction
+                    && t.health.current < t.health.maximum
+            });
+            if !keep {
+                self.dozer_internal_task_complete(dozer_id, true);
+            }
+        }
+        let Some((is_repair, tid)) = self.dozer_most_recent_pending_task(dozer_id) else {
+            return false;
+        };
+        let (dozer_pos, st_pos, st_radius, airborne, stored_dock) = {
+            let d = self.objects.get(&dozer_id);
+            let dpos = d.map(|d| d.get_position()).unwrap_or(glam::Vec3::ZERO);
+            let airborne =
+                d.is_some_and(|d| d.is_kind_of(KindOf::Aircraft) || d.status.airborne_target);
+            let stored = d.and_then(|d| d.dozer_dock_action());
+            let (spos, srad) = self
+                .objects
+                .get(&tid)
+                .map(|s| (s.get_position(), s.selection_radius))
+                .unwrap_or((glam::Vec3::ZERO, 0.0));
+            (dpos, spos, srad, airborne, stored)
+        };
+        if is_repair {
+            let approach = self.find_good_build_or_repair_position(
+                dozer_pos,
+                st_pos,
+                st_radius,
+                airborne,
+                airborne.then_some(tid),
+                Some(dozer_id),
+            );
+            let dozer_radius = self
+                .objects
+                .get(&dozer_id)
+                .map(|dozer| dozer.selection_radius)
+                .unwrap_or(0.0);
+            let at_dock = crate::game_logic::host_repair::dozer_within_action_dock(
+                dozer_pos,
+                dozer_radius,
+                approach,
+            );
+            if let Some(dozer) = self.objects.get_mut(&dozer_id) {
+                dozer.target = Some(tid);
+                dozer.idle_since_frame = 0;
+                if at_dock {
+                    dozer.movement.path.clear();
+                    dozer.movement.current_path_index = 0;
+                    dozer.movement.target_position = None;
+                    dozer.waiting_for_path = false;
+                    dozer.set_status_moving(false);
+                    dozer.set_locomotor_goal_none();
+                }
+            }
+            self.set_ai_state_decision_aware_for_test(dozer_id, AIState::Repairing);
+            if !at_dock {
+                self.path_approach_with_state_ignoring(
+                    dozer_id,
+                    approach,
+                    AIState::Repairing,
+                    Some(tid),
+                );
+            }
+            return true;
+        }
+        let snapped = stored_dock.unwrap_or_else(|| {
+            self.find_good_build_or_repair_position(
+                dozer_pos,
+                st_pos,
+                st_radius,
+                airborne,
+                airborne.then_some(tid),
+                Some(dozer_id),
+            )
+        });
+        if let Some(dozer) = self.objects.get_mut(&dozer_id) {
+            dozer.target = Some(tid);
+            dozer.idle_since_frame = 0;
+            if dozer.dozer_dock_action().is_none() {
+                dozer.set_dozer_dock_action(Some(snapped));
+            }
+            if crate::game_logic::host_repair::dozer_within_action_dock(
+                dozer_pos,
+                dozer.selection_radius,
+                snapped,
+            ) {
+                dozer.movement.path.clear();
+                dozer.movement.current_path_index = 0;
+                dozer.movement.target_position = None;
+                dozer.waiting_for_path = false;
+                dozer.set_status_moving(false);
+                dozer.set_locomotor_goal_none();
+            }
+        }
+        self.set_ai_state_decision_aware_for_test(dozer_id, AIState::Constructing);
+
+        let dozer_radius = self
+            .objects
+            .get(&dozer_id)
+            .map(|dozer| dozer.selection_radius)
+            .unwrap_or(0.0);
+        if !crate::game_logic::host_repair::dozer_within_action_dock(
+            dozer_pos,
+            dozer_radius,
+            snapped,
+        ) {
+            self.path_approach_with_state_ignoring(
+                dozer_id,
+                snapped,
+                AIState::Constructing,
+                Some(tid),
+            );
+        }
+        if let Some(st) = self.objects.get_mut(&tid) {
+            st.set_under_construction_model_conditions(true);
+            st.builder_id = Some(dozer_id);
+        }
+        true
+    }
 
     /// C++ `Player::update` (`Player.cpp:708-724`): once per second, if the
     /// local client Auto-Retaliate flag differs from the logical flag, post

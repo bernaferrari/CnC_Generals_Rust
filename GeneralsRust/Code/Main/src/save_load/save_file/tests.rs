@@ -146,6 +146,7 @@ fn host_pause_save_persists_terrain_scorches_and_particle_systems() {
         Some(&terrain_bytes),
         Path::new("Save"),
         CPP_GAME_SINGLE_PLAYER,
+        &game_engine::System::CampaignManagerXferState::default(),
     )
     .expect("write sav with FX chunks");
     let blocks = walk_named_chunks(&bytes).expect("walk host chunks");
@@ -464,27 +465,29 @@ fn campaign_block_writes_runtime_difficulty_and_challenge() {
         module_path!(),
         "campaign_block_writes_runtime_difficulty_and_challenge",
         || {
-            use std::sync::Arc;
-            game_engine::System::register_campaign_manager_runtime_hooks(
-                Some(Arc::new(|| game_engine::System::CampaignManagerXferState {
-                    campaign: "GLA".into(),
-                    mission: "GLA02".into(),
-                    rank_points: 0,
-                    difficulty: 2,
-                    is_challenge: true,
-                    challenge_info: Some(game_engine::System::ChallengeGameInfoXfer::default()),
-                    generals_template: 4,
-                })),
-                None,
-            );
+            let campaign_state = game_engine::System::CampaignManagerXferState {
+                campaign: "GLA".into(),
+                campaign_label: String::new(),
+                mission: "GLA02".into(),
+                mission_number: None,
+                rank_points: 0,
+                difficulty: 2,
+                is_challenge: true,
+                challenge_info: Some(game_engine::System::ChallengeGameInfoXfer::default()),
+                generals_template: 4,
+            };
             let snapshot = WorldSnapshot::default();
             let mut save_info = fixture_save_info();
             save_info.save_type = SaveFileType::Mission;
             save_info.map_name = "Maps\\GLA02.map".into();
-            let bytes = SaveFileManager::write_common_sav_chunks(
+            let bytes = SaveFileManager::write_common_sav_chunks_with_client_and_terrain_bytes(
                 &snapshot,
                 &save_info,
+                &[],
+                None,
+                Path::new("Save"),
                 CPP_GAME_SINGLE_PLAYER,
+                &campaign_state,
             )
             .expect("write mission");
             let listed = SaveFileManager::read_named_chunk_save_info(&bytes).expect("list");
@@ -661,12 +664,12 @@ fn failed_load_does_not_apply_chunk_campaign_to_live_match() {
             // C++ GameState::loadGame only keeps CHUNK_Campaign after the whole
             // xfer succeeds; failure calls clearGameData. Live decode must stash
             // campaign and leave the still-playable match's identity/rank/difficulty.
-            use std::sync::Arc;
-
             let prior = capture_live_campaign_state();
             let live = game_engine::System::CampaignManagerXferState {
                 campaign: "USA".into(),
+                campaign_label: String::new(),
                 mission: "USA01".into(),
+                mission_number: None,
                 rank_points: 11,
                 difficulty: 0,
                 is_challenge: false,
@@ -675,24 +678,23 @@ fn failed_load_does_not_apply_chunk_campaign_to_live_match() {
             };
             apply_campaign_manager_state(live.clone());
 
-            game_engine::System::register_campaign_manager_runtime_hooks(
-                Some(Arc::new(|| game_engine::System::CampaignManagerXferState {
-                    campaign: "GLA".into(),
-                    mission: "GLA02".into(),
-                    rank_points: 99,
-                    difficulty: 2,
-                    is_challenge: false,
-                    challenge_info: None,
-                    generals_template: 4,
-                })),
-                None,
-            );
+            let archive_campaign = game_engine::System::CampaignManagerXferState {
+                campaign: "GLA".into(),
+                campaign_label: String::new(),
+                mission: "GLA02".into(),
+                mission_number: None,
+                rank_points: 99,
+                difficulty: 2,
+                is_challenge: false,
+                challenge_info: None,
+                generals_template: 4,
+            };
 
             let mut campaign_payload = Vec::new();
             {
                 let mut cursor = Cursor::new(&mut campaign_payload);
                 let mut xfer = CommonXferSave::new(&mut cursor, SAVE_FILE_VERSION);
-                write_campaign_block(&mut xfer).expect("write campaign");
+                write_campaign_block(&mut xfer, &archive_campaign).expect("write campaign");
             }
 
             let mut header = Vec::new();

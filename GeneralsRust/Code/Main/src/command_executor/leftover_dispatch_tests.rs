@@ -577,8 +577,8 @@ fn same_frame_build_repair_tie_resumes_build() {
     {
         let dz = logic.host_object(dozer).expect("dz");
         assert_eq!(
-            dz.dozer_task_build_order_frame,
-            dz.dozer_task_repair_order_frame
+            dz.dozer_tasks.requests[0].order_frame,
+            dz.dozer_tasks.requests[1].order_frame
         );
         assert_eq!(dz.dozer_task_build_target(), Some(scaffold));
         assert_eq!(dz.dozer_task_repair_target(), Some(damaged));
@@ -766,7 +766,9 @@ fn player_stop_cancels_current_build_so_idle_does_not_resume() {
     assert!(result == CommandResult::Success);
     {
         let dz = logic.host_object(dozer).expect("dz");
-        assert_eq!(dz.dozer_task_build_target(), None,
+        assert_eq!(
+            dz.dozer_task_build_target(),
+            None,
             "hq-msoee: player Stop must cancel current BUILD slot"
         );
     }
@@ -842,11 +844,12 @@ fn execute_build_records_build_slot_and_docks_off_center() {
         .expect("scaffold");
     {
         let dz = logic.host_object(dozer).expect("dz");
-        assert_eq!(dz.dozer_task_build_target(),
+        assert_eq!(
+            dz.dozer_task_build_target(),
             Some(scaffold),
             "hq-gkpuk: new construct must write BUILD slot"
         );
-        assert!(dz.dozer_task_build_order_frame >= 12);
+        assert!(dz.dozer_tasks.requests[0].order_frame >= 12);
         assert_eq!(dz.target, Some(scaffold));
         // C++ DozerAIUpdate.cpp:499-507 — newTask BUILD walks to the dock
         // (AI_MOVE) and flips to Constructing only on arrival; a dozer placed
@@ -1111,7 +1114,8 @@ fn replacing_build_task_retains_both_scaffold_builder_ids() {
             Vec3::new(40.0, 0.0, 20.0),
             0.0,
         )
-        .expect("first real scaffold");
+        .expect("first real scaffold")
+        .expect("first scaffold id");
     let second = logic
         .create_object_under_construction_for_player(
             "BuildRetargetScaffold",
@@ -1119,7 +1123,8 @@ fn replacing_build_task_retains_both_scaffold_builder_ids() {
             Vec3::new(80.0, 0.0, 20.0),
             0.0,
         )
-        .expect("second real scaffold");
+        .expect("second real scaffold")
+        .expect("second scaffold id");
     logic.frame = 5;
     logic.dozer_new_task_build(dozer, first);
     let first_dock = logic.host_object(dozer).unwrap().dozer_dock_action();
@@ -1130,7 +1135,7 @@ fn replacing_build_task_retains_both_scaffold_builder_ids() {
     assert_eq!(logic.host_object(second).unwrap().builder_id, Some(dozer));
     let active = logic.host_object(dozer).unwrap();
     assert_eq!(active.dozer_task_build_target(), Some(second));
-    assert_eq!(active.dozer_task_build_order_frame, 6);
+    assert_eq!(active.dozer_tasks.requests[0].order_frame, 6);
     let second_dock = active.dozer_dock_action();
     assert!(second_dock.is_some());
     assert_ne!(second_dock, first_dock);
@@ -1138,12 +1143,12 @@ fn replacing_build_task_retains_both_scaffold_builder_ids() {
     logic.dozer_new_task_build(dozer, second);
     let repeated = logic.host_object(dozer).unwrap();
     assert_eq!(repeated.dozer_task_build_target(), Some(second));
-    assert_eq!(repeated.dozer_task_build_order_frame, 7);
+    assert_eq!(repeated.dozer_tasks.requests[0].order_frame, 7);
     assert_eq!(repeated.dozer_dock_action(), second_dock);
     logic.dozer_internal_task_complete(dozer, false);
     let completed = logic.host_object(dozer).unwrap();
     assert_eq!(completed.dozer_task_build_target(), None);
-    assert_eq!(completed.dozer_task_build_order_frame, 0);
+    assert_eq!(completed.dozer_tasks.requests[0].order_frame, 0);
     assert_eq!(completed.dozer_dock_action(), None);
     assert_eq!(logic.host_object(first).unwrap().builder_id, Some(dozer));
     assert_eq!(logic.host_object(second).unwrap().builder_id, Some(dozer));
