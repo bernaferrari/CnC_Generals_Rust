@@ -228,3 +228,8 @@ path = "Code/GameEngine/GameClient/src/core/script_action_handler.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
 note = "Script action peels use GameClient::script_runtime via live-client loan; removed SCRIPT_RUNTIME TLS and look-at/speed/FPS atomics."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/effects/tracer_fx.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/FXList.cpp"
+note = "TracerFxState on GameClient::drawables.tracers; removed TRACERS/TRACER_DRAWABLES TLS; peels use live-client loan."
+

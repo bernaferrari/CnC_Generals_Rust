@@ -349,6 +349,7 @@ impl GameClient {
         self.drawables.native_drawable_order.clear();
         self.drawables.ray_effects.reset();
         self.drawables.fx.scene = Default::default();
+        self.drawables.tracers = Default::default();
         self.drawables.owned_laser_order.clear();
         self.drawables.drawable_object_map.clear();
         self.drawables.presentation_direct_drawable_bindings.clear();

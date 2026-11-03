@@ -6,7 +6,6 @@
 //! - `W3DTracerDraw.cpp` Line3D from (0,0,0)→(length,0,0), opacity decay,
 //!   local-X translation by speed each frame
 
-use std::cell::RefCell;
 use std::sync::{Mutex, OnceLock};
 
 use gamelogic::object::draw::{DrawModule, TracerDrawInterface};
@@ -47,6 +46,12 @@ struct TracerStore {
     tracers: Vec<TracerFxInstance>,
 }
 
+impl Default for TracerStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TracerStore {
     fn new() -> Self {
         Self {
@@ -56,17 +61,8 @@ impl TracerStore {
     }
 }
 
-// THREAD: main thread only — tracers are spawned by FXList nuggets on the game
-// thread and rendered by the same thread's draw pass.
-thread_local! {
-    static TRACERS: RefCell<TracerStore> = RefCell::new(TracerStore::new());
-}
-
-fn with_tracers<R>(f: impl FnOnce(&mut TracerStore) -> R) -> R {
-    TRACERS.with_borrow_mut(f)
-}
-
-/// Serializes tests that touch the per-thread tracer store.
+/// Serializes tests that touch the per-client tracer store.
+#[cfg(test)]
 pub fn lock_tracer_fx_tests() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
@@ -240,6 +236,12 @@ struct TracerDrawableStore {
     drawables: Vec<LiveTracerDrawable>,
 }
 
+impl Default for TracerDrawableStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TracerDrawableStore {
     fn new() -> Self {
         Self {
@@ -249,14 +251,48 @@ impl TracerDrawableStore {
     }
 }
 
-thread_local! {
-    static TRACER_DRAWABLES: RefCell<TracerDrawableStore> =
-        RefCell::new(TracerDrawableStore::new());
+/// Per-client tracer instances + drawable stand-ins (was process TLS).
+#[derive(Default)]
+pub struct TracerFxState {
+    tracers: TracerStore,
+    drawables: TracerDrawableStore,
+}
+
+impl TracerFxState {
+    pub fn clear(&mut self) {
+        self.tracers.tracers.clear();
+        self.drawables.drawables.clear();
+    }
+
+    pub fn live_tracers(&self) -> Vec<TracerFxInstance> {
+        self.tracers.tracers.clone()
+    }
+
+    pub fn live_drawables(&self) -> Vec<LiveTracerDrawable> {
+        self.drawables.drawables.clone()
+    }
+}
+
+fn with_tracers<R>(f: impl FnOnce(&mut TracerStore) -> R) -> R {
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        f.take().expect("tracer callback")(&mut client.tracers_mut().tracers)
+    }) {
+        return result;
+    }
+    f.take().expect("tracer callback")(&mut TracerStore::new())
 }
 
 fn with_tracer_drawables<R>(f: impl FnOnce(&mut TracerDrawableStore) -> R) -> R {
-    TRACER_DRAWABLES.with_borrow_mut(f)
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        f.take().expect("tracer drawable callback")(&mut client.tracers_mut().drawables)
+    }) {
+        return result;
+    }
+    f.take().expect("tracer drawable callback")(&mut TracerDrawableStore::new())
 }
+
 
 pub fn live_tracer_drawables() -> Vec<LiveTracerDrawable> {
     with_tracer_drawables(|store| store.drawables.clone())

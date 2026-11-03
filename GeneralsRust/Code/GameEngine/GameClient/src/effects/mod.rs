@@ -128,13 +128,15 @@ pub use ray_effect_system::{
 };
 pub use ray_effects::{RayEffect, RayEffectConfig, RayEffectId, RayEffectManager, RayType};
 pub use tracer_fx::{
-    LiveTracerDrawable, TracerDrawableSpawn, TracerFxInstance, TracerGpuMesh, TracerGpuVertex,
-    bake_all_tracer_gpu_meshes, bake_tracer_gpu_mesh, build_tracer_transform, clear_tracer_fx,
-    create_tracer_fx, live_tracer_drawables, live_tracer_fx, lock_tracer_fx_tests,
+    LiveTracerDrawable, TracerDrawableSpawn, TracerFxInstance, TracerFxState, TracerGpuMesh,
+    TracerGpuVertex, bake_all_tracer_gpu_meshes, bake_tracer_gpu_mesh, build_tracer_transform,
+    clear_tracer_fx, create_tracer_fx, live_tracer_drawables, live_tracer_fx,
     spawn_tracer_drawable_like_cpp, tracer_distance, tracer_expiration_frames,
     tracer_line3d_local_endpoints, tracer_opacity_after_frames, tracer_world_endpoints,
     update_tracer_fx,
 };
+#[cfg(test)]
+pub use tracer_fx::lock_tracer_fx_tests;
 
 /// C++ `System.ini` GenericTracer registration (no full Object INI scan).
 pub fn ensure_generic_tracer_ini() -> bool {
