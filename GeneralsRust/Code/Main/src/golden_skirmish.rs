@@ -1075,11 +1075,8 @@ fn golden_allow_teleport_pull() -> bool {
 
 /// Materialize `host_damage_log` into host HP/destroy flags.
 ///
-/// Under a coupled GameWorld damage-authority context (`GameLogic::
-/// set_damage_authority(true)`, default off), `take_damage` logs
-/// intent only and freezes host HP until a GameWorld shadow writeback. Golden
-/// map-world combat is host-only (no dual shadow session), so without this
-/// drain the primary enemy never appears dead and `fought`/`victory` stay false.
+/// `take_damage` commits HP synchronously and records the applied event; this
+/// drain only clears the log and routes reported kills (never re-subtracts).
 fn materialize_host_damage_log(logic: &mut GameLogic) {
     let events = logic.health_events.drain_damage();
     if events.is_empty() {
@@ -1090,12 +1087,12 @@ fn materialize_host_damage_log(logic: &mut GameLogic) {
         let Some(obj) = logic.host_object_mut(e.target) else {
             continue;
         };
-        if e.destroyed || e.amount + 1e-3 >= obj.health.current {
-            obj.health.current = 0.0;
+        // hq-9nnkc: take_damage already committed this delta synchronously
+        // (C++ ActiveBody::internalChangeHealth). Never subtract it again; only
+        // route a body-reported kill to destruction.
+        if e.destroyed && !obj.status.destroyed {
             obj.status.destroyed = true;
             destroy_ids.push(e.target);
-        } else if e.amount > 0.0 {
-            obj.health.current = (obj.health.current - e.amount).max(0.0);
         }
     }
     for id in destroy_ids {
@@ -2791,6 +2788,32 @@ pub fn format_golden_report(r: &GoldenSkirmishResult) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// hq-9nnkc: take_damage already committed the delta (C++
+    /// ActiveBody::internalChangeHealth); draining the log must not subtract it again.
+    #[test]
+    fn materialize_host_damage_log_does_not_replay_committed_damage() {
+        let mut logic = GameLogic::new();
+        logic.add_player(crate::game_logic::Player::new(0, Team::USA, "Owner", true));
+        let mut template = crate::game_logic::ThingTemplate::new("HqNnkcVehicle");
+        template
+            .add_kind_of(crate::game_logic::KindOf::Vehicle)
+            .set_health(100.0);
+        logic.templates.insert(template.name.clone(), template);
+        let id = logic
+            .create_object("HqNnkcVehicle", Team::USA, Vec3::ZERO)
+            .expect("object");
+        logic.health_events.clear_damage();
+        {
+            let (object, health_events) = logic.host_object_and_health_events_mut(id).unwrap();
+            object.take_damage(10.0, 0, health_events);
+        }
+        assert_eq!(logic.host_object(id).unwrap().health.current, 90.0);
+        materialize_host_damage_log(&mut logic);
+        let object = logic.host_object(id).unwrap();
+        assert_eq!(object.health.current, 90.0, "committed damage replayed");
+        assert!(!object.status.destroyed);
+    }
 
     #[test]
 
