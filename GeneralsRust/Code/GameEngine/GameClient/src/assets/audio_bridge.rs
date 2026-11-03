@@ -23,35 +23,38 @@ pub fn register_audio_playback_bridge(asset_manager: Arc<AssetManager>) {
     }
 }
 
-fn audio_fallback_handle() -> Handle {
-    use std::sync::OnceLock;
-    use tokio::runtime::{Builder, Runtime};
-    static HANDLE: OnceLock<Handle> = OnceLock::new();
-    HANDLE
-        .get_or_init(|| {
-            #[cfg(not(target_arch = "wasm32"))]
-            let runtime = Builder::new_multi_thread()
-                .enable_all()
-                .thread_name("audio-playback")
-                .build()
-                .expect("Failed to create audio playback runtime");
-            #[cfg(target_arch = "wasm32")]
-            let runtime = Builder::new_current_thread()
-                .enable_time()
-                .build()
-                .expect("Failed to create audio playback runtime");
-            let handle = runtime.handle().clone();
-            // Never drop this runtime: WinMain holds the process runtime in
-            // `block_on`, and dropping a nested Runtime there panics.
-            std::mem::forget(runtime);
-            handle
-        })
-        .clone()
-}
-
 struct AssetAudioPlaybackHook {
     asset_manager: Arc<AssetManager>,
     handle_map: Arc<Mutex<HashMap<AudioHandle, Option<u64>>>>,
+    /// Fallback Tokio handle when no ambient runtime is active. Owned per hook
+    /// so multiple game instances do not share a process OnceLock.
+    fallback_runtime: std::sync::OnceLock<Handle>,
+}
+
+impl AssetAudioPlaybackHook {
+    fn audio_fallback_handle(&self) -> Handle {
+        use tokio::runtime::Builder;
+        self.fallback_runtime
+            .get_or_init(|| {
+                #[cfg(not(target_arch = "wasm32"))]
+                let runtime = Builder::new_multi_thread()
+                    .enable_all()
+                    .thread_name("audio-playback")
+                    .build()
+                    .expect("Failed to create audio playback runtime");
+                #[cfg(target_arch = "wasm32")]
+                let runtime = Builder::new_current_thread()
+                    .enable_time()
+                    .build()
+                    .expect("Failed to create audio playback runtime");
+                let handle = runtime.handle().clone();
+                // Never drop this runtime: WinMain holds the process runtime in
+                // `block_on`, and dropping a nested Runtime there panics.
+                std::mem::forget(runtime);
+                handle
+            })
+            .clone()
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -65,11 +68,12 @@ impl AssetAudioPlaybackHook {
         Self {
             asset_manager,
             handle_map: Arc::new(Mutex::new(HashMap::new())),
+            fallback_runtime: std::sync::OnceLock::new(),
         }
     }
 
     fn spawn(&self, task: impl Future<Output = ()> + Send + 'static) {
-        let handle = Handle::try_current().unwrap_or_else(|_| audio_fallback_handle());
+        let handle = Handle::try_current().unwrap_or_else(|_| self.audio_fallback_handle());
         handle.spawn(task);
     }
 

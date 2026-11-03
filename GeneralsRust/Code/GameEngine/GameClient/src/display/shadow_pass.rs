@@ -35,23 +35,47 @@ pub struct UnitShadowCaster {
     pub volume: bool,
 }
 
-// THREAD: main thread only — casters are queued by the client's draw pass and
-// consumed by the shadow passes of the same frame on the same thread.
+/// Per-receiving-client shadow pass state (casters + GUI-thread GPU pipelines).
+#[derive(Default)]
+pub struct ShadowPassState {
+    pub(crate) unit_casters: Vec<UnitShadowCaster>,
+    gpu: Option<ShadowPassGpu>,
+}
+
+fn with_shadow_pass_state<R>(f: impl FnOnce(&mut ShadowPassState) -> R) -> R {
+    if crate::core::game_client::live_game_client_frame().is_some() {
+        return crate::core::game_client::with_live_game_client_mut(|client| {
+            f(&mut client.shadow_pass)
+        })
+        .expect("live client frame implies registered client");
+    }
+    #[cfg(test)]
+    {
+        return TEST_SHADOW_PASS.with(|slot| f(&mut slot.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        let mut ephemeral = ShadowPassState::default();
+        f(&mut ephemeral)
+    }
+}
+
+#[cfg(test)]
 thread_local! {
-    static UNIT_CASTERS: RefCell<Vec<UnitShadowCaster>> = RefCell::new(Vec::new());
+    static TEST_SHADOW_PASS: RefCell<ShadowPassState> = RefCell::new(ShadowPassState::default());
 }
 
 /// C++ `W3DShadowManager::invalidateCachedLightPositions` / GameLOD hook.
 pub fn rebuild_shadows() {
-    UNIT_CASTERS.with_borrow_mut(Vec::clear);
+    with_shadow_pass_state(|state| state.unit_casters.clear());
 }
 
 pub fn register_unit_shadow(caster: UnitShadowCaster) {
-    UNIT_CASTERS.with_borrow_mut(|list| list.push(caster));
+    with_shadow_pass_state(|state| state.unit_casters.push(caster));
 }
 
 pub fn clear_unit_shadows() {
-    UNIT_CASTERS.with_borrow_mut(Vec::clear);
+    with_shadow_pass_state(|state| state.unit_casters.clear());
 }
 
 /// C++ `W3DProjectedShadowManager::flushDecals` / `queueDecal`.
@@ -100,8 +124,9 @@ pub enum VolumetricPresentStatus {
 
 /// SHADOW_VOLUME casters for this frame (`UnitShadowCaster.volume` plus live objects).
 pub fn collect_volume_casters() -> Vec<UnitShadowCaster> {
-    let mut out = UNIT_CASTERS.with_borrow(|casters| {
-        casters
+    let mut out = with_shadow_pass_state(|state| {
+        state
+            .unit_casters
             .iter()
             .filter(|c| c.volume)
             .cloned()
@@ -365,7 +390,7 @@ fn collect_occlusion_overlays_inner(
             }
         }
     }
-    let casters = UNIT_CASTERS.with_borrow(Clone::clone);
+    let casters = with_shadow_pass_state(|state| state.unit_casters.clone());
     for caster in casters {
         if caster.occluded {
             out.push(OcclusionOverlay {
@@ -504,11 +529,7 @@ const VOLUME_VERTEX_ATTRS: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array!
 const OVERLAY_VERTEX_ATTRS: [wgpu::VertexAttribute; 2] =
     wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4];
 
-// `ShadowPassGpu` holds `Rc`-backed wgpu handles (`!Send` on the web backend);
-// the thread-local slot keeps them on the GUI thread that created them.
-thread_local! {
-    static SHADOW_PASS_GPU: RefCell<Option<ShadowPassGpu>> = const { RefCell::new(None) };
-}
+// ShadowPassGpu lives on ShadowPassState (GUI thread / live client).
 
 fn create_shadow_pass_gpu(
     device: &wgpu::Device,
@@ -743,15 +764,15 @@ fn with_shadow_pass_gpu<R>(
     depth_format: wgpu::TextureFormat,
     f: impl FnOnce(&ShadowPassGpu) -> R,
 ) -> R {
-    SHADOW_PASS_GPU.with_borrow_mut(|slot| {
-        let rebuild = match slot.as_ref() {
+    with_shadow_pass_state(|state| {
+        let rebuild = match state.gpu.as_ref() {
             None => true,
             Some(gpu) => gpu.color_format != color_format || gpu.depth_format != depth_format,
         };
         if rebuild {
-            *slot = Some(create_shadow_pass_gpu(device, color_format, depth_format));
+            state.gpu = Some(create_shadow_pass_gpu(device, color_format, depth_format));
         }
-        f(slot.as_ref().expect("shadow gpu"))
+        f(state.gpu.as_ref().expect("shadow gpu"))
     })
 }
 
@@ -1248,9 +1269,9 @@ mod tests {
             heat_vision: false,
             volume: true,
         });
-        UNIT_CASTERS.with_borrow(|casters| assert_eq!(casters.len(), 1));
+        with_shadow_pass_state(|state| assert_eq!(state.unit_casters.len(), 1));
         rebuild_shadows();
-        UNIT_CASTERS.with_borrow(|casters| assert!(casters.is_empty()));
+        with_shadow_pass_state(|state| assert!(state.unit_casters.is_empty()));
     }
 
     #[test]
