@@ -199,7 +199,7 @@ impl GameWindow {
                     .font
                     .as_ref()
                     .map(|font| {
-                        crate::gui::font::get_font_library()
+                        crate::gui::font::get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                             .get_font(&font.to_font_desc())
                             .map(|resolved| resolved.height)
                             .unwrap_or_else(|_| crate::gui::font::font_pixel_size(font.size))
@@ -563,7 +563,7 @@ impl GameWindow {
         let font_for_children = font.clone();
         self.inst_data.font = Some(font);
         if let Some(font_desc) = self.inst_data.font.as_ref().map(GameFont::to_font_desc) {
-            if let Ok(font_ref) = get_font_library().get_font(&font_desc) {
+            if let Ok(font_ref) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&font_desc) {
                 if let Some(display) = self.inst_data.display_text.as_ref() {
                     display.borrow_mut().set_font(font_ref.clone());
                 }
@@ -1220,7 +1220,7 @@ impl GameWindow {
                 manager.new_display_string()
             };
             if let Some(font_desc) = self.inst_data.font.as_ref().map(GameFont::to_font_desc) {
-                if let Ok(font_ref) = get_font_library().get_font(&font_desc) {
+                if let Ok(font_ref) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&font_desc) {
                     handle.borrow_mut().set_font(font_ref);
                 }
             }
@@ -1236,7 +1236,7 @@ impl GameWindow {
                 manager.new_display_string()
             };
             if let Some(font_desc) = self.inst_data.font.as_ref().map(GameFont::to_font_desc) {
-                if let Ok(font_ref) = get_font_library().get_font(&font_desc) {
+                if let Ok(font_ref) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&font_desc) {
                     handle.borrow_mut().set_font(font_ref);
                 }
             }
@@ -1331,7 +1331,7 @@ impl GameWindow {
             .font
             .as_ref()
             .map(|font| {
-                crate::gui::font::get_font_library()
+                crate::gui::font::get_font_library().lock().unwrap_or_else(|e| e.into_inner())
                     .get_font(&font.to_font_desc())
                     .map(|resolved| resolved.height)
                     .unwrap_or_else(|_| crate::gui::font::font_pixel_size(font.size))

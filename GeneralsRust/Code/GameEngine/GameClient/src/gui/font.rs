@@ -701,17 +701,38 @@ impl FontLibrary {
     }
 }
 
-/// Global font library instance.
-///
-/// THREAD: kept as a process-wide lock because the guard-returning
-/// `get_font_library()` API is consumed across GameClient and the device crate;
-/// callers receive exclusive access through the outer guard. Independently
-/// owned libraries expose the same &mut self operations without a lock.
-static FONT_LIBRARY: std::sync::LazyLock<std::sync::Mutex<FontLibrary>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(FontLibrary::new()));
+/// Font library handle: live GameClient field, else cfg(test) TLS, else ephemeral.
+#[cfg(test)]
+thread_local! {
+    static TEST_FONT_LIBRARY: std::cell::RefCell<Option<std::sync::Arc<std::sync::Mutex<FontLibrary>>>> =
+        const { std::cell::RefCell::new(None) };
+}
 
-pub fn get_font_library() -> std::sync::MutexGuard<'static, FontLibrary> {
-    FONT_LIBRARY.lock().unwrap_or_else(|e| e.into_inner())
+fn font_library_handle() -> std::sync::Arc<std::sync::Mutex<FontLibrary>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_font_library()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_FONT_LIBRARY.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| {
+                    std::sync::Arc::new(std::sync::Mutex::new(FontLibrary::new()))
+                })
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        std::sync::Arc::new(std::sync::Mutex::new(FontLibrary::new()))
+    }
+}
+
+/// Handle to the font library for this client (or test/ephemeral fallback).
+pub fn get_font_library() -> std::sync::Arc<std::sync::Mutex<FontLibrary>> {
+    font_library_handle()
 }
 
 #[cfg(test)]
@@ -926,7 +947,8 @@ mod tests {
     #[test]
     fn test_global_font_library() {
         crate::test_support::ensure_ambient_host();
-        let mut library = get_font_library();
+        let library_handle = get_font_library();
+        let mut library = library_handle.lock().unwrap_or_else(|e| e.into_inner());
         assert!(library.init().is_ok());
 
         let desc = FontDesc::new("Arial", 12, false);

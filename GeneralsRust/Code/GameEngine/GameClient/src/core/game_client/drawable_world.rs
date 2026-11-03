@@ -512,6 +512,18 @@ impl GameClient {
         self.host_command_authority.clone()
     }
 
+    pub fn ensure_font_library(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::gui::font::FontLibrary>> {
+        self.font_library
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::gui::font::FontLibrary::new(),
+                ))
+            })
+            .clone()
+    }
+
     pub fn next_fx_id(&self) -> u64 {
         self.fx_next_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)

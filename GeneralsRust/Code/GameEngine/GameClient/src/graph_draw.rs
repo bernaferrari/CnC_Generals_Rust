@@ -22,7 +22,7 @@ impl GraphDraw {
         }
         drop(manager);
 
-        if let Ok(font) = get_font_library().get_font_by_name("Courier", 10, false) {
+        if let Ok(font) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font_by_name("Courier", 10, false) {
             for handle in &display_strings {
                 handle.borrow_mut().set_font(font.clone());
             }

@@ -772,7 +772,8 @@ impl Display {
             let mut display_string_mut = display_string.borrow_mut();
             display_string_mut.set_text(GameText::fetch("GUI:EACopyright"));
             let font_desc = FontDesc::new(&font_name, font_size, font_bold);
-            let mut font_library = get_font_library();
+            let font_library_handle = get_font_library();
+            let mut font_library = font_library_handle.lock().unwrap_or_else(|e| e.into_inner());
             if let Ok(font) = font_library.get_font(&font_desc) {
                 display_string_mut.set_font(font);
             }

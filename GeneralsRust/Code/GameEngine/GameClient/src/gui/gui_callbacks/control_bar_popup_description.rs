@@ -171,7 +171,7 @@ fn update_description_window(
     let display = display_manager.new_display_string();
     if let Some(font) = win_ref.get_font() {
         let font_desc = font.to_font_desc();
-        if let Ok(font_ref) = crate::gui::get_font_library().get_font(&font_desc) {
+        if let Ok(font_ref) = crate::gui::get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&font_desc) {
             display.borrow_mut().set_font(font_ref);
         }
     }

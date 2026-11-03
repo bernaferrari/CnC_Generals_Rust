@@ -100,7 +100,7 @@ impl DisplayFontSource for &GameFont {
         current.desc == self.desc
     }
     fn to_display_font(self) -> Arc<GameFont> {
-        if let Ok(font) = get_font_library().get_font(&self.desc) {
+        if let Ok(font) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&self.desc) {
             return font;
         }
         Arc::new(
@@ -124,7 +124,7 @@ impl DisplayFontSource for &LegacyGameFont {
     }
     fn to_display_font(self) -> Arc<GameFont> {
         let desc = self.to_font_desc();
-        if let Ok(font) = get_font_library().get_font(&desc) {
+        if let Ok(font) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&desc) {
             return font;
         }
         Arc::new(
@@ -434,7 +434,7 @@ impl DisplayString {
         }
 
         let desc = FontDesc::new(DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE, DEFAULT_FONT_BOLD);
-        if let Ok(font) = get_font_library().get_font(&desc) {
+        if let Ok(font) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&desc) {
             return font;
         }
 
@@ -716,7 +716,7 @@ fn apply_draw_group_style(handle: &DisplayStringHandle, text: String) {
         .read()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let desc = FontDesc::new(&info.font_name, info.font_size, info.font_is_bold);
-    if let Ok(font) = get_font_library().get_font(&desc) {
+    if let Ok(font) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&desc) {
         display.set_font(font);
     }
 }
@@ -820,7 +820,7 @@ impl SubsystemInterface for DisplayStringManager {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.default_font.is_none() {
             let desc = FontDesc::new(DEFAULT_FONT_NAME, DEFAULT_FONT_SIZE, DEFAULT_FONT_BOLD);
-            if let Ok(font) = get_font_library().get_font(&desc) {
+            if let Ok(font) = get_font_library().lock().unwrap_or_else(|e| e.into_inner()).get_font(&desc) {
                 self.default_font = Some(font);
             }
         }
