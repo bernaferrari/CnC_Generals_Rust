@@ -1143,3 +1143,41 @@ fn sticky_kill_credit_uses_receiving_objects_exact_team_relationship() {
     assert_eq!(owner.get_player(0).unwrap().skill_points, 0);
     assert!(peer.get_player(0).unwrap().skill_points > 0);
 }
+
+#[test]
+fn lethal_sticky_blast_on_target_still_damages_remaining_victims_and_kills_charge() {
+    // C++ StickyBombUpdate.cpp:207-262 iterates every partition victim even
+    // after attemptDamage kills the trapped target, then runs FX, clears
+    // status and kills the charge.
+    let (mut game, planter, target) = world();
+    let charge = game
+        .spawn_booby_trap_special_object(planter, Team::GLA, target)
+        .expect("authored StickyBombUpdate charge");
+    install_public_registry(&mut game, planter, target, Some(charge));
+    let victims: Vec<ObjectId> = [
+        Vec3::new(-4.0, 0.0, 0.0),
+        Vec3::new(20.0, 0.0, 0.0),
+        Vec3::new(8.0, 0.0, -12.0),
+        Vec3::new(8.0, 0.0, 12.0),
+    ]
+    .into_iter()
+    .map(|p| game.create_object_for_player("TrapVictim", 1, p).expect("victim"))
+    .collect();
+    // PartitionManager admits new objects on the next update pass.
+    game.tick_logic_frame(1.0 / 30.0, None, Some(1));
+    game.host_object_mut(target).unwrap().health.current = 1.0;
+
+    let _ = game.detonate_booby_trap_at(target, Vec3::new(8.0, 0.0, 0.0), None, false, true);
+
+    for victim in victims {
+        let v = game.host_object(victim).expect("victim present");
+        assert!(
+            v.health.current < 100.0,
+            "victim {victim:?} after lethal target hit must still be damaged"
+        );
+    }
+    assert!(
+        game.host_object(charge).map_or(true, |c| !c.is_alive()),
+        "charge is killed after blast even when target died"
+    );
+}
