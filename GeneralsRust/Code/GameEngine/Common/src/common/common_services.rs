@@ -252,13 +252,14 @@ thread_local! {
 
 /// Active CommonServices for this thread. Panics if nothing is published.
 pub fn common_services() -> Arc<CommonServices> {
-    ACTIVE_STACK.with(|stack| {
-        stack
-            .borrow()
-            .last()
-            .cloned()
-            .expect("CommonServices requires with_common_services / install_common_services (no thread fallback)")
-    })
+    try_common_services().expect(
+        "CommonServices requires with_common_services / install_common_services (no thread fallback)",
+    )
+}
+
+/// Active CommonServices for this thread, if published.
+pub fn try_common_services() -> Option<Arc<CommonServices>> {
+    ACTIVE_STACK.with(|stack| stack.borrow().last().cloned())
 }
 
 /// Push `services` as the active bind; returns the previous head if any.

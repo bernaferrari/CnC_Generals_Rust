@@ -4,77 +4,76 @@
 
 /// Snapshot-only address of the engine-owned client.
 ///
-/// `GameClient` contains window/UI state and cannot be owned by a global mutex.
-/// The C++ save block nevertheless needs to reach the live instance.  Keep that
-/// narrow compatibility bridge same-thread and dynamically exclusive: normal
-/// input/render code must use published scalar state or its lexical `&mut
-/// GameClient`, never this slot.
-#[derive(Clone, Copy, Default)]
-struct LiveGameClientSlot {
-    raw: Option<usize>,
-    owner_thread: Option<std::thread::ThreadId>,
-    generation: u64,
-    borrowed: bool,
-    /// Cached frame so readers avoid aliasing `GameClient::update`.
-    frame: u32,
-}
+/// `GameClient` contains window/UI state and cannot be owned by a process mutex.
+/// The C++ save block nevertheless needs to reach the live instance.  The bridge
+/// lives on [`CommonServices::system.live_game_client`] (per-instance), same-thread
+/// and dynamically exclusive: normal input/render code must use published scalar
+/// state or its lexical `&mut GameClient`, never this slot.
+use game_engine::common::common_services::try_common_services;
+use game_engine::common::system_stores::LiveGameClientBridge;
 
-static LIVE_GAME_CLIENT_SLOT: OnceLock<Mutex<LiveGameClientSlot>> = OnceLock::new();
 const TEXTURE_REDUCTION_MIN: i32 = 0;
 const TEXTURE_REDUCTION_MAX: i32 = 4;
 const WW3D_TEXTURE_REDUCTION_MIN_DIMENSION: u32 = 32;
 
-fn live_game_client_slot() -> &'static Mutex<LiveGameClientSlot> {
-    LIVE_GAME_CLIENT_SLOT.get_or_init(|| Mutex::new(LiveGameClientSlot::default()))
+fn with_live_bridge_mut<R>(f: impl FnOnce(&mut LiveGameClientBridge) -> R) -> Option<R> {
+    let services = try_common_services()?;
+    let mut slot = services.system.live_game_client.lock().ok()?;
+    Some(f(&mut slot))
 }
 
 pub(crate) fn register_live_game_client(client: &mut GameClient) {
     let player_id = client.local_player_id;
-    {
-        let Ok(mut slot) = live_game_client_slot().lock() else {
-            return;
-        };
+    let frame = client.frame;
+    let raw = std::ptr::from_mut(client) as usize;
+    let registered = with_live_bridge_mut(|slot| {
         if slot.borrowed {
             // Replacing an address while its snapshot callback owns `&mut
             // GameClient` would invalidate the callback's exclusivity.  This is
             // not a valid lifecycle transition, so leave the existing slot live.
             log::error!("refusing to replace a borrowed live GameClient snapshot slot");
-            return;
+            return false;
         }
 
         slot.generation = slot.generation.wrapping_add(1).max(1);
-        slot.raw = Some(std::ptr::from_mut(client) as usize);
+        slot.raw = Some(raw);
         slot.owner_thread = Some(std::thread::current().id());
-        slot.frame = client.frame;
+        slot.frame = frame;
+        true
+    });
+    if registered != Some(true) {
+        return;
     }
     // Free-function player-id publish may re-enter `with_live_game_client_mut`;
-    // never call it while the live slot mutex is held.
+    // never call it while the live bridge mutex is held.
     set_local_player_id(player_id);
 }
 
 /// Return whether this client owned the published slot. Only that client may
 /// tear down process-visible presentation state during its destructor.
 pub(crate) fn clear_live_game_client(client: &mut GameClient) -> bool {
-    if let Ok(mut slot) = live_game_client_slot().lock() {
-        let current = std::ptr::from_mut(client) as usize;
+    let current = std::ptr::from_mut(client) as usize;
+    with_live_bridge_mut(|slot| {
         if slot.raw.is_some_and(|stored| stored == current) {
             slot.raw = None;
             slot.owner_thread = None;
             slot.borrowed = false;
             slot.frame = 0;
-            return true;
+            true
+        } else {
+            false
         }
-    }
-    false
+    })
+    .unwrap_or(false)
 }
 
 pub(crate) fn owns_live_game_client_slot(client: &GameClient) -> bool {
     let current = std::ptr::from_ref(client) as usize;
     let current_thread = std::thread::current().id();
-    live_game_client_slot()
-        .lock()
-        .ok()
-        .is_some_and(|slot| slot.raw == Some(current) && slot.owner_thread == Some(current_thread))
+    with_live_bridge_mut(|slot| {
+        slot.raw == Some(current) && slot.owner_thread == Some(current_thread)
+    })
+    .unwrap_or(false)
 }
 
 /// Refresh the scalar frame observable for input translators without borrowing
@@ -86,19 +85,21 @@ pub(crate) fn publish_live_game_client_frame(client: &GameClient) {
 
 fn publish_client_frame_for_identity(identity: usize, frame: u32) {
     let current_thread = std::thread::current().id();
-    if let Ok(mut slot) = live_game_client_slot().lock() {
+    let _ = with_live_bridge_mut(|slot| {
         if slot.raw == Some(identity) && slot.owner_thread == Some(current_thread) {
             slot.frame = frame;
         }
-    }
+    });
 }
 
 /// Read the active client frame without manufacturing a mutable GameClient
 /// reference. Safe during `GameClient::update`; fails closed when unregistered.
 pub(crate) fn live_game_client_frame() -> Option<u32> {
-    let slot = live_game_client_slot().lock().ok()?;
-    (slot.raw.is_some() && slot.owner_thread == Some(std::thread::current().id()))
-        .then_some(slot.frame)
+    with_live_bridge_mut(|slot| {
+        (slot.raw.is_some() && slot.owner_thread == Some(std::thread::current().id()))
+            .then_some(slot.frame)
+    })
+    .flatten()
 }
 
 /// Clears the snapshot callback's dynamic exclusive marker during unwind.
@@ -108,11 +109,12 @@ struct LiveGameClientBorrowGuard {
 
 impl Drop for LiveGameClientBorrowGuard {
     fn drop(&mut self) {
-        if let Ok(mut slot) = live_game_client_slot().lock() {
-            if slot.generation == self.generation && slot.raw.is_some() {
+        let generation = self.generation;
+        let _ = with_live_bridge_mut(|slot| {
+            if slot.generation == generation && slot.raw.is_some() {
                 slot.borrowed = false;
             }
-        }
+        });
     }
 }
 
@@ -120,18 +122,20 @@ pub(crate) fn with_live_game_client_mut<R>(
     callback: impl FnOnce(&mut GameClient) -> R,
 ) -> Option<R> {
     let (raw, _borrow_guard) = {
-        let mut slot = live_game_client_slot().lock().ok()?;
-        if slot.owner_thread != Some(std::thread::current().id()) || slot.borrowed {
-            return None;
-        }
-        let raw = slot.raw?;
-        slot.borrowed = true;
-        (
-            raw,
-            LiveGameClientBorrowGuard {
-                generation: slot.generation,
-            },
-        )
+        let acquired = with_live_bridge_mut(|slot| {
+            if slot.owner_thread != Some(std::thread::current().id()) || slot.borrowed {
+                return None;
+            }
+            let raw = slot.raw?;
+            slot.borrowed = true;
+            Some((
+                raw,
+                LiveGameClientBorrowGuard {
+                    generation: slot.generation,
+                },
+            ))
+        })?;
+        acquired?
     };
     let client = std::ptr::with_exposed_provenance_mut::<GameClient>(raw);
     // Snapshot adapter only: registration/clear are engine-lifecycle scoped;
