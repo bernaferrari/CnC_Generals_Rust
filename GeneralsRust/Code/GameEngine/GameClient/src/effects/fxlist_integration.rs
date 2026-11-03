@@ -207,6 +207,8 @@ impl FXNugget for TracerFXNugget {
             } else {
                 self.speed
             };
+            // Receiving FXContext owns the client/logic frame for this emit
+            // (C++ TracerFXNugget reads TheGameClient frame during doFXPos).
             let _ = crate::effects::tracer_fx::spawn_tracer_drawable_like_cpp(
                 &self.tracer_name,
                 [primary.x, primary.y, primary.z],
@@ -216,7 +218,7 @@ impl FXNugget for TracerFXNugget {
                 self.width,
                 self.color,
                 self.decay_at,
-                gamelogic::helpers::TheGameLogic::get_frame(),
+                context.current_frame,
             );
         }
     }

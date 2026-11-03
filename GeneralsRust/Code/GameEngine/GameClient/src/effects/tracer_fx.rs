@@ -276,6 +276,14 @@ impl TracerFxState {
     }
 }
 
+#[cfg(test)]
+std::thread_local! {
+    static TEST_TRACER_STORE: std::cell::RefCell<TracerStore> =
+        std::cell::RefCell::new(TracerStore::new());
+    static TEST_TRACER_DRAWABLES: std::cell::RefCell<TracerDrawableStore> =
+        std::cell::RefCell::new(TracerDrawableStore::new());
+}
+
 fn with_tracers<R>(f: impl FnOnce(&mut TracerStore) -> R) -> R {
     let mut f = Some(f);
     if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
@@ -283,7 +291,14 @@ fn with_tracers<R>(f: impl FnOnce(&mut TracerStore) -> R) -> R {
     }) {
         return result;
     }
-    f.take().expect("tracer callback")(&mut TracerStore::new())
+    #[cfg(test)]
+    {
+        return TEST_TRACER_STORE.with(|slot| f.take().expect("tracer callback")(&mut slot.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("tracer callback")(&mut TracerStore::new())
+    }
 }
 
 fn with_tracer_drawables<R>(f: impl FnOnce(&mut TracerDrawableStore) -> R) -> R {
@@ -293,7 +308,16 @@ fn with_tracer_drawables<R>(f: impl FnOnce(&mut TracerDrawableStore) -> R) -> R 
     }) {
         return result;
     }
-    f.take().expect("tracer drawable callback")(&mut TracerDrawableStore::new())
+    #[cfg(test)]
+    {
+        return TEST_TRACER_DRAWABLES.with(|slot| {
+            f.take().expect("tracer drawable callback")(&mut slot.borrow_mut())
+        });
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("tracer drawable callback")(&mut TracerDrawableStore::new())
+    }
 }
 
 

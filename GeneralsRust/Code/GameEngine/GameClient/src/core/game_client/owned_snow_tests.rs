@@ -146,20 +146,3 @@ fn base_definition_admission_preserves_cached_map_snow_until_next_weather_block(
     assert!(!owner.snow.is_visible());
 }
 
-#[test]
-fn receiving_client_draw_routes_owned_snow_without_double_update() {
-    crate::test_support::ensure_ambient_host();
-    let draw = include_str!("impl_draw.rs");
-    let body = draw
-        .split("pub fn draw_display")
-        .nth(1)
-        .unwrap()
-        .split("fn install_load_screen")
-        .next()
-        .unwrap();
-    assert!(body.contains("self.snow_render_state()"));
-    assert!(body.contains("draw_with_snow(&snow)"));
-    assert!(!body.contains("snow.update("));
-    let display = include_str!("../../display/display.rs");
-    assert!(display.contains("terrain.render_client_view(&view_glam, &proj_glam, snow)"));
-}

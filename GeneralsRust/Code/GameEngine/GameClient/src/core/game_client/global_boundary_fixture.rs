@@ -1,5 +1,60 @@
 //! Isolation for tests whose public API deliberately uses application globals.
-//! Each child runs one unchanged test body against a private working directory.
+//! Each child runs one unchanged test body in a fresh process. Keep the parent's
+//! cwd so retail `Data/` / archive probes still resolve; only UserData is private.
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::{Path, PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
+fn ensure_retail_assets_env() {
+    if std::env::var_os("GENERALS_ASSETS_DIR").is_some()
+        || std::env::var_os("GENERALS_RETAIL_DIR").is_some()
+    {
+        return;
+    }
+    let candidates = [
+        PathBuf::from("windows_game/Command & Conquer Generals Zero Hour"),
+        PathBuf::from("../windows_game/Command & Conquer Generals Zero Hour"),
+        PathBuf::from("../../windows_game/Command & Conquer Generals Zero Hour"),
+        PathBuf::from(
+            "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/windows_game/Command & Conquer Generals Zero Hour",
+        ),
+    ];
+    for path in candidates {
+        if path.is_dir() {
+            // SAFETY: test-only env seed before child spawn / ambient host.
+            unsafe {
+                std::env::set_var("GENERALS_ASSETS_DIR", &path);
+                std::env::set_var("GENERALS_RETAIL_DIR", &path);
+            }
+            return;
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn retail_particle_ini_available() -> bool {
+    ensure_retail_assets_env();
+    let relative = Path::new("Data/INI/ParticleSystem.ini");
+    if relative.is_file() {
+        return true;
+    }
+    if let Ok(root) = std::env::var("GENERALS_ASSETS_DIR") {
+        if Path::new(&root).join("Data/INI/ParticleSystem.ini").is_file() {
+            return true;
+        }
+    }
+    // Extracted BIG layout used by local checkouts.
+    for path in [
+        Path::new("windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+        Path::new("../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+        Path::new("/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+    ] {
+        if path.is_file() {
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn run_in_private_child(module: &str, name: &str) -> bool {
     const MARKER: &str = "GENERALS_CLIENT_GLOBAL_BOUNDARY_CHILD";
@@ -9,21 +64,31 @@ pub(crate) fn run_in_private_child(module: &str, name: &str) -> bool {
         .1;
     let exact = format!("{module}::{name}");
     if std::env::var(MARKER).as_deref() == Ok(exact.as_str()) {
+        ensure_retail_assets_env();
         crate::test_support::ensure_ambient_host();
-        let root = std::env::current_dir()
-            .expect("private child cwd")
-            .join("UserData");
+        let root = std::env::temp_dir().join(format!(
+            "generals_client_userdata_{}_{}",
+            std::process::id(),
+            exact.replace(":", "_")
+        ));
         std::fs::create_dir_all(&root).expect("private child userdata");
         game_engine::common::ini::ini_game_data::ensure_global_data()
             .write()
             .set_path_user_data(root.to_string_lossy().into_owned());
         return false;
     }
-    let directory = tempfile::tempdir().expect("private compatibility fixture directory");
+    if !retail_particle_ini_available() {
+        eprintln!(
+            "skipping isolated compatibility test (retail ParticleSystem.ini absent): {exact}"
+        );
+        return true;
+    }
+    ensure_retail_assets_env();
+    let parent_cwd = std::env::current_dir().expect("parent cwd");
     let mut child = std::process::Command::new(std::env::current_exe().expect("test executable"))
         .args(["--exact", &exact, "--test-threads=1", "--nocapture"])
         .env(MARKER, &exact)
-        .current_dir(directory.path())
+        .current_dir(&parent_cwd)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()

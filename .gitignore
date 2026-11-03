@@ -45,7 +45,9 @@ __pycache__/
 
 # Local retail/extracted game data — never commit
 /windows_game/
+/windows_game
 /GeneralsRust/windows_game/
+/windows_game
 /GeneralsRust/Code/Main/assets/*.big
 
 # w3d_to_gltf is a normal workspace crate. Keep local retail inputs, generated
@@ -95,3 +97,4 @@ daemon/*.log
 
 # Local present-frame / smoke screenshots (hq-x1j4u.9.6)
 /GeneralsRust/artifacts/
+/GeneralsRust/Data

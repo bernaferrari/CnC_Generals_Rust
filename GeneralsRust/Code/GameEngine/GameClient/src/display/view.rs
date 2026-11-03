@@ -3366,24 +3366,33 @@ mod tests {
         let start_x = path[0].x;
         let start_y = path[0].y;
 
+        // C++ `cameraModFinalTimeMultiplier` only retimes the *last* waypoint.
+        // The first update still samples multiplier 1.0; after enough frames the
+        // lerp into the final segment makes the accelerated path pull ahead.
         let mut normal = View::new();
         normal.init();
         normal.move_camera_along_waypoint_path(&path, 1000, 0, true, 0.0, 0.0);
-        normal.update_view();
-        let normal_dx = normal.position().x - start_x;
-        let normal_dy = normal.position().y - start_y;
-        let normal_distance = (normal_dx * normal_dx + normal_dy * normal_dy).sqrt();
 
         let mut accelerated = View::new();
         accelerated.init();
         accelerated.move_camera_along_waypoint_path(&path, 1000, 0, true, 0.0, 0.0);
         accelerated.camera_mod_final_time_multiplier(3);
-        accelerated.update_view();
+
+        for _ in 0..20 {
+            normal.update_view();
+            accelerated.update_view();
+        }
+        let normal_dx = normal.position().x - start_x;
+        let normal_dy = normal.position().y - start_y;
+        let normal_distance = (normal_dx * normal_dx + normal_dy * normal_dy).sqrt();
         let fast_dx = accelerated.position().x - start_x;
         let fast_dy = accelerated.position().y - start_y;
         let fast_distance = (fast_dx * fast_dx + fast_dy * fast_dy).sqrt();
 
-        assert!(fast_distance > normal_distance);
+        assert!(
+            fast_distance > normal_distance,
+            "final-time multiplier must advance farther after several frames: fast={fast_distance} normal={normal_distance}"
+        );
     }
 
     #[test]
@@ -3983,6 +3992,7 @@ mod tactical_view_ownership_tests {
         for thread_idx in 0..2 {
             let barrier = Arc::clone(&barrier);
             joins.push(std::thread::spawn(move || {
+                crate::test_support::ensure_ambient_host();
                 barrier.wait();
                 let x = 10.0 + thread_idx as f32;
                 with_tactical_view(|view| {
