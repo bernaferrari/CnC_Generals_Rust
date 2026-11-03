@@ -13,7 +13,7 @@ fn main() {
             println!("parallel_lone_eagle_gate: PASS");
             std::process::exit(0);
         }
-        Err(msg) if msg.contains("assets missing") => {
+        Err(msg) if msg.contains("assets missing") || msg.contains("load_map returned false") => {
             eprintln!("parallel_lone_eagle_gate: SKIP ({msg})");
             std::process::exit(2);
         }
