@@ -1004,6 +1004,23 @@ mod tests {
         assert!(stream_contains_message_type(&GameMessageType::Invalid).unwrap());
         assert!(!stream_contains_message_type(&GameMessageType::NewGame).unwrap());
     }
+    #[test]
+    fn meta_demo_instant_quit_appends_to_stream_like_winmain() {
+        // hq-x14su / C++ WinMain.cpp:361,373 append MSG_META_DEMO_INSTANT_QUIT.
+        // Platform push_message maps MetaInstantQuit -> MetaDemoInstantQuit via
+        // append_message_to_stream; this proves the stream receives it.
+        let stream = get_message_stream();
+        {
+            let mut guard = stream.write().unwrap();
+            *guard = MessageStream::new();
+        }
+        assert!(append_message_to_stream(GameMessageType::MetaDemoInstantQuit).is_ok());
+        assert!(
+            stream_contains_message_type(&GameMessageType::MetaDemoInstantQuit).unwrap(),
+            "close/session-end must deliver MetaDemoInstantQuit onto the stream"
+        );
+    }
+
 
     #[test]
     fn test_message_insertion() {

@@ -680,6 +680,7 @@ pub fn live_kind_of_cpp_mask(kind: crate::game_logic::KindOf) -> u128 {
         KindOf::SpawnsAreTheWeapons => M::SPAWNS_ARE_THE_WEAPONS.bits(),
         KindOf::PortableStructure => M::PORTABLE_STRUCTURE.bits(),
         KindOf::BoobyTrap => M::BOOBY_TRAP.bits(),
+        KindOf::ProducedAtHelipad => 0, // gameplay-only; no leftover mask bit packed here
 
         KindOf::Resource | KindOf::Worker | KindOf::Harvestable => 0,
     }

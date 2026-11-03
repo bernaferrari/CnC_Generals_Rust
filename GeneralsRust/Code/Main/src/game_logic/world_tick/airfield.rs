@@ -669,21 +669,16 @@ impl GameLogic {
         object.is_kind_of(KindOf::Aircraft) || object.object_type == ObjectType::Aircraft
     }
 
-    /// C++ `KINDOF_PRODUCED_AT_HELIPAD`. Host KindOf bank may omit the bit, so
-    /// also honor the established helicopter-template detector.
+    /// C++ `KINDOF_PRODUCED_AT_HELIPAD` — authored KindOf bit only (hq-mzd8i).
     pub(crate) fn template_is_produced_at_helipad(
         template: &crate::game_logic::ThingTemplate,
     ) -> bool {
-        crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(
-            &template.name,
-        )
+        template.is_kind_of(crate::game_logic::KindOf::ProducedAtHelipad)
     }
 
     pub(crate) fn object_is_produced_at_helipad(object: &Object) -> bool {
-        Self::template_is_produced_at_helipad(&object.thing().template)
-            || crate::game_logic::host_helicopter_slow_death::is_helicopter_slow_death_template(
-                &object.template_name,
-            )
+        object.is_kind_of(crate::game_logic::KindOf::ProducedAtHelipad)
+            || Self::template_is_produced_at_helipad(&object.thing().template)
     }
 
     /// C++ `HeliTakeoffOrLandingState` 3-unit 3D success (JetAIUpdate.cpp:1075-1084).

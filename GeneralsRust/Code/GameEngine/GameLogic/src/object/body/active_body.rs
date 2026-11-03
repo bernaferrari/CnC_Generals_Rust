@@ -2456,8 +2456,18 @@ impl BodyModuleInterface for ActiveBody {
 
             state.current_health += delta;
 
-            let high = state.max_health.max(floor);
-            state.current_health = state.current_health.clamp(floor.min(high), high);
+            // C++ ActiveBody::internalChangeHealth (ActiveBody.cpp:1195-1209):
+            // high cap is m_maxHealth only; low cap is 0. ImmortalBody only
+            // pre-clamps delta (ImmortalBody.cpp:34) so a later max-health
+            // clip below 1 (e.g. FullyHeal to 0.5) can leave health == max.
+            let high = state.max_health;
+            if state.current_health > high {
+                state.current_health = high;
+            }
+            let low = 0.0_f32;
+            if state.current_health < low {
+                state.current_health = low;
+            }
 
             let old_state = state.current_damage_state;
             state.current_damage_state =

@@ -333,4 +333,27 @@ mod tests {
         let handler = super::GameMessageHandler::new();
         assert!(!handler.is_app_active);
     }
+
+    #[test]
+    fn close_request_delivers_meta_demo_instant_quit_to_stream() {
+        // hq-x14su / C++ WinMain.cpp:361,373.
+        use super::WindowMessageHandler;
+        use game_engine::common::message_stream::{
+            GameMessageType as EngineMessage, get_message_stream, stream_contains_message_type,
+            MessageStream,
+        };
+        let stream = get_message_stream();
+        {
+            let mut guard = stream.write().unwrap();
+            *guard = MessageStream::new();
+        }
+        let mut handler = super::GameMessageHandler::new();
+        let _ = WindowMessageHandler::handle_close_request(&mut handler, false);
+        assert!(handler.is_quit_requested());
+        assert!(
+            stream_contains_message_type(&EngineMessage::MetaDemoInstantQuit).unwrap(),
+            "WM_CLOSE path must append MSG_META_DEMO_INSTANT_QUIT"
+        );
+    }
+
 }

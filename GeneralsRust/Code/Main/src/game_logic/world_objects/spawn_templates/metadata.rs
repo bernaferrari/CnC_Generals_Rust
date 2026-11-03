@@ -26,6 +26,11 @@ impl GameLogic {
         if has_kind("harvester") {
             template.add_kind_of(KindOf::Harvester);
         }
+        // C++ KINDOF_PRODUCED_AT_HELIPAD (KindOf.h) — JetAI / parking / group
+        // pathing. Authored token only; never infer from template basename.
+        if has_kind("produced_at_helipad") {
+            template.add_kind_of(KindOf::ProducedAtHelipad);
+        }
         // ActionManager uses these exact authored KindOf bits for service
         // target validation.  Do not collapse them into BuildingType or
         // a template-name convention: retail barracks/war factories happen

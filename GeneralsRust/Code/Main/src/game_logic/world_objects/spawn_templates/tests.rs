@@ -127,6 +127,55 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn authored_produced_at_helipad_kindof_survives_object_ini_parsing() {
+        // hq-mzd8i: C++ KINDOF_PRODUCED_AT_HELIPAD is an authored token, not a
+        // basename heuristic. Tagged custom names keep the bit; aircraft without
+        // the token do not.
+        use std::sync::Arc;
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let source = r#"
+Object CustomTaggedHelo
+  KindOf = VEHICLE AIRCRAFT PRODUCED_AT_HELIPAD SELECTABLE
+  Body = ActiveBody BodyTag
+  MaxHealth = 100
+  InitialHealth = 100
+End
+Object CustomAirOnlyJet
+  KindOf = VEHICLE AIRCRAFT SELECTABLE
+  Body = ActiveBody BodyTag
+  MaxHealth = 100
+  InitialHealth = 100
+End
+"#;
+            let mut parser = crate::assets::IniParser::new();
+            parser
+                .parse_ini_content(source, "produced_at_helipad_probe.ini")
+                .expect("parse probe");
+            let tagged = GameLogic::build_template_from_object_definition(
+                "CustomTaggedHelo",
+                parser.get_definition("CustomTaggedHelo").expect("tagged"),
+                None,
+            );
+            let air_only = GameLogic::build_template_from_object_definition(
+                "CustomAirOnlyJet",
+                parser.get_definition("CustomAirOnlyJet").expect("jet"),
+                None,
+            );
+            assert!(
+                tagged.is_kind_of(KindOf::ProducedAtHelipad),
+                "authored PRODUCED_AT_HELIPAD must land on the template"
+            );
+            assert!(
+                !air_only.is_kind_of(KindOf::ProducedAtHelipad),
+                "aircraft without the token must not inherit helipad via name"
+            );
+            assert!(crate::game_logic::GameLogic::template_is_produced_at_helipad(&tagged));
+            assert!(!crate::game_logic::GameLogic::template_is_produced_at_helipad(&air_only));
+        });
+    }
+
     fn retail_service_and_dozer_kindof_tags_survive_object_ini_parsing() {
         use std::path::Path;
 

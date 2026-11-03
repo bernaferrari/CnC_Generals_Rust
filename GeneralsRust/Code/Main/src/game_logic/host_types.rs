@@ -241,6 +241,9 @@ pub enum KindOf {
     PortableStructure,
     /// C++ KINDOF_BOOBY_TRAP (bit97); append-only host capability.
     BoobyTrap,
+    /// C++ `KINDOF_PRODUCED_AT_HELIPAD` — helicopter airframe (Comanche etc.).
+    /// Append-only host KindOf; save ID 91 (do not reshape earlier ordinals).
+    ProducedAtHelipad,
 }
 
 impl KindOf {
@@ -342,6 +345,7 @@ impl KindOf {
         KindOf::SpawnsAreTheWeapons,
         KindOf::PortableStructure,
         KindOf::BoobyTrap,
+        KindOf::ProducedAtHelipad,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -437,6 +441,7 @@ impl KindOf {
             Self::SpawnsAreTheWeapons => "SpawnsAreTheWeapons",
             Self::PortableStructure => "PortableStructure",
             Self::BoobyTrap => "BoobyTrap",
+            Self::ProducedAtHelipad => "ProducedAtHelipad",
         }
     }
 
@@ -478,6 +483,7 @@ impl KindOf {
             "SPAWNS_ARE_THE_WEAPONS" | "SPAWNSARETHEWEAPONS" => Some(Self::SpawnsAreTheWeapons),
             "PORTABLE_STRUCTURE" | "PORTABLESTRUCTURE" => Some(Self::PortableStructure),
             "BOOBY_TRAP" | "BOOBYTRAP" => Some(Self::BoobyTrap),
+            "PRODUCED_AT_HELIPAD" | "PRODUCEDATHELIPAD" => Some(Self::ProducedAtHelipad),
 
             "DRONE" => Some(Self::Drone),
             _ => None,
@@ -997,7 +1003,7 @@ mod tests {
             1u128 << 15,
         );
         assert!(KindOf::ALL_KIND_OF.contains(&KindOf::LineBuild));
-        assert_eq!(KindOf::ALL_KIND_OF.last(), Some(&KindOf::BoobyTrap));
+        assert_eq!(KindOf::ALL_KIND_OF.last(), Some(&KindOf::ProducedAtHelipad)); // append-only: new KindOf is last
         // Existing serde discriminants remain stable even where Xfer uses a
         // different established order (CliffJumper precedes CleanupHazard).
         for (kind, ordinal) in [
