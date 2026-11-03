@@ -8,6 +8,7 @@
 
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32};
+use std::any::Any;
 use std::sync::{Arc, Mutex};
 
 use crate::config::RendererConfig;
@@ -69,6 +70,10 @@ pub struct Renderer3dRuntime {
     pub thumbnail_manager: Mutex<ThumbnailManagerClass>,
     pub texture_cache: Mutex<Option<TextureFileCache>>,
     pub shader_state: Mutex<ShaderGlobalState>,
+    /// Type-erased [`crate::rendering::mesh_system`] StaticSortState (installed on first use).
+    pub static_sort_state: Mutex<Option<Box<dyn Any + Send>>>,
+    /// Type-erased ring mesh array (installed on first use).
+    pub ring_mesh_array: Mutex<Option<Box<dyn Any + Send>>>,
 }
 
 impl Default for Renderer3dRuntime {
@@ -93,6 +98,8 @@ impl Renderer3dRuntime {
             thumbnail_manager: Mutex::new(ThumbnailManagerClass::new()),
             texture_cache: Mutex::new(None),
             shader_state: Mutex::new(ShaderGlobalState::new()),
+            static_sort_state: Mutex::new(None),
+            ring_mesh_array: Mutex::new(None),
         }
     }
 }
