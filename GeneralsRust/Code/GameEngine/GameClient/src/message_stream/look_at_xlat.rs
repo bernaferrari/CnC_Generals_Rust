@@ -322,7 +322,7 @@ impl GameMessageTranslator for LookAtTranslator {
     }
 }
 impl LookAtTranslator {
-    fn translate_with_client(
+    pub(crate) fn translate_with_client(
         &mut self,
         msg: &GameMessage,
         client: game_engine::common::message_stream::TranslatorClientObservation,
@@ -656,8 +656,23 @@ mod tests {
         let mut translator = LookAtTranslator::new();
         let mut camera = test_camera();
         translator.set_scrolling(ScrollType::Rmb, ui, &mut camera);
-        let _ =
-            translator.translate_game_message(&GameMessage::new(GameMessageType::RawMouseWheel(1)));
+        let mut receiving = crate::message_stream::ReceivingUi::new(ui, 1, 1);
+        let client = game_engine::common::message_stream::TranslatorClientObservation {
+            frame: 1,
+            logic_frame: 1,
+            game_mode: 0,
+            shell_active: false,
+            time_of_day: 0,
+            weather_is_snowy: false,
+            force_models_to_follow_time_of_day: false,
+            force_models_to_follow_weather: false,
+        };
+        let _ = translator.translate_with_client(
+            &GameMessage::new(GameMessageType::RawMouseWheel(1)),
+            client,
+            &mut receiving,
+            &mut camera,
+        );
         assert!(!translator.is_scrolling);
         assert_eq!(translator.scroll_type, ScrollType::None);
         });

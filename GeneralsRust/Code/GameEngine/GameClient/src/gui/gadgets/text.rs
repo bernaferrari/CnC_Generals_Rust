@@ -1766,7 +1766,7 @@ mod tests {
 
         // Delete before cursor
         entry.delete_before_cursor();
-        assert_eq!(entry.text(), "Hello Beautifu World");
+        assert_eq!(entry.text(), "Hello BeautifulWorld");
     }
 
     #[test]

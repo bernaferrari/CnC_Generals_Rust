@@ -1036,17 +1036,21 @@ mod tests {
         use crate::core::game_client::ClientInputAuthority;
         use crate::gui::callbacks::menu_callbacks::MenuManager;
         use crate::gui::game_window::WindowEventEffects;
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut menus = MenuManager::new();
-        let mut wm = crate::gui::window_manager::WindowManager::new();
         let mut messages = Vec::new();
         let mut effects = WindowEventEffects::new(&mut messages);
+        effects.window_manager_owner = Some(&owner);
         effects.menus = Some(menus.receiving_menus(ClientInputAuthority::NativeHosted));
-        crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
-            "",
-            true,
-            &mut wm,
-            effects.menus.as_mut().unwrap().diplomacy,
-        );
+        effects.logic_frame = Some(0);
+        owner.with_manager(|wm| {
+            crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text(
+                "",
+                true,
+                wm,
+                effects.menus.as_mut().unwrap().diplomacy,
+            );
+        });
         crate::helpers::popup_message(
             "SCRIPT:Wave6InGameUIPopup",
             10,
@@ -1056,6 +1060,7 @@ mod tests {
             false,
             &mut effects,
         );
+        owner.complete_event_callbacks(&mut effects);
         assert!(
             crate::gui::callbacks::diplomacy::get_briefing_text_list(
                 effects.menus.as_ref().unwrap().diplomacy,

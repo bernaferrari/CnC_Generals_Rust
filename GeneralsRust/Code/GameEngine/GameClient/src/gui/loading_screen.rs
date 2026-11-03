@@ -530,7 +530,9 @@ mod tests {
     #[test]
     fn test_show_hide() {
         crate::test_support::ensure_ambient_host();
-        let mut loading_screen = LoadingScreen::new(LoadingScreenConfig::default());
+        let mut config = LoadingScreenConfig::default();
+        config.minimum_display_time = std::time::Duration::ZERO;
+        let mut loading_screen = LoadingScreen::new(config);
 
         loading_screen.show();
         assert_eq!(loading_screen.state(), LoadingState::Active);
