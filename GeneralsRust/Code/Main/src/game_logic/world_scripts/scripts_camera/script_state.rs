@@ -448,10 +448,13 @@ impl GameLogic {
                 .unwrap_or(0)
                 .max(obj.transport_capacity()) as u32,
             last_damage_source_id: obj.last_damage_source.map(|sid| sid.0).unwrap_or(0),
-            last_damage_template: obj
-                .last_damage_source
-                .and_then(|sid| self.objects.get(&sid).map(|src| src.template_name.clone()))
-                .unwrap_or_default(),
+            last_damage_template: if !obj.last_damage_source_template.is_empty() {
+                obj.last_damage_source_template.clone()
+            } else {
+                obj.last_damage_source
+                    .and_then(|sid| self.objects.get(&sid).map(|src| src.template_name.clone()))
+                    .unwrap_or_default()
+            },
             last_damage_player: obj
                 .last_damage_source
                 .and_then(|sid| {

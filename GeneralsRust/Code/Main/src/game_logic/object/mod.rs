@@ -2855,6 +2855,10 @@ pub struct Object {
     /// Set when damage is applied with a known attacker id.
     #[serde(default)]
     pub last_damage_source: Option<ObjectId>,
+    /// C++ DamageInfoInput::m_sourceTemplate frozen at impact (ActiveBody.cpp:341-346).
+    /// Scripts evaluate AttackedByType from this even after the shooter dies.
+    #[serde(default)]
+    pub last_damage_source_template: String,
     /// C++ DamageInfoInput::m_sourcePlayerMask captured at impact. For
     /// projectile radius hits this is the projectile controller mask and must
     /// stay independent of a later launcher rewrite of last_damage_source.
@@ -3341,6 +3345,8 @@ mod entity_lifecycle_round_trip_tests;
 mod kill_special_reentry_tests;
 #[cfg(test)]
 mod damage_status_type_owner_tests;
+#[cfg(test)]
+mod source_template_damage_tests;
 mod entity_lifecycle_tags;
 mod entity_lifecycle_weapon_slots;
 mod fx;

@@ -1335,12 +1335,18 @@ impl Object {
             },
         );
         if continuation.amount > 0.0 || continuation.is_kill {
+            let source_template = continuation
+                .source_fx
+                .as_ref()
+                .map(|snapshot| snapshot.name.clone())
+                .unwrap_or_default();
             self.stamp_last_damage_cpp_with_observations(
                 continuation.source,
                 continuation.damage_type,
                 continuation.frame,
                 continuation.incoming,
                 continuation.previous,
+                source_template,
             );
             player_effects(BodyPlayerEffect::AttackedBy {
                 victim_player: self.owner_player_id,
@@ -1373,12 +1379,17 @@ impl Object {
         context: &DamageHitContext,
     ) {
         let (incoming, previous) = context.last_damage_observations();
+        let source_template = context
+            .source()
+            .map(|snapshot| snapshot.name.clone())
+            .unwrap_or_default();
         self.stamp_last_damage_cpp_with_observations(
             source,
             damage_type,
             frame,
             incoming,
             previous,
+            source_template,
         );
         // Weapon.cpp sets m_sourcePlayerMask before projectile→launcher rewrite.
         // Refresh every impact so Object.cpp radar gating never re-reads sourceID.
@@ -1392,6 +1403,7 @@ impl Object {
         frame: u32,
         incoming: LastDamageSourceObservation,
         previous: LastDamageSourceObservation,
+        source_template: String,
     ) {
         // CPP initializes m_lastDamageTimestamp to UINT_MAX. None represents
         // that initial/unknown older-save state without inventing a frame.
@@ -1402,6 +1414,7 @@ impl Object {
         if !same_or_next || (incoming.exists && (!previous.exists || incoming.preferred)) {
             self.last_damage_info_type = Some(damage_type);
             self.last_damage_source = source;
+            self.last_damage_source_template = source_template;
             self.last_damage_cleared = false;
             self.last_damage_timestamp = Some(frame);
         }
