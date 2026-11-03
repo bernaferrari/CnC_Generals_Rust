@@ -56,6 +56,8 @@ struct WindowManagerOwnerState {
     keyboard_options: std::sync::Arc<
         std::sync::Mutex<crate::gui::callbacks::keyboard_options_menu::KeyboardOptionsMenuState>,
     >,
+    /// PopupCommunicator menu + residual peels (was process TLS/atomics).
+    popup_communicator: RefCell<crate::gui::callbacks::popup_communicator::PopupCommunicatorState>,
     /// Offline network stub queues / facade (not(feature = "network")).
     #[cfg(not(feature = "network"))]
     network_compat: crate::game_network_compat::NetworkCompatState,
@@ -125,6 +127,9 @@ impl WindowManagerOwner {
                 keyboard_options: std::sync::Arc::new(std::sync::Mutex::new(
                     crate::gui::callbacks::keyboard_options_menu::KeyboardOptionsMenuState::default(),
                 )),
+                popup_communicator: RefCell::new(
+                    crate::gui::callbacks::popup_communicator::PopupCommunicatorState::default(),
+                ),
                 #[cfg(not(feature = "network"))]
                 network_compat: crate::game_network_compat::NetworkCompatState::new(),
             }),
@@ -149,6 +154,13 @@ impl WindowManagerOwner {
         std::sync::Mutex<crate::gui::callbacks::keyboard_options_menu::KeyboardOptionsMenuState>,
     > {
         self.state.keyboard_options.clone()
+    }
+
+    pub(crate) fn with_popup_communicator_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::gui::callbacks::popup_communicator::PopupCommunicatorState) -> R,
+    ) -> R {
+        f(&mut self.state.popup_communicator.borrow_mut())
     }
 
     /// Offline network stub state for this client (`not(feature = "network")`).
