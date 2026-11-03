@@ -1,7 +1,5 @@
 //! GameWindow global helpers for drawing and font lookup.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use glam::Vec2;
 
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
@@ -15,18 +13,29 @@ use super::window_manager::WindowManager;
 
 /// Visible `win_draw_image` submits (textured or untextured fill).
 /// Tests can read this when UIRenderer/GPU is not bound.
-static WIN_DRAW_IMAGE_COMMANDS: AtomicUsize = AtomicUsize::new(0);
-
 pub fn win_draw_image_queued_count() -> usize {
-    WIN_DRAW_IMAGE_COMMANDS.load(Ordering::Relaxed)
+    crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .win_draw_image_commands()
+            .load(std::sync::atomic::Ordering::Relaxed)
+    })
+    .unwrap_or(0)
 }
 
 pub fn reset_win_draw_image_queued_count() {
-    WIN_DRAW_IMAGE_COMMANDS.store(0, Ordering::Relaxed);
+    let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .win_draw_image_commands()
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+    });
 }
 
 fn note_win_draw_image_command() {
-    WIN_DRAW_IMAGE_COMMANDS.fetch_add(1, Ordering::Relaxed);
+    let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .win_draw_image_commands()
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    });
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

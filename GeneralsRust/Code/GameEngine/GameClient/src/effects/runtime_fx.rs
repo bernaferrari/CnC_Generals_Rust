@@ -34,7 +34,6 @@
 //! its nuggets create runtime FX instances that live in this container.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use game_engine::common::global_data;
@@ -48,10 +47,14 @@ use glam::{Vec3};
 pub type FXId = u64;
 
 /// Global counter for generating unique IDs.
-static FX_NEXT_ID: AtomicU64 = AtomicU64::new(1);
-
 fn next_fx_id() -> FXId {
-    FX_NEXT_ID.fetch_add(1, Ordering::Relaxed)
+    if let Some(id) = crate::core::game_client::with_live_game_client_mut(|client| client.next_fx_id()) {
+        return id;
+    }
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(1)
 }
 
 // ---------------------------------------------------------------------------

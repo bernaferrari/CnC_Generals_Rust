@@ -18,8 +18,14 @@ pub struct DeviceId(pub u64);
 impl DeviceId {
     pub fn new() -> Self {
         use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(1);
-        DeviceId(COUNTER.fetch_add(1, Ordering::Relaxed))
+        let id = crate::core::game_client::with_live_game_client_mut(|client| client.next_device_id())
+            .unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(1)
+            });
+        DeviceId(id)
     }
 }
 
