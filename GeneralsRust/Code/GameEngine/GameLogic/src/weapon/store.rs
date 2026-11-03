@@ -676,13 +676,22 @@ impl Default for WeaponStore {
     }
 }
 
-fn weapon_store_cell() -> std::sync::Arc<RwLock<Option<WeaponStore>>> {
-    std::sync::Arc::clone(crate::system::engine_stores::active_services().weapon_store())
+fn try_weapon_store_cell() -> Option<std::sync::Arc<RwLock<Option<WeaponStore>>>> {
+    crate::system::engine_stores::try_active_services()
+        .map(|services| std::sync::Arc::clone(services.weapon_store()))
+}
+
+fn weapon_store_cell() -> GameLogicResult<std::sync::Arc<RwLock<Option<WeaponStore>>>> {
+    try_weapon_store_cell().ok_or_else(|| {
+        GameLogicError::SystemNotInitialized(
+            "WeaponStore requires with_world_services / install_services (no process bag)".into(),
+        )
+    })
 }
 
 /// Initialize the per-world weapon store
 pub fn initialize_weapon_store() -> GameLogicResult<()> {
-    let cell = weapon_store_cell();
+    let cell = weapon_store_cell()?;
     let mut store = cell.write().map_err(|e| {
         GameLogicError::Threading(format!("Failed to acquire weapon store lock: {}", e))
     })?;
@@ -703,7 +712,7 @@ pub fn with_weapon_store<F, R>(f: F) -> GameLogicResult<R>
 where
     F: FnOnce(&WeaponStore) -> R,
 {
-    let cell = weapon_store_cell();
+    let cell = weapon_store_cell()?;
     {
         let mut store = cell.write().map_err(|e| {
             GameLogicError::Threading(format!("Failed to acquire weapon store lock: {}", e))
@@ -729,7 +738,7 @@ pub fn with_weapon_store_mut<F, R>(f: F) -> GameLogicResult<R>
 where
     F: FnOnce(&mut WeaponStore) -> R,
 {
-    let cell = weapon_store_cell();
+    let cell = weapon_store_cell()?;
     let mut store = cell.write().map_err(|e| {
         GameLogicError::Threading(format!("Failed to acquire weapon store lock: {}", e))
     })?;
@@ -747,7 +756,7 @@ where
 
 /// Shutdown the active world's weapon store.
 pub fn shutdown_weapon_store() -> GameLogicResult<()> {
-    let cell = weapon_store_cell();
+    let cell = weapon_store_cell()?;
     let mut store = cell.write().map_err(|e| {
         GameLogicError::Threading(format!("Failed to acquire weapon store lock: {}", e))
     })?;

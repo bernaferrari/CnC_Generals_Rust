@@ -531,6 +531,10 @@ impl GameLogic {
 
     /// Temporary condition adapter; explicit queries use the same owned projection.
     pub fn inject_host_script_query_snapshot(&self) {
+        self.with_own_services(|| self.inject_host_script_query_snapshot_bound())
+    }
+
+    fn inject_host_script_query_snapshot_bound(&self) {
         self.project_host_trigger_flags();
         let mut snap = self.build_host_script_query_snapshot();
         // Legacy snapshot geometry is projected from the same receiving
@@ -556,6 +560,10 @@ impl GameLogic {
     /// C++ `Player::isSupplySourceAttacked` / `isSupplySourceSafe` for leftover
     /// conditions when crate `OBJECT_REGISTRY` is empty.
     pub(crate) fn inject_host_supply_source_queries(&mut self) {
+        self.with_own_services_mut(|this| this.inject_host_supply_source_queries_bound())
+    }
+
+    fn inject_host_supply_source_queries_bound(&mut self) {
         let mut attacked = std::collections::HashMap::new();
         let mut cash_map = std::collections::HashMap::new();
         let mut safe_map = std::collections::HashMap::new();

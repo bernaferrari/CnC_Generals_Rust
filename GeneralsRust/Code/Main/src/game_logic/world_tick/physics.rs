@@ -1240,7 +1240,8 @@ impl GameLogic {
         victim_id: Option<ObjectId>,
         current_time: f32,
     ) -> bool {
-        let Some(u) = self.objects.get(&unit_id) else {
+        self.with_own_services_mut(|this| {
+        let Some(u) = this.objects.get(&unit_id) else {
             return false;
         };
         if !u.is_alive() {
@@ -1258,29 +1259,30 @@ impl GameLogic {
             let has =
                 u.weapon.is_some() || u.secondary_weapon.is_some() || u.tertiary_weapon.is_some();
             if has {
-                if let Some(uu) = self.objects.get_mut(&unit_id) {
+                if let Some(uu) = this.objects.get_mut(&unit_id) {
                     uu.leftover_choose_best_reset_primary_for_ground();
                 }
             }
             return has;
         };
-        let Some(v) = self.objects.get(&vid) else {
+        let Some(v) = this.objects.get(&vid) else {
             return false;
         };
         // Snapshot selection without holding mut borrow across get_mut.
         let slot =
-            u.select_combat_weapon_slot_with_solo_set(v, current_time, &self.solo_weapon_bonus_set);
+            u.select_combat_weapon_slot_with_solo_set(v, current_time, &this.solo_weapon_bonus_set);
         let Some(slot) = slot else {
             // Leftover chooseBest: no valid weapon → reset PRIMARY, return FALSE.
-            if let Some(uu) = self.objects.get_mut(&unit_id) {
+            if let Some(uu) = this.objects.get_mut(&unit_id) {
                 uu.set_active_weapon_slot(0);
             }
             return false;
         };
-        if let Some(uu) = self.objects.get_mut(&unit_id) {
+        if let Some(uu) = this.objects.get_mut(&unit_id) {
             uu.set_active_weapon_slot(slot);
         }
         true
+        })
     }
 
     /// C++ cannotPossiblyAttackObject state condition residual.

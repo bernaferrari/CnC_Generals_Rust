@@ -181,7 +181,7 @@ fn skirmish_queues_a_selected_team_without_waiting_for_team_seconds() {
                     .map(|building| building.production_queue.len()),
                 Some(1)
             );
-            clear_player_team_prototypes();
+            clear_player_team_prototypes(&logic);
         },
     );
 }

@@ -12,6 +12,16 @@ impl GameLogic {
         _dt: f32,
         mut ui: crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
+        self.with_own_services_mut(|this| {
+            this.evaluate_and_execute_scripts_with_effects_bound(_dt, ui)
+        })
+    }
+
+    fn evaluate_and_execute_scripts_with_effects_bound(
+        &mut self,
+        _dt: f32,
+        mut ui: crate::game_logic::ScriptPresentationEffects<'_>,
+    ) {
         if !self.scripts_loaded {
             return;
         }

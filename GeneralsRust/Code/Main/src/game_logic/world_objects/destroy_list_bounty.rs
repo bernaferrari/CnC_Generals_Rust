@@ -59,10 +59,15 @@ impl GameLogic {
         &mut self,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        self.object_lifecycle_callback_depth += 1;
-        let result = self.process_destroy_list_body_with_effects_checked(presentation_effects);
-        self.object_lifecycle_callback_depth -= 1;
-        result
+        // Destroy log / localization / player_list free-fns need World+Main.
+        // Nest-safe when already inside with_own_services (e.g. simulation step).
+        self.with_own_services_mut(|this| {
+            this.object_lifecycle_callback_depth += 1;
+            let result =
+                this.process_destroy_list_body_with_effects_checked(presentation_effects);
+            this.object_lifecycle_callback_depth -= 1;
+            result
+        })
     }
 
     fn process_destroy_list_body_with_effects_checked(

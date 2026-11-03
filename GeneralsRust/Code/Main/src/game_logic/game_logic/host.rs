@@ -1564,14 +1564,19 @@ impl GameLogic {
     }
 
     pub(crate) fn install_as_active_stores(&self) {
-        // Transitional: publishes this world's services for nested GameLogic-crate
-        // free functions that still call active_services(). Prefer passing
-        // &self.world_services / with_world_services at the call site instead.
+        // Transitional: publishes World + Main for nested free-function bridges
+        // (active_services, localization, destroy log, …). Prefer with_own_services
+        // for call-scoped publish; this leaves the bags bound until Drop/uninstall.
         let bundle = Arc::clone(&self.world_services);
-        if gamelogic::system::engine_stores::is_services_active(&bundle) {
-            return;
+        if !gamelogic::system::engine_stores::is_services_active(&bundle) {
+            gamelogic::system::engine_stores::install_services(bundle);
         }
-        gamelogic::system::engine_stores::install_services(bundle);
+        let main = Arc::clone(&self.main_services);
+        let already_main = crate::main_services::try_main_services()
+            .is_some_and(|active| Arc::ptr_eq(&active, &main));
+        if !already_main {
+            crate::main_services::install_main_services(main);
+        }
     }
 }
 

@@ -386,6 +386,12 @@ impl PlayerTemplateIdentity {
 impl GameLogic {
     /// Purchase through this session's science definitions and live player.
     pub(crate) fn attempt_player_science_purchase(&mut self, id: u32, name: &str) -> bool {
+        self.with_own_services_mut(|this| {
+            this.attempt_player_science_purchase_bound(id, name)
+        })
+    }
+
+    fn attempt_player_science_purchase_bound(&mut self, id: u32, name: &str) -> bool {
         use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::normalize_science_name_residual;
         let Some(content) = self.receiving_module_content.as_ref() else {
             let canonical = normalize_science_name_residual(name);

@@ -61,55 +61,59 @@ fn ai_for_world(
     AIPlayer::new_with_team_factory(player_id, team, difficulty, logic.team_factory.clone())
 }
 
-fn clear_player_team_prototypes() {
-    let __arc_bind = gamelogic::player::player_list();
-if let Ok(mut list) = __arc_bind.write() {
-        list.clear();
-    }
+fn clear_player_team_prototypes(world: &GameLogic) {
+    world.with_own_services(|| {
+        let __arc_bind = gamelogic::player::player_list();
+        if let Ok(mut list) = __arc_bind.write() {
+            list.clear();
+        }
+    });
 }
 
 fn admit_receiving_computer_class(world: &mut GameLogic, player_id: u32, skirmish: bool) {
     use game_engine::common::{dict::Dict, well_known_keys::*};
-    let faction = match world.get_player(player_id).unwrap().team {
-        Team::China => "FactionChina",
-        Team::GLA => "FactionGLA",
-        _ => "FactionAmerica",
-    };
-    let name = format!("OwnedPlayer{player_id}");
-    world
-        .get_player_mut(player_id)
-        .unwrap()
-        .map_side
-        .map_player_name = name.clone();
-    world.prepare_native_command_mode(if skirmish {
-        GameMode::Skirmish
-    } else {
-        GameMode::SinglePlayer
-    });
-    let mut row = Dict::new();
-    row.set_ascii_string(
-        key_player_name(),
-        if skirmish {
-            "TemplateSource".to_string()
+    world.with_own_services_mut(|world| {
+        let faction = match world.get_player(player_id).unwrap().team {
+            Team::China => "FactionChina",
+            Team::GLA => "FactionGLA",
+            _ => "FactionAmerica",
+        };
+        let name = format!("OwnedPlayer{player_id}");
+        world
+            .get_player_mut(player_id)
+            .unwrap()
+            .map_side
+            .map_player_name = name.clone();
+        world.prepare_native_command_mode(if skirmish {
+            GameMode::Skirmish
         } else {
-            name
-        },
-    );
-    row.set_ascii_string(key_player_faction(), faction);
-    row.set_bool(key_player_is_human(), false);
-    let catalog = [
-        (faction.to_string(), "ExactSide".to_string()),
-        ("FactionCivilian".to_string(), "Civilian".to_string()),
-    ]
-    .into_iter()
-    .collect();
-    world.sync_legacy_sides_list_from_dicts_with_controller_catalog(
-        &[row],
-        &[],
-        &[],
-        &[],
-        &catalog,
-    );
+            GameMode::SinglePlayer
+        });
+        let mut row = Dict::new();
+        row.set_ascii_string(
+            key_player_name(),
+            if skirmish {
+                "TemplateSource".to_string()
+            } else {
+                name
+            },
+        );
+        row.set_ascii_string(key_player_faction(), faction);
+        row.set_bool(key_player_is_human(), false);
+        let catalog = [
+            (faction.to_string(), "ExactSide".to_string()),
+            ("FactionCivilian".to_string(), "Civilian".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        world.sync_legacy_sides_list_from_dicts_with_controller_catalog(
+            &[row],
+            &[],
+            &[],
+            &[],
+            &catalog,
+        );
+    });
 }
 
 #[test]
@@ -563,7 +567,7 @@ fn select_team_to_build_splits_min_max_not_max_as_required() {
                     ))
                     .collect::<Vec<_>>()
             );
-            clear_player_team_prototypes();
+            clear_player_team_prototypes(&logic);
         },
     );
 }
@@ -626,7 +630,7 @@ fn is_a_good_idea_does_not_reject_ready_queue_team() {
                 !ai.is_a_good_idea_to_build_team(&logic, "HQ_Auf59_ReadyOk"),
                 "TeamBuildQueue still vetoes a prototype already under construction"
             );
-            clear_player_team_prototypes();
+            clear_player_team_prototypes(&logic);
         },
     );
 }
@@ -3277,7 +3281,7 @@ fn non_skirmish_ai_skillset_defaults_to_skillset1() {
             ai.try_purchase_skillset_science(&mut logic);
             assert_eq!(ai.skillset_selector, 0);
             assert_eq!(ai.side_skillsets()[0][0], "SCIENCE_NukeLauncher");
-            clear_player_team_prototypes();
+            clear_player_team_prototypes(&logic);
         },
     );
 }
@@ -3318,7 +3322,7 @@ fn skirmish_ai_skillset_randomizes_like_cpp() {
             ai.try_purchase_skillset_science(&mut logic);
             assert_eq!(ai.skillset_selector, expected);
             assert!((0..=limit).contains(&ai.skillset_selector));
-            clear_player_team_prototypes();
+            clear_player_team_prototypes(&logic);
         },
     );
 }

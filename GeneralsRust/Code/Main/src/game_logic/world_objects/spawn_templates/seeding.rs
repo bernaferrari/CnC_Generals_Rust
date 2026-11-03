@@ -253,6 +253,16 @@ impl GameLogic {
         weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
         definitions: &[(String, ObjectDefinition)],
     ) -> Result<(), String> {
+        self.with_own_services_mut(|this| {
+            this.admit_weapon_content_snapshot_bound(weapons, definitions)
+        })
+    }
+
+    fn admit_weapon_content_snapshot_bound(
+        &mut self,
+        weapons: Vec<(String, gamelogic::weapon::WeaponTemplate)>,
+        definitions: &[(String, ObjectDefinition)],
+    ) -> Result<(), String> {
         let mut catalog: HashMap<String, std::sync::Arc<gamelogic::weapon::WeaponTemplate>> =
             HashMap::new();
         for (name, rule) in weapons {

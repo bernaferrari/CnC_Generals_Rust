@@ -2301,24 +2301,27 @@ End
 
     #[test]
     fn test_clip_reload_and_pre_attack_use_frame_conversion() {
-        // Register a weapon with msec durations; store must hold logic frames.
-        let _ = gamelogic::initialize_weapon_store();
-        let mut props = HashMap::new();
-        props.insert("ClipReloadTime".into(), "2000".into()); // 2000ms → 60 frames
-        props.insert("PreAttackDelay".into(), "500".into()); // 500ms → 15 frames
-        props.insert("PrimaryDamage".into(), "10.0".into());
-        props.insert("AttackRange".into(), "100.0".into());
-        assert!(register_weapon_template("TestClipReloadWeapon", &props));
+        let services = gamelogic::system::engine_stores::new_world_services();
+        gamelogic::system::engine_stores::with_world_services(&services, || {
+            // Register a weapon with msec durations; store must hold logic frames.
+            let _ = gamelogic::initialize_weapon_store();
+            let mut props = HashMap::new();
+            props.insert("ClipReloadTime".into(), "2000".into()); // 2000ms → 60 frames
+            props.insert("PreAttackDelay".into(), "500".into()); // 500ms → 15 frames
+            props.insert("PrimaryDamage".into(), "10.0".into());
+            props.insert("AttackRange".into(), "100.0".into());
+            assert!(register_weapon_template("TestClipReloadWeapon", &props));
 
-        let frames = gamelogic::with_weapon_store(|store| {
-            let t = store
-                .find_weapon_template("TestClipReloadWeapon")
-                .expect("template registered");
-            (t.clip_reload_time, t.pre_attack_delay)
-        })
-        .expect("weapon store available");
-        assert_eq!(frames.0, 60, "ClipReloadTime 2000ms → 60 frames");
-        assert_eq!(frames.1, 15, "PreAttackDelay 500ms → 15 frames");
+            let frames = gamelogic::with_weapon_store(|store| {
+                let t = store
+                    .find_weapon_template("TestClipReloadWeapon")
+                    .expect("template registered");
+                (t.clip_reload_time, t.pre_attack_delay)
+            })
+            .expect("weapon store available");
+            assert_eq!(frames.0, 60, "ClipReloadTime 2000ms → 60 frames");
+            assert_eq!(frames.1, 15, "PreAttackDelay 500ms → 15 frames");
+        });
     }
 
     #[test]
