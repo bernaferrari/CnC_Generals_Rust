@@ -153,6 +153,7 @@ fn mapless_bad_tail_and_late_snapshot_failure_preserve_live_grid_factory_and_cac
                         Some(&payload),
                         directory.path(),
                         CPP_GAME_NONE,
+                        &game_engine::System::CampaignManagerXferState::default(),
                     )
                     .unwrap();
                 std::fs::write(manager.get_save_path(slot), archive).unwrap();

@@ -223,6 +223,59 @@ pub(crate) fn campaign_state_requires_owner(
     !state.campaign.trim().is_empty() || !state.mission.trim().is_empty() || state.is_challenge
 }
 
+/// Test-only campaign owner. Production capture/apply goes through the receiving
+/// `GameClient`; GameClient's `get_campaign_manager` is cfg(test) on that crate and
+/// is configured out when Main depends on it, so Main keeps a local fixture.
+#[cfg(test)]
+mod campaign_test_fixture {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    static FIXTURE: OnceLock<Mutex<game_client::gui::campaign_manager::CampaignManager>> =
+        OnceLock::new();
+
+    fn lock() -> std::sync::MutexGuard<'static, game_client::gui::campaign_manager::CampaignManager>
+    {
+        FIXTURE
+            .get_or_init(|| Mutex::new(game_client::gui::campaign_manager::CampaignManager::new()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub(super) fn apply(state: game_engine::System::CampaignManagerXferState) {
+        lock().apply_logic_chunk_state(state);
+    }
+
+    pub(super) fn capture() -> game_engine::System::CampaignManagerXferState {
+        lock().capture_logic_chunk_state()
+    }
+}
+
+#[cfg(test)]
+fn apply_campaign_manager_state(state: game_engine::System::CampaignManagerXferState) {
+    campaign_test_fixture::apply(state);
+}
+
+#[cfg(test)]
+pub(crate) fn capture_live_campaign_state() -> game_engine::System::CampaignManagerXferState {
+    campaign_test_fixture::capture()
+}
+
+/// Apply only the payload belonging to the admitted archive. Decoding another
+/// archive cannot replace or discard it.
+#[cfg(test)]
+pub(crate) fn commit_campaign_state(state: Option<game_engine::System::CampaignManagerXferState>) {
+    if let Some(state) = state {
+        apply_campaign_manager_state(state);
+    }
+}
+
+/// C++ `GameState::loadGame` clearGameData on xfer/loadPostProcess failure.
+#[cfg(test)]
+fn rollback_campaign_after_failed_load(prior: game_engine::System::CampaignManagerXferState) {
+    apply_campaign_manager_state(prior);
+}
+
 fn campaign_difficulty(state: &game_engine::System::CampaignManagerXferState) -> GameDifficulty {
     match state.difficulty {
         0 => GameDifficulty::Easy,
