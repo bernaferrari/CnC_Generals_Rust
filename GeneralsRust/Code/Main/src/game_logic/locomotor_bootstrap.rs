@@ -26,7 +26,6 @@ use game_engine::common::ini::ini_locomotor::{
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Once;
 
 /// Retail SET_NORMAL locomotor names used by host golden / skirmish unit templates.
 pub const BASIC_HUMAN_LOCOMOTOR: &str = "BasicHumanLocomotor";
@@ -189,7 +188,6 @@ pub(crate) const DEFAULT_HOST_BRAKING: f32 = LOCO_BIGNUM * LOGIC_FPS * LOGIC_FPS
 
 // Default definitions must finish loading before another reader can admit an actor.
 // Later explicit archive overlays still use the existing Common store.
-static HOST_DEFAULT_LOCOMOTORS: Once = Once::new();
 
 /// Host-facing movement stats resolved from a LocomotorTemplate (dist/sec, rads/sec).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -315,13 +313,13 @@ pub struct HostCompleteLocomotorSet {
 ///
 /// Returns how many templates were added by this call (seed + filesystem load).
 pub fn ensure_host_locomotor_store() -> usize {
+    // Idempotent: seed_missing / chinook helpers only fill gaps. Avoid Once —
+    // a prior panic inside call_once poisoned the process for later tests.
+    let mut store = get_locomotor_store_mut();
     let mut added = 0;
-    HOST_DEFAULT_LOCOMOTORS.call_once(|| {
-        let mut store = get_locomotor_store_mut();
-        added += try_load_locomotor_ini_from_disk(&mut store);
-        added += seed_missing_host_locomotors(&mut store);
-        added += ensure_chinook_helix_slide_into_place(&mut store);
-    });
+    added += try_load_locomotor_ini_from_disk(&mut store);
+    added += seed_missing_host_locomotors(&mut store);
+    added += ensure_chinook_helix_slide_into_place(&mut store);
     added
 }
 

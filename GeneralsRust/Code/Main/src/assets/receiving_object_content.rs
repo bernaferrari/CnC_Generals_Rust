@@ -39,6 +39,14 @@ impl ReceivingObjectContent {
     where
         I: IntoIterator<Item = (String, String)>,
     {
+        // ThingTemplate / GlobalData paths still read CommonServices. Callers
+        // with a GameLogic bind already publish; free/test constructors get a
+        // temporary scope so they do not depend on process ambient state.
+        let _common = if game_engine::common::common_services::try_common_services().is_none() {
+            Some(game_engine::common::common_services::CommonServicesScope::new())
+        } else {
+            None
+        };
         let sources = sources.into_iter().collect::<Vec<_>>();
         let mut factory =
             ModuleFactory::new_receiving_with_sciences(NameKeyNamespace::new(), sciences);

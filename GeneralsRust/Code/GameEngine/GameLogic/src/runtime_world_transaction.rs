@@ -89,10 +89,13 @@ fn staging_services() -> Arc<crate::system::engine_stores::WorldServices> {
 /// game instances do not share a process-wide marker. The host still serializes
 /// singleton wrapper swaps through the process transaction lock.
 pub fn world_runtime_staging_active() -> bool {
-    staging_services()
-        .staging_depth()
-        .load(std::sync::atomic::Ordering::Relaxed)
-        != 0
+    crate::system::engine_stores::try_active_services()
+        .is_some_and(|services| {
+            services
+                .staging_depth()
+                .load(std::sync::atomic::Ordering::Relaxed)
+                != 0
+        })
 }
 
 /// Hold a normal `TeamFactoryGuard` post-unlock callback until a candidate

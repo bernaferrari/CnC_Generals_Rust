@@ -11,6 +11,11 @@ pub(super) fn world() -> (GameLogic, ObjectId, ObjectId) {
     let mut world = GameLogic::new();
     world.world_min = Vec3::ZERO;
     world.world_max = Vec3::splat(1000.0);
+    world
+        .admit_locomotor_definitions(
+            crate::game_logic::locomotor_bootstrap::default_host_locomotor_store(),
+        )
+        .expect("owned locomotor baseline");
     world.add_player(
         Player::new(1, Team::USA, "NamedOwner", true).with_script_identity("NamedOwner"),
     );

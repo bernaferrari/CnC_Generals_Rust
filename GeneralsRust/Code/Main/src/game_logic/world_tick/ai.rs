@@ -68,11 +68,13 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
     ) -> gamelogic::GameLogicResult<()> {
-        self.update_ai_with_effects(
-            object_ids,
-            dt,
-            &mut crate::game_logic::ScriptPresentationEffects::default(),
-        )
+        self.with_own_services_mut(|this| {
+            this.update_ai_with_effects(
+                object_ids,
+                dt,
+                &mut crate::game_logic::ScriptPresentationEffects::default(),
+            )
+        })
     }
 
     pub(crate) fn update_ai_with_effects(

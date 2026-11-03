@@ -1693,6 +1693,10 @@ impl GameLogic {
     }
 
     pub fn try_add_player(&mut self, player: Player) -> gamelogic::GameLogicResult<()> {
+        self.with_own_services_mut(|this| this.try_add_player_with_services(player))
+    }
+
+    fn try_add_player_with_services(&mut self, player: Player) -> gamelogic::GameLogicResult<()> {
         let invalid = |text: &str| gamelogic::GameLogicError::Configuration(text.into());
         let owner = player
             .script_identity()
