@@ -1640,6 +1640,15 @@ impl CnCGameEngine {
         let mut max_step = Duration::ZERO;
         let mut steps = 0usize;
 
+        // Particle-slot init can fail during boot; Menu message translation still
+        // requires a receiving InGameUI. Install a default shell UI if missing.
+        #[cfg(feature = "game_client")]
+        if self.game_client.in_game_ui_subsystem().is_none() {
+            self.game_client.set_in_game_ui_subsystem(
+                game_client::core::subsystems::InGameUISubsystem::default(),
+            );
+        }
+
         // Keep warmup bounded. This should absorb one-time startup work, not become a new stall.
         while steps < 2 && started.elapsed() < Duration::from_millis(900) {
             let step_started = Instant::now();
