@@ -74,6 +74,7 @@ fn click(
     let (x, y) = button.borrow().get_screen_position();
     let (x, y) = (x + 5, y + 5);
     let data = (((y as u32) << 16) | ((x as u32) & 0xffff)) as WindowMsgData;
+    let mut emitted_messages = Vec::new();
     let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -95,7 +96,7 @@ fn click(
         game_ending: false,
         tooltips_disabled: false,
         cursor_mouse: None,
-        emitted_messages: None,
+        emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 
@@ -173,6 +174,7 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
     };
     manager.test_set_focus(Some(&button)).unwrap();
     {
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -194,7 +196,7 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
             game_ending: true,
             tooltips_disabled: false,
             cursor_mouse: None,
-            emitted_messages: None,
+            emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 
@@ -212,6 +214,7 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
     assert!(viewport.writes.is_empty());
     assert_eq!(bar.get_control_bar_stage(), ControlBarStage::Default);
     {
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -233,7 +236,7 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: None,
-            emitted_messages: None,
+            emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 
@@ -250,6 +253,7 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
     }
     assert!(viewport.writes.is_empty());
     {
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -271,7 +275,7 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: None,
-            emitted_messages: None,
+            emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 
@@ -456,6 +460,7 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
         writes: Vec::new(),
     };
     {
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -477,7 +482,7 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: None,
-            emitted_messages: None,
+            emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 
@@ -530,6 +535,7 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
         },
     );
     {
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -551,7 +557,7 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: None,
-            emitted_messages: None,
+            emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 

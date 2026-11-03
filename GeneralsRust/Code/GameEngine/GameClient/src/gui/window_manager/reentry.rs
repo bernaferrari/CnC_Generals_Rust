@@ -200,18 +200,24 @@ pub struct WindowManagerReceipt {
 }
 impl WindowManagerReceipt {
     pub(crate) fn hide_registered_window(&self, window: Weak<RefCell<GameWindow>>) {
-        let (Some(state), Some(window)) = (self.state.upgrade(), window.upgrade()) else {
+        let Some(window) = window.upgrade() else {
             return;
         };
         // The admitted replay step runs only after callback and WM loans end.
-        let mut manager = state.manager.borrow_mut();
-        let id = window.borrow().get_id();
-        let Some(current) = manager.get_window_by_id(id) else {
-            return;
-        };
-        if Rc::ptr_eq(&current, &window) {
-            let _ = manager.hide_window(&window, true);
+        // Prefer the receiving manager hide (layout side effects). When the
+        // captured parent is not in that tree — C++ still winHides the pointer —
+        // fall back to the window flag so playback residual matches ReplayMenu.cpp.
+        if let Some(state) = self.state.upgrade() {
+            let mut manager = state.manager.borrow_mut();
+            let id = window.borrow().get_id();
+            if let Some(current) = manager.get_window_by_id(id) {
+                if Rc::ptr_eq(&current, &window) {
+                    let _ = manager.hide_window(&window, true);
+                    return;
+                }
+            }
         }
+        let _ = window.borrow_mut().hide_without_manager_side_effects(true);
     }
 }
 

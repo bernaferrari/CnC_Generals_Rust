@@ -54,6 +54,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     generic.borrow_mut().set_tooltip("Generic");
     let mut viewport = Viewport;
     {
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -75,7 +76,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: Some(&mut mouse),
-            emitted_messages: None,
+            emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 
@@ -121,6 +122,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     // Repeated calls are the production admitted-frame ingress, not MousePos events.
     bar.tooltip.wait_start = Some(Instant::now() - Duration::from_millis(101));
     for _ in 0..4 {
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -142,7 +144,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: Some(&mut mouse),
-            emitted_messages: None,
+            emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 
@@ -168,6 +170,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
         assert!(!peer_layout.borrow().is_hidden());
     }
     {
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -189,7 +192,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: Some(&mut mouse),
-            emitted_messages: None,
+            emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 

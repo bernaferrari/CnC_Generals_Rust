@@ -48,9 +48,9 @@ fn confirmation(
     let menu = Rc::new(RefCell::new(GameWindow::new()));
     let _ = menu.borrow_mut().hide_without_manager_side_effects(false);
     let playback = ReplayPlayback::captured(filename.into(), Some(Rc::downgrade(&menu)), crate::gui::window_manager::WindowManagerOwner::new().downgrade());
-    parent
-        .borrow_mut()
-        .set_user_data(WindowMessageBoxData::default().with_owned_replay(playback));
+    parent.borrow_mut().set_user_data(std::rc::Rc::new(
+        WindowMessageBoxData::default().with_owned_replay(playback),
+    ));
     let id = key("MessageBox.wnd:ButtonOk") as i32;
     let button = manager
         .test_create_window_with_id(Some(&parent), 10, 10, 40, 20, id)
@@ -80,12 +80,14 @@ fn select(
     let mut operation = ReplayMenuOperation::new(allow_restart, crate::gui::window_manager::WindowManagerOwner::new().downgrade());
     let mut bar = ControlBar::new();
     let mut view = View;
+    let mut emitted_messages = Vec::new();
+    let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
     let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
             menu_audio: None,
             input_provenance: crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
-            menus: None,
+            menus: Some(menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted)),
             ime:None,
             in_game_movies: None,
             script_display: None,
@@ -101,7 +103,7 @@ fn select(
         game_ending: false,
         tooltips_disabled: false,
         cursor_mouse: None,
-        emitted_messages: None,
+        emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 
@@ -156,9 +158,9 @@ fn wnd_restart_confirmation_delivers_receiving_restart_once() {
     let parent = manager
         .test_create_window_with_id(None, 0, 0, 200, 100, key("MessageBox.wnd:") as i32)
         .unwrap();
-    parent
-        .borrow_mut()
-        .set_user_data(WindowMessageBoxData::default().with_owned_restart());
+    parent.borrow_mut().set_user_data(std::rc::Rc::new(
+        WindowMessageBoxData::default().with_owned_restart(),
+    ));
     let id = key("MessageBox.wnd:ButtonYes") as i32;
     let button = manager
         .test_create_window_with_id(Some(&parent), 10, 10, 40, 20, id)

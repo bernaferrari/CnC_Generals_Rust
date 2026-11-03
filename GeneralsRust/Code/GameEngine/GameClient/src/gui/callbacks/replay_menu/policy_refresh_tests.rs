@@ -182,6 +182,7 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release() 
             assert_eq!(selected, filename);
             reader.test_version_playback(selected.into()).unwrap()
         };
+        let mut emitted_messages = Vec::new();
         let mut context = ControlBarInputContext {
             control_bar_observation:None,
             diplomacy_world: None,
@@ -203,7 +204,7 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release() 
             game_ending: false,
             tooltips_disabled: false,
             cursor_mouse: None,
-            emitted_messages: None,
+            emitted_messages: Some(&mut emitted_messages),
             campaign_manager: None,
             window_manager_owner: None,
 
