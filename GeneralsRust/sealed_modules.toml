@@ -233,3 +233,13 @@ path = "Code/GameEngine/GameClient/src/effects/tracer_fx.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/FXList.cpp"
 note = "TracerFxState on GameClient::drawables.tracers; removed TRACERS/TRACER_DRAWABLES TLS; peels use live-client loan."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/credits.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/Credits.cpp"
+note = "Credits residual peels read CreditsManager fields; process residual atomics removed."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/system/beacon_display.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient"
+note = "BeaconDisplayState on GameClient::drawables.beacons; TLS+residual atomics removed; peels use live-client loan."
+

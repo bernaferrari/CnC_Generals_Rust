@@ -17,7 +17,7 @@ pub mod smudge;
 
 pub use anim2_d::{Anim2D, Anim2DCollection, Anim2DStatus, update_client_anim2d_collection};
 pub use beacon_display::{
-    BeaconMarker, BeaconNotification, ResidualBeaconAction, residual_beacon_last_action,
+    BeaconDisplayState, BeaconMarker, BeaconNotification, ResidualBeaconAction, residual_beacon_last_action,
     residual_beacon_marker_count, simulate_beacon_drain_notifications, simulate_beacon_place,
     simulate_beacon_prepare_place_with_text, simulate_beacon_remove, simulate_beacon_set_text,
 };
