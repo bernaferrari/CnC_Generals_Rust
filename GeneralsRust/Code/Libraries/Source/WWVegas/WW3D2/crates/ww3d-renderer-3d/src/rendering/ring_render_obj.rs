@@ -326,24 +326,27 @@ impl RingMeshArray {
     }
 }
 
-// Thread-local storage for shared mesh arrays
-// C++ used global static arrays, we use thread-local for safety
-struct RingMeshArrayRuntime {
-    ring_mesh_array: std::sync::Mutex<Option<RingMeshArray>>,
+fn with_ring_mesh_array<R>(f: impl FnOnce(&mut Option<RingMeshArray>) -> R) -> R {
+    let r3d = crate::process_state::renderer_3d();
+    let mut guard = r3d.ring_mesh_array.lock().unwrap_or_else(|p| p.into_inner());
+    if guard.is_none() {
+        *guard = Some(Box::new(None::<RingMeshArray>));
+    }
+    let slot = guard
+        .as_mut()
+        .unwrap()
+        .downcast_mut::<Option<RingMeshArray>>()
+        .expect("ring_mesh_array type");
+    f(slot)
 }
-static RING_MESH_ARRAY_TLS_BAG: std::sync::LazyLock<RingMeshArrayRuntime> = std::sync::LazyLock::new(|| RingMeshArrayRuntime {
-        ring_mesh_array: std::sync::Mutex::new(None),
-});
-
 
 /// Initialize shared ring mesh arrays
 fn ensure_mesh_array_initialized() {
-    { let mut array = RING_MESH_ARRAY_TLS_BAG.ring_mesh_array.lock().unwrap_or_else(|p| p.into_inner()); 
-        let mut array = array;
+    with_ring_mesh_array(|array| {
         if array.is_none() {
             *array = Some(RingMeshArray::new());
         }
-     };
+    });
 }
 
 /// Main ring render object class
@@ -907,7 +910,7 @@ impl RingRenderObj {
 
         self.value[0] = AT_MIN_LOD;
 
-        { let mut array = RING_MESH_ARRAY_TLS_BAG.ring_mesh_array.lock().unwrap_or_else(|p| p.into_inner()); 
+        with_ring_mesh_array(|array| {
             if let Some(ref array) = *array {
                 for lod in 1..=RING_NUM_LOD {
                     let polycount = array.get_cost(lod);
@@ -915,7 +918,7 @@ impl RingRenderObj {
                     self.value[lod] = (benefit_factor * screen_area * self.lod_bias) / polycount;
                 }
             }
-         };
+        });
 
         self.value[RING_NUM_LOD + 1] = AT_MAX_LOD;
     }
@@ -923,13 +926,13 @@ impl RingRenderObj {
     /// Get polygon count at current LOD
     /// C++ Reference: ringobj.cpp lines 449-452 (Get_Num_Polys)
     pub fn get_num_polys(&self) -> usize {
-        { let mut array = RING_MESH_ARRAY_TLS_BAG.ring_mesh_array.lock().unwrap_or_else(|p| p.into_inner()); 
+        with_ring_mesh_array(|array| {
             if let Some(ref array) = *array {
                 array.get_cost(self.current_lod) as usize
             } else {
                 0
             }
-         }
+        })
     }
 
     // === Scaling ===
@@ -1057,8 +1060,7 @@ impl RingRenderObj {
             return None;
         }
 
-        { let mut array = RING_MESH_ARRAY_TLS_BAG.ring_mesh_array.lock().unwrap_or_else(|p| p.into_inner()); 
-            let array = array;
+        with_ring_mesh_array(|array| {
             let mesh = array.as_ref()?.get_mesh(self.current_lod)?;
             Some(RingRenderSubmission {
                 world_transform: self.transform,
@@ -1068,7 +1070,7 @@ impl RingRenderObj {
                 color: self.color,
                 alpha: self.alpha,
             })
-         }
+        })
     }
 
     /// Render the ring
@@ -1092,14 +1094,14 @@ impl RingRenderObj {
             self.outer_extent.y * self.outer_scale.y,
         );
 
-        { let mut array = RING_MESH_ARRAY_TLS_BAG.ring_mesh_array.lock().unwrap_or_else(|p| p.into_inner()); 
+        with_ring_mesh_array(|array| {
             if let Some(ref mut array) = *array {
                 if let Some(mesh) = array.get_mesh_mut(self.current_lod) {
                     mesh.scale(inner_scale, outer_scale);
                     mesh.set_tiling(self.texture_tile_count);
                 }
             }
-         };
+        });
 
         if let Some(submission) = self.prepare_render_submission() {
             let _ = submission;
@@ -1108,7 +1110,7 @@ impl RingRenderObj {
 
     /// Get vertex data for current LOD (for custom rendering)
     pub fn get_vertex_data(&self) -> Option<(Vec<Vec3>, Vec<Vec3>, Vec<Vec2>, Vec<TriIndex>)> {
-        { let mut array = RING_MESH_ARRAY_TLS_BAG.ring_mesh_array.lock().unwrap_or_else(|p| p.into_inner()); 
+        with_ring_mesh_array(|array| {
             if let Some(ref array) = *array {
                 if let Some(mesh) = array.get_mesh(self.current_lod) {
                     return Some((
@@ -1120,7 +1122,7 @@ impl RingRenderObj {
                 }
             }
             None
-         }
+        })
     }
 }
 
@@ -1410,13 +1412,13 @@ mod tests {
         // Test that higher LODs have higher costs
         let mut prev_cost = 0.0;
         for lod in 1..=RING_NUM_LOD {
-            { let mut array = RING_MESH_ARRAY_TLS_BAG.ring_mesh_array.lock().unwrap_or_else(|p| p.into_inner()); 
+            with_ring_mesh_array(|array| {
                 if let Some(ref array) = *array {
                     let cost = array.get_cost(lod);
                     assert!(cost > prev_cost);
                     prev_cost = cost;
                 }
-             };
+            });
         }
     }
 

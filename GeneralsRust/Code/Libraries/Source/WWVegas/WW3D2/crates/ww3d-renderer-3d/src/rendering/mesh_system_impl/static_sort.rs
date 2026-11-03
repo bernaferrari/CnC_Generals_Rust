@@ -12,7 +12,7 @@ use std::cell::RefCell;
 
 /// Static sort list for transparent object sorting
 #[derive(Debug, Default)]
-pub(super) struct StaticSortState {
+pub(crate) struct StaticSortState {
     entries: Vec<Arc<StaticSortRenderObject>>,
     meshes: Vec<Option<Arc<MeshClass>>>,
     sort_levels: Vec<u32>,
@@ -22,11 +22,8 @@ pub(super) struct StaticSortState {
     flush_depth: u32,
 }
 
-struct StaticSortStateRuntime {
-    static_sort_state: std::sync::Mutex<StaticSortState>,
-}
-static STATIC_SORT_STATE_TLS_BAG: std::sync::LazyLock<StaticSortStateRuntime> = std::sync::LazyLock::new(|| StaticSortStateRuntime {
-        static_sort_state: std::sync::Mutex::new(StaticSortState {
+pub(crate) fn default_static_sort_state() -> StaticSortState {
+    StaticSortState {
         entries: Vec::new(),
         meshes: Vec::new(),
         sort_levels: Vec::new(),
@@ -34,12 +31,21 @@ static STATIC_SORT_STATE_TLS_BAG: std::sync::LazyLock<StaticSortStateRuntime> = 
         decals_enabled: true,
         sorting_enabled: true,
         flush_depth: 0,
-    }),
-});
-
+    }
+}
 
 pub(super) fn with_sort_state<R>(f: impl FnOnce(&mut StaticSortState) -> R) -> R {
-    f(&mut STATIC_SORT_STATE_TLS_BAG.static_sort_state.lock().unwrap_or_else(|p| p.into_inner()))
+    let r3d = crate::process_state::renderer_3d();
+    let mut guard = r3d.static_sort_state.lock().unwrap_or_else(|p| p.into_inner());
+    if guard.is_none() {
+        *guard = Some(Box::new(default_static_sort_state()));
+    }
+    let state = guard
+        .as_mut()
+        .unwrap()
+        .downcast_mut::<StaticSortState>()
+        .expect("static_sort_state type");
+    f(state)
 }
 
 #[derive(Clone)]
