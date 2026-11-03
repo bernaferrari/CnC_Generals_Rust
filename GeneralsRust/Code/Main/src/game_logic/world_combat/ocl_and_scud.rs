@@ -950,10 +950,9 @@ impl GameLogic {
             }
             if generic.contain_inside_source_object
                 && !source_id.is_some_and(|source_id| {
-                    self.objects.get(&source_id).is_some_and(|source| {
-                        source.is_helix_transport
-                            && source.thing().template.contain_module.is_helix_contain
-                    })
+                    self.objects
+                        .get(&source_id)
+                        .is_some_and(|source| source.admits_ocl_portable_structure())
                 })
             {
                 log::warn!(
@@ -963,7 +962,11 @@ impl GameLogic {
             }
             if generic.contain_inside_source_object
                 && !generic.names.iter().all(|name| {
-                    self.templates.get(name.trim()).is_some_and(|template| {
+                    // Resolve this session's admitted payload definition
+                    // before reading its KindOf (creation would do the same).
+                    let name = name.trim();
+                    self.ensure_host_spawn_template(name);
+                    self.templates.get(name).is_some_and(|template| {
                         template.is_kind_of(crate::game_logic::KindOf::PortableStructure)
                     })
                 })
@@ -1344,10 +1347,9 @@ impl GameLogic {
         {
             return false;
         }
-        let Some((is_helix, occupied)) = self.objects.get(&source_id).map(|source| {
+        let Some((admits_portable, occupied)) = self.objects.get(&source_id).map(|source| {
             (
-                source.is_helix_transport
-                    && source.thing().template.contain_module.is_helix_contain,
+                source.admits_ocl_portable_structure(),
                 source.overlord_portable_occupant,
             )
         }) else {
@@ -1358,12 +1360,13 @@ impl GameLogic {
         };
         if !child.is_kind_of(crate::game_logic::KindOf::PortableStructure)
             || occupied.is_some()
-            || !is_helix
+            || !admits_portable
         {
             return false;
         }
         // HelixContain's portable override bypasses normal TransportContain
-        // KindOf, relationship, controller, and slot-count checks.
+        // KindOf, relationship, controller, and slot-count checks; the
+        // OverlordContain (Slots=1, PORTABLE_STRUCTURE) rider uses the same slot.
         self.attach_overlord_portable_occupant(source_id, child_id);
         if self
             .objects
@@ -4552,5 +4555,78 @@ End
         assert!(debris.drawable_fade_frames > 0);
         assert!((debris.drawable_fade_opacity(40) - 0.0).abs() < 1e-5);
         assert!(debris.drawable_fade_opacity(40 + debris.drawable_fade_frames) > 0.99);
+    }
+
+    /// hq-2qedt.1: C++ ObjectCreationUpgrade -> OCL CreateObject
+    /// ContainInsideSourceObject -> OverlordContain (TransportContain)
+    /// addToContain. The retail gattling rider must be admitted, and the
+    /// host_overlord_addons occupant path must reuse it (no double spawn).
+    #[test]
+    fn overlord_contain_admits_retail_gattling_ocl_exactly_once() {
+        // The retail name also drives the native host_overlord_addons occupant
+        // (double-spawn guard); the arbitrary name has only the authored
+        // OverlordContain + ObjectCreationUpgrade, so it proves OCL admission.
+        for host_name in ["ChinaTankOverlord", "ArbitraryAuthoredContainHost"] {
+            overlord_contain_gattling_ocl_case(host_name);
+        }
+    }
+
+    fn overlord_contain_gattling_ocl_case(host_name: &str) {
+        use crate::game_logic::host_overlord_addons::{
+            OCL_OVERLORD_GATTLING, OVERLORD_PAYLOAD_GATTLING, UPGRADE_OVERLORD_GATTLING,
+        };
+        let mut logic = GameLogic::new();
+        logic
+            .admit_object_creation_list_sources([format!(
+                "ObjectCreationList {OCL_OVERLORD_GATTLING}\nCreateObject\nObjectNames = {OVERLORD_PAYLOAD_GATTLING}\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd"
+            )])
+            .expect("retail Overlord addon OCL parses");
+        logic
+            .admit_object_ini_sources([(
+                "OverlordPortable.ini".into(),
+                format!(
+                    "Object {host_name}\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 1100\n InitialHealth = 1100\n End\n Behavior = OverlordContain Contain\n Slots = 1\n AllowInsideKindOf = PORTABLE_STRUCTURE\n End\n Behavior = ObjectCreationUpgrade Gattling\n TriggeredBy = {UPGRADE_OVERLORD_GATTLING}\n UpgradeObject = {OCL_OVERLORD_GATTLING}\n End\nEnd\nObject {OVERLORD_PAYLOAD_GATTLING}\n KindOf = VEHICLE PORTABLE_STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 1100\n InitialHealth = 1100\n End\nEnd\n"
+                ),
+            )])
+            .expect("ini");
+        let mut ini = game_engine::common::ini::INI::new();
+        ini.with_inline_source(
+            &format!("Upgrade {UPGRADE_OVERLORD_GATTLING}\nType = OBJECT\nEnd\n"),
+            |ini| {
+                ini.read_line()?;
+                logic.upgrade_definitions.parse_upgrade_definition(ini)
+            },
+        )
+        .expect("object upgrade definition should admit");
+        logic.players.insert(
+            1,
+            crate::game_logic::Player::new(1, Team::China, "Owner", true),
+        );
+        let overlord = logic
+            .create_object_for_player(host_name, 1, Vec3::ZERO)
+            .expect("overlord");
+        logic.apply_upgrade_to_object(overlord, UPGRADE_OVERLORD_GATTLING);
+
+        let all: Vec<_> = logic
+            .host_objects()
+            .registered_values()
+            .filter(|object| object.template_name == OVERLORD_PAYLOAD_GATTLING)
+            .map(|object| (object.id, object.status.destroyed, object.contained_by))
+            .collect();
+        assert_eq!(
+            all.len(),
+            1,
+            "{host_name}: exactly one gattling payload: {all:?}"
+        );
+        let (payload, destroyed, contained_by) = all[0];
+        assert!(!destroyed);
+        assert_eq!(contained_by, Some(overlord));
+        assert_eq!(
+            logic
+                .host_object(overlord)
+                .unwrap()
+                .overlord_portable_occupant,
+            Some(payload)
+        );
     }
 }
