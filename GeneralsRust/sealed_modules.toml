@@ -337,3 +337,8 @@ path = "Code/GameEngine/GameClient/src/gui/callbacks/lan_lobby_menu.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/LanLobbyMenu.cpp"
 note = "LanLobbyState + LAN event queue on WindowManagerOwner (online_ui); removed process TLS/OnceLock; peels use live-client loan."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/snow.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Snow.cpp"
+note = "WeatherSetting + SnowManager on GameClient; removed process OnceCells; peels use live-client loan / cfg(test) TLS fallback."
+

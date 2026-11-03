@@ -2,7 +2,6 @@
 
 use game_engine::common::ini::ini::{INI, INIError, INIResult, register_block_parser};
 use game_engine::common::ini::ini_weather;
-use once_cell::sync::OnceCell;
 use std::sync::{Arc, Mutex, RwLock};
 
 const SNOW_NOISE_X: usize = 64;
@@ -89,14 +88,67 @@ impl WeatherSetting {
     }
 }
 
-static WEATHER_SETTING: OnceCell<Arc<RwLock<WeatherSetting>>> = OnceCell::new();
-static SNOW_MANAGER: OnceCell<Arc<Mutex<SnowManager>>> = OnceCell::new();
+#[cfg(test)]
+thread_local! {
+    static TEST_WEATHER_SETTING: std::cell::RefCell<Option<Arc<RwLock<WeatherSetting>>>> =
+        const { std::cell::RefCell::new(None) };
+    static TEST_SNOW_MANAGER: std::cell::RefCell<Option<Arc<Mutex<SnowManager>>>> =
+        const { std::cell::RefCell::new(None) };
+}
 
 fn sync_weather_from_common(dest: &Arc<RwLock<WeatherSetting>>) {
     if let Some(common) = ini_weather::get_weather_setting() {
         if let Ok(mut guard) = dest.write() {
             *guard = WeatherSetting::from_common(&common);
         }
+    }
+}
+
+fn weather_setting_handle() -> Arc<RwLock<WeatherSetting>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_weather_setting()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WEATHER_SETTING.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| {
+                    let initial = ini_weather::get_weather_setting()
+                        .map(|common| WeatherSetting::from_common(&common))
+                        .unwrap_or_default();
+                    Arc::new(RwLock::new(initial))
+                })
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        let initial = ini_weather::get_weather_setting()
+            .map(|common| WeatherSetting::from_common(&common))
+            .unwrap_or_default();
+        Arc::new(RwLock::new(initial))
+    }
+}
+
+fn snow_manager_handle() -> Arc<Mutex<SnowManager>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_snow_manager()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_SNOW_MANAGER.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| Arc::new(Mutex::new(SnowManager::new())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(Mutex::new(SnowManager::new()))
     }
 }
 
@@ -107,29 +159,34 @@ pub fn get_weather_setting() -> Option<Arc<RwLock<WeatherSetting>>> {
 }
 
 pub fn get_snow_manager() -> Option<Arc<Mutex<SnowManager>>> {
-    SNOW_MANAGER.get().cloned()
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.snow_manager_opt()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_SNOW_MANAGER.with(|slot| slot.borrow().clone());
+    }
+    #[cfg(not(test))]
+    {
+        None
+    }
 }
 
 pub fn ensure_weather_setting() -> Arc<RwLock<WeatherSetting>> {
-    let settings = WEATHER_SETTING
-        .get_or_init(|| {
-            let initial = ini_weather::get_weather_setting()
-                .map(|common| WeatherSetting::from_common(&common))
-                .unwrap_or_default();
-            Arc::new(RwLock::new(initial))
-        })
-        .clone();
+    let settings = weather_setting_handle();
     sync_weather_from_common(&settings);
     settings
 }
 
 pub fn initialize_snow_manager() -> Arc<Mutex<SnowManager>> {
     let _ = ensure_weather_setting();
-    let manager = SNOW_MANAGER.get_or_init(|| Arc::new(Mutex::new(SnowManager::new())));
+    let manager = snow_manager_handle();
     if let Ok(mut guard) = manager.lock() {
         guard.init();
     }
-    manager.clone()
+    manager
 }
 
 pub fn register_weather_definition_parser() {
