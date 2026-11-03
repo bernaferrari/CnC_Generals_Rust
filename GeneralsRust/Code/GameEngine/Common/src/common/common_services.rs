@@ -11,7 +11,9 @@
 
 use crate::common::random_value::{RandomState, SessionRandom};
 use crate::common::thing::thing_factory::ThingFactory;
+use crate::common::time::SimulationClock;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -94,6 +96,10 @@ pub struct CommonServices {
     pub thing_factory: Arc<Mutex<Option<ThingFactory>>>,
     /// Session logic RNG publish slot for this instance.
     logic_rng_owner: Mutex<Option<SessionRandom>>,
+    /// Simulation clock for this instance (was process SimClockBag).
+    pub sim_clock: Mutex<SimulationClock>,
+    /// Players with pending C++ recordIncome marks (was PendingIncomeBag).
+    pub pending_income: Mutex<HashSet<i32>>,
 }
 
 impl Default for CommonServices {
@@ -103,6 +109,8 @@ impl Default for CommonServices {
             crc_flags: CrcRuntimeFlags::default(),
             thing_factory: Arc::new(Mutex::new(None)),
             logic_rng_owner: Mutex::new(None),
+            sim_clock: Mutex::new(SimulationClock::default()),
+            pending_income: Mutex::new(HashSet::new()),
         }
     }
 }

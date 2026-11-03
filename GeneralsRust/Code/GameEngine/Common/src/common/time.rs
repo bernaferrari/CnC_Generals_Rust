@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
@@ -50,17 +49,9 @@ impl Default for SimulationClock {
     }
 }
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-struct SimClockBag {
-    value: std::sync::Mutex<SimulationClock>,
-}
-static SIM_CLOCK: std::sync::LazyLock<SimClockBag> = std::sync::LazyLock::new(|| SimClockBag {
-    value: std::sync::Mutex::new(SimulationClock::default()),
-});
-
-
 fn with_clock<R>(f: impl FnOnce(&mut SimulationClock) -> R) -> R {
-    f(&mut SIM_CLOCK.value.lock().unwrap_or_else(|p| p.into_inner()))
+    let services = crate::common::common_services::common_services();
+    f(&mut services.sim_clock.lock().unwrap_or_else(|p| p.into_inner()))
 }
 
 fn fps_to_delta(target_fps: u32) -> Duration {
@@ -91,17 +82,17 @@ pub fn reset() {
 }
 
 pub fn frame() -> u32 {
-    { let clock = SIM_CLOCK.value.lock().unwrap_or_else(|p| p.into_inner()); clock.frame() }
+    with_clock(|clock| clock.frame())
 }
 
 pub fn elapsed() -> Duration {
-    { let clock = SIM_CLOCK.value.lock().unwrap_or_else(|p| p.into_inner()); clock.elapsed() }
+    with_clock(|clock| clock.elapsed())
 }
 
 pub fn delta() -> Duration {
-    { let clock = SIM_CLOCK.value.lock().unwrap_or_else(|p| p.into_inner()); clock.delta() }
+    with_clock(|clock| clock.delta())
 }
 
 pub fn snapshot() -> SimulationClock {
-    { let clock = SIM_CLOCK.value.lock().unwrap_or_else(|p| p.into_inner()); clock.clone() }
+    with_clock(|clock| clock.clone())
 }
