@@ -309,7 +309,8 @@ impl CommandLineArgs {
                     }
                     "userdata" => {}
                     "runtime_host" | "runtime-host" | "gpui_control" | "gpui-control"
-                    | "gpui_status" | "gpui-status" | "gpui_frame" | "gpui-frame" => {}
+                    | "gpui_status" | "gpui-status" | "gpui_frame" | "gpui-frame"
+                    | "gpui_capture_interval_ms" | "gpui-capture-interval-ms" => {}
                     _ => {
                         // Unknown option, log but don't fail
                         warn!("Unknown command line option: {}", option);
@@ -416,6 +417,7 @@ impl CommandLineArgs {
                 | "gpui_control"
                 | "gpui_status"
                 | "gpui_frame"
+                | "gpui_capture_interval_ms"
         )
     }
 

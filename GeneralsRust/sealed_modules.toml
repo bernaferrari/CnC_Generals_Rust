@@ -332,3 +332,65 @@ path = "Code/GameEngine/GameClient/src/gui/callbacks/lan_game_options_menu.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/LanGameOptionsMenu.cpp"
 note = "LanGameOptionsState + map-select layout on WindowManagerOwner; removed process TLS; peels use owner or live-client loan."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/lan_lobby_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/LanLobbyMenu.cpp"
+note = "LanLobbyState + LAN event queue on WindowManagerOwner (online_ui); removed process TLS/OnceLock; peels use live-client loan."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/snow.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Snow.cpp"
+note = "WeatherSetting + SnowManager on GameClient; removed process OnceCells; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/map_util.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/MapUtil.cpp"
+note = "MapCache + TechAndSupplyImages on GameClient; removed process OnceLocks; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/video_player.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/VideoPlayer.cpp"
+note = "VideoPlayer + stream provider slots on GameClient; removed process OnceLocks; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/gadgets/button.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/Gadget/GadgetPushButton.cpp"
+note = "ButtonAudioHook on WindowManagerOwner; removed process TLS BUTTON_AUDIO; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_observer.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarObserver.cpp"
+note = "Observer look-at + gen arrow on InGameUISubsystem; removed process Atomic/Mutex; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/display_string.rs"
+cpp = "GeneralsMD/Code/GameEngineDevice/Source/GameEngine/Source/GameClient/DisplayStringManager.cpp"
+note = "DisplayStringManager on WindowManagerOwner; removed process TLS; peels use live-client loan / cfg(test) TLS fallback."
+path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-core/src/ww3d.rs"
+cpp = "GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/ww3d.h"
+note = "RENDERER_STORAGE off TLS onto Arc<Mutex> RendererStorageSlot; RendererBackend: Send; WgpuCoreBridge FrameStats Arc<Mutex>; old-style WWVegas TLS 2→0."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/skirmish_map_select_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/SkirmishMapSelectMenu.cpp"
+note = "SkirmishMapSelectState on WindowManagerOwner; removed process TLS; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/skirmish_battle_honor_display.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/SkirmishBattleHonors.cpp"
+note = "Battle-honor row-skip is a populate local; removed process TLS Cell ROWS_TO_SKIP."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/popup_join_game.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupJoinGame.cpp"
+note = "PopupJoinState on WindowManagerOwner (online_ui); removed process TLS; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/popup_host_game.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupHostGame.cpp"
+note = "PopupHostState on WindowManagerOwner (online_ui); removed process TLS; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/popup_player_info.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupPlayerInfo.cpp"
+note = "PopupPlayerInfoState on WindowManagerOwner (online_ui); removed process TLS; peels use live-client loan / cfg(test) TLS fallback."

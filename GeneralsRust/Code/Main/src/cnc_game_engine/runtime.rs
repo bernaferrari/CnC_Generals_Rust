@@ -211,7 +211,9 @@ pub(super) fn format_clicker_aim_status(
 
 impl RuntimeHostBridge {
     pub(super) const CAPTURE_REQUEST_INTERVAL_LOADING: Duration = Duration::from_millis(120);
-    pub(super) const CAPTURE_REQUEST_INTERVAL_INTERACTIVE: Duration = Duration::from_millis(40);
+    // Diagnostic host only — C++ W3D never PNG-encodes the backbuffer each frame.
+    // 500ms keeps smoke/GPUI frames fresh without dominating present_ms.
+    pub(super) const CAPTURE_REQUEST_INTERVAL_INTERACTIVE: Duration = Duration::from_millis(500);
     pub(super) const CAPTURE_REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 
     pub(super) fn force_capture_request(&mut self) {

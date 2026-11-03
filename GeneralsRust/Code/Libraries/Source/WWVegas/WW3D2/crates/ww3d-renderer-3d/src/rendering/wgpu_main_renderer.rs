@@ -8,8 +8,6 @@ use crate::rendering::shadow_system::shadow_map::ShadowCasterSubmission;
 use crate::rendering::wgpu_renderer::wgpu_wrapper::{self, WgpuWrapper};
 use glam::Vec4;
 use std::any::Any;
-use std::cell::RefCell;
-use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -104,7 +102,7 @@ pub struct WgpuMainRenderer {
     last_fps_update: Instant,
     frame_accumulator: Duration,
     frame_counter: u32,
-    frame_stats_bridge: Rc<RefCell<FrameStats>>,
+    frame_stats_bridge: Arc<Mutex<FrameStats>>,
     ready_flag: Arc<AtomicBool>,
     registered_with_ww3d: bool,
     pending_frame: Option<ww3d_engine::RenderFrame>,
@@ -226,7 +224,7 @@ impl WgpuMainRenderer {
             }
         }
 
-        let frame_stats_bridge = Rc::new(RefCell::new(FrameStats::default()));
+        let frame_stats_bridge = Arc::new(Mutex::new(FrameStats::default()));
         let ready_flag = Arc::new(AtomicBool::new(true));
         let mut registered_with_ww3d = WW3D::register_renderer(WgpuCoreBridge::new(
             frame_stats_bridge.clone(),
@@ -303,7 +301,7 @@ impl WgpuMainRenderer {
             guard.set_camera(CameraClass::new());
         }
 
-        let frame_stats_bridge = Rc::new(RefCell::new(FrameStats::default()));
+        let frame_stats_bridge = Arc::new(Mutex::new(FrameStats::default()));
         let ready_flag = Arc::new(AtomicBool::new(true));
         let mut registered_with_ww3d = WW3D::register_renderer(WgpuCoreBridge::new(
             frame_stats_bridge.clone(),
@@ -654,7 +652,7 @@ impl WgpuMainRenderer {
         self.stats.shader_switches = frame_mesh_stats.shader_switches;
         self.stats.vertex_color_passes = frame_mesh_stats.vertex_color_passes;
 
-        *self.frame_stats_bridge.borrow_mut() = FrameStats::from(&self.stats);
+        *self.frame_stats_bridge.lock().unwrap_or_else(|p| p.into_inner()) = FrameStats::from(&self.stats);
 
         let elapsed = self.frame_start.elapsed();
         self.frame_accumulator += elapsed;
@@ -842,7 +840,7 @@ impl WgpuMainRenderer {
             self.stats.shader_switches = mesh_stats.shader_switches;
             self.stats.vertex_color_passes = mesh_stats.vertex_color_passes;
         }
-        *self.frame_stats_bridge.borrow_mut() = FrameStats::from(&self.stats);
+        *self.frame_stats_bridge.lock().unwrap_or_else(|p| p.into_inner()) = FrameStats::from(&self.stats);
         FrameStats::from(&self.stats)
     }
 
@@ -860,32 +858,6 @@ impl WgpuMainRenderer {
     /// Number of renderable shadow casters captured from the previous frame.
     pub fn shadow_caster_count_hint(&self) -> u32 {
         self.shadow_caster_count_hint
-    }
-}
-
-impl RendererBackend for WgpuMainRenderer {
-    fn begin_frame(&mut self) -> W3DResult<()> {
-        WgpuMainRenderer::begin_frame(self).map_err(Into::into)
-    }
-
-    fn end_frame(&mut self) -> W3DResult<()> {
-        WgpuMainRenderer::end_frame(self).map_err(Into::into)
-    }
-
-    fn is_ready(&self) -> bool {
-        true
-    }
-
-    fn frame_stats(&self) -> FrameStats {
-        FrameStats::from(&self.stats)
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
     }
 }
 
@@ -915,7 +887,7 @@ impl From<&MainRendererStats> for FrameStats {
 }
 
 pub(crate) struct WgpuCoreBridge {
-    stats: Rc<RefCell<FrameStats>>,
+    stats: Arc<Mutex<FrameStats>>,
     ready: Arc<AtomicBool>,
     sorting_enabled: bool,
     static_sort_enabled: bool,
@@ -928,7 +900,7 @@ pub(crate) struct WgpuCoreBridge {
 
 impl WgpuCoreBridge {
     fn new(
-        stats: Rc<RefCell<FrameStats>>,
+        stats: Arc<Mutex<FrameStats>>,
         ready: Arc<AtomicBool>,
         renderer: SharedRendererHandle,
     ) -> Self {
@@ -962,7 +934,7 @@ impl RendererBackend for WgpuCoreBridge {
     }
 
     fn frame_stats(&self) -> FrameStats {
-        self.stats.borrow().clone()
+        self.stats.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
     fn set_sorting_enabled(&mut self, enabled: bool) -> W3DResult<()> {

@@ -38,12 +38,32 @@ pub struct TechAndSupplyImages {
     pub supply_positions: Vec<ICoord2D>,
 }
 
-static SUPPLY_AND_TECH_IMAGES: OnceLock<Arc<Mutex<TechAndSupplyImages>>> = OnceLock::new();
+#[cfg(test)]
+thread_local! {
+    static TEST_SUPPLY_AND_TECH_IMAGES: std::cell::RefCell<Option<Arc<Mutex<TechAndSupplyImages>>>> =
+        const { std::cell::RefCell::new(None) };
+    static TEST_MAP_CACHE: std::cell::RefCell<Option<Arc<Mutex<MapCache>>>> =
+        const { std::cell::RefCell::new(None) };
+}
 
 pub fn get_supply_and_tech_image_locations() -> Arc<Mutex<TechAndSupplyImages>> {
-    SUPPLY_AND_TECH_IMAGES
-        .get_or_init(|| Arc::new(Mutex::new(TechAndSupplyImages::default())))
-        .clone()
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_supply_and_tech_images()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_SUPPLY_AND_TECH_IMAGES.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| Arc::new(Mutex::new(TechAndSupplyImages::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(Mutex::new(TechAndSupplyImages::default()))
+    }
 }
 
 #[derive(Debug)]
@@ -421,13 +441,27 @@ impl MapCache {
     }
 }
 
-static THE_MAP_CACHE: OnceLock<Arc<Mutex<MapCache>>> = OnceLock::new();
 static LADDER_PROVIDER_SET: OnceLock<()> = OnceLock::new();
 
 pub fn get_map_cache_manager() -> Arc<Mutex<MapCache>> {
-    let cache = THE_MAP_CACHE
-        .get_or_init(|| Arc::new(Mutex::new(MapCache::new())))
-        .clone();
+    let cache = if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_map_cache_manager()
+    }) {
+        handle
+    } else {
+        #[cfg(test)]
+        {
+            TEST_MAP_CACHE.with(|slot| {
+                slot.borrow_mut()
+                    .get_or_insert_with(|| Arc::new(Mutex::new(MapCache::new())))
+                    .clone()
+            })
+        }
+        #[cfg(not(test))]
+        {
+            Arc::new(Mutex::new(MapCache::new()))
+        }
+    };
     register_ladder_map_provider();
     cache
 }

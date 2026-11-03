@@ -1468,7 +1468,7 @@ fn stealth_residual_fire_breaks_stealth() {
             game_logic.frame,
             &mut game_logic.combat_system,
             &mut game_logic.attack_events,
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         ));
         assert!(!s.status.stealthed, "fire_at must break stealth");
     }

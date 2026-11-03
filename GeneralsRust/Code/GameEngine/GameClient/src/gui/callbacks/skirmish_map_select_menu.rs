@@ -30,7 +30,7 @@ const UNKNOWN_MAP_IMAGE: &str = "UnknownMap";
 const SUPPLY_TECH_SIZE: i32 = 15;
 
 #[derive(Default)]
-struct SkirmishMapSelectState {
+pub(crate) struct SkirmishMapSelectState {
     parent_id: i32,
     listbox_map_id: i32,
     button_ok_id: i32,
@@ -46,13 +46,34 @@ struct SkirmishMapSelectState {
     use_system_maps: bool,
 }
 
+#[cfg(test)]
 thread_local! {
-    static SKIRMISH_MAP_SELECT_STATE: Arc<Mutex<SkirmishMapSelectState>> =
-        Arc::new(Mutex::new(SkirmishMapSelectState::default()));
+    static TEST_SKIRMISH_MAP_SELECT_STATE: std::cell::OnceCell<
+        Arc<Mutex<SkirmishMapSelectState>>,
+    > = const { std::cell::OnceCell::new() };
 }
 
 fn map_select_state() -> Arc<Mutex<SkirmishMapSelectState>> {
-    SKIRMISH_MAP_SELECT_STATE.with(|state| state.clone())
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .skirmish_map_select_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_SKIRMISH_MAP_SELECT_STATE
+            .with(|cell| {
+                cell.get_or_init(|| Arc::new(Mutex::new(SkirmishMapSelectState::default())))
+                    .clone()
+            });
+    }
+    #[cfg(not(test))]
+    {
+        // Ephemeral: no live client.
+        Arc::new(Mutex::new(SkirmishMapSelectState::default()))
+    }
 }
 
 fn name_to_id(name: &str) -> i32 {

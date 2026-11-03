@@ -76,13 +76,38 @@ struct WindowManagerOwnerState {
     >,
     /// Skirmish map-select layout slot (was process TLS).
     skirmish_map_select_layout: RefCell<Option<Rc<RefCell<crate::gui::WindowLayout>>>>,
+    /// Skirmish map-select menu state (was process TLS).
+    skirmish_map_select_state: std::sync::Arc<
+        std::sync::Mutex<crate::gui::callbacks::skirmish_map_select_menu::SkirmishMapSelectState>,
+    >,
     /// LAN game options menu state (was process TLS).
     lan_game_options: RefCell<crate::gui::callbacks::lan_game_options_menu::LanGameOptionsState>,
     /// LAN map-select layout slot (was process TLS).
     lan_map_select_layout: RefCell<Option<Rc<RefCell<crate::gui::WindowLayout>>>>,
+    /// LAN lobby menu state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    lan_lobby_state: Rc<RefCell<crate::gui::callbacks::lan_lobby_menu::LanLobbyState>>,
+    /// LAN event queue (tokio producer → GUI consumer).
+    #[cfg(feature = "online_ui")]
+    lan_events: std::sync::Arc<
+        std::sync::Mutex<std::collections::VecDeque<game_network::lan_api::LanEvent>>,
+    >,
     /// Offline network stub queues / facade (not(feature = "network")).
     #[cfg(not(feature = "network"))]
     network_compat: crate::game_network_compat::NetworkCompatState,
+    /// Push-button audio hook (was process TLS BUTTON_AUDIO).
+    button_audio: RefCell<Option<crate::gui::gadgets::ButtonAudioHook>>,
+    /// DisplayStringManager (was process TLS DISPLAY_STRING_MANAGER).
+    display_string_manager: RefCell<crate::gui::display_string::DisplayStringManager>,
+    /// PopupJoinGame state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    popup_join_state: Rc<RefCell<crate::gui::callbacks::popup_join_game::PopupJoinState>>,
+    /// PopupHostGame state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    popup_host_state: Rc<RefCell<crate::gui::callbacks::popup_host_game::PopupHostState>>,
+    /// PopupPlayerInfo state (was process TLS).
+    #[cfg(feature = "online_ui")]
+    popup_player_info_state: Rc<RefCell<crate::gui::callbacks::popup_player_info::PopupPlayerInfoState>>,
 }
 
 /// Persistent owner for one native client's WND tree and its re-entry queues.
@@ -165,12 +190,37 @@ impl WindowManagerOwner {
                     crate::gui::callbacks::skirmish_game_options_menu::SkirmishGameOptionsState::default(),
                 ),
                 skirmish_map_select_layout: RefCell::new(None),
+                skirmish_map_select_state: std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::gui::callbacks::skirmish_map_select_menu::SkirmishMapSelectState::default(),
+                )),
                 lan_game_options: RefCell::new(
                     crate::gui::callbacks::lan_game_options_menu::LanGameOptionsState::default(),
                 ),
                 lan_map_select_layout: RefCell::new(None),
+                #[cfg(feature = "online_ui")]
+                lan_lobby_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::lan_lobby_menu::LanLobbyState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                lan_events: std::sync::Arc::new(std::sync::Mutex::new(
+                    std::collections::VecDeque::new(),
+                )),
                 #[cfg(not(feature = "network"))]
                 network_compat: crate::game_network_compat::NetworkCompatState::new(),
+                button_audio: RefCell::new(None),
+                display_string_manager: RefCell::new(crate::gui::display_string::DisplayStringManager::new()),
+                #[cfg(feature = "online_ui")]
+                popup_join_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::popup_join_game::PopupJoinState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                popup_host_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::popup_host_game::PopupHostState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                popup_player_info_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::popup_player_info::PopupPlayerInfoState::default(),
+                )),
             }),
         }
     }
@@ -185,6 +235,53 @@ impl WindowManagerOwner {
     /// LAN/Skirmish shell transition flags for this client.
     pub fn menu_shell_flags(&self) -> &super::menu_shell_flags::MenuShellFlags {
         &self.state.menu_shell_flags
+    }
+
+    pub(crate) fn register_button_audio_hook(
+        &self,
+        hook: crate::gui::gadgets::ButtonAudioHook,
+    ) {
+        *self.state.button_audio.borrow_mut() = Some(hook);
+    }
+
+    pub(crate) fn take_button_audio_hook(&self) -> Option<crate::gui::gadgets::ButtonAudioHook> {
+        self.state.button_audio.borrow_mut().take()
+    }
+
+    pub(crate) fn with_button_audio_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::gui::gadgets::ButtonAudioHook) -> R,
+    ) -> Option<R> {
+        let mut slot = self.state.button_audio.borrow_mut();
+        slot.as_mut().map(f)
+    }
+
+    pub(crate) fn with_display_string_manager_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::gui::display_string::DisplayStringManager) -> R,
+    ) -> R {
+        f(&mut self.state.display_string_manager.borrow_mut())
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn popup_join_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::popup_join_game::PopupJoinState>> {
+        Rc::clone(&self.state.popup_join_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn popup_host_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::popup_host_game::PopupHostState>> {
+        Rc::clone(&self.state.popup_host_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn popup_player_info_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::popup_player_info::PopupPlayerInfoState>> {
+        Rc::clone(&self.state.popup_player_info_state)
     }
 
     pub(crate) fn keyboard_options_handle(
@@ -250,6 +347,14 @@ impl WindowManagerOwner {
         f(&mut self.state.skirmish_map_select_layout.borrow_mut())
     }
 
+    pub(crate) fn skirmish_map_select_state_handle(
+        &self,
+    ) -> std::sync::Arc<
+        std::sync::Mutex<crate::gui::callbacks::skirmish_map_select_menu::SkirmishMapSelectState>,
+    > {
+        self.state.skirmish_map_select_state.clone()
+    }
+
     pub(crate) fn with_lan_game_options_mut<R>(
         &self,
         f: impl FnOnce(&RefCell<crate::gui::callbacks::lan_game_options_menu::LanGameOptionsState>) -> R,
@@ -262,6 +367,22 @@ impl WindowManagerOwner {
         f: impl FnOnce(&mut Option<Rc<RefCell<crate::gui::WindowLayout>>>) -> R,
     ) -> R {
         f(&mut self.state.lan_map_select_layout.borrow_mut())
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn lan_lobby_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::lan_lobby_menu::LanLobbyState>> {
+        Rc::clone(&self.state.lan_lobby_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn lan_events_handle(
+        &self,
+    ) -> std::sync::Arc<
+        std::sync::Mutex<std::collections::VecDeque<game_network::lan_api::LanEvent>>,
+    > {
+        std::sync::Arc::clone(&self.state.lan_events)
     }
 
     /// Offline network stub state for this client (`not(feature = "network")`).

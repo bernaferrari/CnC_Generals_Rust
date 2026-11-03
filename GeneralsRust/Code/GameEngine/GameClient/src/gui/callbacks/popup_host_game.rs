@@ -27,7 +27,7 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct PopupHostState {
+pub(crate) struct PopupHostState {
     parent_id: i32,
     text_entry_game_name_id: i32,
     text_entry_game_description_id: i32,
@@ -48,13 +48,31 @@ struct PopupHostState {
     check_box_use_stats: Option<Rc<RefCell<GameWindow>>>,
 }
 
+#[cfg(test)]
 thread_local! {
-    static POPUP_HOST_STATE: Rc<RefCell<PopupHostState>> = Rc::new(RefCell::new(PopupHostState::default()));
+    static TEST_POPUP_HOST_STATE: std::cell::OnceCell<Rc<RefCell<PopupHostState>>> =
+        const { std::cell::OnceCell::new() };
 }
 
 fn popup_host_state() -> Rc<RefCell<PopupHostState>> {
-    POPUP_HOST_STATE.with(Rc::clone)
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().popup_host_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_POPUP_HOST_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(PopupHostState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(PopupHostState::default()))
+    }
 }
+
 
 fn name_to_id(name: &str) -> i32 {
     NameKeyGenerator::name_to_key(name) as i32

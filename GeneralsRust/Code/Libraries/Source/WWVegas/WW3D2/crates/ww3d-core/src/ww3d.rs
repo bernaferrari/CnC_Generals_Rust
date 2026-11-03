@@ -6,10 +6,9 @@
 
 use crate::errors::{W3DError, W3DResult};
 use std::any::Any;
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::ops::Deref;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
 /// Cross-backend frame statistics exposed by the registered renderer.
 #[derive(Debug, Default, Clone)]
@@ -28,9 +27,9 @@ pub struct FrameStats {
 /// Trait implemented by renderer backends. The core library does not impose any particular
 /// rendering technology; instead it calls into the backend through this trait.
 ///
-/// Backends are owned by the game thread (stored thread-local alongside the
-/// rest of the WW3D statics), so no `Send`/`Sync` bound is imposed.
-pub trait RendererBackend: Any {
+/// Backends are process-registered behind a Mutex (C++ plain static on the
+/// game thread; Mutex keeps the slot Sync for multi-instance hosts).
+pub trait RendererBackend: Any + Send {
     fn begin_frame(&mut self) -> W3DResult<()>;
     fn end_frame(&mut self) -> W3DResult<()>;
     fn is_ready(&self) -> bool;
@@ -90,12 +89,15 @@ pub trait RendererBackend: Any {
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
-type RendererHandle = Rc<RefCell<Box<dyn RendererBackend>>>;
+type RendererHandle = Arc<Mutex<Box<dyn RendererBackend>>>;
 
-// Rc renderer handle is !Send; keep TLS (C++ plain static on the game thread).
-thread_local! {
-    static RENDERER_STORAGE: RefCell<Option<RendererHandle>> = const { RefCell::new(None) };
+struct RendererStorageSlot(Mutex<Option<RendererHandle>>);
+impl Deref for RendererStorageSlot {
+    type Target = Mutex<Option<RendererHandle>>;
+    fn deref(&self) -> &Self::Target { &self.0 }
 }
+static RENDERER_STORAGE: RendererStorageSlot =
+    RendererStorageSlot(Mutex::new(None));
 
 
 /// C++ `WW3D::PrelitModeEnum` (`ww3d.h`). Selects which prelit material
@@ -167,15 +169,16 @@ impl WW3D {
     where
         R: RendererBackend + 'static,
     {
-        let handle: RendererHandle = Rc::new(RefCell::new(Box::new(renderer)));
-        let inserted = RENDERER_STORAGE.with_borrow_mut(|slot| {
+        let handle: RendererHandle = Arc::new(Mutex::new(Box::new(renderer)));
+        let inserted = {
+            let mut slot = RENDERER_STORAGE.lock().unwrap_or_else(|p| p.into_inner());
             if slot.is_some() {
                 false
             } else {
-                *slot = Some(handle.clone());
+                *slot = Some(Arc::clone(&handle));
                 true
             }
-        });
+        };
         if !inserted {
             return false;
         }
@@ -222,15 +225,16 @@ impl WW3D {
 
     /// Remove the currently registered renderer.
     pub fn unregister_renderer() {
-        RENDERER_STORAGE.with_borrow_mut(|slot| {
-            slot.take();
-        });
+        RENDERER_STORAGE.lock().unwrap_or_else(|p| p.into_inner()).take();
     }
 
     /// Borrow the current renderer handle if one is registered.
     pub fn get_current_renderer() -> Option<W3DRenderer> {
         RENDERER_STORAGE
-            .with_borrow(|slot| slot.as_ref().cloned())
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .cloned()
             .map(W3DRenderer)
     }
 
@@ -241,7 +245,7 @@ impl WW3D {
     {
         let handle = WW3D::get_current_renderer()?;
         let binding = handle.handle();
-        let mut guard = binding.borrow_mut();
+        let mut guard = binding.lock().unwrap_or_else(|p| p.into_inner());
         Some(f(guard.as_mut()))
     }
 
@@ -249,7 +253,7 @@ impl WW3D {
     pub fn current_frame_stats() -> Option<FrameStats> {
         let handle = WW3D::get_current_renderer()?;
         let binding = handle.handle();
-        let guard = binding.borrow_mut();
+        let mut guard = binding.lock().unwrap_or_else(|p| p.into_inner());
         Some(guard.frame_stats())
     }
 

@@ -370,4 +370,79 @@ impl GameClient {
             })
             .clone()
     }
+
+    pub fn ensure_weather_setting(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::RwLock<crate::snow::WeatherSetting>> {
+        self.weather_setting
+            .get_or_insert_with(|| {
+                let initial = game_engine::common::ini::ini_weather::get_weather_setting()
+                    .map(|common| crate::snow::WeatherSetting::from_common(&common))
+                    .unwrap_or_default();
+                std::sync::Arc::new(std::sync::RwLock::new(initial))
+            })
+            .clone()
+    }
+
+    pub fn ensure_snow_manager(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::snow::SnowManager>> {
+        self.snow_manager
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(crate::snow::SnowManager::new()))
+            })
+            .clone()
+    }
+
+    pub fn snow_manager_opt(
+        &self,
+    ) -> Option<std::sync::Arc<std::sync::Mutex<crate::snow::SnowManager>>> {
+        self.snow_manager.clone()
+    }
+
+    pub fn ensure_supply_and_tech_images(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::map_util::TechAndSupplyImages>> {
+        self.supply_and_tech_images
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::map_util::TechAndSupplyImages::default(),
+                ))
+            })
+            .clone()
+    }
+
+    pub fn ensure_map_cache_manager(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::map_util::MapCache>> {
+        self.map_cache_manager
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(crate::map_util::MapCache::new()))
+            })
+            .clone()
+    }
+
+    pub fn ensure_video_player_slot(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<Option<crate::video_player::VideoPlayer>>> {
+        self.video_player_slot
+            .get_or_insert_with(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
+            .clone()
+    }
+
+    pub fn video_player_slot_opt(
+        &self,
+    ) -> Option<std::sync::Arc<std::sync::Mutex<Option<crate::video_player::VideoPlayer>>>> {
+        self.video_player_slot.clone()
+    }
+
+    pub fn ensure_video_stream_provider_slot(
+        &mut self,
+    ) -> std::sync::Arc<
+        std::sync::Mutex<Option<std::sync::Arc<dyn crate::video_player::VideoStreamProvider>>>,
+    > {
+        self.video_stream_provider_slot
+            .get_or_insert_with(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
+            .clone()
+    }
 }

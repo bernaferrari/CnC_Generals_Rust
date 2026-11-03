@@ -39,11 +39,11 @@ fn owned_dozer_phase_completes_structure_without_ready_writeback() {
     builder.set_target(
         Some(id),
         attack_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     builder.set_ai_state(
         AIState::Constructing,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     );
     builder.movement.path.clear();
     builder.waiting_for_path = false;
