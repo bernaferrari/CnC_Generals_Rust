@@ -692,7 +692,7 @@ fn context_move_plays_voice_move_not_unit_command() {
     logic.queued_audio_events.clear();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_attack_move(&[a], Vec3::new(120.0, 0.0, 0.0), -1) == CommandResult::Success);
+        assert!(exec.execute_attack_move(&[a], Vec3::new(120.0, 0.0, 0.0), -1).is_ok_and(|r| r == CommandResult::Success));
     }
     assert!(
         logic
@@ -1517,7 +1517,7 @@ fn attack_move_includes_immobile_attacker() {
     );
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_attack_move(&[tur, tk], Vec3::new(200.0, 0.0, 0.0), 4) == CommandResult::Success);
+        assert!(exec.execute_attack_move(&[tur, tk], Vec3::new(200.0, 0.0, 0.0), 4).is_ok_and(|r| r == CommandResult::Success));
     }
     let u = logic.host_object(tur).unwrap();
     assert_ne!(u.ai_state(), AIState::AttackMoving);

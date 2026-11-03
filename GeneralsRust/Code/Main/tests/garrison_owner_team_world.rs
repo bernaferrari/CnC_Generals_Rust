@@ -435,7 +435,7 @@ fn collision_entry_records_receiving_player_without_touching_peer() {
             modifier_keys: ModifierKeys::default(),
         })
         .expect("issue authored Enter command");
-    assert!(result.is_ok_and(|r| r == CommandResult::Success));
+    assert!(result == CommandResult::Success);
     game.try_physics_collide(rider, host, 1.0).unwrap();
     assert_eq!(game.host_object(rider).unwrap().contained_by, Some(host));
     assert_eq!(game.host_object(host).unwrap().player_who_entered, Some(2));
@@ -1349,7 +1349,7 @@ fn collision_garrison_rejects_invalid_rider_and_reports_missing_owner() {
             modifier_keys: ModifierKeys::default(),
         })
         .unwrap();
-    assert!(result.is_ok_and(|r| r == CommandResult::Success));
+    assert!(result == CommandResult::Success);
     let team = game.host_object(host).unwrap().team_instance_identity();
     game.host_object_mut(rider).unwrap().owner_player_id = Some(u32::MAX);
     let error = game.try_physics_collide(rider, host, 1.0).unwrap_err();
@@ -1382,7 +1382,7 @@ fn transport_exit_door_continues_across_bincode_and_direct_xfer() {
             modifier_keys: ModifierKeys::default(),
         })
         .expect("execute passenger exit");
-    assert!(result.is_ok_and(|r| r == CommandResult::Success));
+    assert!(result == CommandResult::Success);
     let remaining = original
         .host_object(transport)
         .unwrap()

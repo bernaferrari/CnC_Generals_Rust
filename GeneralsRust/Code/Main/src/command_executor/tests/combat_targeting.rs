@@ -58,7 +58,7 @@ fn follow_waypoint_as_team_preserves_offsets() {
     let wps = vec![Vec3::new(100.0, 0.0, 0.0), Vec3::new(200.0, 0.0, 0.0)];
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_follow_waypoint_path(&[a, b], &wps, true, true) == CommandResult::Success);
+        assert!(exec.execute_follow_waypoint_path(&[a, b], &wps, true, true).is_ok_and(|r| r == CommandResult::Success));
     }
     let ga = logic
         .host_object(a)
@@ -552,7 +552,7 @@ fn set_emoticon_stores_name_and_duration() {
             exec.execute_set_emoticon(&[id], "Emoticon_Alert", 60) == CommandResult::Success);
     }
     let u = logic.host_object(id).unwrap();
-    assert!(u.emoticon_name, "Emoticon_Alert");
+    assert_eq!(u.emoticon_name, "Emoticon_Alert");
     assert_eq!(u.emoticon_frames_left, 60);
 }
 

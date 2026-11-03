@@ -108,7 +108,7 @@ fn authored_beacon_settings_and_templates_are_owned_by_each_world() {
     assert!(host_object_is_beacon(&two, two_id));
 
     assert!(
-        place_result(&mut one, 0, 21., "overflow").is_ok_and(|r| r == CommandResult::InvalidCommand));
+        place_result(&mut one, 0, 21., "overflow") == CommandResult::InvalidCommand);
     assert!(place_result(&mut two, 0, 21., "second") == CommandResult::Success);
     assert!(!host_object_is_beacon(&one, two_id));
     assert_eq!(host_beacon_caption(&one, one_id).as_deref(), Some("one"));
