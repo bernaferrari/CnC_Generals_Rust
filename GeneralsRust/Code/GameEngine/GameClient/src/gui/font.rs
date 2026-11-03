@@ -89,7 +89,8 @@ pub fn font_atlas_files() -> Vec<std::path::PathBuf> {
 /// (W3DGameFont.cpp:73-88)). Registering the same files in the renderer's
 /// font database is what lets localized families and missing glyphs resolve.
 fn language_font_files() -> Vec<std::path::PathBuf> {
-    let Ok(language) = crate::global_language::get_global_language_data().read() else {
+    let __lang = crate::global_language::get_global_language_data();
+    let Ok(language) = __lang.read() else {
         return Vec::new();
     };
     let mut names: Vec<String> = language.local_fonts.clone();
@@ -369,7 +370,8 @@ impl FontData for DefaultFontData {
 fn alternate_unicode_font() -> Option<&'static fontdue::Font> {
     static FONT: std::sync::LazyLock<Option<fontdue::Font>> = std::sync::LazyLock::new(|| {
         let mut names: Vec<String> = Vec::new();
-        if let Ok(language) = crate::global_language::get_global_language_data().read() {
+        let __lang = crate::global_language::get_global_language_data();
+        if let Ok(language) = __lang.read() {
             if !language.unicode_font_name.is_empty() {
                 names.push(language.unicode_font_name.clone());
             }

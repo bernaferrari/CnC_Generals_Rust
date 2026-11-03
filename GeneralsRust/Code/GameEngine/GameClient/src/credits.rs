@@ -146,7 +146,8 @@ impl CreditsManager {
         self.parse_content(&content);
         self.scroll_rate = self.scroll_rate.max(1);
         self.scroll_rate_per_frames = self.scroll_rate_per_frames.max(1);
-        if let Ok(global) = get_global_language_data().read() {
+        let __lang = get_global_language_data();
+        if let Ok(global) = __lang.read() {
             self.title_font = global.credits_title_font.clone();
             self.position_font = global.credits_position_font.clone();
             self.normal_font = global.credits_normal_font.clone();

@@ -978,7 +978,8 @@ impl TerrainVisualImpl {
             return;
         };
         let mut smudges = self.overlay.smudges.clone();
-        if let Ok(mgr) = get_smudge_manager().lock() {
+        let __smudge = get_smudge_manager();
+        if let Ok(mgr) = __smudge.lock() {
             for s in mgr.collect_used_smudges() {
                 if s.size > 0.0 && s.opacity > 0.0 {
                     smudges.push(TerrainSmudge {

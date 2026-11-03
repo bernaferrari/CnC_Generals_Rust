@@ -1898,7 +1898,7 @@ impl OptionsMenu {
             voice_volume as f32 / 100.0,
             EngineAudioAffect::SpeechSystemSetting,
         );
-        get_header_template_manager().header_notify_resolution_change();
+        get_header_template_manager().lock().unwrap_or_else(|e| e.into_inner()).header_notify_resolution_change();
 
         let resolution_changed = resolution != old_resolution;
         if resolution_changed {

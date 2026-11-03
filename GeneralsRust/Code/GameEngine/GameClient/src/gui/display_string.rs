@@ -493,7 +493,8 @@ impl DisplayString {
         // C++ `W3DDisplayString::notifyTextChanged` applies the language
         // INI's `UseHardWordWrap` to every string's renderer
         // (W3DDisplayString.cpp:91-103).
-        let hard_wrap = crate::global_language::get_global_language_data()
+        let __lang = crate::global_language::get_global_language_data();
+        let hard_wrap = __lang
             .read()
             .map(|language| language.use_hard_wrap)
             .unwrap_or(false);
@@ -710,7 +711,8 @@ pub struct DisplayStringManager {
 fn apply_draw_group_style(handle: &DisplayStringHandle, text: String) {
     let mut display = handle.borrow_mut();
     display.set_text(text);
-    let info = get_draw_group_info()
+    let __dgi = get_draw_group_info();
+    let info = __dgi
         .read()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let desc = FontDesc::new(&info.font_name, info.font_size, info.font_is_bold);

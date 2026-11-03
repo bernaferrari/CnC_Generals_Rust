@@ -2,7 +2,7 @@
 
 use crate::effects::decals::DecalRenderItem;
 use glam::{Vec2, Vec3};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Copy)]
 pub struct SmudgeVertex {
@@ -233,10 +233,34 @@ impl SmudgeManager {
     }
 }
 
-static THE_SMUDGE_MANAGER: OnceLock<Mutex<SmudgeManager>> = OnceLock::new();
+#[cfg(test)]
+thread_local! {
+    static TEST_SMUDGE_MANAGER: std::cell::RefCell<Option<Arc<Mutex<SmudgeManager>>>> =
+        const { std::cell::RefCell::new(None) };
+}
 
-pub fn get_smudge_manager() -> &'static Mutex<SmudgeManager> {
-    THE_SMUDGE_MANAGER.get_or_init(|| Mutex::new(SmudgeManager::new()))
+fn smudge_manager_handle() -> Arc<Mutex<SmudgeManager>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_smudge_manager()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_SMUDGE_MANAGER.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| Arc::new(Mutex::new(SmudgeManager::new())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(Mutex::new(SmudgeManager::new()))
+    }
+}
+
+pub fn get_smudge_manager() -> Arc<Mutex<SmudgeManager>> {
+    smudge_manager_handle()
 }
 
 /// Residual: last Smudge action requested by residual peels.
@@ -263,7 +287,8 @@ fn residual_smudge_sync(manager: &mut SmudgeManager) {
 
 /// Residual: last Smudge residual action.
 pub fn residual_smudge_last_action() -> ResidualSmudgeAction {
-    let Ok(manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(manager) = __smudge.lock() else {
         return ResidualSmudgeAction::None;
     };
     match manager.residual_last_action {
@@ -296,7 +321,8 @@ pub fn residual_smudge_count() -> usize {
 /// Residual: allocate a residual smudge set without terrain render.
 /// Uses only SmudgeManager lock (no nested residual set slot).
 pub fn simulate_smudge_add_set() -> bool {
-    let Ok(mut manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(mut manager) = __smudge.lock() else {
         return false;
     };
     // Keep a single residual set: clear used sets first for deterministic residual.
@@ -309,7 +335,8 @@ pub fn simulate_smudge_add_set() -> bool {
 
 /// Residual: add a smudge into the first residual set.
 pub fn simulate_smudge_add(size: f32, opacity: f32) -> bool {
-    let Ok(mut manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(mut manager) = __smudge.lock() else {
         return false;
     };
     if manager.used_sets.is_empty() {
@@ -329,7 +356,8 @@ pub fn simulate_smudge_add(size: f32, opacity: f32) -> bool {
 
 /// Residual: remove first residual smudge.
 pub fn simulate_smudge_remove_first() -> bool {
-    let Ok(mut manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(mut manager) = __smudge.lock() else {
         return false;
     };
     if manager.used_sets.is_empty() {
@@ -350,7 +378,8 @@ pub fn simulate_smudge_remove_first() -> bool {
 
 /// Residual: remove residual smudge set(s).
 pub fn simulate_smudge_remove_set() -> bool {
-    let Ok(mut manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(mut manager) = __smudge.lock() else {
         return false;
     };
     manager.reset();
@@ -361,7 +390,8 @@ pub fn simulate_smudge_remove_set() -> bool {
 
 /// Residual: reset smudge manager residual.
 pub fn simulate_smudge_reset() -> bool {
-    let Ok(mut manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(mut manager) = __smudge.lock() else {
         return false;
     };
     manager.reset();
@@ -372,7 +402,8 @@ pub fn simulate_smudge_reset() -> bool {
 
 /// Residual: set last-frame smudge count residual.
 pub fn simulate_smudge_set_count_last_frame(count: i32) -> bool {
-    let Ok(mut manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(mut manager) = __smudge.lock() else {
         return false;
     };
     manager.set_smudge_count_last_frame(count);

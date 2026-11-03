@@ -442,7 +442,8 @@ pub fn system_is_heat_smudge(system: &ParticleSystem) -> bool {
 
 /// C++ `doParticles` start: `setSmudgeCountLastFrame(0)` then one `addSmudgeSet`.
 pub fn begin_particle_heat_smudge_frame() {
-    let Ok(mut manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(mut manager) = __smudge.lock() else {
         return;
     };
     manager.set_smudge_count_last_frame(0);
@@ -459,7 +460,8 @@ pub fn feed_system_heat_smudges(system: &ParticleSystem) -> usize {
     let use_heat = game_engine::common::global_data::read_safe()
         .map(|data| data.use_heat_effects)
         .unwrap_or(true);
-    let Ok(mut manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(mut manager) = __smudge.lock() else {
         return 0;
     };
     if !manager.get_hardware_support() || !use_heat {

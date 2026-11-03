@@ -105,7 +105,8 @@ impl W3DParticleSystemBridge {
 }
 
 fn collect_manager_smudge_render_items() -> Vec<DecalRenderItem> {
-    let Ok(manager) = get_smudge_manager().lock() else {
+    let __smudge = get_smudge_manager();
+    let Ok(manager) = __smudge.lock() else {
         return Vec::new();
     };
     manager.collect_decal_render_items()
