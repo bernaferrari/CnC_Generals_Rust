@@ -1742,31 +1742,8 @@ impl Default for AudioManager {
     }
 }
 
-use std::sync::Mutex as StdMutex;
-/// Global audio manager instance (matches C++ TheAudio)
-use std::sync::OnceLock;
-
-pub static THE_AUDIO: OnceLock<Arc<StdMutex<AudioManager>>> = OnceLock::new();
-
-/// Initialize the global audio manager
-pub fn initialize_global_audio_manager() -> Result<(), Box<dyn std::error::Error>> {
-    let audio_manager = AudioManager::new();
-    let audio_arc = Arc::new(StdMutex::new(audio_manager));
-    THE_AUDIO
-        .set(audio_arc.clone())
-        .map_err(|_| anyhow!("global audio manager already initialized"))?;
-
-    register_animation_sound_library(audio_arc);
-    Ok(())
-}
-
-/// Get reference to global audio manager
-pub fn get_global_audio_manager() -> Arc<StdMutex<AudioManager>> {
-    THE_AUDIO
-        .get()
-        .expect("Global audio manager not initialized")
-        .clone()
-}
+// Live TheAudio lives on SystemStores via `game_audio::{initialize,get}_global_audio_manager`.
+// This file is not wired into `audio/mod.rs` and must not publish a process singleton.
 
 #[cfg(test)]
 mod tests {

@@ -15,7 +15,7 @@
 use crate::common::audio::audio_event_rts::{AudioEventRts, TimeOfDay};
 use crate::common::random_value::get_game_client_random_value;
 use std::collections::{HashMap, VecDeque};
-use std::sync::{OnceLock, RwLock};
+use std::sync::RwLock;
 
 // Type aliases
 pub type AsciiString = String;
@@ -31,15 +31,24 @@ const BASE_DLG_DIR: &str = "data\\audio\\sounds";
 const BASE_DLG_EXT: &str = "wav";
 const NUM_DLG_PRIORITIES: usize = 5;
 
-struct SpeechRegistrySlot(OnceLock<RwLock<HashMap<String, Speech>>>);
-impl std::ops::Deref for SpeechRegistrySlot {
-    type Target = OnceLock<RwLock<HashMap<String, Speech>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
+fn speech_registry_read() -> std::sync::RwLockReadGuard<'static, HashMap<String, Speech>> {
+    let services = crate::common::common_services::common_services();
+    let guard = services
+        .system
+        .speech_registry
+        .read()
+        .unwrap_or_else(|p| p.into_inner());
+    unsafe { std::mem::transmute(guard) }
 }
-static SPEECH_REGISTRY: SpeechRegistrySlot = SpeechRegistrySlot(OnceLock::new());
 
-fn speech_registry() -> &'static RwLock<HashMap<String, Speech>> {
-    SPEECH_REGISTRY.0.get_or_init(|| RwLock::new(HashMap::new()))
+fn speech_registry_write() -> std::sync::RwLockWriteGuard<'static, HashMap<String, Speech>> {
+    let services = crate::common::common_services::common_services();
+    let guard = services
+        .system
+        .speech_registry
+        .write()
+        .unwrap_or_else(|p| p.into_inner());
+    unsafe { std::mem::transmute(guard) }
 }
 
 /// Information about a line of speech/dialog
@@ -295,10 +304,7 @@ impl Speaker {
 
     /// Submit speech by name
     pub fn say_name(&mut self, speech_name: &str, priority: Int, timeout: Int, interrupt: Int) {
-        let resolved = speech_registry()
-            .read()
-            .ok()
-            .and_then(|registry| registry.get(speech_name).cloned());
+        let resolved = speech_registry_read().get(speech_name).cloned();
         if let Some(speech) = resolved {
             self.say_speech(speech, priority, timeout, interrupt);
         }
@@ -513,9 +519,7 @@ impl SpeechManager {
         self.count = 0;
         self.speeches.clear();
         self.speech_names.clear();
-        if let Ok(mut registry) = speech_registry().write() {
-            registry.clear();
-        }
+        speech_registry_write().clear();
 
         for speaker in &mut self.speakers {
             speaker.deinit();
@@ -638,9 +642,7 @@ impl SpeechManager {
 
         self.speeches.insert(entry_key.clone(), new_speech);
         if let Some(speech) = self.speeches.get(&entry_key).cloned() {
-            if let Ok(mut registry) = speech_registry().write() {
-                registry.insert(entry_key.clone(), speech);
-            }
+            speech_registry_write().insert(entry_key.clone(), speech);
         }
         self.speeches.get(&entry_key)
     }
@@ -648,9 +650,7 @@ impl SpeechManager {
     pub fn add_temporary_dialog(&mut self, temporary_speech: Speech) -> Option<&Speech> {
         self.temporary_speeches.push(temporary_speech);
         if let Some(speech) = self.temporary_speeches.last().cloned() {
-            if let Ok(mut registry) = speech_registry().write() {
-                registry.insert(speech.name.clone(), speech);
-            }
+            speech_registry_write().insert(speech.name.clone(), speech);
         }
         self.temporary_speeches.last()
     }
