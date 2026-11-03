@@ -659,7 +659,8 @@ pub fn get_player_template_store() -> RwLockReadGuard<'static, PlayerTemplateSto
 }
 
 pub fn try_get_player_template_store() -> Option<RwLockReadGuard<'static, PlayerTemplateStore>> {
-    let cell = player_template_cell();
+    let services = crate::common::common_services::try_common_services()?;
+    let cell = std::sync::Arc::clone(&services.ini.player_template);
     let guard = cell.try_read().ok()?;
     Some(unsafe { std::mem::transmute(guard) })
 }
