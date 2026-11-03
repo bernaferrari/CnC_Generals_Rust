@@ -547,7 +547,7 @@ fn queue_upgrade_identity_matches_ini_name_variants() {
         selected_units: vec![ObjectId(251)],
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(system.execute_command(&variant_command, &mut game_logic).expect("command"), CommandResult::InvalidCommand, "same upgrade should not be charged twice when naming style differs");
+    assert_eq!(system.execute_command(&variant_command, &mut game_logic), CommandResult::InvalidCommand, "same upgrade should not be charged twice when naming style differs");
 
     let cancel_variant = GameCommand {
         command_type: CommandType::CancelUpgrade {
@@ -559,7 +559,7 @@ fn queue_upgrade_identity_matches_ini_name_variants() {
         selected_units: vec![ObjectId(251)],
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(system.execute_command(&cancel_variant, &mut game_logic).expect("command"), CommandResult::Success, "cancel should find the queued upgrade by normalized INI identity");
+    assert_eq!(system.execute_command(&cancel_variant, &mut game_logic), CommandResult::Success, "cancel should find the queued upgrade by normalized INI identity");
 
     let player = game_logic.get_player(0).expect("player should exist");
     assert_eq!(player.effective_supplies(), 5000);
@@ -603,7 +603,7 @@ fn purchase_science_identity_matches_command_name_variants() {
         selected_units: Vec::new(),
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(system.execute_command(&variant_command, &mut game_logic).expect("command"), CommandResult::InvalidCommand, "same science should not be charged twice when naming style differs");
+    assert_eq!(system.execute_command(&variant_command, &mut game_logic), CommandResult::InvalidCommand, "same science should not be charged twice when naming style differs");
 
     let player = game_logic.get_player(0).expect("player should exist");
     assert_eq!(player.effective_supplies(),
@@ -1778,7 +1778,7 @@ fn cancel_upgrade_refunds_only_when_upgrade_is_queued() {
             .contains("Upgrade_AmericaSupplyLines")
     );
 
-    assert_eq!(system.execute_command(&cancel_command, &mut game_logic).expect("command"), CommandResult::InvalidCommand, "cancelling a non-queued upgrade should not issue another refund");
+    assert_eq!(system.execute_command(&cancel_command, &mut game_logic), CommandResult::InvalidCommand, "cancelling a non-queued upgrade should not issue another refund");
 }
 
 #[test]
@@ -1845,7 +1845,7 @@ fn queue_upgrade_refuses_command_set_without_upgrade_button() {
         selected_units: vec![ObjectId(501)],
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(system.execute_command(&command, &mut game_logic).expect("command"), CommandResult::InvalidCommand, "Barracks CommandSet has no SupplyLines button");
+    assert_eq!(system.execute_command(&command, &mut game_logic), CommandResult::InvalidCommand, "Barracks CommandSet has no SupplyLines button");
     let player_after = game_logic.get_player(0).expect("player");
     assert_eq!(player_after.effective_supplies(), 5000);
     assert!(!player_after.has_queued_upgrade("Upgrade_AmericaSupplyLines"));
@@ -1942,7 +1942,7 @@ fn queued_upgrade_completes_during_simulation_update() {
             .unlocked_sciences
             .contains("Upgrade_AmericaSupplyLines")
     );
-    assert_eq!(system.execute_command(&command, &mut game_logic).expect("command"), CommandResult::InvalidCommand, "completed upgrades should not be queued or charged again");
+    assert_eq!(system.execute_command(&command, &mut game_logic), CommandResult::InvalidCommand, "completed upgrades should not be queued or charged again");
 }
 
 #[test]

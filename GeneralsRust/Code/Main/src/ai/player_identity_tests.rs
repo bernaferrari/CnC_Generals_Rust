@@ -145,11 +145,12 @@ fn supply_source_queries_use_canonical_map_player_identity() {
             .create_object_for_player("SupplyQueryDozer", 0, glam::Vec3::new(10.0, 0.0, 20.0))
             .expect("owned dozer for supply-source scan");
         if attacked {
+            let frame = world.frame;
             world
                 .get_player_mut(0)
                 .unwrap()
-                .set_attacked_by_at(1, world.frame);
-            world.host_object_mut(id).unwrap().last_damage_timestamp = Some(world.frame);
+                .set_attacked_by_at(1, frame);
+            world.host_object_mut(id).unwrap().last_damage_timestamp = Some(frame);
         }
         world
     }

@@ -304,7 +304,7 @@ fn baikonur_location_does_not_open_door_object_does_not_spend() {
                 &[tower_id],
                 &SpecialPowerType::BaikonurRocket,
                 &PowerTarget::Object(dummy_id),
-            ).unwrap() == CommandResult::InvalidCommand);
+            ).unwrap(), CommandResult::InvalidCommand);
     }
     assert!(
         logic.is_special_power_ready_for(tower_id, &SpecialPowerType::BaikonurRocket),

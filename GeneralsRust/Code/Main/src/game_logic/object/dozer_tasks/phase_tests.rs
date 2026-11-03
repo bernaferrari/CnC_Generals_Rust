@@ -59,7 +59,7 @@ fn command(world: &mut GameLogic, id: ObjectId, kind: CommandType) -> CommandRes
             selected_units: vec![id],
             modifier_keys: ModifierKeys::default(),
         })
-        .expect("command")
+        .expect("dozer command")
 }
 fn drive(world: &mut GameLogic, id: ObjectId, frame: u32) {
     world.frame = frame;
