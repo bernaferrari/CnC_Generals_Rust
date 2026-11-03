@@ -63,9 +63,12 @@ impl TracerStore {
 
 /// Serializes tests that touch the per-client tracer store.
 #[cfg(test)]
+static TRACER_FX_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+#[cfg(test)]
 pub fn lock_tracer_fx_tests() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    TRACER_FX_TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
         .lock()
         .unwrap_or_else(|e| e.into_inner())
 }
