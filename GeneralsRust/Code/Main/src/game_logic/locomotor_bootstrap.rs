@@ -2381,7 +2381,9 @@ mod source_zero_speed_admission_tests {
         assert_eq!(object.movement.max_speed, 0.);
         assert_eq!(object.movement.acceleration, 0.);
         assert_eq!(object.movement.turn_rate, 0.);
-        assert_eq!(object.max_lift, 0.);
+        // C++ Locomotor ctor keeps m_maxLift = BIGNUM; getMaxLift uses template lift.
+        assert_eq!(object.max_lift, DEFAULT_HOST_LIFT_CAP);
+        assert_eq!(object.get_max_lift(), 0.);
     }
     #[test]
     fn source_damaged_zero_is_not_omitted_negative_sentinel() {
