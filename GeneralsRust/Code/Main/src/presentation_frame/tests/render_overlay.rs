@@ -2020,15 +2020,20 @@ fn presentation_freezes_dozer_construct_can_make_cameos() {
     assert!(!plant2.available);
     assert_eq!(plant2.can_make, CANMAKE_NO_MONEY);
 
-    let mut bar = game_client::gui::control_bar::ControlBar::new();
-    frame2.apply_to_control_bar(&mut bar);
-    assert!(
-        bar.presentation_can_make()
-            .iter()
-            .any(|(n, s)| n.contains("PowerPlant") && *s == CANMAKE_NO_MONEY),
-        "ControlBar must receive dozer CanMake gray residual: {:?}",
-        bar.presentation_can_make()
-    );
+    let owner = game_client::gui::window_manager::WindowManagerOwner::new();
+    game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+        owner.with_manager(|manager| {
+            let mut bar = game_client::gui::control_bar::ControlBar::new();
+            frame2.apply_to_control_bar(&mut bar, manager, effects);
+            assert!(
+                bar.presentation_can_make()
+                    .iter()
+                    .any(|(n, s)| n.contains("PowerPlant") && *s == CANMAKE_NO_MONEY),
+                "ControlBar must receive dozer CanMake gray residual: {:?}",
+                bar.presentation_can_make()
+            );
+        });
+    });
 }
 
 fn presentation_freezes_public_timer_superweapons() {

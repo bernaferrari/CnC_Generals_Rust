@@ -1261,9 +1261,7 @@ impl CnCGameEngine {
                 },
                 0,
                 0,
-                    0,
-                    0
-                )
+            )
             .map_err(|error| error.to_string())
     }
 
