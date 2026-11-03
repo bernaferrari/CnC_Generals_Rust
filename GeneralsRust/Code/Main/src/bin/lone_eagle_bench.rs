@@ -179,6 +179,10 @@ fn run_mode(
             "GENERALS_RUNTIME_HOST_WND",
             std::env::var("GENERALS_RUNTIME_HOST_WND").unwrap_or_else(|_| "1".into()),
         )
+        .env(
+            "RUST_LOG",
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()),
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(
@@ -201,6 +205,7 @@ fn run_mode(
     let mut peak_chunks = 0u32;
     let mut done = false;
     let mut sample_path = None;
+    let mut boot_to_ingame: Option<f32> = None;
 
     while started.elapsed() < timeout && !done {
         if let Some(snap) = parse_status(&status_path) {
@@ -252,6 +257,13 @@ fn run_mode(
                         commanded_at = Instant::now();
                     }
                     if snap.state == "InGame" && snap.logic_frame > 0 {
+                        if boot_to_ingame.is_none() {
+                            boot_to_ingame = Some(started.elapsed().as_secs_f32());
+                            eprintln!(
+                                "lone_eagle_bench: boot_to_InGame={:.2}s ({launch})",
+                                boot_to_ingame.unwrap()
+                            );
+                        }
                         // Let AI settle a few frames, then measure.
                         if measure_start.is_none() {
                             if snap.logic_frame > 30 {
@@ -314,6 +326,25 @@ fn run_mode(
     let frame_delta = final_snap.frame.saturating_sub(start_frame).max(1);
     let ms_per_tick = (measure_elapsed * 1000.0) / f64::from(logic_delta);
     let ms_per_frame = (measure_elapsed * 1000.0) / f64::from(frame_delta);
+
+    // Surface sync stage lines from child stderr (RUST_LOG=info).
+    if let Ok(err_txt) = fs::read_to_string(tmp.join("child_stderr.txt")) {
+        for line in err_txt.lines() {
+            if line.contains("Fast legacy")
+                || line.contains("settings parse finished")
+                || line.contains("heightmap ready")
+                || line.contains("legacy runtime sync finished")
+                || line.contains("scripts admitted")
+            {
+                eprintln!("lone_eagle_bench: stage| {line}");
+            }
+        }
+    }
+    if let Some(secs) = boot_to_ingame {
+        eprintln!("lone_eagle_bench: summary boot_to_InGame={secs:.2}s launch={launch}");
+    } else {
+        eprintln!("lone_eagle_bench: summary boot_to_InGame=NOT_REACHED launch={launch}");
+    }
 
     // One on-demand capture for artifacts / PNG gates (not during the timed window).
     if launch == "windowed" {
