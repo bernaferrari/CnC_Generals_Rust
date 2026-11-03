@@ -1542,7 +1542,7 @@ fn parachute_land_use_spawn_rally_point_walks_factory_exit() {
         create
     );
     assert!(
-        matches!(rider.ai_state, AIState::Moving)
+        matches!(rider.ai_state(), AIState::Moving)
             || rider.movement.target_position.is_some()
             || !rider.movement.path.is_empty(),
         "rider must follow factory exit/rally, ai={:?}",
@@ -1643,7 +1643,7 @@ fn parachute_land_without_spawn_rally_idles_at_lz() {
         rider.get_position()
     );
     assert!(
-        matches!(rider.ai_state, AIState::Idle),
+        matches!(rider.ai_state(), AIState::Idle),
         "no UseSpawnRallyPoint must aiIdle, ai={:?}",
         rider.ai_state()
     );

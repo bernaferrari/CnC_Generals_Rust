@@ -25,7 +25,7 @@ fn attack_move_sets_is_attack_path_flag() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_attack_move(&[id], Vec3::new(90.0, 0.0, 0.0), -1),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let u = logic.host_object(id).unwrap();
@@ -57,7 +57,7 @@ fn follow_waypoint_as_team_preserves_offsets() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_create_formation(&[a, b]),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let wps = vec![Vec3::new(100.0, 0.0, 0.0), Vec3::new(200.0, 0.0, 0.0)];
@@ -65,7 +65,7 @@ fn follow_waypoint_as_team_preserves_offsets() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_follow_waypoint_path(&[a, b], &wps, true, true),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let ga = logic
@@ -119,7 +119,7 @@ fn do_command_button_using_waypoints_attack_moves() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_do_command_button_using_waypoints(&[id], "Command_AttackMove", &wps),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let u = logic.host_object(id).unwrap();
@@ -159,12 +159,12 @@ fn do_command_button_dispatches_stop() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_do_command_button(&[id], "Command_Stop", None, None),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let u = logic.host_object(id).unwrap();
     assert!(
-        matches!(u.ai_state, AIState::Idle) || u.target.is_none() || !u.status.moving,
+        matches!(u.ai_state(), AIState::Idle) || u.target.is_none() || !u.status.moving,
         "stop should clear action state={:?} target={:?}",
         u.ai_state(),
         u.target
@@ -190,7 +190,7 @@ fn do_command_button_at_position_moves() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_do_command_button(&[id], "Command_AttackMove", Some(dest), None),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let u = logic.host_object(id).unwrap();
@@ -216,7 +216,7 @@ fn surrender_stops_and_flags_unit() {
     let id = logic.create_object("SR_I", Team::USA, Vec3::ZERO).unwrap();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_surrender(&[id], true), CommandResult::Success);
+        assert_eq!(exec.execute_surrender(&[id], true), Ok(CommandResult::Success));
     }
     let o = logic.host_object(id).unwrap();
     assert!(o.is_surrendered);
@@ -267,14 +267,14 @@ fn attack_team_engages_member_of_team() {
         // team_code 0 = GLA
         assert_eq!(
             exec.execute_attack_team(&[u], 0, -1),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let unit = logic.host_object(u).unwrap();
     assert!(
         unit.target == Some(e)
             || matches!(
-                unit.ai_state,
+                unit.ai_state(),
                 AIState::Attacking | AIState::AttackMoving | AIState::Moving
             ),
         "target={:?} state={:?}",
@@ -319,7 +319,7 @@ fn weapon_lock_forces_slot_and_release() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_set_weapon_lock(&[id], 1, 2),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let u = logic.host_object(id).unwrap();
@@ -330,7 +330,7 @@ fn weapon_lock_forces_slot_and_release() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_release_weapon_lock(&[id], 2),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     assert_eq!(
@@ -373,7 +373,7 @@ fn move_to_releases_temporary_but_not_permanent_weapon_lock() {
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(
         exec.execute_move_to(&[id], Vec3::new(40.0, 0.0, 0.0), &[]),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     assert_eq!(
         logic.host_object(id).unwrap().weapon_lock_type,
@@ -387,7 +387,7 @@ fn move_to_releases_temporary_but_not_permanent_weapon_lock() {
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(
         exec.execute_move_to(&[id], Vec3::new(80.0, 0.0, 0.0), &[]),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     let u = logic.host_object(id).unwrap();
     assert_eq!(u.weapon_lock_type, WeaponLockType::LockedPermanently);
@@ -433,7 +433,7 @@ fn do_weapon_locks_the_requested_secondary_slot_before_targeting() {
         1,
         &WeaponTarget::Location(target),
     );
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
 
     let unit = logic.host_object(unit_id).expect("unit");
     assert_eq!(unit.active_weapon_slot, 1);
@@ -490,7 +490,7 @@ fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
         -1,
         &WeaponTarget::Object(target),
     );
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
 
     let _ = logic.host_object_mut(unit_id).expect("unit");
     let unit = logic.objects.get_mut(&unit_id).expect("unit");
@@ -544,7 +544,7 @@ fn do_weapon_rejects_unrepresented_slots_without_primary_fallback() {
         -1,
         &WeaponTarget::Location(Vec3::new(75.0, 0.0, 25.0)),
     );
-    assert_eq!(result, CommandResult::InvalidCommand);
+    assert_eq!(result, Ok(CommandResult::InvalidCommand));
 
     let unit = logic.host_object(unit_id).expect("unit");
     assert_eq!(unit.active_weapon_slot, 0);
@@ -557,7 +557,7 @@ fn do_weapon_rejects_unrepresented_slots_without_primary_fallback() {
         -1,
         &WeaponTarget::Location(Vec3::new(80.0, 0.0, 30.0)),
     );
-    assert_eq!(result, CommandResult::InvalidCommand);
+    assert_eq!(result, Ok(CommandResult::InvalidCommand));
     assert_eq!(
         logic.host_object(unit_id).expect("unit").target_location,
         None
@@ -582,7 +582,7 @@ fn set_emoticon_stores_name_and_duration() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_set_emoticon(&[id], "Emoticon_Alert", 60),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let u = logic.host_object(id).unwrap();
@@ -608,7 +608,7 @@ fn mine_clearing_detail_toggles_weapon_set_flag() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_set_mine_clearing_detail(&[d], true),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     assert!(
@@ -621,7 +621,7 @@ fn mine_clearing_detail_toggles_weapon_set_flag() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_set_mine_clearing_detail(&[d], false),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     assert!(
@@ -666,7 +666,7 @@ fn ordinary_do_weapon_uses_authored_mine_detail_and_disarms_only_when_armed() {
         -1,
         &WeaponTarget::Location(Vec3::new(2.0, 0.0, 0.0)),
     );
-    assert_eq!(result, CommandResult::InvalidCommand);
+    assert_eq!(result, Ok(CommandResult::InvalidCommand));
     assert!(
         logic
             .host_object(mine_id)
@@ -679,7 +679,7 @@ fn ordinary_do_weapon_uses_authored_mine_detail_and_disarms_only_when_armed() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_set_mine_clearing_detail(&[clearer_id], true),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
         drop(exec);
         // Readiness belongs to the newly selected actual PRIMARY instance,
@@ -699,7 +699,7 @@ fn ordinary_do_weapon_uses_authored_mine_detail_and_disarms_only_when_armed() {
                 -1,
                 &WeaponTarget::Location(Vec3::new(2.0, 0.0, 0.0)),
             ),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let clearer = logic.host_object(clearer_id).expect("typed clearer");
@@ -742,7 +742,7 @@ fn go_prone_sets_prone_timer_and_bit() {
     let i = logic.create_object("GP_I", Team::USA, Vec3::ZERO).unwrap();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_go_prone(&[i]), CommandResult::Success);
+        assert_eq!(exec.execute_go_prone(&[i]), Ok(CommandResult::Success));
     }
     let u = logic.host_object(i).unwrap();
     assert!(u.prone_timer > 0.0);
@@ -776,7 +776,7 @@ fn attack_area_engages_enemy_inside_radius() {
         assert_eq!(
             exec.execute_attack_area(&[u], Vec3::new(40.0, 0.0, 0.0), 80.0, None)
                 .expect("valid attack-area fixture"),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let unit = logic.host_object(u).unwrap();
@@ -790,7 +790,7 @@ fn attack_area_engages_enemy_inside_radius() {
     assert!(
         unit.target == Some(e)
             || matches!(
-                unit.ai_state,
+                unit.ai_state(),
                 AIState::Attacking | AIState::AttackMoving | AIState::Moving
             ),
         "attack area should engage or path, target={:?} state={:?}",
@@ -848,7 +848,7 @@ fn move_to_and_evacuate_sets_pending_flag() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_move_to_and_evacuate(&[transport], Vec3::new(80.0, 0.0, 0.0), false),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let t = logic.host_object(transport).unwrap();
@@ -894,7 +894,7 @@ fn move_to_and_evacuate_unloads_when_path_completes() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             exec.execute_move_to_and_evacuate(&[transport], Vec3::new(10.0, 0.0, 0.0), false),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     // Simulate arrival: complete path + movement tick.
@@ -949,7 +949,7 @@ fn evacuate_requires_container_not_passenger_only() {
     // C++ groupEvacuate no-ops on non-containers without AI contain.
     assert_eq!(
         exec.execute_evacuate(&[a]).expect("evacuate command"),
-        CommandResult::InvalidCommand
+        Ok(CommandResult::InvalidCommand)
     );
 }
 
@@ -1024,7 +1024,7 @@ fn deploy_command_uses_authored_metadata_and_pack_unpack_timing() {
             executor
                 .execute_command(deploy_command(1, vec![deployable]))
                 .expect("deploy command result"),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let first = logic.host_object(deployable).expect("deploying unit");
@@ -1062,7 +1062,7 @@ fn deploy_command_uses_authored_metadata_and_pack_unpack_timing() {
             executor
                 .execute_command(deploy_command(2, vec![deployable]))
                 .expect("undeploy command result"),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     assert!(!logic.host_object(deployable).unwrap().is_deployed());
@@ -1091,7 +1091,7 @@ fn deploy_command_uses_authored_metadata_and_pack_unpack_timing() {
         executor
             .execute_command(deploy_command(3, vec![no_behavior]))
             .expect("ordinary deploy command result"),
-        CommandResult::InvalidCommand
+        Ok(CommandResult::InvalidCommand)
     );
     drop(executor);
     assert!(
@@ -1132,7 +1132,7 @@ fn stop_delays_mood_for_unstealthed_stealth_unit() {
         );
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert_eq!(exec.execute_stop(&[a]), CommandResult::Success);
+    assert_eq!(exec.execute_stop(&[a]), Ok(CommandResult::Success));
     let u = logic.host_object(a).unwrap();
     assert_eq!(u.ai_state(), AIState::Idle);
     // now=100 + delay 45 + skew 0
@@ -1169,7 +1169,7 @@ fn add_waypoint_uses_group_destinations() {
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(
         exec.execute_add_waypoint(&[a, b], click),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     // Paths should not be identical stacked goals for multi-select.
     let pa = logic.host_object(a).unwrap().movement.path.clone();
@@ -1214,7 +1214,7 @@ fn add_waypoint_skips_immobile_and_still_succeeds() {
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(
         exec.execute_add_waypoint(&[a, b], click),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     assert!(
         !logic.host_object(a).unwrap().movement.path.is_empty(),
@@ -1245,7 +1245,7 @@ fn add_waypoint_clamps_to_map_extent() {
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(
         exec.execute_add_waypoint(&[a], Vec3::new(400.0, 0.0, 0.0)),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     let goal = *logic
         .host_object(a)
@@ -1287,7 +1287,7 @@ fn add_waypoint_plays_voice_move_when_idle() {
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(
         exec.execute_add_waypoint(&[a], Vec3::new(40.0, 0.0, 0.0)),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     assert!(
         logic
@@ -1305,7 +1305,7 @@ fn add_waypoint_plays_voice_move_when_idle() {
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(
         exec.execute_add_waypoint(&[a], Vec3::new(80.0, 0.0, 0.0)),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     assert!(
         logic
@@ -1353,7 +1353,7 @@ fn add_waypoint_breaks_off_attack() {
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(
         exec.execute_add_waypoint(&[a], Vec3::new(90.0, 0.0, 0.0)),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     let u = logic.host_object(a).unwrap();
     assert!(
@@ -1395,7 +1395,7 @@ fn move_delays_mood_for_unstealthed_stealth_unit() {
     let mut exec = CommandExecutor::new(&mut logic, 0);
     assert_eq!(
         exec.execute_move(&[a], Vec3::new(50.0, 0.0, 0.0)),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     let u = logic.host_object(a).unwrap();
     assert_eq!(u.next_mood_check_time, 80); // 50+30+0
@@ -1544,7 +1544,7 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
         let mut executor = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             executor.execute_return_to_base(&[producer_jet]),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     // C++ JetOrHeliReturnForLandingState (JetAIUpdate.cpp:1509-1545) only
@@ -1591,7 +1591,7 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
         let mut executor = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             executor.execute_return_to_base(&[rejected_jet]),
-            CommandResult::InvalidCommand
+            Ok(CommandResult::InvalidCommand)
         );
     }
     let rejected = logic
@@ -1613,7 +1613,7 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
         let mut executor = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             executor.execute_return_to_base(&[allied_fallback_jet]),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     // Same C++ landing semantics as leg 1: consume the assigned approach
@@ -1645,7 +1645,7 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
         let mut executor = CommandExecutor::new(&mut logic, 0);
         assert_eq!(
             executor.execute_return_to_base(&[allied_fallback_jet]),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let allied_again = logic
@@ -1762,7 +1762,7 @@ End
         let mut executor = CommandExecutor::new(&mut logic, 0);
         executor.execute_railed_transport(&[carrier])
     };
-    assert_eq!(result, CommandResult::InvalidCommand);
+    assert_eq!(result, Ok(CommandResult::InvalidCommand));
 
     // No StartNN/EndNN pairs in leftover terrain or the host overlay:
     // ExecuteRailedTransport must not masquerade as Evacuate or a generic Move.
@@ -1822,7 +1822,7 @@ fn attack_team_reacquires_after_victim_dies() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_attack_team(&[u], 0, 7), CommandResult::Success);
+        assert_eq!(exec.execute_attack_team(&[u], 0, 7), Ok(CommandResult::Success));
     }
     assert_eq!(logic.host_object(u).unwrap().target, Some(near));
     assert_eq!(logic.host_object(u).unwrap().max_shots_to_fire, 7);
@@ -1876,7 +1876,7 @@ fn attack_team_sleep_ai_picks_no_victim() {
         let mut exec = CommandExecutor::new(&mut logic, 1);
         assert_eq!(
             exec.execute_attack_team(&[u], 0, -1),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     assert_eq!(
@@ -1931,7 +1931,7 @@ fn attack_team_passive_ai_uses_last_attacker() {
         let mut exec = CommandExecutor::new(&mut logic, 1);
         assert_eq!(
             exec.execute_attack_team(&[u], 0, -1),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     assert_eq!(logic.host_object(u).unwrap().target, Some(far));

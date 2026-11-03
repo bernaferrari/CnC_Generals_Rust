@@ -970,20 +970,20 @@ End
             executor
                 .execute_command(command(name_only_id, 1))
                 .expect("name-only command result"),
-            CommandResult::InvalidCommand,
+            Ok(CommandResult::InvalidCommand),
             "a name/KindOf-shaped reactor must not gain Overcharge authority"
         );
         assert_eq!(
             executor
                 .execute_command(command(zero_bonus_id, 2))
                 .expect("zero-bonus command result"),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
         assert_eq!(
             executor
                 .execute_command(command(plant_id, 3))
                 .expect("retail command result"),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
 
@@ -1046,7 +1046,7 @@ End
             executor
                 .execute_command(command(plant_id, 4))
                 .expect("disable command result"),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     let disabled = logic.host_object(plant_id).expect("disabled plant");
@@ -1064,7 +1064,7 @@ End
             executor
                 .execute_command(command(plant_id, 5))
                 .expect("re-enable before lethal drain"),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
     }
     // The authored Armor path also applies to DAMAGE_PENALTY.  Reuse the
@@ -2050,7 +2050,7 @@ fn sell_ejects_garrison_and_kills_parked_aircraft() {
     assert!(logic.sell_passengers_ejected > 0);
     let r = logic.host_object(rid).expect("ranger ejected");
     assert!(r.contained_by.is_none());
-    assert_eq!(r.ai_state, AIState::Idle);
+    assert_eq!(r.ai_state(), AIState::Idle);
 
     // Airfield parked jet kill residual.
     let afid = logic

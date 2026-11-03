@@ -53,7 +53,7 @@ fn place(world: &mut GameLogic, position: glam::Vec3) -> ObjectId {
         CommandExecutor::new(world, 1)
             .execute_command(command)
             .unwrap(),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     *world.host_objects().registered_keys().next().unwrap()
 }
@@ -71,7 +71,7 @@ fn remove(world: &mut GameLogic, id: ObjectId) {
         CommandExecutor::new(world, 1)
             .execute_command(command)
             .unwrap(),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
 }
 

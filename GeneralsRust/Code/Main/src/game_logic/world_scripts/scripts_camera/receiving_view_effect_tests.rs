@@ -197,7 +197,7 @@ fn actual_radar_command_borrows_receiving_slave_view_without_peer_delivery() {
     )
     .execute_command(command)
     .unwrap();
-    assert_eq!(result, crate::command_system::CommandResult::Success);
+    assert_eq!(result, Ok(crate::command_system::CommandResult::Success));
     assert!(
         !receiving.calls.is_empty(),
         "actual radar LookAt must sample its native receiver synchronously"

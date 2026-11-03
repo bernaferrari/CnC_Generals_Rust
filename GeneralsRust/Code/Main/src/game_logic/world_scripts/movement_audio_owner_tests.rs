@@ -62,7 +62,7 @@ fn explicit_stop_is_immediate_and_same_id_peer_cannot_drain_it() {
             let pose = Vec3::new(14., 2., -33.);
             running(&mut a, aid, pose);
             running(&mut b, bid, Vec3::new(-9., 0., 77.));
-            assert!(a.unit_command_stop(aid));
+            assert_eq!(a.unit_command_stop(aid), Ok(true));
             assert_eq!(a.queued_audio_events.len(), 1);
             stop(&a.queued_audio_events[0], aid, "OwnerALoop", pose);
             b.retry_dropped_ambient_sounds();
@@ -126,7 +126,7 @@ fn ordinary_stop_then_waited_overlay_failure_keeps_exact_emission_order() {
                 );
                 object.waiting_for_path = true;
             }
-            assert!(owner.unit_command_stop(ordinary));
+            assert_eq!(owner.unit_command_stop(ordinary), Ok(true));
             owner.on_waited_path_failed(overlay);
             assert_eq!(owner.queued_audio_events.len(), 2);
             stop(
@@ -195,7 +195,7 @@ fn nested_stop_and_overlay_exit_take_the_loop_handle_exactly_once() {
                     saved_path_goal: object.path_goal_position,
                 },
             );
-            assert!(owner.unit_command_stop(id));
+            assert_eq!(owner.unit_command_stop(id), Ok(true));
             // stop -> stop_moving -> overlay exit all share one receiving loan.
             let (object, output) = owner.host_object_and_audio_events_mut(id).unwrap();
             let mut audio = ObjectAudio::queue(output);

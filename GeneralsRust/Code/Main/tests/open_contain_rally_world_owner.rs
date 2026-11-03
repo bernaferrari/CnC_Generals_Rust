@@ -86,7 +86,7 @@ fn set_rally(world: &mut GameLogic, container: ObjectId, point: Vec3) {
         CommandExecutor::new(world, 1)
             .execute_command(command)
             .expect("SetRallyPoint command"),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
 }
 

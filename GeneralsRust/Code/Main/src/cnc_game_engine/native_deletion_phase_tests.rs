@@ -116,7 +116,7 @@ fn deletion_phase_scene(recrew: bool) {
             );
             assert!(world.objects[&unrelated].status.destroyed);
             if recrew {
-                assert!(world.try_physics_collide_with_effects(
+                assert_eq!(world.try_physics_collide_with_effects(
                     infantry,
                     vehicle,
                     1.,
@@ -124,7 +124,7 @@ fn deletion_phase_scene(recrew: bool) {
                         view: Some(&mut *runtime),
                         ..Default::default()
                     }
-                ));
+                ), Ok(true));
                 assert_eq!(world.unmanned_reclaim_count_for_test(), 1);
                 assert!(!world.objects[&vehicle].status.disabled_unmanned);
                 assert!(world.objects[&vehicle].is_private_captured());

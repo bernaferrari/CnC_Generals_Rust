@@ -357,13 +357,13 @@ fn guard_retaliate_ends_when_victim_dead() {
     // Victim dead near anchor → end_guard_retaliate → GuardingArea (anchor preserved)
     assert!(
         matches!(
-            o.ai_state,
+            o.ai_state(),
             AIState::GuardingArea | AIState::Idle | AIState::Moving
         ),
         "got {:?}",
         o.ai_state()
     );
-    assert!(o.guard_retaliate_victim().is_none() || matches!(o.ai_state, AIState::Moving));
+    assert!(o.guard_retaliate_victim().is_none() || matches!(o.ai_state(), AIState::Moving));
 }
 
 #[test]
@@ -712,7 +712,7 @@ fn guard_retaliate_chase_gives_up_on_timer() {
     );
     assert!(
         matches!(
-            o.ai_state,
+            o.ai_state(),
             AIState::GuardingArea | AIState::Idle | AIState::Moving
         ),
         "got {:?}",
@@ -1509,7 +1509,7 @@ fn guard_walks_back_to_post_after_chase() {
         "must walk back to the post, got {dest:?}"
     );
     assert!(
-        matches!(g.ai_state, AIState::GuardingArea),
+        matches!(g.ai_state(), AIState::GuardingArea),
         "return must restore GuardingArea, got {:?}",
         g.ai_state()
     );

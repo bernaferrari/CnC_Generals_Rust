@@ -126,7 +126,7 @@ fn test_command_execution() {
     };
 
     let result = system.execute_command(&command, &mut game_logic);
-    assert_eq!(result, CommandResult::Success);
+    assert_eq!(result, Ok(CommandResult::Success));
 }
 
 #[test]
@@ -491,7 +491,7 @@ fn queue_upgrade_deducts_once_per_team_and_prevents_duplicate_queue() {
     };
 
     let first_result = system.execute_command(&queue_command, &mut game_logic);
-    assert_eq!(first_result, CommandResult::Success);
+    assert_eq!(first_result, Ok(CommandResult::Success));
 
     let player_after_first = game_logic.get_player(0).expect("player should exist");
     assert_eq!(
@@ -506,7 +506,7 @@ fn queue_upgrade_deducts_once_per_team_and_prevents_duplicate_queue() {
     );
 
     let second_result = system.execute_command(&queue_command, &mut game_logic);
-    assert_eq!(second_result, CommandResult::InvalidCommand);
+    assert_eq!(second_result, Ok(CommandResult::InvalidCommand));
 }
 
 #[test]
@@ -538,7 +538,7 @@ fn queue_upgrade_identity_matches_ini_name_variants() {
     };
     assert_eq!(
         system.execute_command(&queue_command, &mut game_logic),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
 
     let variant_command = GameCommand {
@@ -553,7 +553,7 @@ fn queue_upgrade_identity_matches_ini_name_variants() {
     };
     assert_eq!(
         system.execute_command(&variant_command, &mut game_logic),
-        CommandResult::InvalidCommand,
+        Ok(CommandResult::InvalidCommand),
         "same upgrade should not be charged twice when naming style differs"
     );
 
@@ -569,7 +569,7 @@ fn queue_upgrade_identity_matches_ini_name_variants() {
     };
     assert_eq!(
         system.execute_command(&cancel_variant, &mut game_logic),
-        CommandResult::Success,
+        Ok(CommandResult::Success),
         "cancel should find the queued upgrade by normalized INI identity"
     );
 
@@ -604,7 +604,7 @@ fn purchase_science_identity_matches_command_name_variants() {
     };
     assert_eq!(
         system.execute_command(&purchase_command, &mut game_logic),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
 
     let variant_command = GameCommand {
@@ -619,7 +619,7 @@ fn purchase_science_identity_matches_command_name_variants() {
     };
     assert_eq!(
         system.execute_command(&variant_command, &mut game_logic),
-        CommandResult::InvalidCommand,
+        Ok(CommandResult::InvalidCommand),
         "same science should not be charged twice when naming style differs"
     );
 
@@ -689,7 +689,7 @@ fn sell_refunds_queued_production() {
         };
         assert_eq!(
             system.execute_command(&queue_command, &mut game_logic),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
         assert_eq!(
             game_logic.get_player(0).unwrap().effective_supplies(),
@@ -709,7 +709,7 @@ fn sell_refunds_queued_production() {
         };
         assert_eq!(
             system.execute_command(&sell_command, &mut game_logic),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
 
         // C++ BuildAssistant::sellObject cancels production at sell start;
@@ -802,7 +802,7 @@ fn sell_refund_uses_global_sell_percentage() {
         };
         assert_eq!(
             system.execute_command(&sell_command, &mut game_logic),
-            CommandResult::Success
+            Ok(CommandResult::Success)
         );
 
         // Structure refund deposits at sell finish (C++ BuildAssistant::update).
@@ -863,7 +863,7 @@ fn cancel_construction_refunds_full_build_cost() {
 
     assert_eq!(
         system.execute_command(&cancel_command, &mut game_logic),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
     game_logic.update();
 
@@ -918,7 +918,7 @@ fn cancel_construction_rejects_enemy_structure() {
 
     assert_eq!(
         system.execute_command(&cancel_command, &mut game_logic),
-        CommandResult::InvalidTarget
+        Ok(CommandResult::InvalidTarget)
     );
     game_logic.update();
 
@@ -1788,7 +1788,7 @@ fn cancel_upgrade_refunds_only_when_upgrade_is_queued() {
     };
     assert_eq!(
         system.execute_command(&queue_command, &mut game_logic),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
 
     let cancel_command = GameCommand {
@@ -1803,7 +1803,7 @@ fn cancel_upgrade_refunds_only_when_upgrade_is_queued() {
     };
     assert_eq!(
         system.execute_command(&cancel_command, &mut game_logic),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
 
     let player_after_cancel = game_logic.get_player(0).expect("player should exist");
@@ -1820,7 +1820,7 @@ fn cancel_upgrade_refunds_only_when_upgrade_is_queued() {
 
     assert_eq!(
         system.execute_command(&cancel_command, &mut game_logic),
-        CommandResult::InvalidCommand,
+        Ok(CommandResult::InvalidCommand),
         "cancelling a non-queued upgrade should not issue another refund"
     );
 }
@@ -1855,7 +1855,7 @@ fn queue_upgrade_requires_constructed_building_source() {
 
     assert_eq!(
         system.execute_command(&command, &mut game_logic),
-        CommandResult::InvalidCommand
+        Ok(CommandResult::InvalidCommand)
     );
     let player_after = game_logic.get_player(0).expect("player should exist");
     assert_eq!(
@@ -1895,7 +1895,7 @@ fn queue_upgrade_refuses_command_set_without_upgrade_button() {
     };
     assert_eq!(
         system.execute_command(&command, &mut game_logic),
-        CommandResult::InvalidCommand,
+        Ok(CommandResult::InvalidCommand),
         "Barracks CommandSet has no SupplyLines button"
     );
     let player_after = game_logic.get_player(0).expect("player");
@@ -1951,7 +1951,7 @@ fn queued_upgrade_completes_during_simulation_update() {
     };
     assert_eq!(
         system.execute_command(&command, &mut game_logic),
-        CommandResult::Success
+        Ok(CommandResult::Success)
     );
 
     let player_after_queue = game_logic.get_player(0).expect("player should exist");
@@ -1998,7 +1998,7 @@ fn queued_upgrade_completes_during_simulation_update() {
     );
     assert_eq!(
         system.execute_command(&command, &mut game_logic),
-        CommandResult::InvalidCommand,
+        Ok(CommandResult::InvalidCommand),
         "completed upgrades should not be queued or charged again"
     );
 }

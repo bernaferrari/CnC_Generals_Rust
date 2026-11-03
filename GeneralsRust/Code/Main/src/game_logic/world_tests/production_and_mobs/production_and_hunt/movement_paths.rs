@@ -748,7 +748,7 @@ fn full_vehicle_leaves_the_repair_pad_for_its_rally() {
     logic.update_support_states_for_test(&[tank], 1.0 / 30.0);
     let unit = logic.host_object(tank).expect("tank");
     assert!(
-        matches!(unit.ai_state, AIState::Moving | AIState::AttackMoving),
+        matches!(unit.ai_state(), AIState::Moving | AIState::AttackMoving),
         "left for rally in {:?}, path={:?}",
         unit.ai_state(),
         unit.movement.path

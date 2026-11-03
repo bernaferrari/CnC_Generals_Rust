@@ -35,7 +35,7 @@ fn neutron_unman_deselects_and_idles_ai() {
         obj.target_location = Some(Vec3::new(80.0, 0.0, 0.0));
         obj.set_status_moving(true);
         assert!(obj.selected || obj.status.selected);
-        assert!(matches!(obj.ai_state, AIState::Moving));
+        assert!(matches!(obj.ai_state(), AIState::Moving));
     }
     assert!(
         logic
@@ -64,7 +64,7 @@ fn neutron_unman_deselects_and_idles_ai() {
         "C++ deselectObject must clear status.selected"
     );
     assert!(
-        matches!(obj.ai_state, AIState::Idle),
+        matches!(obj.ai_state(), AIState::Idle),
         "C++ aiIdle(CMD_FROM_AI) must idle the husk"
     );
     assert!(
@@ -874,7 +874,7 @@ fn enemy_may_enter_stealth_garrison_only_civilian_and_kick() {
     );
     assert!(ninja.contained_by.is_none());
     assert!(
-        matches!(ninja.ai_state, AIState::Moving),
+        matches!(ninja.ai_state(), AIState::Moving),
         "kicked occupant must walk out, not idle"
     );
     assert!(
@@ -913,7 +913,7 @@ fn evac_burst_walks_out_instead_of_idling_at_origin() {
     }
     assert!(logic.evacuate_container_now(bunker, false));
     let r = logic.host_object(ranger_id).unwrap();
-    assert!(matches!(r.ai_state, AIState::Moving));
+    assert!(matches!(r.ai_state(), AIState::Moving));
     assert!(r.status.moving);
     let dest = r.movement.target_position.unwrap_or(r.get_position());
     assert!(
@@ -992,7 +992,7 @@ fn really_damaged_ejects_garrison_with_burst_walk() {
     let r = logic.host_object(ranger_id).unwrap();
     assert!(r.contained_by.is_none());
     assert!(
-        matches!(r.ai_state, AIState::Moving),
+        matches!(r.ai_state(), AIState::Moving),
         "ReallyDamaged eject must walk out, not Idle on an 8-unit ring"
     );
     assert!(r.status.moving);
@@ -1284,7 +1284,7 @@ fn heal_contain_auto_exit_walks_exit_path() {
     let r = logic.host_object(ranger_id).unwrap();
     assert!(r.contained_by.is_none());
     assert!(
-        matches!(r.ai_state, AIState::Moving),
+        matches!(r.ai_state(), AIState::Moving),
         "HealContain auto-exit must follow ExitStart/End, not Idle on an 8-unit circle"
     );
     assert!(r.status.moving);
@@ -1805,7 +1805,7 @@ fn defector_idles_and_kicks_cargo() {
     assert!(logic.activate_defector(caster, victim));
     let v = logic.host_object(victim).unwrap();
     assert_eq!(v.team, Team::USA);
-    assert!(matches!(v.ai_state, AIState::Idle));
+    assert!(matches!(v.ai_state(), AIState::Idle));
     assert!(!v.status.attacking);
     assert!(v.target.is_none());
     assert!(v.is_undetected_defector());

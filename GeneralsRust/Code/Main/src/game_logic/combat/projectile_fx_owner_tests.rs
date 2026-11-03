@@ -41,10 +41,10 @@ fn install_shake() {
     definition.add_nugget(FXNugget::ViewShake {
         shake_type: CameraShakeType::Normal,
     });
-    game_client::fx_list::get_fx_list_store_mut().add_fx_list(
+    game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(
         definition.name.to_string(),
         game_client::fx_list::FXList::from_definition(&definition),
-    );
+    ); })
 }
 fn reveal_object(world: &GameLogic, id: ObjectId) {
     world
