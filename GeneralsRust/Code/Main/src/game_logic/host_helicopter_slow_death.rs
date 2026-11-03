@@ -121,6 +121,9 @@ pub struct HostHelicopterSlowDeathFx {
     /// C++ `m_delayFromGroundToFinalDeath` (DurationReal frames).
     pub delay_from_ground_frames: f32,
     pub final_rubble_object: Option<String>,
+    /// C++ `m_attachParticleSystem` (`AttachParticle`, default NULL).
+    #[serde(default)]
+    pub attach_particle: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -218,7 +221,9 @@ impl Default for HostHelicopterSlowDeathData {
 
 impl HostHelicopterSlowDeathData {
     pub fn with_fx(fx: HostHelicopterSlowDeathFx) -> Self {
+        // C++ :215 creates nothing when AttachParticle is not authored.
         Self {
+            attach_particle: fx.attach_particle.clone().unwrap_or_default(),
             fx,
             ..Default::default()
         }
@@ -243,9 +248,6 @@ impl HostHelicopterSlowDeathData {
         self.orientation_delta = 0.0;
         self.blade_flew_off = false;
         // C++ HelicopterSlowDeathUpdate.cpp:215-250 create + attachToObject.
-        if self.attach_particle.is_empty() {
-            self.attach_particle = HELI_ATTACH_PARTICLE.to_string();
-        }
         self.pending_attach = !self.attach_particle.is_empty();
         // C++ :175-181 SoundDeathLoop.
         self.pending_audio = self.fx.death_loop_sound.clone();
@@ -464,6 +466,7 @@ pub fn heli_slow_death_fx_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostHel
             .and_then(parse_duration_frames)
             .unwrap_or(HELI_DELAY_FROM_GROUND_TO_FINAL_DEATH_FRAMES as f32),
         final_rubble_object: get("FinalRubbleObject").and_then(opt_name),
+        attach_particle: get("AttachParticle").and_then(opt_name),
     }
 }
 
@@ -499,6 +502,7 @@ fn default_comanche_fx() -> HostHelicopterSlowDeathFx {
         death_loop_sound: Some(HELI_SOUND_DEATH_LOOP.into()),
         delay_from_ground_frames: HELI_DELAY_FROM_GROUND_TO_FINAL_DEATH_FRAMES as f32,
         final_rubble_object: Some(HELI_FINAL_RUBBLE_OBJECT.into()),
+        attach_particle: Some(HELI_ATTACH_PARTICLE.into()),
     }
 }
 
@@ -518,6 +522,7 @@ pub fn heli_slow_death_fx_for_template(name: &str) -> HostHelicopterSlowDeathFx 
             death_loop_sound: Some(HELIX_SOUND_DEATH_LOOP.into()),
             delay_from_ground_frames: heli_ms_to_duration_frames(HELI_SHORT_GROUND_DELAY_MS),
             final_rubble_object: Some(HELIX_FINAL_RUBBLE_OBJECT.into()),
+            attach_particle: Some(HELI_ATTACH_PARTICLE.into()),
         };
     }
     if n.contains("chinook") {
@@ -604,6 +609,24 @@ mod tests {
             assert!(h.self_spin >= HELI_MIN_SELF_SPIN - 1e-4);
             assert!(h.self_spin <= HELI_MAX_SELF_SPIN + 1e-4);
         }
+    }
+
+    #[test]
+    fn authored_attach_particle_drives_begin_and_absent_creates_none() {
+        // C++ HelicopterSlowDeathUpdate.cpp:98 parses AttachParticle; :215
+        // creates a system only when authored (default NULL).
+        let fx = heli_slow_death_fx_from_behavior_attrs(&[("AttachParticle", "AuthoredHeliSmoke")]);
+        let mut h = HostHelicopterSlowDeathData::with_fx(fx);
+        h.begin_at_frame(0);
+        assert_eq!(
+            h.take_pending_attach_particle().as_deref(),
+            Some("AuthoredHeliSmoke")
+        );
+
+        let fx = heli_slow_death_fx_from_behavior_attrs(&[("FXHitGround", "FX_X")]);
+        let mut h = HostHelicopterSlowDeathData::with_fx(fx);
+        h.begin_at_frame(0);
+        assert_eq!(h.take_pending_attach_particle(), None);
     }
 
     #[test]
