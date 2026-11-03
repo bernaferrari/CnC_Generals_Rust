@@ -156,19 +156,54 @@ impl VideoPlayer {
     }
 
     fn load_known_video_registry_files(&mut self) {
+        // C++ FileSystem opens Data/INI/Video.ini from INIZH.big. Some worktree
+        // loose/extract trees contain binary/misnamed "Video.ini" placeholders
+        // (BIG directory fragments) that must not shadow the archive.
+        let mut loaded_any = false;
         for path in resolved_video_ini_paths() {
-            self.load_video_registry_file(&path);
+            if self.load_video_registry_file(&path) {
+                loaded_any = true;
+            }
+        }
+        if loaded_any {
+            return;
+        }
+        for relative in ["Data/INI/Default/Video.ini", "Data/INI/Video.ini"] {
+            let Some(bytes) = crate::terrain::tree_buffer::read_game_fs_bytes(relative) else {
+                continue;
+            };
+            if !looks_like_video_ini_bytes(&bytes) {
+                continue;
+            }
+            let Ok(contents) = std::str::from_utf8(&bytes) else {
+                continue;
+            };
+            for video in parse_video_ini_contents(contents) {
+                self.add_video(video);
+            }
         }
     }
 
-    fn load_video_registry_file(&mut self, path: &Path) {
-        let Ok(contents) = fs::read_to_string(path) else {
-            return;
+    fn load_video_registry_file(&mut self, path: &Path) -> bool {
+        let Ok(bytes) = fs::read(path) else {
+            return false;
+        };
+        if !looks_like_video_ini_bytes(&bytes) {
+            warn!(
+                "Ignoring non-video loose INI '{}' (corrupt extract or wrong file)",
+                path.display()
+            );
+            return false;
+        }
+        let Ok(contents) = std::str::from_utf8(&bytes) else {
+            return false;
         };
 
-        for video in parse_video_ini_contents(&contents) {
+        let before = self.videos_available_for_play.len();
+        for video in parse_video_ini_contents(contents) {
             self.add_video(video);
         }
+        self.videos_available_for_play.len() > before
     }
 
     pub fn resolve_movie_path(&self, movie_title: &str) -> Option<PathBuf> {
@@ -718,14 +753,30 @@ impl VideoStreamInterface for ManagedVideoStreamHandle {
 }
 
 fn resolved_video_ini_paths() -> Vec<PathBuf> {
+    // C++ FileSystem opens Data/INI/Video.ini via mounted BIG archives (INIZH.big)
+    // and loose/extracted overlays. Keep the retail relative names first, then the
+    // worktree extract layouts (v2 nests under INIZH/Data/...).
     let mut paths = vec![
         PathBuf::from("Data/INI/Default/Video.ini"),
         PathBuf::from("Data/INI/Video.ini"),
         PathBuf::from("windows_game/extracted_big_files/INIZH/Data/INI/Default/Video.ini"),
         PathBuf::from("windows_game/extracted_big_files/INIZH/Data/INI/Video.ini"),
+        PathBuf::from("windows_game/extracted_big_files_v2/INIZH/Data/INI/Default/Video.ini"),
+        PathBuf::from("windows_game/extracted_big_files_v2/INIZH/Data/INI/Video.ini"),
         PathBuf::from("windows_game/extracted_big_files_v2/INI/Default/Video.ini"),
         PathBuf::from("windows_game/extracted_big_files_v2/INI/Video.ini"),
     ];
+
+    if let Ok(assets) = std::env::var("GENERALS_ASSETS_DIR") {
+        let assets = PathBuf::from(assets);
+        // Sibling extract next to the retail install root.
+        if let Some(parent) = assets.parent() {
+            paths.push(parent.join("extracted_big_files_v2/INIZH/Data/INI/Default/Video.ini"));
+            paths.push(parent.join("extracted_big_files_v2/INIZH/Data/INI/Video.ini"));
+            paths.push(parent.join("extracted_big_files/INIZH/Data/INI/Default/Video.ini"));
+            paths.push(parent.join("extracted_big_files/INIZH/Data/INI/Video.ini"));
+        }
+    }
 
     if let Some(global_data) = get_global_data() {
         let guard = global_data.read();
@@ -766,6 +817,9 @@ fn resolve_movie_asset_path(movie_filename: &str) -> Option<PathBuf> {
     candidate_roots.push(PathBuf::from(
         "windows_game/Command & Conquer Generals Zero Hour",
     ));
+    if let Ok(assets) = std::env::var("GENERALS_ASSETS_DIR") {
+        candidate_roots.push(PathBuf::from(assets));
+    }
 
     for root in candidate_roots {
         let localized_dir = if language.is_empty() {
@@ -832,6 +886,17 @@ fn find_movie_file_in_dir(dir: &Path, movie_filename: &str) -> Option<PathBuf> {
     }
 
     None
+}
+
+fn looks_like_video_ini_bytes(bytes: &[u8]) -> bool {
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return false;
+    };
+    text.lines().any(|line| {
+        let trimmed = line.split(';').next().unwrap_or("").trim();
+        trimmed.len() >= 6
+            && trimmed[..6].eq_ignore_ascii_case("video ")
+    })
 }
 
 fn parse_video_ini_contents(contents: &str) -> Vec<Video> {
