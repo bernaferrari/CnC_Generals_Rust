@@ -99,7 +99,12 @@ fn click(
             campaign_manager: None,
             window_manager_owner: None,
 
-        main_menu: None,
+                    client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
+            main_menu: None,
     };
     for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
         assert_eq!(
@@ -191,6 +196,11 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
             campaign_manager: None,
             window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         for state in [0x02, 0x01] {
@@ -225,6 +235,11 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
             campaign_manager: None,
             window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         for state in [0x02, 0x01] {
@@ -258,6 +273,11 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
             campaign_manager: None,
             window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         for state in [0x02, 0x01] {
@@ -456,17 +476,29 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
             campaign_manager: None,
             window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         // Actual gadget consumes down/up and selected native notification.
         for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
-            let _ = manager.send_input_selected(&button, message, 0, 0, false, Some(&mut context));
+            let _ = manager.send_input_selected(&button, message, 0, 0, false, &mut context);
         }
     }
     assert_eq!(bar.observer_target_owned(&roster), Some(7));
     assert_eq!(other.observer_target_owned(&peer), Some(7));
-    bar.update_owned_with_observers(std::time::Duration::from_millis(33), &roster)
+    crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+        bar.update_owned_with_observers(
+            std::time::Duration::from_millis(33),
+            &roster,
+            &mut manager,
+            effects,
+        )
         .unwrap();
+    });
     assert_eq!(
         bar.observer_target_owned(&roster),
         Some(7),
@@ -518,10 +550,15 @@ fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
             campaign_manager: None,
             window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
-            let _ = manager.send_input_selected(&cancel, message, 0, 0, false, Some(&mut context));
+            let _ = manager.send_input_selected(&cancel, message, 0, 0, false, &mut context);
         }
     }
     assert_eq!(

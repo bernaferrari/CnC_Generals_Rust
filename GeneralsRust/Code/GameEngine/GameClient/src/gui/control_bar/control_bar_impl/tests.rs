@@ -1,3 +1,4 @@
+use std::sync::RwLock;
 // Split from `gui/control_bar/control_bar.rs` dump. Included by `control_bar_impl/mod.rs`.
 
 #[cfg(test)]
@@ -191,12 +192,14 @@ mod tests {
             window.borrow_mut().hide_without_manager_side_effects(true).unwrap();
         }
 
+        let mut wm = crate::gui::window_manager::WindowManager::new();
         ControlBar::apply_beacon_window_state(
             &text_entry,
             &static_text,
             &clear_button,
             true,
             "Beacon Alpha",
+            &mut wm,
         );
 
         let edit = text_entry.unwrap();
@@ -212,12 +215,14 @@ mod tests {
         let static_text = Some(named_window("ControlBar.wnd:StaticTextBeaconLabel"));
         let clear_button = Some(named_window("ControlBar.wnd:ButtonClearBeaconText"));
 
+        let mut wm = crate::gui::window_manager::WindowManager::new();
         ControlBar::apply_beacon_window_state(
             &text_entry,
             &static_text,
             &clear_button,
             false,
             "Enemy Beacon",
+            &mut wm,
         );
 
         assert!(text_entry.unwrap().borrow().is_hidden());
@@ -313,9 +318,12 @@ mod tests {
     fn update_for_selection_runs_real_update_and_clears_dirty() {
         crate::helpers::register_legacy_core_control_bar_ui_ingress();
         let mut control_bar = ControlBar::new();
-        control_bar
-            .update_for_selection(Vec::new())
-            .expect("update_for_selection");
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            control_bar
+                .update_for_selection(Vec::new(), &mut wm, effects)
+                .expect("update_for_selection");
+        });
         assert!(
             !control_bar.is_ui_dirty(),
             "live update_for_selection must call update() and clear ui_dirty"
@@ -328,9 +336,12 @@ mod tests {
         gamelogic::control_bar::mark_ui_dirty();
         let mut control_bar = ControlBar::new();
         assert!(!control_bar.is_ui_dirty());
-        control_bar
-            .update(std::time::Duration::from_millis(33))
-            .expect("update");
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            control_bar
+                .update(std::time::Duration::from_millis(33), &mut wm, effects)
+                .expect("update");
+        });
         // Dirty is applied then evaluate_context_ui clears it.
         assert!(!control_bar.is_ui_dirty());
     }
@@ -422,7 +433,6 @@ mod tests {
                 fn drop(&mut self) {
                     *gamelogic::player::player_list().write().unwrap() =
                         std::mem::replace(&mut self.0, gamelogic::player::PlayerList::new());
-                    owner.with_manager(|manager| manager.test_destroy_all_windows());
                 }
             }
             let old = {
@@ -633,7 +643,7 @@ mod tests {
             );
             assert_eq!(read_hidden("ControlBar.wnd:CommandWindow"), Some(false));
             // CB_CONTEXT_NONE parity: no selection means no command grid.
-            apply_none_context_hide();
+            owner.with_manager(|wm| apply_none_context_hide(wm));
             assert_eq!(read_hidden("ControlBar.wnd:CommandWindow"), Some(true));
             assert_eq!(
                 read_hidden("ControlBar.wnd:ProductionQueueWindow"),
@@ -669,7 +679,7 @@ mod tests {
                 available_commands: vec![command],
                 ..ControlBarContext::default()
             };
-            ControlBar::new().bind_command_windows(&context);
+            owner.with_manager(|wm| ControlBar::new().bind_command_windows(&context, wm));
             let states = owner.with_manager_ref(|manager| {
                 (1..=3)
                     .map(|i| {
@@ -700,7 +710,7 @@ mod tests {
                     .expect("RightHUD");
                 win.borrow_mut().set_name("ControlBar.wnd:RightHUD");
             });
-            apply_scheme_right_hud_image(IMAGE);
+            owner.with_manager(|wm| apply_scheme_right_hud_image(IMAGE, wm));
             let (has_image_status, bound_image) = owner.with_manager_ref(|manager| {
                 manager
                     .find_window_by_name("ControlBar.wnd:RightHUD")
@@ -751,7 +761,11 @@ mod tests {
                     .set_name("ControlBar.wnd:GenPowersShortcutBarParent");
                 let _ = win.borrow_mut().hide_without_manager_side_effects(true);
             });
-            ControlBar::new().show_special_power_shortcut();
+            owner.with_manager(|wm| {
+                crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+                    ControlBar::new().show_special_power_shortcut(wm, effects);
+                });
+            });
             let hidden = owner.with_manager_ref(|manager| {
                 manager
                     .find_window_by_name("ControlBar.wnd:GenPowersShortcutBarParent")

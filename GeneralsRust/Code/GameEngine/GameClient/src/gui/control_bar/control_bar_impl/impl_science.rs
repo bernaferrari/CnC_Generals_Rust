@@ -2905,9 +2905,12 @@ mod science_vec_gate_tests {
     fn leftover_ensure_named_window_places_authored_windows_visible() {
         // Table hit: authored geometry + SHOWN (audit-1 quick win 3) instead
         // of the blind (0,0,200,200) hidden stub.
+        let mut wm = crate::gui::window_manager::WindowManager::new();
         let name = "ControlBar.wnd:UnitUpgrade3";
-        leftover_ensure_named_window(name);
-        let win = leftover_find_window(name).expect("UnitUpgrade3 authored fallback");
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            leftover_ensure_named_window(name, &mut wm, effects);
+        });
+        let win = leftover_find_window(name, &mut wm).expect("UnitUpgrade3 authored fallback");
         let (shown, pos, size) = {
             let w = win.borrow();
             (!w.is_hidden(), w.get_position(), w.get_size())
@@ -2920,8 +2923,10 @@ mod science_vec_gate_tests {
         );
 
         // Table miss keeps the fail-closed hidden stub.
-        leftover_ensure_named_window("ControlBar.wnd:LeftoverStubProbe");
-        let stub = leftover_find_window("ControlBar.wnd:LeftoverStubProbe").expect("stub fallback");
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            leftover_ensure_named_window("ControlBar.wnd:LeftoverStubProbe", &mut wm, effects);
+        });
+        let stub = leftover_find_window("ControlBar.wnd:LeftoverStubProbe", &mut wm).expect("stub fallback");
         let stub = stub.borrow();
         assert!(stub.is_hidden(), "non-table names keep the hidden stub");
         assert_eq!(stub.get_size(), (200, 200));
@@ -2933,19 +2938,28 @@ mod receiving_script_ending_tests {
     use super::*;
     #[test]
     fn receiving_science_toggle_preserves_hide_and_rejects_only_ending_show() {
+        let mut wm = crate::gui::window_manager::WindowManager::new();
         let mut owner = ControlBar::new();
         let mut peer = ControlBar::new();
-        owner.toggle_purchase_science_receiving(true);
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.toggle_purchase_science_receiving(true, &mut wm, effects);
+        });
         assert!(!owner.get_science_state().is_visible);
-        peer.toggle_purchase_science_receiving(false);
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            peer.toggle_purchase_science_receiving(false, &mut wm, effects);
+        });
         assert!(peer.get_science_state().is_visible);
         // Source toggle still hides a visible screen during end-game: only
         // showPurchaseScience has the isGameEnding guard.
-        peer.toggle_purchase_science_receiving(true);
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            peer.toggle_purchase_science_receiving(true, &mut wm, effects);
+        });
         assert!(!peer.get_science_state().is_visible);
-        owner.toggle_purchase_science_receiving(false);
+        crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+            owner.toggle_purchase_science_receiving(false, &mut wm, effects);
+        });
         assert!(owner.get_science_state().is_visible);
         assert!(!peer.get_science_state().is_visible);
-        owner.hide_purchase_science();
+        owner.hide_purchase_science(&mut wm);
     }
 }

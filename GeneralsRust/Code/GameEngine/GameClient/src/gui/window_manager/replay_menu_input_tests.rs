@@ -103,7 +103,12 @@ fn select(
             campaign_manager: None,
             window_manager_owner: None,
 
-        main_menu: None,
+                    client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
+            main_menu: None,
     };
     for msg in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
         assert_eq!(

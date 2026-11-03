@@ -2744,7 +2744,7 @@ mod tests {
             format_mission_save_description("GUI:AutoSave", "China", 1),
             "GUI:AutoSave China 1"
         );
-        let desc = current_mission_save_description();
+        let desc = current_mission_save_description(&crate::gui::campaign_manager::CampaignManager::new());
         assert!(
             !desc.contains("GUI:AutoSave") || desc.contains('1'),
             "between-mission save must not be bare GUI:AutoSave: {desc}"
@@ -2813,6 +2813,9 @@ mod tests {
             main_menu: None,
             menu_world: None,
             menu_host: None,
+            client_frame: None,
+            logic_frame: None,
+            ui: None,
             pending_main_menu_actions: Vec::new(),
         };
         assert_eq!(
@@ -2853,6 +2856,9 @@ mod tests {
             main_menu: None,
             menu_world: None,
             menu_host: None,
+            client_frame: None,
+            logic_frame: None,
+            ui: None,
             pending_main_menu_actions: Vec::new(),
         };
         start_next_campaign_game(&mut effects);
@@ -3314,6 +3320,9 @@ mod os_wnd_tests {
             main_menu: None,
             menu_world: None,
             menu_host: None,
+            client_frame: None,
+            logic_frame: None,
+            ui: None,
             pending_main_menu_actions: Vec::new(),
         };
         assert!(drive_os_wnd_score_screen_continue_like_cpp(&mut effects));
@@ -3345,7 +3354,8 @@ mod owned_academy_snapshot_tests {
 
     #[test]
     fn actual_receiving_layouts_keep_independent_score_advice_and_end_frames() {
-        let make = |frame: u32, key: &str| {
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        let make = |frame: u32, key: &str, wm: &mut crate::gui::window_manager::WindowManager| {
             let parent = Rc::new(RefCell::new(GameWindow::new()));
             parent
                 .borrow_mut()
@@ -3380,11 +3390,11 @@ mod owned_academy_snapshot_tests {
             );
             // Same callback helper used after real ScoreScreen initialization;
             // no PlayerList or Core mode is published by this fixture.
-            populate_owned_academy_widgets(&layout);
+            populate_owned_academy_widgets(&layout, wm);
             (layout, parent, listbox)
         };
-        let (first_layout, first, first_list) = make(18000, "GUI:FirstAdvice");
-        let (second_layout, second, second_list) = make(700, "GUI:SecondAdvice");
+        let (first_layout, first, first_list) = make(18000, "GUI:FirstAdvice", &mut wm);
+        let (second_layout, second, second_list) = make(700, "GUI:SecondAdvice", &mut wm);
         assert_eq!(score_end_frame(&Some(first)), 18000);
         assert_eq!(score_end_frame(&Some(second)), 700);
         assert_eq!(
@@ -3414,7 +3424,7 @@ mod owned_academy_snapshot_tests {
             GameText::fetch("GUI:SecondAdvice")
         );
         // Re-initialization is replacement, not duplicate append.
-        populate_owned_academy_widgets(&first_layout);
+        populate_owned_academy_widgets(&first_layout, &mut wm);
         assert_eq!(
             first_list
                 .borrow_mut()
@@ -3431,7 +3441,7 @@ mod owned_academy_snapshot_tests {
             .clone();
         hidden.show_advice = false;
         bind_score_screen_snapshot(&second_layout, &hidden);
-        populate_owned_academy_widgets(&second_layout);
+        populate_owned_academy_widgets(&second_layout, &mut wm);
         assert!(
             second_list
                 .borrow_mut()

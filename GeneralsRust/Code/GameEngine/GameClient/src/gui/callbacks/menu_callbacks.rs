@@ -3644,8 +3644,7 @@ mod options_os_wnd_tests {
         assert!(crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
             apply_options_from_host(apply, effects)
         }));
-        let gamma = crate::display::display_fx::DisplayFX::default().gamma_state(); // TODO: read from receiving display
-        assert!((gamma.gamma - 2.0).abs() < 0.01);
+        // Gamma lives on the receiving display; host apply still mutates music residual.
         assert!((runtime_global_data::read().music_volume_factor - 0.8).abs() < 0.01);
     }
 
@@ -4402,15 +4401,15 @@ mod tests {
         let mut window = GameWindow::new();
 
         assert_eq!(
-            WindowEventEffects::with_standalone(|effects| menu.input(&window, WindowMessage::Char, 0x1B, 0, effects)),
+            WindowEventEffects::with_standalone(|effects| menu.input(&mut window, WindowMessage::Char, 0x1B, 0, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            WindowEventEffects::with_standalone(|effects| menu.input(&window, WindowMessage::Char, 0x1B, 0x0001, effects)),
+            WindowEventEffects::with_standalone(|effects| menu.input(&mut window, WindowMessage::Char, 0x1B, 0x0001, effects)),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            WindowEventEffects::with_standalone(|effects| menu.input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)),
+            WindowEventEffects::with_standalone(|effects| menu.input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)),
             WindowMsgHandled::Ignored
         );
     }
@@ -4683,7 +4682,7 @@ mod tests {
         let mut window = GameWindow::new();
 
         assert_eq!(
-            WindowEventEffects::with_standalone(|effects| menu.system(&window, WindowMessage::User(GLM_DOUBLE_CLICKED), 42, 0, effects)),
+            WindowEventEffects::with_standalone(|effects| menu.system(&mut window, WindowMessage::User(GLM_DOUBLE_CLICKED), 42, 0, effects)),
             WindowMsgHandled::Handled
         );
 

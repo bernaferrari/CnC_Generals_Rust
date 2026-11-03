@@ -204,6 +204,11 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release() 
             cursor_mouse: None,
             emitted_messages: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         assert_eq!(

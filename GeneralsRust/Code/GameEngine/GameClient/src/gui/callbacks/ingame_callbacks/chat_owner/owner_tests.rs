@@ -15,7 +15,6 @@ fn admit_controls(
                 120,
                 20,
                 NameKeyGenerator::name_to_key(name) as i32,
-                effects,
             )
             .unwrap()
     };

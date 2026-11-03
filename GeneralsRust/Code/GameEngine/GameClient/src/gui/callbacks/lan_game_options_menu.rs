@@ -1358,35 +1358,47 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut window = GameWindow::new();
-        set_lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
+        set_lan_button_pushed(&owner, false);
 
         assert_eq!(
-            WindowEventEffects::with_standalone(|effects| lan_game_options_menu_input(&mut window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0, effects)),
+            WindowEventEffects::with_standalone(|effects| {
+                effects.window_manager_owner = Some(&owner);
+                lan_game_options_menu_input(&mut window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0, effects)
+            }),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            WindowEventEffects::with_standalone(|effects| lan_game_options_menu_input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)),
+            WindowEventEffects::with_standalone(|effects| {
+                effects.window_manager_owner = Some(&owner);
+                lan_game_options_menu_input(&mut window, WindowMessage::Char, b'A' as WindowMsgData, 0, effects)
+            }),
             WindowMsgHandled::Ignored
         );
     }
 
     #[test]
     fn esc_char_is_ignored_after_button_pushed_like_cpp() {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut window = GameWindow::new();
-        set_lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), true);
+        set_lan_button_pushed(&owner, true);
 
         assert_eq!(
-            WindowEventEffects::with_standalone(|effects| lan_game_options_menu_input(
-                &window,
-                WindowMessage::Char,
-                KEY_ESC as WindowMsgData,
-                KEY_STATE_UP,
-            effects)),
+            WindowEventEffects::with_standalone(|effects| {
+                effects.window_manager_owner = Some(&owner);
+                lan_game_options_menu_input(
+                    &mut window,
+                    WindowMessage::Char,
+                    KEY_ESC as WindowMsgData,
+                    KEY_STATE_UP,
+                    effects,
+                )
+            }),
             WindowMsgHandled::Ignored
         );
 
-        set_lan_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
+        set_lan_button_pushed(&owner, false);
     }
 
     #[test]
