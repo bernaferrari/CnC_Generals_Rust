@@ -285,12 +285,10 @@ impl DamageFX {
                 if !nested.is_empty() && !nested.eq_ignore_ascii_case("None") {
                     // C++ FXList.cpp:690-696 — doFxAtBones(primary, 0) then
                     // (primary, 1) walking BoneName, BoneName01…BoneName40.
-                    if !Self::execute_fx_list_at_bones(nested, bone_name.as_str(), victim) {
-                        // No bone runtime / no bones (headless): C++ drawable
-                        // absence also yields nothing; keep the prior center
-                        // dispatch so Sound nuggets still fire.
-                        Self::execute_selected_fx_list(nested, source, victim);
-                    }
+                    // C++ doFxAtBones only runs the nested list per bone point
+                    // found on the drawable; no drawable / no bones runs nothing
+                    // (no body-center substitute).
+                    let _ = Self::execute_fx_list_at_bones(nested, bone_name.as_str(), victim);
                 }
             }
             FXNugget::Tracer { .. }
@@ -1058,6 +1056,47 @@ mod tests {
         assert!(
             take_dispatched_fx_nuggets().is_empty(),
             "C++ FXList.cpp:796 skips every nugget when primary is fogged"
+        );
+    }
+
+    #[test]
+    fn fx_list_at_bone_pos_without_bones_runs_nothing_at_body_center() {
+        // C++ FXList.cpp:681-728: doFxAtBones(primary, 0/1) runs the nested
+        // list once per bone point; with no drawable/bones it runs nothing.
+        use crate::common::ascii_string::AsciiString;
+        use crate::common::ini::ini_fx_list::{
+            DispatchedFxNugget, FXList, clear_fx_list_obj_runtime, get_fx_list_store_mut,
+            take_dispatched_fx_nuggets,
+        };
+        let _scope = CommonServicesScope::new();
+        clear_fx_list_obj_runtime();
+        clear_fx_bone_pos_runtime();
+        let _ = take_dispatched_fx_nuggets();
+
+        let mut nested = FXList::new(AsciiString::from("BoneWalk_Nested"));
+        nested.add_nugget(FXNugget::ViewShake {
+            shake_type: crate::common::ini::ini_fx_list::CameraShakeType::Normal,
+        });
+        get_fx_list_store_mut().add_fx_list(nested);
+        let mut outer = FXList::new(AsciiString::from("BoneWalk_Outer"));
+        outer.add_nugget(FXNugget::FXListAtBonePos {
+            fx_name: AsciiString::from("BoneWalk_Nested"),
+            bone_name: AsciiString::from("Muzzle"),
+            orient_to_bone: false,
+        });
+        get_fx_list_store_mut().add_fx_list(outer);
+
+        let victim = test_object("Victim", 7);
+        DamageFX::execute_selected_fx_list("BoneWalk_Outer", None, Some(&victim));
+        let dispatched = take_dispatched_fx_nuggets();
+        assert!(dispatched.contains(&DispatchedFxNugget::FXListAtBonePos(
+            "BoneWalk_Nested".to_string()
+        )));
+        assert!(
+            !dispatched
+                .iter()
+                .any(|n| matches!(n, DispatchedFxNugget::ViewShake(_))),
+            "no bones must not run the nested list at body center: {dispatched:?}"
         );
     }
 
