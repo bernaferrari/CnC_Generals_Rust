@@ -147,27 +147,31 @@ fn set_test_object_position(
     y: Real,
     z: Real,
 ) {
-    let mut geometry = object.read().unwrap().get_geometry_info().clone();
-    geometry.position = LogicCoord3D::new(x, y, z);
-    object.write().unwrap().set_geometry_info(geometry);
+    // C++ Object::setGeometryInfo keeps pose from the transform; tests must
+    // set world position via Object::set_position (Thing pose), not geometry.
+    object
+        .write()
+        .unwrap()
+        .set_position(&LogicCoord3D::new(x, y, z))
+        .expect("test object position");
 }
 
 fn give_test_damage_weapon(object: &Arc<RwLock<gamelogic::object::Object>>, range: Real) {
+    // Match GameLogic factory attack fixtures: default (unflagged) weapon set,
+    // unlimited clip, then reload so estimate_weapon_damage is non-zero.
+    // clip_size=1 without reload leaves OutOfAmmo → InvalidShot.
     let mut template = WeaponTemplate::new("ContextAttackTestWeapon".to_string());
     template.primary_damage = 10.0;
     template.attack_range = range;
-    template.clip_size = 1;
     template.damage_type = DamageType::Unresistable;
 
     let mut set = WeaponTemplateSet::new();
-    set.conditions.set(LogicWeaponSetType::PlayerUpgrade);
     set.set_weapon_template(WeaponSlotType::Primary, Arc::new(template));
 
     let mut guard = object.write().unwrap();
     guard.weapon_set.add_weapon_template_set(set);
-    guard.set_weapon_set_flag(LogicWeaponSetType::PlayerUpgrade);
-    let object_id = guard.get_id();
     guard.refresh_weapon_set().unwrap();
+    guard.reload_all_ammo(true).unwrap();
 }
 
 #[test]
@@ -285,12 +289,32 @@ fn command_context_attack_accepts_after_moving_like_cpp() {
     crate::test_support::ensure_ambient_host();
     let _guard = test_state_lock();
     let team = setup_local_player_team();
+    // C++ WeaponSet attack legality: NewTarget FROM_PLAYER requires ENEMIES
+    // (or SCRIPT_TARGETABLE non-ally). Same-team fixtures always NotPossible.
+    let enemy_team = Arc::new(RwLock::new(Team::new(AsciiString::from("teamEnemy"), 2)));
+    enemy_team
+        .write()
+        .unwrap()
+        .set_controlling_player_id(Some(1));
+    {
+        let list = player_list();
+        let mut guard = list.write().unwrap();
+        guard.add_player(Arc::new(RwLock::new(Player::new(1))));
+        // C++ default player map is Neutral; NewTarget FROM_PLAYER needs Enemies.
+        if let Some(p0) = guard.get_player(0).cloned() {
+            p0.write()
+                .unwrap()
+                .set_player_relationship_by_index(1, Relationship::Enemies);
+        }
+    }
+    // C++ Object::isAbleToAttack: CanAttack kind (or AI+weapon). Test
+    // objects have no AI, so mark CanAttack like combat infantry templates.
     let attacker = register_test_object(
         78_010,
-        vec![KindOf::Selectable, KindOf::Infantry],
-        team.clone(),
+        vec![KindOf::Selectable, KindOf::Infantry, KindOf::CanAttack],
+        team,
     );
-    let far_target = register_test_object(78_012, vec![KindOf::Selectable], team);
+    let far_target = register_test_object(78_012, vec![KindOf::Selectable], enemy_team);
 
     give_test_damage_weapon(&attacker, 25.0);
     set_test_object_position(&attacker, 0.0, 0.0, 0.0);
@@ -611,8 +635,11 @@ fn test_meta_view_last_radar_event_centers_tactical_view() {
     });
 
     let mut translator = CommandTranslator::new();
-    let disposition = translator
-        .translate_game_message(&GameMessage::new(GameMessageType::MetaViewLastRadarEvent));
+    let disposition = translator.translate_with_window_query(
+        &GameMessage::new(GameMessageType::MetaViewLastRadarEvent),
+        &mut noop_window_query,
+        ui,
+    );
 
     assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
     with_tactical_view_ref(|view| {
@@ -1005,8 +1032,13 @@ fn test_pending_command_click_falls_back_to_invalid_gui_hint_when_unresolved() {
     ui.set_pending_command(CommandType::Enter, CMD_NEED_TARGET_ENEMY_OBJECT, 0);
 
     let mut translator = CommandTranslator::new();
-    let result =
-        with_receiving_ui(|ui| translator.resolve_pending_command_click(0, Some(0), None, &Coord3D::new(0.0, 0.0, 0.0), ui));
+    let result = translator.resolve_pending_command_click(
+        0,
+        Some(0),
+        None,
+        &Coord3D::new(0.0, 0.0, 0.0),
+        ui,
+    );
 
     assert_eq!(result, vec![GameMessageType::InvalidGUICommandHint]);
 
@@ -1096,11 +1128,11 @@ fn test_raw_right_button_up_click_clears_pending_build_placement() {
     ));
 
     assert_eq!(
-        translator.translate_game_message(&down),
+        translator.translate_with_window_query(&down, &mut noop_window_query, ui),
         GameMessageDisposition::KeepMessage
     );
     assert_eq!(
-        translator.translate_game_message(&up),
+        translator.translate_with_window_query(&up, &mut noop_window_query, ui),
         GameMessageDisposition::KeepMessage
     );
     assert_eq!(ui.get_pending_place_source_object_id(), 0);
