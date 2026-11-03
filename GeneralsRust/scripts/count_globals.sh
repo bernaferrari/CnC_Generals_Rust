@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Count process-wide mutable statics per crate area.
-# Counts: `static mut`, `static` with Mutex|RwLock|Atomic*|RefCell|Cell
-# (including those nested under OnceLock/Lazy/LazyLock/OnceCell),
-# opaque *Slot/*Bag wrappers whose same-file struct body holds those types,
+# Counts: `static mut`, `static` whose type has interior mutability
+# (Mutex|RwLock|Atomic*|RefCell|Cell), opaque same-file wrapper structs
+# (any name — Slot/Bag/Runtime/…) whose body holds those or an
+# OnceLock/LazyLock/OnceCell/Lazy, OnceLock/Lazy of non-lookup payloads,
 # and `thread_local!`. Excludes tests/, examples/, benches/, *_tests.rs,
 # tests.rs, and items under #[cfg(test)] modules/attributes.
+# Truly immutable data (consts, numeric lookup tables, Instant/Duration,
+# unit init flags, fn-pointer slots) is allowed and not counted.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 python3 - "$ROOT" "$@" <<'PY'
@@ -22,42 +25,134 @@ pat_static = re.compile(
     r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?static[ \t]+(?:mut[ \t]+)?(\w+)[ \t]*:[ \t]*([^;=]+)"
 )
 pat_tls = re.compile(r"(?m)^[ \t]*thread_local!\s*\{")
-mut_ty = re.compile(r"\b(Mutex|RwLock|Atomic\w+|RefCell|Cell)\b")
-# Opaque wrappers (FooSlot / FooBag) hide interior Mutex/Atomic from the type
-# line; treat them as mutable when the same-file struct body contains mut_ty.
-opaque_name = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*(?:Slot|Bag))\b")
+classic_mut = re.compile(r"\b(Mutex|RwLock|Atomic\w+|RefCell|Cell)\b")
+init_cell = re.compile(
+    r"\b(?:std::sync::|once_cell::(?:sync|unsync)::|parking_lot::)?(?:OnceLock|LazyLock|OnceCell|Lazy)\b"
+)
+type_names = re.compile(r"\b([A-Z][A-Za-z0-9_]*)\b")
+SKIP_TYPE_NAMES = {
+    "OnceLock", "LazyLock", "OnceCell", "Lazy", "Option", "Arc", "Box", "Vec",
+    "Mutex", "RwLock", "RefCell", "Cell", "Result", "HashMap", "HashSet",
+    "BTreeMap", "BTreeSet", "String", "PathBuf", "Duration", "Instant",
+    "Ordering", "PhantomData", "Cow", "Rc", "Weak", "Pin", "ManuallyDrop",
+}
+body_mut = re.compile(
+    r"\b(Mutex|RwLock|Atomic\w+|RefCell|Cell|OnceLock|LazyLock|OnceCell|Lazy)\b"
+)
 
 
-def struct_body_is_mutable(text, type_name):
-    """True if `struct TypeName` / `pub struct TypeName` body mentions mut_ty."""
-    # Strip generics/wrappers: LazyLock<FooSlot> -> FooSlot
-    names = opaque_name.findall(type_name)
-    if not names:
+def struct_body_text(text, type_name):
+    for m in re.finditer(
+        rf"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?struct[ \t]+{re.escape(type_name)}\b[^{{]*\{{",
+        text,
+    ):
+        start = m.end() - 1
+        depth = 0
+        i = start
+        while i < len(text):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : i + 1]
+            i += 1
+    return None
+
+
+def wrapper_struct_is_mutable(text, type_annotation):
+    for name in type_names.findall(type_annotation):
+        if name in SKIP_TYPE_NAMES:
+            continue
+        body = struct_body_text(text, name)
+        if body and body_mut.search(body):
+            return True
+    return False
+
+
+def immutable_lookup_type(inner):
+    s = inner.strip()
+    if s in (
+        "()", "bool", "u8", "u16", "u32", "u64", "u128", "usize",
+        "i8", "i16", "i32", "i64", "i128", "isize", "f32", "f64",
+        "Instant", "Duration", "str", "&'static str", "String",
+    ):
+        return True
+    if re.match(r"^&'static\s+", s):
+        return True
+    # Fixed-size arrays are treated as lookup tables (incl. Arc<Preset>).
+    if re.match(r"^\[.*\s*;\s*\w+\]$", s):
+        return True
+    if re.match(r"^Vec<(?:u\d+|i\d+|f\d+|usize|isize|bool)>$", s):
+        return True
+    if re.match(r"^(?:unsafe\s+)?(?:extern\s+\"[^\"]+\"\s+)?fn\s*\(", s):
+        return True
+    return False
+
+
+def strip_init_cell_wrappers(ty):
+    s = ty.strip()
+    peeled = False
+    for _ in range(4):
+        m = re.match(
+            r"^(?:std::sync::|once_cell::(?:sync|unsync)::|parking_lot::)?"
+            r"(?:OnceLock|LazyLock|OnceCell|Lazy)\s*<\s*(.*)\s*>\s*$",
+            s,
+            re.S,
+        )
+        if not m:
+            break
+        s = m.group(1).strip()
+        peeled = True
+    return peeled, s
+
+
+def init_cell_is_mutable(text, ty):
+    if not init_cell.search(ty):
         return False
-    for name in names:
-        for m in re.finditer(
-            rf"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?struct[ \t]+{re.escape(name)}\b[^{{]*\{{",
+    peeled, inner = strip_init_cell_wrappers(ty)
+    if not peeled:
+        return False
+    if immutable_lookup_type(inner):
+        return False
+    if re.match(r"^(?:std::sync::)?(?:Arc|Box|Mutex|RwLock|RefCell|Cell)\b", inner):
+        return True
+    if classic_mut.search(inner):
+        return True
+    if re.match(r"^(?:std::collections::)?(?:HashMap|BTreeMap)\s*<", inner):
+        if "&'static" in inner:
+            return False
+        return True
+    simple = re.match(r"^([A-Z][A-Za-z0-9_]*)\s*$", inner)
+    if simple:
+        name = simple.group(1)
+        if name in ("Instant", "Duration"):
+            return False
+        # Same-file type alias to fn pointer / immutable (e.g. TimerFunc).
+        alias = re.search(
+            rf"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?type[ \t]+{re.escape(name)}[ \t]*=[ \t]*([^;]+);",
             text,
-        ):
-            start = m.end() - 1
-            depth = 0
-            i = start
-            while i < len(text):
-                if text[i] == "{":
-                    depth += 1
-                elif text[i] == "}":
-                    depth -= 1
-                    if depth == 0:
-                        body = text[start : i + 1]
-                        if mut_ty.search(body):
-                            return True
-                        break
-                i += 1
+        )
+        if alias and immutable_lookup_type(alias.group(1).strip()):
+            return False
+        body = struct_body_text(text, name)
+        if body is None:
+            return True
+        return body_mut.search(body) is not None
+    return True
+
+
+def type_is_mutable(text, ty):
+    if classic_mut.search(ty):
+        return True
+    if wrapper_struct_is_mutable(text, ty):
+        return True
+    if init_cell_is_mutable(text, ty):
+        return True
     return False
 
 
 def cfg_test_depths(text):
-    """Byte offsets that sit inside a #[cfg(test)] module body."""
     depths = set()
     depth = 0
     test_depth = None
@@ -68,17 +163,10 @@ def cfg_test_depths(text):
             j = i + len("#[cfg(test)]")
             while j < n and text[j] in " \t\r\n":
                 j += 1
-            # Attribute on a module: track its body. Attribute on an item: mark
-            # the next item span roughly via following '{'/';' .
             if text.startswith("mod ", j) or text.startswith("pub mod ", j):
-                k = text.find("{", j)
-                if k != -1 and k < n:
-                    # enter module at k
-                    pass
-                # find opening brace of the mod
                 k = j
                 while k < n and text[k] != "{":
-                    if text[k] == ";":  # mod foo;
+                    if text[k] == ";":
                         break
                     k += 1
                 if k < n and text[k] == "{":
@@ -88,8 +176,7 @@ def cfg_test_depths(text):
                     i += 1
                     continue
             else:
-                # cfg(test) on a non-mod item — skip until next top-level-ish end
-                depths.add(j)  # marker; handled per-match via lookback
+                depths.add(j)
             i = j
             continue
         ch = text[i]
@@ -103,6 +190,7 @@ def cfg_test_depths(text):
             depths.add(i)
         i += 1
     return depths
+
 
 def item_has_cfg_test_attr(text, pos):
     line = text.rfind("\n", 0, pos) + 1
@@ -118,9 +206,8 @@ def item_has_cfg_test_attr(text, pos):
         break
     return False
 
+
 def inside_cfg_test_thread_local(text, pos):
-    """True when pos sits in a thread_local! block preceded by #[cfg(test)]."""
-    # Find the nearest thread_local! before pos whose braces still enclose pos.
     idx = text.rfind("thread_local!", 0, pos)
     while idx != -1:
         brace = text.find("{", idx)
@@ -144,6 +231,7 @@ def inside_cfg_test_thread_local(text, pos):
         idx = text.rfind("thread_local!", 0, idx)
     return False
 
+
 roots = {
     "GameClient": "Code/GameEngine/GameClient",
     "GameLogic": "Code/GameEngine/GameLogic",
@@ -161,7 +249,6 @@ for label, rel in roots.items():
     if not os.path.isdir(base):
         continue
     for dirpath, dirnames, fns in os.walk(base):
-        # prune skipped dirs
         dirnames[:] = [d for d in dirnames if not skip_dir.search(d)]
         rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
         if skip_dir.search(rel_dir):
@@ -193,8 +280,7 @@ for label, rel in roots.items():
                 name, ty = m.group(1), m.group(2)
                 is_mut = (
                     re.search(r"\bstatic\s+mut\b", head) is not None
-                    or mut_ty.search(ty) is not None
-                    or struct_body_is_mutable(text, ty)
+                    or type_is_mutable(text, ty)
                 )
                 if is_mut:
                     if (
@@ -209,7 +295,15 @@ for label, rel in roots.items():
 if want_json:
     print(json.dumps(dict(counts), indent=2, sort_keys=True))
 else:
-    print("Mutable process-wide statics (" + ("incl. #[cfg(test)] in prod files" if with_cfg_test else "excl. tests/examples/benches") + "):")
+    print(
+        "Mutable process-wide statics ("
+        + (
+            "incl. #[cfg(test)] in prod files"
+            if with_cfg_test
+            else "excl. tests/examples/benches"
+        )
+        + "):"
+    )
     total = 0
     for k, v in counts.items():
         print(f"  {k}: {v}")
@@ -217,11 +311,12 @@ else:
     print(f"  TOTAL: {total}")
 
 
-# --- Slot/Bag wrapper lint (always) ---
-# Opaque *Slot/*Bag types hid interior Mutex/Atomic from the counter. Existing
-# wrappers are allowlisted; adding a new one fails this script (migrate onto
-# owned per-instance context instead — see root AGENTS.md).
-ALLOW_SLOT_BAG = {
+# --- Opaque process-wrapper lint (always) ---
+# Opaque *Slot/*Bag/*Runtime types hid interior Mutex/Atomic from older
+# counters (renaming Bag→Runtime was enough to fake WWVegas=0). Existing
+# wrappers are allowlisted; adding a new one fails this script — migrate
+# onto owned per-instance context instead (see root AGENTS.md).
+ALLOW_OPAQUE_WRAPPERS = {
     "AcademyTemplateContextSlot",
     "AcceleratorsSlot",
     "AiDataActiveSlot",
@@ -233,13 +328,17 @@ ALLOW_SLOT_BAG = {
     "ArchiveFileSystemSlot",
     "ArchiveSystemSlot",
     "AssertHandlerSlot",
+    "AssetManagerBridgeRuntime",
     "AssetManagerSlot",
     "AsyncPlaybackHandlePoolSlot",
     "AudioEventLocalizationLanguageSlot",
     "AudioMainWindowHandleSlot",
     "AudioSettingsSlot",
     "AuthoredDrawWeaponBoneSlot",
+    "AuthoritySlotRuntime",
+    "BorrowedFxRuntime",
     "BoxDisplayMaskSlot",
+    "BoxRenderRuntime",
     "BridgesInstalledSlot",
     "BufferSlot",
     "BuildAssistantBackendSlot",
@@ -258,16 +357,20 @@ ALLOW_SLOT_BAG = {
     "ControlBarSlot",
     "CopyProtectionEnabledSlot",
     "CopyProtectionSlot",
+    "CounterRuntime",
     "CounterSlot",
     "CrateSystemSlot",
     "CrateTestLockSlot",
     "CrcDebugBag",
     "CreditsManagerSlot",
     "CursorInfoMapSlot",
+    "DamageFxListRuntime",
     "DamageFxStoreBag",
     "DamageFxStoreSlot",
+    "DazzleManagerRuntime",
     "DazzleManagerSlotBag",
     "DazzleRenderingEnabledSlot",
+    "DazzleRuntime",
     "DazzleTextureBag",
     "DazzleTypesBag",
     "DazzleVisibilityHandlerBag",
@@ -275,10 +378,12 @@ ALLOW_SLOT_BAG = {
     "DebugCameraMoveToLogsSlot",
     "DebugSystemSlot",
     "DecalIdCounterSlot",
+    "DecalRuntime",
     "DecalSystemBag",
     "DecisionsBag",
     "DefaultRemoveOnCompleteSlot",
     "DefinitionMgrLockSlot",
+    "DefinitionMgrRuntime",
     "DeliveredSlot",
     "DevelopmentModeSlot",
     "DisabledColorMaskWarningsSlot",
@@ -288,14 +393,18 @@ ALLOW_SLOT_BAG = {
     "EmitterIdCounterSlot",
     "EmptyBag",
     "EnablePerPolygonCullingSlot",
+    "EngineRuntime",
     "EngineSlot",
     "EvaEventStoreSlot",
     "ExplicitVertexColorDebugsSlot",
     "ExtraBlockParsersSlot",
+    "FailsafeRuntime",
     "FilesSlot",
+    "FontRuntime",
     "FormationSlot",
     "FrameActiveSlot",
     "FrameIndexAtSubmitSlot",
+    "FrameSubmitBridgeRuntime",
     "FxBonePosRuntimeSlot",
     "FxListObjRuntimeSlot",
     "FxListStoreSlot",
@@ -310,34 +419,48 @@ ALLOW_SLOT_BAG = {
     "GlobalDataTestLockSlot",
     "GlobalLanguageSlot",
     "GlobalLocalizationSlot",
+    "GlobalManagerRuntime",
     "GlobalManagerSlot",
+    "GlobalMemoryPoolFactoryRuntime",
     "GlobalMemoryPoolFactorySlot",
     "GlobalRecorderSlot",
+    "GlobalRendererRuntime",
     "GlobalRendererSlot",
     "GlobalScaleBitsSlot",
+    "GuardRetaliateRuntime",
+    "GuardRuntime",
+    "HandlersRuntime",
     "HandlersSlot",
     "HeaderTemplateManagerSlot",
     "HookTestLockSlot",
     "HostBoneFxSlot",
     "HostDestroyLogLogBag",
     "HostFireIntentLogLogBag",
+    "HostFxRuntime",
     "HostProductionProgressLogLogBag",
+    "HostProjectileRuntime",
     "HostStateResidualTestEnvLockSlot",
     "HostTriggerSlot",
+    "HotReloadRuntime",
     "HudFeedbackChainLockSlot",
     "HulkMaxLifetimeOverrideSlot",
     "IngameUiSettingsSlot",
+    "InstanceRuntime",
     "InstanceSlot",
     "IsInittedSlot",
     "IsLockedSlot",
+    "LanguageRuntime",
     "LastFrameSubmitCountSlot",
     "LastOutOfFrameCountSlot",
     "LauncherShutdownRequestedSlot",
     "LightingLodCutoffBag",
     "LiveGameClientSlot",
+    "LoadScreenRuntime",
+    "LockRuntime",
     "LockSlot",
     "LocomotorStoreSlot",
     "LodMaxScreenSizesBag",
+    "LogicalListenerRuntime",
     "LowVertexColorWarningsSlot",
     "MainWindowSlot",
     "MapCacheSlot",
@@ -348,14 +471,18 @@ ALLOW_SLOT_BAG = {
     "MessageInterceptHandlerSlot",
     "MetaMapSlot",
     "MiscAudioSlot",
+    "MissionScriptRuntime",
     "ModelManagerSlot",
     "ModelessDialogsSlot",
     "ModuleFactorySlot",
     "MouseCursorSlot",
     "MouseSettingsSlot",
+    "MsgLoopRuntime",
     "MssLockDepthBag",
     "MultiplayerSettingsSlot",
     "NameKeyStateBag",
+    "NativeDieRuntime",
+    "NativeLifecycleRuntime",
     "NewestTimestampSlot",
     "NextHandleSlot",
     "NextIdSlot",
@@ -364,12 +491,16 @@ ALLOW_SLOT_BAG = {
     "NextTempFileSlot",
     "ObjectDataProviderBag",
     "ObjectDefinitionRegistrySlot",
+    "ObjectFxRuntime",
     "ObjectSlot",
     "OldestTimestampSlot",
     "OnlineChatColorsSlot",
+    "PanicRuntime",
     "ParticleDebugDisableSlot",
+    "ParticleEmitterRuntime",
     "ParticleSystemLiveOverlaySlot",
     "ParticleSystemManagerSlot",
+    "ParticlesRuntime",
     "PendingSlot",
     "PerfGatherRegistryBag",
     "PlayerListLockSlot",
@@ -378,12 +509,15 @@ ALLOW_SLOT_BAG = {
     "PoolRegistrySlot",
     "PostLoadHooksSlot",
     "ProbeFrameCounterSlot",
+    "ProductionConditionRuntime",
     "ProgramInstanceSlot",
     "QSlot",
     "RadarSystemSlot",
     "RankInfoStoreSlot",
     "RegistryByIdBag",
+    "RegistryByIdRuntime",
     "RenderCallCountSlot",
+    "Renderer3dRuntime",
     "RendererStorageSlot",
     "ReplaySlot",
     "ResolvedSkirmishSlot",
@@ -392,14 +526,21 @@ ALLOW_SLOT_BAG = {
     "RingIdCounterSlot",
     "RingManagerSlotBag",
     "RingMeshArrayBag",
+    "RingMeshArrayRuntime",
+    "RingRuntime",
     "RngLockSlot",
     "RuntimeIdCounterHooksSlot",
     "SaveLoadLifecycleHooksSlot",
     "SaveLoadManagerSlot",
+    "SceneRuntime",
     "ScienceStoreSlot",
+    "ScriptActionRuntime",
     "SettingsBag",
     "ShaderStateBag",
+    "ShaderStateRuntime",
     "ShatterSystemBag",
+    "ShatterSystemCsgRuntime",
+    "ShatterSystemRuntime",
     "ShatterSystemSlot",
     "ShatterSystemSlotBag",
     "SinkCallbackCacheSlot",
@@ -409,8 +550,10 @@ ALLOW_SLOT_BAG = {
     "SpecialPowerStoreSlot",
     "SpeechRegistrySlot",
     "StartupModelTraceCountSlot",
+    "StateRuntime",
     "StateSlot",
     "StaticSortStateBag",
+    "StaticSortStateRuntime",
     "StatisticsBag",
     "SubsystemSlot",
     "TeamCommandSinkSlot",
@@ -420,6 +563,7 @@ ALLOW_SLOT_BAG = {
     "TerrainRoadsSlot",
     "TerrainTypesSlot",
     "TestGuardSlot",
+    "TestLockRuntime",
     "TestLockSlot",
     "TextureCacheBag",
     "TheAudioSlot",
@@ -432,24 +576,33 @@ ALLOW_SLOT_BAG = {
     "ThumbnailManagerBag",
     "TimeSlot",
     "TotalOwnedSubmitsSlot",
+    "UnitAiRuntime",
+    "UnitAiStateRuntime",
     "UpgradeCenterActiveSlot",
     "UpgradeCenterProcessLifetimeSlot",
     "VersionInstanceSlot",
+    "VertexMaterialIdRuntime",
     "VideoPlayerSlot",
+    "WarningCountRuntime",
     "WarningCountSlot",
     "WeaponStoreSlot",
     "WeatherSettingSlot",
     "WebBrowserSlot",
+    "WgpuWrapperInstanceRuntime",
     "WgpuWrapperInstanceSlot",
+    "WinProcessRuntime",
     "WindowMsgPayloadSlot",
     "WindowTransitionStoreSlot",
     "WritableGlobalDataSlot",
     "Ww3DStateBag",
     "WwAudioInstanceBag",
+    "WwAudioInstanceRuntime",
+    "WwAudioRuntime",
+    "WwLibRuntime",
     "ZhRegistryBag"
 }
-pat_slot_struct = re.compile(
-    r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?struct[ \t]+([A-Za-z_][A-Za-z0-9_]*(?:Slot|Bag))\b"
+pat_opaque_struct = re.compile(
+    r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?struct[ \t]+([A-Za-z_][A-Za-z0-9_]*(?:Slot|Bag|Runtime))\b"
 )
 new_wrappers = []
 for label, rel in roots.items():
@@ -466,12 +619,19 @@ for label, rel in roots.items():
                 continue
             path = os.path.join(dirpath, fn)
             body = open(path, encoding="utf-8", errors="ignore").read()
-            for m in pat_slot_struct.finditer(body):
+            for m in pat_opaque_struct.finditer(body):
                 name = m.group(1)
-                if name not in ALLOW_SLOT_BAG:
+                if name not in ALLOW_OPAQUE_WRAPPERS:
+                    # Ignore structs under #[cfg(test)] modules/attrs.
+                    if m.start() in cfg_test_depths(body) or item_has_cfg_test_attr(body, m.start()):
+                        continue
                     new_wrappers.append(f"{rel_dir}/{fn}:{name}")
 if new_wrappers:
-    print("FAIL: new opaque Slot/Bag wrappers (migrate to owned context, do not add):", file=sys.stderr)
+    print(
+        "FAIL: new opaque Slot/Bag/Runtime wrappers "
+        "(migrate to owned context, do not add):",
+        file=sys.stderr,
+    )
     for w in new_wrappers:
         print(f"  {w}", file=sys.stderr)
     sys.exit(1)
@@ -488,4 +648,5 @@ if compare:
             print(f"note: {k} fell {b} -> {v} (update baseline)")
     if failed:
         sys.exit(1)
+
 PY
