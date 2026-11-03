@@ -5,7 +5,16 @@
 /// nested free functions take explicit `&WorldServices`.
 #[inline]
 pub fn ensure_world_ambient() {
-    // no-op: hooks deleted; engine_stores owns the transitional stack
+    // Boot / subsystem registration still call GameLogic free functions that
+    // resolve through WorldServices TLS (weapon store, OCL cell, ActionManager).
+    // Install a bootstrap bag before those paths run; the match-owned bag is
+    // pushed later via GameLogic::install_as_active_stores and restores this
+    // one on Drop.
+    use gamelogic::system::engine_stores;
+    if engine_stores::try_active_services().is_some() {
+        return;
+    }
+    engine_stores::install_services(engine_stores::new_world_services());
 }
 #[cfg(test)]
 mod runtime_regressions;
