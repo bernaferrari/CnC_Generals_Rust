@@ -841,45 +841,68 @@ impl SubsystemInterface for DisplayStringManager {
     }
 }
 
+// Owned on WindowManagerOwner.display_string_manager (live peel / cfg(test) TLS).
+#[cfg(test)]
 thread_local! {
-    static DISPLAY_STRING_MANAGER: RefCell<DisplayStringManager> =
+    static TEST_DISPLAY_STRING_MANAGER: RefCell<DisplayStringManager> =
         RefCell::new(DisplayStringManager::new());
+}
+
+fn with_display_string_manager_mut<R>(f: impl FnOnce(&mut DisplayStringManager) -> R) -> R {
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_display_string_manager_mut(|manager| f.take().expect("display string")(manager))
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_DISPLAY_STRING_MANAGER.with(|slot| {
+            f.take().expect("display string")(&mut slot.borrow_mut())
+        });
+    }
+    #[cfg(not(test))]
+    {
+        // No live client: ephemeral manager (standalone callers without GameClient).
+        f.take().expect("display string")(&mut DisplayStringManager::new())
+    }
 }
 
 pub struct DisplayStringManagerAccess;
 
 impl DisplayStringManagerAccess {
     pub fn set_default_font(&mut self, font: Arc<GameFont>) {
-        DISPLAY_STRING_MANAGER.with(|manager| manager.borrow_mut().set_default_font(font));
+        with_display_string_manager_mut(|manager| manager.set_default_font(font));
     }
 
     pub fn new_display_string(&mut self) -> DisplayStringHandle {
-        DISPLAY_STRING_MANAGER.with(|manager| manager.borrow_mut().new_display_string())
+        with_display_string_manager_mut(|manager| manager.new_display_string())
     }
 
     pub fn free_display_string(&mut self, handle: DisplayStringHandle) {
-        DISPLAY_STRING_MANAGER.with(|manager| manager.borrow_mut().free_display_string(handle));
+        with_display_string_manager_mut(|manager| manager.free_display_string(handle));
     }
 
     pub fn get_group_numeral_string(&mut self, numeral: i32) -> Option<DisplayStringHandle> {
-        DISPLAY_STRING_MANAGER
-            .with(|manager| manager.borrow_mut().get_group_numeral_string(numeral))
+        with_display_string_manager_mut(|manager| manager.get_group_numeral_string(numeral))
     }
 
     pub fn get_formation_letter_string(&mut self) -> Option<DisplayStringHandle> {
-        DISPLAY_STRING_MANAGER.with(|manager| manager.borrow_mut().get_formation_letter_string())
+        with_display_string_manager_mut(|manager| manager.get_formation_letter_string())
     }
 
     pub fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        DISPLAY_STRING_MANAGER.with(|manager| manager.borrow_mut().init())
+        with_display_string_manager_mut(|manager| manager.init())
     }
 
     pub fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        DISPLAY_STRING_MANAGER.with(|manager| manager.borrow_mut().reset())
+        with_display_string_manager_mut(|manager| manager.reset())
     }
 
     pub fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        DISPLAY_STRING_MANAGER.with(|manager| manager.borrow_mut().update())
+        with_display_string_manager_mut(|manager| manager.update())
     }
 }
 
