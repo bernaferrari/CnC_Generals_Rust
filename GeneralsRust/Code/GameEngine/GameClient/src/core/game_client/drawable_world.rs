@@ -12,23 +12,27 @@ use super::*;
 pub struct DrawableWorld {
     pub(super) auxiliary_identity: std::sync::Arc<()>,
     pub(super) state: DrawableState,
-    pub(super) particles: crate::effects::particle_manager::ParticleSystemManager,
+    pub(super) particles: Option<crate::effects::particle_manager::ParticleSystemManager>,
 }
 impl DrawableWorld {
     pub fn new() -> Self {
         Self {
             auxiliary_identity: std::sync::Arc::new(()),
             state: DrawableState::new(),
-            particles: crate::effects::particle_manager::ParticleSystemManager::new(),
+            particles: Some(crate::effects::particle_manager::ParticleSystemManager::new()),
         }
     }
     pub fn particle_systems(&self) -> &crate::effects::particle_manager::ParticleSystemManager {
-        &self.particles
+        self.particles
+            .as_ref()
+            .expect("DrawableWorld particle manager")
     }
     pub fn particle_systems_mut(
         &mut self,
     ) -> &mut crate::effects::particle_manager::ParticleSystemManager {
-        &mut self.particles
+        self.particles
+            .as_mut()
+            .expect("DrawableWorld particle manager")
     }
 }
 impl std::ops::Deref for DrawableWorld {
@@ -277,12 +281,18 @@ impl Default for DrawableWorld {
 
 impl GameClient {
     pub fn particle_systems(&self) -> &crate::effects::particle_manager::ParticleSystemManager {
-        &self.drawables.particles
+        self.drawables
+            .particles
+            .as_ref()
+            .expect("GameClient particle manager")
     }
     pub fn particle_systems_mut(
         &mut self,
     ) -> &mut crate::effects::particle_manager::ParticleSystemManager {
-        &mut self.drawables.particles
+        self.drawables
+            .particles
+            .as_mut()
+            .expect("GameClient particle manager")
     }
 }
 

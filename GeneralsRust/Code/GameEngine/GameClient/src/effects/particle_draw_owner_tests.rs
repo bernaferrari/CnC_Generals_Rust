@@ -154,9 +154,8 @@ fn factory_admitted_microwave_draw_creates_real_attached_particle_rows() {
             "required retail particle template {name} exists"
         );
     }
-    *PARTICLE_SYSTEM_MANAGER
-        .write()
-        .expect("install child-local actual particle manager") = Some(particle_manager);
+    *get_particle_system_manager_mut().expect("install child-local actual particle manager") =
+        Some(particle_manager);
     register_particle_system_manager_bridge();
 
     let mut object_factory = gamelogic::object::object_factory::ObjectFactory::new();

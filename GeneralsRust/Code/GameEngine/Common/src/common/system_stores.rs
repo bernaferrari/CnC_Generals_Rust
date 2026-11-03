@@ -121,8 +121,10 @@ pub struct SystemStores {
 
 impl SystemStores {
     pub fn new() -> Self {
-        let mut upgrade = UpgradeCenter::new();
-        upgrade.init();
+        // Defer UpgradeCenter::init until CommonServices is published —
+        // veterancy templates call NameKeyGenerator::name_to_key, which needs
+        // the active CommonServices bind (install_common_services).
+        let upgrade = UpgradeCenter::new();
         Self {
             ai_data_lifetime: Arc::new(RwLock::new(AIDataStore::default())),
             ai_data_active: Mutex::new(None),
@@ -176,6 +178,17 @@ impl SystemStores {
             version: Mutex::new(None),
         }
     }
+
+    /// Finish UpgradeCenter lifetime init once CommonServices is on the TLS stack.
+    /// Idempotent: UpgradeCenter::init skips names that already exist.
+    pub fn init_lifetime_upgrades_after_common_published(&self) {
+        let mut upgrade = self
+            .upgrade_center_lifetime
+            .write()
+            .unwrap_or_else(|p| p.into_inner());
+        upgrade.init();
+    }
+
 }
 
 impl Default for SystemStores {

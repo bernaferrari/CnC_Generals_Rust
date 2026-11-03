@@ -469,7 +469,10 @@ impl GameClient {
             self.local_player_id,
             self.input_authority,
         )
-        .destroy_drawable_with_particles(id, Some(&mut self.drawables.particles))
+        .destroy_drawable_with_particles(
+            id,
+            self.drawables.particles.as_mut(),
+        )
     }
 
     /// C++ destroyDrawable: disregard UI, unlink identity, then retire modules.
@@ -717,9 +720,11 @@ impl GameClient {
         // manager, then release it before touching WGPU resources.
         self.drawables
             .particles
+            .as_mut()
+            .expect("particle manager")
             .admit_effective_definitions()
             .map_err(|error| GameClientError::SubsystemError(error.to_string()))?;
-        self.drawables.particles.preload_assets();
+        self.particle_systems_mut().preload_assets();
         // Authored names stay on this particle owner. Its next receiving CPU
         // render frame carries them to the exact native GPU renderer, even if
         // no particles are alive; preload never chooses a process renderer.
