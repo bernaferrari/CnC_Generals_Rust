@@ -1862,6 +1862,9 @@ mod tests {
     }
 
     fn parse_scheme_fixture(name: &str, image_layers: &[i32]) -> ControlBarScheme {
+        use crate::common::common_services::{CommonServices, with_common_services};
+        use std::sync::Arc;
+
         let root = tempfile::tempdir().unwrap();
         let mut source = format!("ControlBarScheme {name}\n");
         for (index, layer) in image_layers.iter().enumerate() {
@@ -1873,14 +1876,17 @@ mod tests {
         let path = root.path().join("ControlBarScheme.ini");
         std::fs::write(&path, source).unwrap();
 
-        let mut ini = INI::new();
-        ini.load(&path, INILoadType::Overwrite).unwrap();
-        get_control_bar_scheme_manager()
-            .unwrap()
-            .read()
-            .find_scheme(name)
-            .unwrap()
-            .clone()
+        let common = Arc::new(CommonServices::new());
+        with_common_services(&common, || {
+            let mut ini = INI::new();
+            ini.load(&path, INILoadType::Overwrite).unwrap();
+            get_control_bar_scheme_manager()
+                .unwrap()
+                .read()
+                .find_scheme(name)
+                .unwrap()
+                .clone()
+        })
     }
 
     #[test]

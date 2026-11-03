@@ -175,6 +175,80 @@ mod tests {
     }
 
     #[test]
+    /// Cluster proof for hq-x5yn6 (+ re-checks hq-5w9jr Low y): collapsing HUD
+    /// keeps the C++ default marker base and truncates Low y via full subtraction.
+    #[test]
+    fn control_bar_cluster_low_stage_marker_offsets() {
+        crate::test_support::ensure_ambient_host();
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        {
+            let manager =
+                game_engine::common::ini::ini_control_bar_scheme::ensure_control_bar_scheme_manager(
+                );
+            manager.write().clear();
+            owner.with_manager(|wm| {
+                wm.test_destroy_all_windows();
+                wm.set_screen_size(640, 481);
+                let parent = wm.test_create_window(None, 0, 332, 640, 148).unwrap();
+                parent.borrow_mut().set_name(CONTROL_BAR_PARENT);
+                let marker = wm.test_create_window(Some(&parent), 6, 144, 4, 4).unwrap();
+                marker
+                    .borrow_mut()
+                    .set_name("ControlBar.wnd:BackgroundMarker");
+            });
+            let (parent, marker) = owner.with_manager_ref(|wm| {
+                (
+                    wm.find_window_by_name(CONTROL_BAR_PARENT).unwrap(),
+                    wm.find_window_by_name("ControlBar.wnd:BackgroundMarker")
+                        .unwrap(),
+                )
+            });
+            let default_marker = marker.borrow().get_screen_position();
+            let mut bar = ControlBar::new();
+            owner.with_manager(|wm| {
+                let mut viewport = OwnedViewport {
+                    display: (
+                        wm.screen_size().0.max(0) as u32,
+                        wm.screen_size().1.max(0) as u32,
+                    ),
+                    height: wm.screen_size().1,
+                };
+                let parent = leftover_find_window(CONTROL_BAR_PARENT, wm);
+                bar.switch_control_bar_stage_on_window_owned(
+                    ControlBarStage::Low,
+                    &mut viewport,
+                    false,
+                    parent,
+                    wm,
+                );
+            });
+            // hq-5w9jr: 481 - 0.1*481 = 432.9 → Int 432
+            assert_eq!(parent.borrow().get_position(), (0, 432));
+            // hq-x5yn6: scheme marker base stays at the pre-Low screen position
+            for _ in 0..4 {
+                let window = marker.borrow();
+                {
+                    let mut __draw =
+                        crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default());
+                    crate::gui::w3d_gadget_draw::w3d_command_bar_background_draw(
+                        &window,
+                        window.instance_data(),
+                        &mut __draw,
+                    );
+                };
+            }
+            let scheme = manager.read();
+            let background_base = scheme.get_background_marker_pos();
+            assert_eq!(
+                (background_base.x, background_base.y),
+                default_marker,
+                "Low collapse must not rewrite the captured ControlBar marker base"
+            );
+            drop(scheme);
+            manager.write().clear();
+        }
+    }
+
     fn first_multi_selection_enables_shared_order_when_one_unit_can_act() {
         crate::test_support::ensure_ambient_host();
         let mut control_bar = ControlBar::new();
