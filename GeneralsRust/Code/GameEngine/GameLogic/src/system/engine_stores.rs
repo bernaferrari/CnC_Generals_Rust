@@ -565,7 +565,9 @@ impl PublishedOwner {
         }
     }
     fn install_common(&self) {
-        let _ = common_services::install_common_services(Arc::clone(self.services().common()));
+        let common = Arc::clone(self.services().common());
+        let _ = common_services::install_common_services(Arc::clone(&common));
+        common.finish_bootstrap_after_publish();
         if let Self::Core(core) = self {
             common_upgrade::install_upgrade_center(Arc::clone(core.upgrade_center()));
             ini_ai_data::install_ai_data_store(Arc::clone(core.ai_data()));
@@ -791,8 +793,9 @@ fn with_owner<R>(owner: PublishedOwner, f: impl FnOnce() -> R) -> R {
         }
         PublishedOwner::Services(_) => None,
     };
-    let prior_common =
-        common_services::install_common_services(Arc::clone(owner.services().common()));
+    let common = Arc::clone(owner.services().common());
+    let prior_common = common_services::install_common_services(Arc::clone(&common));
+    common.finish_bootstrap_after_publish();
     stack_push(owner.clone());
     let _restore = RestoreScope {
         owner,

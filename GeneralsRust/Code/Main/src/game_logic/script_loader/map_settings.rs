@@ -551,13 +551,49 @@ fn parse_map_settings_from_loaded_chunky(
         meta.world_max = Some(max);
     }
 
-    match parse_object_placements_from_chunky(chunky, &road_definitions) {
-        Ok(objects) => {
+    // One ObjectsList walk for placements + start waypoints + camera (C++ MapReader).
+    match parse_objects_list_for_settings_from_chunky(chunky, &road_definitions) {
+        Ok((objects, waypoints, camera)) => {
             meta.authored_scorches = objects
                 .iter()
                 .filter_map(PlacedObject::terrain_scorch)
                 .collect();
             meta.objects = objects;
+            meta.initial_camera_position = camera;
+            let mut starts: std::collections::HashMap<u32, Coord3D> =
+                std::collections::HashMap::new();
+            let mut rallies: std::collections::HashMap<u32, Coord3D> =
+                std::collections::HashMap::new();
+            for wp in waypoints {
+                let name = wp.name.trim();
+                let lower = name.to_ascii_lowercase();
+                if let Some(rest) = lower.strip_prefix("player_") {
+                    if let Some((idx_str, kind)) = rest.split_once('_') {
+                        if let Ok(idx1) = idx_str.parse::<u32>() {
+                            if idx1 >= 1 {
+                                let idx0 = idx1 - 1;
+                                if kind.starts_with("start") {
+                                    starts.insert(idx0, wp.location);
+                                } else if kind.starts_with("rally") {
+                                    rallies.insert(idx0, wp.location);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let mut wps = Vec::new();
+            let mut ids: Vec<u32> = starts.keys().copied().collect();
+            ids.sort_unstable();
+            for idx in ids {
+                if let Some(pos) = starts.get(&idx) {
+                    wps.push((format!("Player_{}_Start", idx + 1), *pos));
+                    if let Some(rally) = rallies.get(&idx) {
+                        wps.push((format!("Player_{}_Rally", idx + 1), *rally));
+                    }
+                }
+            }
+            meta.start_waypoints = wps;
         }
         Err(err) => {
             warn!(
@@ -578,29 +614,6 @@ fn parse_map_settings_from_loaded_chunky(
             );
         }
     }
-
-    match parse_player_start_waypoints_from_chunky(chunky) {
-        Ok(starts) => {
-            let mut wps = Vec::new();
-            for (idx, pos, rally) in starts {
-                wps.push((format!("Player_{}_Start", idx + 1), pos));
-                if let Some(rally) = rally {
-                    wps.push((format!("Player_{}_Rally", idx + 1), rally));
-                }
-            }
-            meta.start_waypoints = wps;
-        }
-        Err(err) => {
-            warn!(
-                "Failed to parse player start waypoints for '{}': {}",
-                map_name, err
-            );
-        }
-    }
-
-    meta.initial_camera_position = parse_initial_camera_position_from_chunky(chunky)
-        .ok()
-        .flatten();
 
     // Heightmap hint: look for common heightmap filenames next to the .map.
     if let Some(map_path) = resolve_map_companion_source(map_name)

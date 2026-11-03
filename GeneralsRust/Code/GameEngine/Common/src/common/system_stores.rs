@@ -146,7 +146,8 @@ impl SystemStores {
     pub fn new() -> Self {
         // Defer UpgradeCenter::init until CommonServices is published —
         // veterancy templates call NameKeyGenerator::name_to_key, which needs
-        // the active CommonServices bind (install_common_services).
+        // the active CommonServices bind (install_common_services). See
+        // CommonServices::finish_bootstrap_after_publish.
         let upgrade = UpgradeCenter::new();
         Self {
             ai_data_lifetime: Arc::new(RwLock::new(AIDataStore::default())),
