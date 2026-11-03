@@ -1019,19 +1019,41 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn skirmish_map_select_system_consumes_lifecycle_messages_like_cpp() {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut window = GameWindow::new();
-
-        assert_eq!(
-            skirmish_map_select_menu_system(&mut window, WindowMessage::Create, 0, 0),
-            WindowMsgHandled::Handled
-        );
-        assert_eq!(
-            skirmish_map_select_menu_system(&mut window, WindowMessage::Destroy, 0, 0),
-            WindowMsgHandled::Handled
-        );
+        owner.with_manager(|wm| {
+            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+                assert_eq!(
+                    skirmish_map_select_menu_system(
+                        &window,
+                        WindowMessage::Create,
+                        0,
+                        0,
+                        wm,
+                        effects,
+                    ),
+                    WindowMsgHandled::Handled
+                );
+                assert_eq!(
+                    skirmish_map_select_menu_system(
+                        &window,
+                        WindowMessage::Destroy,
+                        0,
+                        0,
+                        wm,
+                        effects,
+                    ),
+                    WindowMsgHandled::Handled
+                );
+            });
+        });
     }
 
-    fn install_map_listbox_for_test(listbox_id: i32, selected: Option<usize>) {
+    fn install_map_listbox_for_test(
+        listbox_id: i32,
+        selected: Option<usize>,
+        owner: &crate::gui::window_manager::WindowManagerOwner,
+    ) {
         let mut listbox = crate::gui::gadgets::ListBox::new(listbox_id as u32, 0, 0, 200, 80);
         listbox.add_item_with_data(
             0,
@@ -1056,7 +1078,7 @@ use crate::gui::game_window::WindowEventEffects;
             .borrow_mut()
             .set_widget(crate::gui::WindowWidget::ListBox(listbox));
 
-        let state_handle = map_select_state_on_owner(effects.window_manager_owner);
+        let state_handle = map_select_state_on_owner(Some(owner));
         let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         *state = SkirmishMapSelectState::default();
         state.listbox_map_id = listbox_id;
@@ -1065,21 +1087,28 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn skirmish_map_select_system_handles_glm_selected_like_cpp() {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let listbox_id = 101;
-        install_map_listbox_for_test(listbox_id, Some(1));
+        install_map_listbox_for_test(listbox_id, Some(1), &owner);
 
-        let mut window = GameWindow::new();
-        assert_eq!(
-            skirmish_map_select_menu_system(
-                &window,
-                WindowMessage::User(GLM_SELECTED),
-                listbox_id as WindowMsgData,
-                1,
-            ),
-            WindowMsgHandled::Handled
-        );
+        let window = GameWindow::new();
+        owner.with_manager(|wm| {
+            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+                assert_eq!(
+                    skirmish_map_select_menu_system(
+                        &window,
+                        WindowMessage::User(GLM_SELECTED),
+                        listbox_id as WindowMsgData,
+                        1,
+                        wm,
+                        effects,
+                    ),
+                    WindowMsgHandled::Handled
+                );
+            });
+        });
 
-        let state_handle = map_select_state_on_owner(effects.window_manager_owner);
+        let state_handle = map_select_state_on_owner(Some(&owner));
         let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             state.selected_map.as_deref(),
@@ -1089,21 +1118,28 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn skirmish_map_select_system_handles_glm_double_clicked_like_cpp() {
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let listbox_id = 101;
-        install_map_listbox_for_test(listbox_id, None);
+        install_map_listbox_for_test(listbox_id, None, &owner);
 
-        let mut window = GameWindow::new();
-        assert_eq!(
-            skirmish_map_select_menu_system(
-                &window,
-                WindowMessage::User(GLM_DOUBLE_CLICKED),
-                listbox_id as WindowMsgData,
-                1,
-            ),
-            WindowMsgHandled::Handled
-        );
+        let window = GameWindow::new();
+        owner.with_manager(|wm| {
+            crate::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+                assert_eq!(
+                    skirmish_map_select_menu_system(
+                        &window,
+                        WindowMessage::User(GLM_DOUBLE_CLICKED),
+                        listbox_id as WindowMsgData,
+                        1,
+                        wm,
+                        effects,
+                    ),
+                    WindowMsgHandled::Handled
+                );
+            });
+        });
 
-        let state_handle = map_select_state_on_owner(effects.window_manager_owner);
+        let state_handle = map_select_state_on_owner(Some(&owner));
         let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             state.selected_map.as_deref(),
@@ -1131,7 +1167,8 @@ use crate::gui::game_window::WindowEventEffects;
     fn simulate_map_select_ok_without_selection_fail_closed() {
         // Clear selection residual.
         {
-            let state_handle = map_select_state_on_owner(effects.window_manager_owner);
+            let owner = crate::gui::window_manager::WindowManagerOwner::new();
+            let state_handle = map_select_state_on_owner(Some(&owner));
             let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
             state.selected_map = None;
         }

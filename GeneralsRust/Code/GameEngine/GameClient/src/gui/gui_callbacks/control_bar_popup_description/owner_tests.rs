@@ -1,3 +1,4 @@
+use std::sync::Mutex;
 use super::*;
 use crate::gui::callbacks::control_bar_callbacks::ControlBarViewport;
 use crate::gui::control_bar::ControlBar;
@@ -36,8 +37,8 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
         });
     let layout = Rc::new(RefCell::new(WindowLayout::new("ReceivingTooltip".into())));
     let peer_layout = Rc::new(RefCell::new(WindowLayout::new("PeerTooltip".into())));
-    layout.borrow_mut().hide_without_manager_side_effects(true);
-    peer_layout.borrow_mut().hide_without_manager_side_effects(false);
+    layout.hide_with_manager(&mut windows, true);
+    peer_layout.hide_with_manager(&mut foreign, false);
     let mut bar = ControlBar::new();
     let mut peer_bar = ControlBar::new();
     bar.tooltip.layout = Some(Rc::clone(&layout));
@@ -78,7 +79,14 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
             tooltips_disabled: false,
             cursor_mouse: Some(&mouse),
             emitted_messages: None,
+            campaign_manager: None,
+            window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         windows.process_mouse_event_with_control_bar(
@@ -148,12 +156,19 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
             tooltips_disabled: false,
             cursor_mouse: Some(&mouse),
             emitted_messages: None,
+            campaign_manager: None,
+            window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         windows.refresh_control_bar_tooltip(20, 20, &mut context);
         drop(context);
-        bar.update_build_tooltip_layout_owned(false);
+        bar.update_build_tooltip_layout_owned(false, &mut windows);
         assert!(bar.tooltip.wait_initialized);
         assert!(
             !layout.borrow().is_hidden(),
@@ -188,18 +203,25 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
             tooltips_disabled: false,
             cursor_mouse: Some(&mouse),
             emitted_messages: None,
+            campaign_manager: None,
+            window_manager_owner: None,
 
+                        client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
             main_menu: None,
         };
         windows.refresh_control_bar_tooltip(400, 400, &mut context);
     }
-    bar.update_build_tooltip_layout_owned(false);
+    bar.update_build_tooltip_layout_owned(false, &mut windows);
     assert!(
         layout.borrow().is_hidden(),
         "leaving command window ends only owner tooltip"
     );
     assert!(!peer_layout.borrow().is_hidden());
-    layout.borrow_mut().hide_without_manager_side_effects(false);
+    layout.hide_with_manager(&mut windows, false);
     bar.tooltip.show_layout = true;
     bar.tooltip.prev_window_id = Some(42);
     let mut tooltip_animator = AnimateWindowManager::new();
@@ -216,7 +238,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     assert!(tooltip_animator.is_reversed());
     let animated_position = button.borrow().get_position();
     bar.tooltip.animate_manager = Some(tooltip_animator);
-    crate::system::SubsystemInterface::reset(&mut bar).unwrap();
+    bar.reset(&mut windows).unwrap();
     assert!(layout.borrow().is_hidden());
     assert!(!bar.tooltip.show_layout);
     let retained_animator = bar.tooltip.animate_manager.as_ref().unwrap();
@@ -231,7 +253,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
     );
     assert!(!peer_layout.borrow().is_hidden());
     assert!(peer_bar.tooltip.show_layout);
-    bar.delete_build_tooltip_layout_owned();
+    bar.delete_build_tooltip_layout_owned(&mut windows);
     assert_eq!(bar.tooltip.prev_window_id, None);
 }
 #[test]

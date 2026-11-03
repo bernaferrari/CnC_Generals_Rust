@@ -377,20 +377,21 @@ mod tests {
     #[test]
     fn test_update_context_ocl_timer() {
         let mut state = OCLTimerDisplayState::default();
+        let mut wm = crate::gui::window_manager::WindowManager::new();
 
         // First call should always return
-        let result = update_context_ocl_timer(&mut state, 900, 900);
+        let result = update_context_ocl_timer(&mut state, 900, 900, &mut wm);
         assert!(result.is_some());
         let (text, progress, secs) = result.unwrap();
         assert_eq!(text, "0:30");
         assert_eq!(secs, 30);
 
         // Same seconds should return None
-        let result = update_context_ocl_timer(&mut state, 900, 900);
+        let result = update_context_ocl_timer(&mut state, 900, 900, &mut wm);
         assert!(result.is_none());
 
         // Different seconds should return Some
-        let result = update_context_ocl_timer(&mut state, 870, 900);
+        let result = update_context_ocl_timer(&mut state, 870, 900, &mut wm);
         assert!(result.is_some());
         let (text, _progress, secs) = result.unwrap();
         assert_eq!(text, "0:29");

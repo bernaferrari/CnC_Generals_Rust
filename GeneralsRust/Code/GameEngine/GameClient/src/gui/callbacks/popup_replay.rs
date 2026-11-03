@@ -472,14 +472,20 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn popup_replay_system_consumes_lifecycle_messages_like_cpp() {
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut wm = crate::gui::window_manager::WindowManager::new();
         let mut window = GameWindow::new();
-
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.menus = Some(menus.receiving_menus(
+            crate::core::game_client::ClientInputAuthority::NativeHosted,
+        ));
         assert_eq!(
-            popup_replay_system(&mut window, WindowMessage::Create, 0, 0),
+            popup_replay_system(&mut window, WindowMessage::Create, 0, 0, &mut wm, &mut effects),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            popup_replay_system(&mut window, WindowMessage::Destroy, 0, 0),
+            popup_replay_system(&mut window, WindowMessage::Destroy, 0, 0, &mut wm, &mut effects),
             WindowMsgHandled::Handled
         );
     }
@@ -527,9 +533,15 @@ use crate::gui::game_window::WindowEventEffects;
             .unwrap()
             .set_text("unchanged");
 
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.menus = Some(menus.receiving_menus(
+            crate::core::game_client::ClientInputAuthority::NativeHosted,
+        ));
         {
-            let state_handle = popup_replay_state();
-            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+            let state = effects.popup_replay_mut();
             *state = PopupReplayState::default();
             state.listbox_games = listbox_id;
             state.text_entry_replay_name = text_entry_id;
@@ -540,10 +552,12 @@ use crate::gui::game_window::WindowEventEffects;
         let mut window = GameWindow::new();
         assert_eq!(
             popup_replay_system(
-                &window,
+                &mut window,
                 WindowMessage::User(GLM_SELECTED),
                 listbox_id as WindowMsgData,
                 1,
+                &mut wm,
+                &mut effects,
             ),
             WindowMsgHandled::Handled
         );
@@ -586,9 +600,15 @@ use crate::gui::game_window::WindowEventEffects;
             .unwrap()
             .set_text("unchanged");
 
+        let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        let mut messages = Vec::new();
+        let mut effects = WindowEventEffects::new(&mut messages);
+        effects.menus = Some(menus.receiving_menus(
+            crate::core::game_client::ClientInputAuthority::NativeHosted,
+        ));
         {
-            let state_handle = popup_replay_state();
-            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+            let state = effects.popup_replay_mut();
             *state = PopupReplayState::default();
             state.listbox_games = listbox_id;
             state.text_entry_replay_name = text_entry_id;
@@ -599,10 +619,12 @@ use crate::gui::game_window::WindowEventEffects;
         let mut window = GameWindow::new();
         assert_eq!(
             popup_replay_system(
-                &window,
+                &mut window,
                 WindowMessage::User(GLM_SELECTED),
                 listbox_id as WindowMsgData,
                 (-1isize) as WindowMsgData,
+                &mut wm,
+                &mut effects,
             ),
             WindowMsgHandled::Handled
         );

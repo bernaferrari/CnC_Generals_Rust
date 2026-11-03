@@ -31,6 +31,7 @@ fn presentation_input_owner_sciences_do_not_cross_bars() {
 
 #[test]
 fn presentation_input_owner_tooltip_uses_bound_window_inputs() {
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
     let mut first = ControlBar::new();
     let mut second = ControlBar::new();
     let command = CommandButton {
@@ -41,14 +42,14 @@ fn presentation_input_owner_tooltip_uses_bound_window_inputs() {
     let first_window = named_window("OwnerIsolationFirst");
     let second_window = named_window("OwnerIsolationSecond");
     first.apply_presentation_can_make(&[("ownerisolationtank".to_owned(), 2)]);
-    first.set_control_command(&first_window, &command);
+    owner.with_manager(|wm| first.set_control_command(&first_window, &command, wm));
     let expected = crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&first_window.borrow());
     assert!(
         !expected.is_empty(),
         "the authored CanMake denial appears in the tooltip"
     );
     second.apply_presentation_can_make(&[("OwnerIsolationTank".to_owned(), 4)]);
-    second.set_control_command(&second_window, &command);
+    owner.with_manager(|wm| second.set_control_command(&second_window, &command, wm));
     assert_eq!(crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&first_window.borrow()), expected, "a second game's queue denial must not rewrite the first window's money denial");
     assert_ne!(crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&second_window.borrow()), expected);
     second.apply_presentation_can_make(&[]);
@@ -58,12 +59,13 @@ fn presentation_input_owner_tooltip_uses_bound_window_inputs() {
     // the old typed userdata remains immutable until then.
     first.apply_presentation_can_make(&[("OwnerIsolationTank".to_owned(), 5)]);
     assert_eq!(crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&first_window.borrow()), expected);
-    first.set_control_command(&first_window, &command);
+    owner.with_manager(|wm| first.set_control_command(&first_window, &command, wm));
     assert_ne!(crate::gui::gui_callbacks::control_bar_popup_description::presentation_input_owner_tooltip_text(&first_window.borrow()), expected);
 }
 
 #[test]
 fn presentation_input_owner_constructor_and_reset_are_isolated() {
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
     let mut first = ControlBar::new();
     first.apply_presentation_can_make(&[("FirstTank".to_owned(), 2)]);
     first.apply_presentation_science_hide_names(&["FirstScience".to_owned()]);
@@ -72,7 +74,7 @@ fn presentation_input_owner_constructor_and_reset_are_isolated() {
     assert!(second.presentation_unlocked_sciences.is_empty());
     second.apply_presentation_can_make(&[("SecondTank".to_owned(), 4)]);
     second.apply_presentation_science_hide_names(&["SecondScience".to_owned()]);
-    SubsystemInterface::reset(&mut second).unwrap();
+    owner.with_manager(|wm| second.reset(wm).unwrap());
     assert!(second.presentation_can_make.is_empty());
     assert!(second.presentation_unlocked_sciences.is_empty());
     assert_eq!(first.presentation_can_make_status("firsttank"), Some(2));
@@ -105,7 +107,7 @@ fn presentation_input_owner_availability_tick_refreshes_bound_tooltip_without_re
             });
             let mut bar = ControlBar::new();
             bar.apply_presentation_can_make(&[(command.object.clone(), 2)]);
-            bar.set_control_command(&window, &command);
+            owner.with_manager(|wm| bar.set_control_command(&window, &command, wm));
             let initial = presentation_input_owner_tooltip_text(&window.borrow());
             let command_string_pointer = window
                 .borrow()
@@ -118,7 +120,7 @@ fn presentation_input_owner_availability_tick_refreshes_bound_tooltip_without_re
                 command.command_name.clone(),
                 (CommandAvailability::Restricted, None),
             )]);
-            bar.apply_command_availability_to_windows(std::slice::from_ref(&command), &availability);
+            owner.with_manager(|wm| bar.apply_command_availability_to_windows(std::slice::from_ref(&command), &availability, wm));
             assert_ne!(
                 presentation_input_owner_tooltip_text(&window.borrow()),
                 initial
@@ -142,7 +144,7 @@ fn presentation_input_owner_availability_tick_refreshes_bound_tooltip_without_re
                 "availability updates only the ordinal, without cloning command strings"
             );
             bar.apply_presentation_can_make(&[]);
-            bar.apply_command_availability_to_windows(std::slice::from_ref(&command), &availability);
+            owner.with_manager(|wm| bar.apply_command_availability_to_windows(std::slice::from_ref(&command), &availability, wm));
             assert!(
                 presentation_input_owner_tooltip_text(&window.borrow()).is_empty(),
                 "missing frozen status must not reuse the previous denial"

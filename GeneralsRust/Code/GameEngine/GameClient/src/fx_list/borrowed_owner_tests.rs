@@ -49,7 +49,7 @@ fn actual_bridge_uses_borrowed_owner_and_never_relocks_admitted_owner() {
     const OBJECT_ID: u32 = 0x00F8_0B10;
     const FX_NAME: &str = "FX_BorrowedOwnerContract";
     assert!(OBJECT_REGISTRY.get_object(OBJECT_ID).is_none());
-    assert!(get_fx_list_store().find_fx_list(FX_NAME).is_none());
+    assert!(with_fx_list_store(|s| s.find_fx_list(FX_NAME).is_none()));
     gamelogic::player::player_list()
         .write()
         .unwrap()
@@ -58,7 +58,7 @@ fn actual_bridge_uses_borrowed_owner_and_never_relocks_admitted_owner() {
     let mut observed = Vec::new();
     let mut fx = FXList::new();
     fx.add_fx_nugget(Box::new(ObjectNugget { calls: recorded }));
-    get_fx_list_store_mut().add_fx_list(FX_NAME.into(), fx);
+    with_fx_list_store_mut(|s| s.add_fx_list(FX_NAME.into(), fx));
     let fx_id = NameKeyGenerator::name_to_key(FX_NAME) as FXListId;
 
     let foreign = Arc::new(RwLock::new(Object::new_raw(

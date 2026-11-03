@@ -2839,32 +2839,31 @@ mod tests {
     #[test]
     fn in_game_ui_military_subtitle_disables_tooltips_until_lifetime() {
         let mut ui = InGameUISubsystem::default();
+        let mut wm = crate::gui::window_manager::WindowManager::new();
         let current_frame = TheGameLogic::get_frame();
 
-        ui.push_military_subtitle("SCRIPT:Briefing", 2500);
+        ui.push_military_subtitle("SCRIPT:Briefing", 2500, current_frame, &mut wm);
 
         assert_eq!(ui.military_subtitles.len(), 1);
         assert_eq!(ui.tooltips_disabled_until, current_frame.saturating_add(75));
-        assert!(ui.are_tooltips_disabled());
+        assert!(ui.are_tooltips_disabled(current_frame));
 
         ui.clear_tooltips_disabled();
         assert_eq!(ui.tooltips_disabled_until, 0);
-        assert!(!ui.are_tooltips_disabled());
+        assert!(!ui.are_tooltips_disabled(current_frame));
     }
 
     #[test]
-    fn in_game_ui_handle_records_military_subtitles_separately_from_hud_messages() {
-        let ui = Arc::new(Mutex::new(InGameUISubsystem::default()));
-        let handle = InGameUiHandle::new(ui.clone());
-
-        handle.military_subtitle("SCRIPT:Caption", 2500);
-
-        let guard = ui.lock().unwrap();
+    fn in_game_ui_records_military_subtitles_separately_from_hud_messages() {
+        let mut ui = InGameUISubsystem::default();
+        let mut wm = crate::gui::window_manager::WindowManager::new();
+        let frame = TheGameLogic::get_frame();
+        ui.push_military_subtitle("SCRIPT:Caption", 2500, frame, &mut wm);
         assert_eq!(
-            guard.military_subtitles.front(),
+            ui.military_subtitles.front(),
             Some(&("SCRIPT:Caption".to_string(), 2500))
         );
-        assert!(guard.hud_messages.is_empty());
+        assert!(ui.hud_messages.is_empty());
     }
 
     #[test]
@@ -3000,18 +2999,17 @@ mod radar_presentation_tests {
 
     #[test]
     fn radar_draw_admits_chirp_once_and_acks_only_supplied_owner() {
-        let ui = Arc::new(Mutex::new(InGameUISubsystem::default()));
-        let handle = InGameUiHandle::new(ui);
+        let mut ui = InGameUISubsystem::default();
         let mut first = RadarSystem::new();
         let mut second = RadarSystem::new();
         let position = RadarPosition::new(0.5, 0.5, 0.0);
         first.create_event(&position, RadarEventType::Information, 1.0);
         second.create_event(&position, RadarEventType::Information, 1.0);
         let frozen = Arc::new(first.presentation());
-        handle.set_radar_presentation(frozen.clone());
-        assert_eq!(handle.admit_radar_draw(&frozen), 1);
-        assert_eq!(handle.admit_radar_draw(&frozen), 0);
-        let acknowledgments = handle.take_radar_acknowledgments();
+        ui.set_radar_presentation(frozen.clone());
+        assert_eq!(ui.admit_radar_draw(&frozen), 1);
+        assert_eq!(ui.admit_radar_draw(&frozen), 0);
+        let acknowledgments = ui.take_radar_acknowledgments();
         assert_eq!(acknowledgments.len(), 1);
         for (identity, events) in acknowledgments {
             second.acknowledge_presented_events(&identity, &events);
@@ -3020,14 +3018,14 @@ mod radar_presentation_tests {
         assert!(first.presentation().draw_events()[0].sound_played);
         assert!(!second.presentation().draw_events()[0].sound_played);
         let other = Arc::new(second.presentation());
-        handle.set_radar_presentation(other.clone());
-        assert_eq!(handle.admit_radar_draw(&frozen), 0);
-        assert_eq!(handle.admit_radar_draw(&other), 1);
+        ui.set_radar_presentation(other.clone());
+        assert_eq!(ui.admit_radar_draw(&frozen), 0);
+        assert_eq!(ui.admit_radar_draw(&other), 1);
     }
 
     #[test]
     fn radar_beacon_is_acknowledged_without_chirp() {
-        let handle = InGameUiHandle::new(Arc::new(Mutex::new(InGameUISubsystem::default())));
+        let mut ui = InGameUISubsystem::default();
         let mut radar = RadarSystem::new();
         radar.create_event(
             &RadarPosition::new(0.5, 0.5, 0.0),
@@ -3035,9 +3033,9 @@ mod radar_presentation_tests {
             1.0,
         );
         let frozen = Arc::new(radar.presentation());
-        handle.set_radar_presentation(frozen.clone());
-        assert_eq!(handle.admit_radar_draw(&frozen), 0);
-        assert_eq!(handle.take_radar_acknowledgments().len(), 1);
+        ui.set_radar_presentation(frozen.clone());
+        assert_eq!(ui.admit_radar_draw(&frozen), 0);
+        assert_eq!(ui.take_radar_acknowledgments().len(), 1);
     }
 }
 

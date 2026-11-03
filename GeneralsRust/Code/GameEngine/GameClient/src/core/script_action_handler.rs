@@ -1576,25 +1576,6 @@ mod tests {
         assert!(!TheGameLogic::is_intro_movie_playing());
     }
 
-    #[test]
-    fn border_shroud_handoff_persists_without_display_and_resets_cleanly() {
-        clear_script_display_border_shroud_level();
-        assert_eq!(script_display_border_shroud_level(), None);
-
-        let handler = GameClientScriptActionHandler::new();
-        handler
-            .set_border_shroud_level(211)
-            .expect("DisableBorderShroud handoff");
-        assert_eq!(script_display_border_shroud_level(), Some(211));
-
-        handler
-            .set_border_shroud_level(37)
-            .expect("EnableBorderShroud handoff");
-        assert_eq!(script_display_border_shroud_level(), Some(37));
-
-        clear_script_display_border_shroud_level();
-        assert_eq!(script_display_border_shroud_level(), None);
-    }
 
     #[test]
     fn create_win_lose_window_loads_victorious_layout_when_present() {

@@ -101,9 +101,10 @@ mod tests {
 
     #[test]
     fn motd_create_caches_close_button_key() {
+        let mut wm = crate::gui::window_manager::WindowManager::new();
         let mut window = GameWindow::new();
         assert_eq!(
-            motd_system(&mut window, WindowMessage::Create, 0, 0),
+            motd_system(&mut window, WindowMessage::Create, 0, 0, &mut wm),
             WindowMsgHandled::Handled
         );
 
@@ -129,23 +130,13 @@ mod tests {
 
             assert!(!live_window.borrow().is_hidden());
             assert_eq!(
-                motd_system(
-                    &window,
-                    WindowMessage::GadgetSelected,
-                    close_id as WindowMsgData,
-                    0,
-                ),
+                owner.with_manager(|wm| motd_system(&mut window, WindowMessage::GadgetSelected, close_id as WindowMsgData, 0, wm)),
                 WindowMsgHandled::Handled
             );
             assert!(live_window.borrow().is_hidden());
 
             assert_eq!(
-                motd_system(
-                    &window,
-                    WindowMessage::GadgetSelected,
-                    close_id as WindowMsgData,
-                    0,
-                ),
+                owner.with_manager(|wm| motd_system(&mut window, WindowMessage::GadgetSelected, close_id as WindowMsgData, 0, wm)),
                 WindowMsgHandled::Handled
             );
             assert!(!live_window.borrow().is_hidden());
@@ -154,9 +145,10 @@ mod tests {
 
     #[test]
     fn motd_ignores_unknown_messages() {
+        let mut wm = crate::gui::window_manager::WindowManager::new();
         let mut window = GameWindow::new();
         assert_eq!(
-            motd_system(&mut window, WindowMessage::None, 0, 0),
+            motd_system(&mut window, WindowMessage::None, 0, 0, &mut wm),
             WindowMsgHandled::Ignored
         );
     }
