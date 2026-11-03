@@ -8,7 +8,7 @@
 use crate::combo::HAnimCombo;
 use crate::hanim::{AnimationMode, HAnimClass};
 use crate::htree::HTreeClass;
-use crate::{embedded_sound_bone, has_embedded_sounds, trigger_sound};
+use crate::{AnimatedSoundMgr, embedded_sound_bone, has_embedded_sounds, trigger_sound};
 use glam::Mat4;
 use std::sync::Arc;
 
@@ -116,6 +116,7 @@ pub struct Animatable3DObjClass {
 
     /// Hierarchy validity flag
     is_tree_valid: bool,
+    pub sound_mgr: Arc<AnimatedSoundMgr>,
 }
 
 impl Animatable3DObjClass {
@@ -130,6 +131,7 @@ impl Animatable3DObjClass {
             mode_combo: ModeComboData::default(),
             transform: Mat4::IDENTITY,
             is_tree_valid: false,
+            sound_mgr: Arc::new(AnimatedSoundMgr::new()),
         }
     }
 
@@ -207,8 +209,8 @@ impl Animatable3DObjClass {
 
             // Set up embedded sound bone index if present
             // Reference: animobj.cpp:434-438
-            if has_embedded_sounds(anim) {
-                if let Some(bone_name) = embedded_sound_bone(anim) {
+            if has_embedded_sounds(&self.sound_mgr, anim) {
+                if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, anim) {
                     if let Some(bone_index) = self.get_bone_index(&bone_name) {
                         // Store bone index in animation (would need to extend HAnimClass)
                         // For now, we'll handle this in update
@@ -250,8 +252,8 @@ impl Animatable3DObjClass {
         // Set up embedded sounds for both animations if present
         // Reference: animobj.cpp:480-496
         if let Some(ref anim) = motion0 {
-            if has_embedded_sounds(anim) {
-                if let Some(bone_name) = embedded_sound_bone(anim) {
+            if has_embedded_sounds(&self.sound_mgr, anim) {
+                if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, anim) {
                     if let Some(bone_index) = self.get_bone_index(&bone_name) {
                         let _ = bone_index; // Will be used in update
                     }
@@ -260,8 +262,8 @@ impl Animatable3DObjClass {
         }
 
         if let Some(ref anim) = motion1 {
-            if has_embedded_sounds(anim) {
-                if let Some(bone_name) = embedded_sound_bone(anim) {
+            if has_embedded_sounds(&self.sound_mgr, anim) {
+                if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, anim) {
                     if let Some(bone_index) = self.get_bone_index(&bone_name) {
                         let _ = bone_index; // Will be used in update
                     }
@@ -285,8 +287,8 @@ impl Animatable3DObjClass {
             let count = combo.num_anims();
             for index in 0..count {
                 if let Some(motion) = combo.peek_motion(index) {
-                    if has_embedded_sounds(motion) {
-                        if let Some(bone_name) = embedded_sound_bone(motion) {
+                    if has_embedded_sounds(&self.sound_mgr, motion) {
+                        if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, motion) {
                             if let Some(bone_index) = self.get_bone_index(&bone_name) {
                                 let _ = bone_index; // Will be used in update
                             }
@@ -380,11 +382,11 @@ impl Animatable3DObjClass {
 
                     // Trigger embedded sounds
                     // Reference: animobj.cpp:747-749
-                    if has_embedded_sounds(&motion) {
-                        if let Some(bone_name) = embedded_sound_bone(&motion) {
+                    if has_embedded_sounds(&self.sound_mgr, &motion) {
+                        if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, &motion) {
                             if let Some(bone_index) = self.get_bone_index(&bone_name) {
                                 if let Some(bone_transform) = self.htree.get_transform(bone_index) {
-                                    self.mode_anim.prev_frame = trigger_sound(
+                                    self.mode_anim.prev_frame = trigger_sound(&self.sound_mgr, 
                                         &motion,
                                         prev_frame,
                                         current_frame,
@@ -413,11 +415,11 @@ impl Animatable3DObjClass {
 
                     // Trigger embedded sounds for both animations
                     // Reference: animobj.cpp:758-766
-                    if has_embedded_sounds(&motion0) {
-                        if let Some(bone_name) = embedded_sound_bone(&motion0) {
+                    if has_embedded_sounds(&self.sound_mgr, &motion0) {
+                        if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, &motion0) {
                             if let Some(bone_index) = self.get_bone_index(&bone_name) {
                                 if let Some(bone_transform) = self.htree.get_transform(bone_index) {
-                                    self.mode_interp.prev_frame0 = trigger_sound(
+                                    self.mode_interp.prev_frame0 = trigger_sound(&self.sound_mgr, 
                                         &motion0,
                                         prev_frame0,
                                         frame0,
@@ -428,11 +430,11 @@ impl Animatable3DObjClass {
                         }
                     }
 
-                    if has_embedded_sounds(&motion1) {
-                        if let Some(bone_name) = embedded_sound_bone(&motion1) {
+                    if has_embedded_sounds(&self.sound_mgr, &motion1) {
+                        if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, &motion1) {
                             if let Some(bone_index) = self.get_bone_index(&bone_name) {
                                 if let Some(bone_transform) = self.htree.get_transform(bone_index) {
-                                    self.mode_interp.prev_frame1 = trigger_sound(
+                                    self.mode_interp.prev_frame1 = trigger_sound(&self.sound_mgr, 
                                         &motion1,
                                         prev_frame1,
                                         frame1,
@@ -456,8 +458,8 @@ impl Animatable3DObjClass {
                     let count = combo.num_anims();
                     for index in 0..count {
                         if let Some(motion) = combo.peek_motion(index) {
-                            if has_embedded_sounds(motion) {
-                                if let Some(bone_name) = embedded_sound_bone(motion) {
+                            if has_embedded_sounds(&self.sound_mgr, motion) {
+                                if let Some(bone_name) = embedded_sound_bone(&self.sound_mgr, motion) {
                                     if let Some(bone_index) = self.get_bone_index(&bone_name) {
                                         if let Some(bone_transform) =
                                             self.htree.get_transform(bone_index)
@@ -466,7 +468,7 @@ impl Animatable3DObjClass {
                                                 combo.get_prev_frame(index),
                                                 combo.get_frame(index),
                                             ) {
-                                                let _new_prev_frame = trigger_sound(
+                                                let _new_prev_frame = trigger_sound(&self.sound_mgr, 
                                                     motion,
                                                     prev_frame,
                                                     current_frame,

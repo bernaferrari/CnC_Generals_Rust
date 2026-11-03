@@ -108,7 +108,7 @@ impl Win32GameEngine {
             })
             .await?;
 
-        let (device, queue) = ww3d_gpu::acquire_device(
+        let (device, queue) = ww3d_gpu::DeviceAuthority::new().acquire_device(
             &adapter,
             &wgpu::DeviceDescriptor {
                 required_features: wgpu::Features::empty(),

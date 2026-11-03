@@ -1,9 +1,5 @@
 //! Windows message loop utilities (ported from WWLib msgloop.cpp/h).
-
-use crate::vector_class::DynamicVectorClass;
-
-#[cfg(target_os = "windows")]
-use std::sync::{Mutex, OnceLock};
+//! Session state lives on [`crate::process_state::WwLibRuntime`].
 
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -11,64 +7,11 @@ use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, GetMessageW, IsDialogMessageW, MSG, PM_NOREMOVE, PeekMessageW,
-    TranslateAcceleratorW, TranslateMessage,
+    TranslateAcceleratorW, TranslateMessage, HACCEL,
 };
 
 #[cfg(target_os = "windows")]
-#[derive(Clone, Copy)]
-struct AcceleratorTracker {
-    window: HWND,
-    accelerator: windows::Win32::UI::WindowsAndMessaging::HACCEL,
-}
-
-#[cfg(target_os = "windows")]
-impl Default for AcceleratorTracker {
-    fn default() -> Self {
-        AcceleratorTracker {
-            window: HWND(0),
-            accelerator: windows::Win32::UI::WindowsAndMessaging::HACCEL(0),
-        }
-    }
-}
-
-#[cfg(target_os = "windows")]
-impl PartialEq for AcceleratorTracker {
-    fn eq(&self, other: &Self) -> bool {
-        self.window == other.window && self.accelerator == other.accelerator
-    }
-}
-
-#[cfg(target_os = "windows")]
-struct MsgLoopRuntime {
-    modeless_dialogs: OnceLock<Mutex<DynamicVectorClass<HWND>>>,
-    accelerators: OnceLock<Mutex<DynamicVectorClass<AcceleratorTracker>>>,
-    message_intercept_handler: Mutex<Option<fn(&mut MSG) -> bool>>,
-}
-#[cfg(target_os = "windows")]
-static MSG_LOOP: MsgLoopRuntime = MsgLoopRuntime {
-    modeless_dialogs: OnceLock::new(),
-    accelerators: OnceLock::new(),
-    message_intercept_handler: Mutex::new(None),
-};
-
-#[cfg(target_os = "windows")]
-fn modeless_dialogs() -> std::sync::MutexGuard<'static, DynamicVectorClass<HWND>> {
-    MSG_LOOP.modeless_dialogs
-        .get_or_init(|| Mutex::new(DynamicVectorClass::new(0, None)))
-        .lock()
-        .unwrap()
-}
-
-#[cfg(target_os = "windows")]
-fn accelerators() -> std::sync::MutexGuard<'static, DynamicVectorClass<AcceleratorTracker>> {
-    MSG_LOOP.accelerators
-        .get_or_init(|| Mutex::new(DynamicVectorClass::new(0, None)))
-        .lock()
-        .unwrap()
-}
-
-#[cfg(target_os = "windows")]
-pub fn windows_message_handler() {
+pub fn windows_message_handler(runtime: &crate::process_state::WwLibRuntime) {
     let mut msg = MSG::default();
     while PeekMessageW(&mut msg, HWND(0), 0, 0, PM_NOREMOVE).as_bool() {
         if !GetMessageW(&mut msg, HWND(0), 0, 0).as_bool() {
@@ -78,20 +21,13 @@ pub fn windows_message_handler() {
         let mut processed = false;
 
         {
-            let accels = accelerators();
-            for aindex in 0..accels.count() {
-                if accels[aindex].window != HWND(0) {
-                    if TranslateAcceleratorW(
-                        accels[aindex].window,
-                        accels[aindex].accelerator,
-                        &msg,
-                    )
-                    .as_bool()
-                    {
-                        processed = true;
-                    }
+            let accels = runtime.accelerators.lock().unwrap();
+            if let Some(&(window, accel)) = accels.first() {
+                if window != 0
+                    && TranslateAcceleratorW(HWND(window), HACCEL(accel), &msg).as_bool()
+                {
+                    processed = true;
                 }
-                break;
             }
         }
         if processed {
@@ -99,9 +35,9 @@ pub fn windows_message_handler() {
         }
 
         {
-            let dialogs = modeless_dialogs();
-            for index in 0..dialogs.count() {
-                if IsDialogMessageW(dialogs[index], &msg).as_bool() {
+            let dialogs = runtime.modeless_dialogs.lock().unwrap();
+            for &dialog in dialogs.iter() {
+                if IsDialogMessageW(HWND(dialog), &msg).as_bool() {
                     processed = true;
                     break;
                 }
@@ -112,8 +48,11 @@ pub fn windows_message_handler() {
         }
 
         {
-            let handler_guard = MSG_LOOP.message_intercept_handler.lock().unwrap();
-            if let Some(handler) = *handler_guard {
+            let handler_guard = runtime.message_intercept_handler.lock().unwrap();
+            if let Some(handler_bits) = *handler_guard {
+                // SAFETY: handler installed via set_message_intercept_handler as fn pointer.
+                let handler: fn(&mut MSG) -> bool =
+                    unsafe { std::mem::transmute(handler_bits) };
                 processed = handler(&mut msg);
             }
         }
@@ -127,45 +66,57 @@ pub fn windows_message_handler() {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn windows_message_handler() {}
+pub fn windows_message_handler(_runtime: &crate::process_state::WwLibRuntime) {}
 
 #[cfg(target_os = "windows")]
-pub fn add_modeless_dialog(dialog: HWND) {
-    modeless_dialogs().add(dialog);
+pub fn add_modeless_dialog(runtime: &crate::process_state::WwLibRuntime, dialog: HWND) {
+    runtime.modeless_dialogs.lock().unwrap().push(dialog.0);
 }
 
 #[cfg(target_os = "windows")]
-pub fn remove_modeless_dialog(dialog: HWND) {
-    modeless_dialogs().delete_by_value(&dialog);
+pub fn remove_modeless_dialog(runtime: &crate::process_state::WwLibRuntime, dialog: HWND) {
+    runtime
+        .modeless_dialogs
+        .lock()
+        .unwrap()
+        .retain(|&d| d != dialog.0);
 }
 
 #[cfg(target_os = "windows")]
-pub fn add_accelerator(window: HWND, accelerator: windows::Win32::UI::WindowsAndMessaging::HACCEL) {
-    accelerators().add(AcceleratorTracker {
-        window,
-        accelerator,
-    });
+pub fn add_accelerator(
+    runtime: &crate::process_state::WwLibRuntime,
+    window: HWND,
+    accelerator: HACCEL,
+) {
+    runtime
+        .accelerators
+        .lock()
+        .unwrap()
+        .push((window.0, accelerator.0));
 }
 
 #[cfg(target_os = "windows")]
-pub fn remove_accelerator(accelerator: windows::Win32::UI::WindowsAndMessaging::HACCEL) {
-    let accels = accelerators();
-    for index in 0..accels.count() {
-        if accels[index].accelerator == accelerator {
-            accels.delete(index);
-            break;
-        }
-    }
+pub fn remove_accelerator(runtime: &crate::process_state::WwLibRuntime, accelerator: HACCEL) {
+    runtime
+        .accelerators
+        .lock()
+        .unwrap()
+        .retain(|&(_, a)| a != accelerator.0);
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn add_modeless_dialog(_dialog: usize) {}
+pub fn add_modeless_dialog(_runtime: &crate::process_state::WwLibRuntime, _dialog: usize) {}
 
 #[cfg(not(target_os = "windows"))]
-pub fn remove_modeless_dialog(_dialog: usize) {}
+pub fn remove_modeless_dialog(_runtime: &crate::process_state::WwLibRuntime, _dialog: usize) {}
 
 #[cfg(not(target_os = "windows"))]
-pub fn add_accelerator(_window: usize, _accelerator: usize) {}
+pub fn add_accelerator(
+    _runtime: &crate::process_state::WwLibRuntime,
+    _window: usize,
+    _accelerator: usize,
+) {
+}
 
 #[cfg(not(target_os = "windows"))]
-pub fn remove_accelerator(_accelerator: usize) {}
+pub fn remove_accelerator(_runtime: &crate::process_state::WwLibRuntime, _accelerator: usize) {}

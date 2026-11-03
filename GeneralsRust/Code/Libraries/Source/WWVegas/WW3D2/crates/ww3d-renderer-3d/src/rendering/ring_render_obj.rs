@@ -277,7 +277,7 @@ impl RingMesh {
 
 /// Shared ring mesh array for all LOD levels
 /// C++ Reference: ringobj.cpp line 146 (RingMeshArray)
-struct RingMeshArray {
+pub(crate) struct RingMeshArray {
     meshes: Vec<RingMesh>,
     costs: Vec<f32>,
 }
@@ -285,7 +285,7 @@ struct RingMeshArray {
 impl RingMeshArray {
     /// Generate all LOD levels
     /// C++ Reference: ringobj.cpp lines 367-390 (Generate_Shared_Mesh_Arrays)
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut meshes = Vec::with_capacity(RING_NUM_LOD);
         let mut costs = Vec::with_capacity(RING_NUM_LOD + 1);
 
@@ -327,17 +327,10 @@ impl RingMeshArray {
 }
 
 fn with_ring_mesh_array<R>(f: impl FnOnce(&mut Option<RingMeshArray>) -> R) -> R {
-    let r3d = crate::process_state::renderer_3d();
-    let mut guard = r3d.ring_mesh_array.lock().unwrap_or_else(|p| p.into_inner());
-    if guard.is_none() {
-        *guard = Some(Box::new(None::<RingMeshArray>));
-    }
-    let slot = guard
-        .as_mut()
-        .unwrap()
-        .downcast_mut::<Option<RingMeshArray>>()
-        .expect("ring_mesh_array type");
-    f(slot)
+    f(&mut crate::process_state::renderer_3d()
+        .ring_mesh_array
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()))
 }
 
 /// Initialize shared ring mesh arrays

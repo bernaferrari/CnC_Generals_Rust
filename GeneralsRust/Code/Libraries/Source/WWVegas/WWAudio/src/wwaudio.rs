@@ -145,14 +145,6 @@ impl Default for WWAudioClass {
     }
 }
 
-struct WwAudioInstanceRuntime {
-    ww_audio_instance: std::sync::Mutex<WWAudioClass>,
-}
-static WW_AUDIO_INSTANCE: std::sync::LazyLock<WwAudioInstanceRuntime> = std::sync::LazyLock::new(|| WwAudioInstanceRuntime {
-        ww_audio_instance: std::sync::Mutex::new(WWAudioClass::default()),
-});
-
-
 impl WWAudioClass {
     fn queue_handle_release(handle: WWHandle) {
         queue_delayed_release(PLAYLIST_RELEASE_DELAY_MS, move || {
@@ -176,14 +168,9 @@ impl WWAudioClass {
         }
     }
 
-    /// Run `f` against the process-lifetime singleton
-    /// (equivalent to the C++ `Get_Instance`, which handed out a pointer).
-    ///
-    /// The borrow is exclusive for the duration of `f`, mirroring how the
-    /// game thread used the C++ singleton; re-entering from inside `f`
-    /// panics instead of silently aliasing.
-    pub fn with_instance<R>(f: impl FnOnce(&mut WWAudioClass) -> R) -> R {
-        { let mut cell = WW_AUDIO_INSTANCE.ww_audio_instance.lock().unwrap_or_else(|p| p.into_inner()); f(&mut cell) }
+    /// Run `f` against this session instance (replaces C++ `Get_Instance`).
+    pub fn with_mut<R>(&mut self, f: impl FnOnce(&mut WWAudioClass) -> R) -> R {
+        f(self)
     }
 
     /// Create a new WWAudio wrapper without touching the singleton

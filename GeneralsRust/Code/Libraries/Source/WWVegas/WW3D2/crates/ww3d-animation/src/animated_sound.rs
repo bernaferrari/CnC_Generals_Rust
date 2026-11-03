@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use configparser::ini::Ini;
 use glam::Mat4;
@@ -36,14 +36,24 @@ struct AnimatedSoundMgrState {
     sound_library: Option<Arc<dyn SoundLibraryBridge>>,
 }
 
-fn manager_state() -> &'static Mutex<AnimatedSoundMgrState> {
-    struct StateRuntime(OnceLock<Mutex<AnimatedSoundMgrState>>);
-    impl std::ops::Deref for StateRuntime {
-        type Target = OnceLock<Mutex<AnimatedSoundMgrState>>;
-        fn deref(&self) -> &Self::Target { &self.0 }
+/// Host-owned animated-sound manager (replaces process STATE).
+#[derive(Default)]
+pub struct AnimatedSoundMgr {
+    pub(crate) state: Mutex<AnimatedSoundMgrState>,
+}
+
+impl AnimatedSoundMgr {
+    pub fn new() -> Self {
+        Self {
+            state: Mutex::new(AnimatedSoundMgrState::default()),
+        }
     }
-    static STATE: StateRuntime = StateRuntime(OnceLock::new());
-    STATE.get_or_init(|| Mutex::new(AnimatedSoundMgrState::default()))
+}
+
+impl std::fmt::Debug for AnimatedSoundMgr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AnimatedSoundMgr")
+    }
 }
 
 fn parse_animation_map(
@@ -119,8 +129,8 @@ fn load_animation_map_from_text(
 }
 
 /// Initialize the animated sound manager by parsing `w3danimsound.ini`.
-pub fn initialize<P: AsRef<Path>>(ini_path: Option<P>) -> W3DResult<()> {
-    let mut state = manager_state().lock().map_err(|_| W3DError::Unknown)?;
+pub fn initialize<P: AsRef<Path>>(mgr: &AnimatedSoundMgr, ini_path: Option<P>) -> W3DResult<()> {
+    let mut state = mgr.state.lock().map_err(|_| W3DError::Unknown)?;
 
     if !state.animation_map.is_empty() {
         return Ok(());
@@ -154,8 +164,8 @@ pub fn initialize<P: AsRef<Path>>(ini_path: Option<P>) -> W3DResult<()> {
 }
 
 /// Initialize the animated sound manager from already-resolved INI bytes.
-pub fn initialize_from_bytes(bytes: &[u8], source_name: &str) -> W3DResult<()> {
-    let mut state = manager_state().lock().map_err(|_| W3DError::Unknown)?;
+pub fn initialize_from_bytes(mgr: &AnimatedSoundMgr, bytes: &[u8], source_name: &str) -> W3DResult<()> {
+    let mut state = mgr.state.lock().map_err(|_| W3DError::Unknown)?;
 
     if !state.animation_map.is_empty() {
         return Ok(());
@@ -175,23 +185,23 @@ pub fn initialize_from_bytes(bytes: &[u8], source_name: &str) -> W3DResult<()> {
 }
 
 /// Release internal resources.
-pub fn shutdown() {
-    if let Ok(mut state) = manager_state().lock() {
+pub fn shutdown(mgr: &AnimatedSoundMgr) {
+    if let Ok(mut state) = mgr.state.lock() {
         state.animation_map.clear();
         state.sound_library = None;
     }
 }
 
 /// Install the bridge to the active sound library.
-pub fn set_sound_library(library: Arc<dyn SoundLibraryBridge>) {
-    if let Ok(mut state) = manager_state().lock() {
+pub fn set_sound_library(mgr: &AnimatedSoundMgr, library: Arc<dyn SoundLibraryBridge>) {
+    if let Ok(mut state) = mgr.state.lock() {
         state.sound_library = Some(library);
     }
 }
 
 /// Retrieve the embedded sound bone name for the provided animation, if one exists.
-pub fn embedded_sound_bone(anim: &HAnimClass) -> Option<String> {
-    manager_state().lock().ok().and_then(|state| {
+pub fn embedded_sound_bone(mgr: &AnimatedSoundMgr, anim: &HAnimClass) -> Option<String> {
+    mgr.state.lock().ok().and_then(|state| {
         let key = anim.get_name().to_ascii_uppercase();
         state
             .animation_map
@@ -207,12 +217,13 @@ fn find_list<'a>(state: &'a AnimatedSoundMgrState, anim: &HAnimClass) -> Option<
 
 /// Trigger sounds for the animation if the frame range crosses sound markers.
 pub fn trigger_sound(
+    mgr: &AnimatedSoundMgr,
     anim: &HAnimClass,
     previous_frame: f32,
     current_frame: f32,
     transform: &Mat4,
 ) -> f32 {
-    let state_guard = match manager_state().lock() {
+    let state_guard = match mgr.state.lock() {
         Ok(guard) => guard,
         Err(_) => return previous_frame,
     };
@@ -244,8 +255,8 @@ pub fn trigger_sound(
 }
 
 /// Check whether the manager has sound data for the given animation.
-pub fn has_embedded_sounds(anim: &HAnimClass) -> bool {
-    manager_state()
+pub fn has_embedded_sounds(mgr: &AnimatedSoundMgr, anim: &HAnimClass) -> bool {
+    mgr.state
         .lock()
         .map(|state| find_list(&state, anim).is_some())
         .unwrap_or(false)
@@ -257,7 +268,8 @@ mod tests {
 
     #[test]
     fn initialize_from_bytes_loads_embedded_sound_definitions() {
-        shutdown();
+        let mgr = AnimatedSoundMgr::new();
+        shutdown(&mgr);
 
         let ini = br#"
 [TestAnim]
@@ -266,11 +278,9 @@ Entry1 = 10, TankFire, 2D
 Entry2 = 20, TankLoop, STOP
 "#;
 
-        initialize_from_bytes(ini, "inline").expect("animated sound bytes should parse");
+        initialize_from_bytes(&mgr, ini, "inline").expect("animated sound bytes should parse");
 
-        let state = manager_state()
-            .lock()
-            .expect("animated sound state poisoned");
+        let state = mgr.state.lock().expect("animated sound state poisoned");
         let list = state
             .animation_map
             .get("TESTANIM")
@@ -279,8 +289,5 @@ Entry2 = 20, TankLoop, STOP
         assert_eq!(list.entries.len(), 2);
         assert!(list.entries[0].is_2d);
         assert!(list.entries[1].is_stop);
-
-        drop(state);
-        shutdown();
     }
 }

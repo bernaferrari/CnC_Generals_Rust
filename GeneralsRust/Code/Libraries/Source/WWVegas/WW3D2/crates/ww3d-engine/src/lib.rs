@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use ww3d_core::ensure_class_registry_initialized;
-use ww3d_gpu::{GpuDevice, GpuError, shared_device};
+use ww3d_gpu::{DeviceAuthority, GpuDevice, GpuError};
 
 mod frame_submit;
 /// Shared handle for explicit frame-submit ownership.
@@ -805,6 +805,7 @@ pub struct Engine {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     gpu_device: Arc<GpuDevice>,
+    device_authority: DeviceAuthority,
     surface: SurfaceMode,
     settings: EngineSettings,
     /// Owned frame-submit bookkeeping (C++ one in-flight WW3D device frame).
@@ -903,8 +904,17 @@ impl Engine {
         let adapter = request_adapter(&instance, Some(&surface), config.power_preference).await?;
         let adapter_info = adapter.get_info();
 
-        let gpu_device =
-            acquire_or_create_gpu_device(&adapter, config.features, config.limits.clone()).await?;
+        let (gpu_device, device_authority) = {
+            let authority = DeviceAuthority::new();
+            let gpu = acquire_or_create_gpu_device(
+                &adapter,
+                config.features,
+                config.limits.clone(),
+                &authority,
+            )
+            .await?;
+            (gpu, authority)
+        };
 
         let device = gpu_device.device_arc();
         let queue = gpu_device.queue_arc();
@@ -922,6 +932,7 @@ impl Engine {
             device,
             queue,
             gpu_device,
+            device_authority,
             surface: SurfaceMode::Windowed(surface_state),
             settings: EngineSettings::default(),
             frame_submit: Arc::new(Mutex::new(frame_submit::FrameSubmitState::new())),
@@ -958,8 +969,17 @@ impl Engine {
         let adapter = request_adapter(&instance, None, config.power_preference).await?;
         let adapter_info = adapter.get_info();
 
-        let gpu_device =
-            acquire_or_create_gpu_device(&adapter, config.features, config.limits.clone()).await?;
+        let (gpu_device, device_authority) = {
+            let authority = DeviceAuthority::new();
+            let gpu = acquire_or_create_gpu_device(
+                &adapter,
+                config.features,
+                config.limits.clone(),
+                &authority,
+            )
+            .await?;
+            (gpu, authority)
+        };
 
         let device = gpu_device.device_arc();
         let queue = gpu_device.queue_arc();
@@ -988,6 +1008,7 @@ impl Engine {
             device,
             queue,
             gpu_device,
+            device_authority,
             surface: SurfaceMode::Headless(target),
             settings: EngineSettings::default(),
             frame_submit: Arc::new(Mutex::new(frame_submit::FrameSubmitState::new())),
@@ -2097,8 +2118,9 @@ async fn acquire_or_create_gpu_device(
     adapter: &wgpu::Adapter,
     features: wgpu::Features,
     limits: wgpu::Limits,
+    authority: &DeviceAuthority,
 ) -> EngineResult<Arc<GpuDevice>> {
-    if let Some(shared) = shared_device() {
+    if let Some(shared) = authority.shared_device() {
         return Ok(Arc::new(GpuDevice::from_shared(
             Arc::new(shared.device),
             Arc::new(shared.queue),
@@ -2117,7 +2139,7 @@ async fn acquire_or_create_gpu_device(
         .max(limits.max_samplers_per_shader_stage);
     let limits = limits.using_resolution(adapter_limits);
     Ok(Arc::new(
-        GpuDevice::create_device(adapter, features, limits)
+        GpuDevice::create_device(adapter, features, limits, authority)
             .await
             .map_err(EngineError::Gpu)?,
     ))

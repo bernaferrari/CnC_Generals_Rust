@@ -300,7 +300,7 @@ impl WgpuWrapper {
             required_features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
         }
 
-        let (device, queue) = block_on(ww3d_gpu::acquire_device(
+        let (device, queue) = block_on(ww3d_gpu::DeviceAuthority::new().acquire_device(
             &adapter,
             &wgpu::DeviceDescriptor {
                 label: Some("WW3D Renderer Device"),
@@ -364,7 +364,7 @@ impl WgpuWrapper {
             .map_err(|e| Error::AdapterNotFound(format!("No adapter available: {e}")))?,
         );
 
-        let (device, queue) = block_on(ww3d_gpu::acquire_device(
+        let (device, queue) = block_on(ww3d_gpu::DeviceAuthority::new().acquire_device(
             &adapter,
             &wgpu::DeviceDescriptor {
                 label: Some("WW3D Headless Device"),

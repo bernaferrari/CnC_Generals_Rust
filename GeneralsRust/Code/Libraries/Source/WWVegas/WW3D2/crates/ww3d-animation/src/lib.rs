@@ -24,7 +24,7 @@ pub mod wgpu_skinned_renderer;
 
 pub use animatable_object::Animatable3DObjClass;
 pub use animated_sound::{
-    SoundLibraryBridge, embedded_sound_bone, has_embedded_sounds,
+    AnimatedSoundMgr, SoundLibraryBridge, embedded_sound_bone, has_embedded_sounds,
     initialize as initialize_animated_sound_mgr,
     initialize_from_bytes as initialize_animated_sound_mgr_from_bytes, set_sound_library,
     shutdown as shutdown_animated_sound_mgr, trigger_sound,

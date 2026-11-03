@@ -129,7 +129,7 @@ impl RuntimeBuilder {
             .map_err(|e| Error::AdapterNotFound(format!("No compatible adapter found: {e}")))?,
         );
 
-        let (device, queue) = pollster::block_on(ww3d_gpu::acquire_device(
+        let (device, queue) = pollster::block_on(ww3d_gpu::DeviceAuthority::new().acquire_device(
             &adapter,
             &wgpu::DeviceDescriptor {
                 label: Some("WW3D Headless Device"),
@@ -207,7 +207,7 @@ impl RuntimeBuilder {
             required_features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
         }
 
-        let (device, queue) = pollster::block_on(ww3d_gpu::acquire_device(
+        let (device, queue) = pollster::block_on(ww3d_gpu::DeviceAuthority::new().acquire_device(
             &adapter,
             &wgpu::DeviceDescriptor {
                 label: Some("WW3D Surface Device"),

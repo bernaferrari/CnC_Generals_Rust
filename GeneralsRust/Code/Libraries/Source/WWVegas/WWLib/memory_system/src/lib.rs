@@ -218,7 +218,7 @@ impl Drop for MemoryPoolBlob {
     }
 }
 
-// SAFETY: MemoryPoolBlob is used behind a Mutex in GLOBAL_MEMORY_POOL_FACTORY.
+// SAFETY: MemoryPoolBlob is used behind a Mutex in MemoryPoolSession.
 // The Mutex ensures exclusive access, making it safe to send across threads.
 unsafe impl Send for MemoryPoolBlob {}
 
@@ -442,7 +442,7 @@ impl fmt::Debug for MemoryPool {
     }
 }
 
-// SAFETY: MemoryPool is used behind a Mutex in GLOBAL_MEMORY_POOL_FACTORY.
+// SAFETY: MemoryPool is used behind a Mutex in MemoryPoolSession.
 // The Mutex ensures exclusive access, making it safe to send across threads.
 unsafe impl Send for MemoryPool {}
 
@@ -742,60 +742,63 @@ impl fmt::Debug for MemoryPoolFactory {
 // The Mutex ensures exclusive access, making it safe to send across threads.
 unsafe impl Send for MemoryPoolFactory {}
 
-// SAFETY: DynamicMemoryAllocator is used behind a Mutex in GLOBAL_MEMORY_POOL_FACTORY.
+// SAFETY: DynamicMemoryAllocator is used behind a Mutex in MemoryPoolSession.
 // The Mutex ensures exclusive access, making it safe to send across threads.
 unsafe impl Send for DynamicMemoryAllocator {}
 
 /// Global memory pool factory instance
-struct GlobalMemoryPoolFactoryRuntime(OnceLock<Mutex<MemoryPoolFactory>>);
-impl std::ops::Deref for GlobalMemoryPoolFactoryRuntime {
-    type Target = OnceLock<Mutex<MemoryPoolFactory>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static GLOBAL_MEMORY_POOL_FACTORY: GlobalMemoryPoolFactoryRuntime = GlobalMemoryPoolFactoryRuntime(OnceLock::new());
-
-/// Initialize the global memory system
-pub fn init_memory_manager(pool_configs: &[PoolInitRec]) -> Result<(), String> {
-    let factory = GLOBAL_MEMORY_POOL_FACTORY.get_or_init(|| Mutex::new(MemoryPoolFactory::new()));
-    let mut factory = factory.lock();
-    factory.create_dynamic_memory_allocator(pool_configs)?;
-
-    Ok(())
+/// Host-owned memory pool session (replaces process MemoryPoolSession).
+pub struct MemoryPoolSession {
+    factory: Mutex<MemoryPoolFactory>,
 }
 
-/// Shutdown the global memory system
-pub fn shutdown_memory_manager() {
-    // OnceLock cannot be reset; the memory will be released on process exit.
-    // In a long-running process, the factory can be cleared by resetting internal state.
+impl Default for MemoryPoolSession {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-/// Get the global memory pool factory
-pub fn get_memory_pool_factory() -> Option<&'static Mutex<MemoryPoolFactory>> {
-    GLOBAL_MEMORY_POOL_FACTORY.get()
-}
+impl MemoryPoolSession {
+    pub fn new() -> Self {
+        Self {
+            factory: Mutex::new(MemoryPoolFactory::new()),
+        }
+    }
 
-/// Convenience function to allocate memory
-pub fn allocate_memory(size: usize) -> Result<*mut u8, String> {
-    if let Some(factory) = get_memory_pool_factory() {
-        let mut factory = factory.lock();
+    pub fn init(&self, pool_configs: &[PoolInitRec]) -> Result<(), String> {
+        let mut factory = self.factory.lock();
+        factory.create_dynamic_memory_allocator(pool_configs)?;
+        Ok(())
+    }
+
+    pub fn factory(&self) -> &Mutex<MemoryPoolFactory> {
+        &self.factory
+    }
+
+    pub fn allocate_memory(&self, size: usize) -> Result<*mut u8, String> {
+        let mut factory = self.factory.lock();
         if let Some(dma) = factory.dmas.first_mut() {
             return dma.allocate_bytes(size);
         }
+        Err("Memory system not initialized".to_string())
     }
-    Err("Memory system not initialized".to_string())
-}
 
-/// Convenience function to free memory
-pub fn free_memory(ptr: *mut u8) -> bool {
-    if let Some(factory) = get_memory_pool_factory() {
-        let mut factory = factory.lock();
+    pub fn free_memory(&self, ptr: *mut u8) -> bool {
+        let mut factory = self.factory.lock();
         for dma in factory.dmas.iter_mut() {
             if dma.free_bytes(ptr) {
                 return true;
             }
         }
+        false
     }
-    false
+}
+
+/// Initialize a new memory pool session.
+pub fn init_memory_manager(pool_configs: &[PoolInitRec]) -> Result<MemoryPoolSession, String> {
+    let session = MemoryPoolSession::new();
+    session.init(pool_configs)?;
+    Ok(session)
 }
 
 #[cfg(test)]
