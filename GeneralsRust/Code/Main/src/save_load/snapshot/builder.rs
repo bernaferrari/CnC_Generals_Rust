@@ -2029,7 +2029,9 @@ impl SnapshotBuilder {
     ) {
         game_logic.set_scoring_enabled(snapshot.is_scoring_enabled);
         game_logic.set_limit_superweapons(snapshot.limit_superweapons);
-        if let Ok(mut leftover) = gamelogic::system::game_logic::get_game_logic().lock() {
+        if let Some(Ok(mut leftover)) =
+            gamelogic::system::game_logic::try_get_game_logic().map(|mutex| mutex.lock())
+        {
             leftover.set_superweapon_restriction(if snapshot.limit_superweapons { 1 } else { 0 });
         }
         game_logic.restore_cave_system(snapshot.cave_system.clone());
