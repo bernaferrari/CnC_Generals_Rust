@@ -160,3 +160,40 @@ fn normal_duplicate_keeps_original_while_explicit_map_override_replaces_it() {
     );
     assert_eq!(definitions.len(), 1);
 }
+
+#[test]
+fn weapon_death_type_admits_every_cpp_death_name() {
+    // CPP Damage.h TheDeathNames[]: every authored token maps to its own index.
+    let names = [
+        ("NORMAL", gamelogic::DeathType::Normal),
+        ("NONE", gamelogic::DeathType::None),
+        ("CRUSHED", gamelogic::DeathType::Crushed),
+        ("BURNED", gamelogic::DeathType::Burned),
+        ("EXPLODED", gamelogic::DeathType::Exploded),
+        ("POISONED", gamelogic::DeathType::Poisoned),
+        ("TOPPLED", gamelogic::DeathType::Toppled),
+        ("FLOODED", gamelogic::DeathType::Flooded),
+        ("SUICIDED", gamelogic::DeathType::Suicided),
+        ("LASERED", gamelogic::DeathType::Lasered),
+        ("DETONATED", gamelogic::DeathType::Detonated),
+        ("SPLATTED", gamelogic::DeathType::Splatted),
+        ("POISONED_BETA", gamelogic::DeathType::PoisonedBeta),
+        ("EXTRA_2", gamelogic::DeathType::Extra2),
+        ("EXTRA_3", gamelogic::DeathType::Extra3),
+        ("EXTRA_4", gamelogic::DeathType::Extra4),
+        ("EXTRA_5", gamelogic::DeathType::Extra5),
+        ("EXTRA_6", gamelogic::DeathType::Extra6),
+        ("EXTRA_7", gamelogic::DeathType::Extra7),
+        ("EXTRA_8", gamelogic::DeathType::Extra8),
+        ("POISONED_GAMMA", gamelogic::DeathType::PoisonedGamma),
+    ];
+    for (token, expected) in names {
+        let mut definitions = HashMap::new();
+        parse_weapon_definitions_ini_into(
+            &mut definitions,
+            &format!("Weapon W\nDeathType = {token}\nEnd\n"),
+            WeaponDefinitionLoadType::Normal,
+        );
+        assert_eq!(definitions["w"].death_type, expected, "DeathType = {token}");
+    }
+}

@@ -1826,6 +1826,17 @@ fn parse_death_type(s: &str) -> gamelogic::DeathType {
         "toppled" => gamelogic::DeathType::Toppled,
         "suicided" => gamelogic::DeathType::Suicided,
         "lasered" => gamelogic::DeathType::Lasered,
+        // CPP Damage.h TheDeathNames[] entries previously collapsed to NORMAL.
+        "none" => gamelogic::DeathType::None,
+        "detonated" => gamelogic::DeathType::Detonated,
+        "splatted" => gamelogic::DeathType::Splatted,
+        "extra_2" => gamelogic::DeathType::Extra2,
+        "extra_3" => gamelogic::DeathType::Extra3,
+        "extra_4" => gamelogic::DeathType::Extra4,
+        "extra_5" => gamelogic::DeathType::Extra5,
+        "extra_6" => gamelogic::DeathType::Extra6,
+        "extra_7" => gamelogic::DeathType::Extra7,
+        "extra_8" => gamelogic::DeathType::Extra8,
         _ => gamelogic::DeathType::Normal, // Default fallback
     }
 }
