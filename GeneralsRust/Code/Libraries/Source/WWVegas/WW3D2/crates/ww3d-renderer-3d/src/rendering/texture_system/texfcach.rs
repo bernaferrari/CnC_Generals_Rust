@@ -184,14 +184,7 @@ impl TextureCacheEntry {
             cached_surfaces: vec![None; mip_slots],
             texture: None,
             ref_count: AtomicU32::new(0),
-            last_access_time: {
-                let sync = WW3D::sync_time() as u64;
-                if sync > 0 {
-                    UNIX_EPOCH + Duration::from_millis(sync)
-                } else {
-                    SystemTime::now()
-                }
-            },
+            last_access_time: SystemTime::now(),
         }
     }
 
@@ -209,12 +202,7 @@ impl TextureCacheEntry {
     }
 
     fn touch(&mut self) {
-        let sync = WW3D::sync_time() as u64;
-        if sync > 0 {
-            self.last_access_time = UNIX_EPOCH + Duration::from_millis(sync);
-        } else {
-            self.last_access_time = SystemTime::now();
-        }
+        self.last_access_time = SystemTime::now();
     }
 
     fn drop_texture(&mut self) -> Option<Arc<TextureBaseClass>> {
@@ -444,14 +432,7 @@ impl TextureFileCache {
             cached_surfaces: vec![None; header.num_mipmaps.max(1) as usize],
             texture: None,
             ref_count: AtomicU32::new(0),
-            last_access_time: {
-                let sync = WW3D::sync_time() as u64;
-                if sync > 0 {
-                    UNIX_EPOCH + Duration::from_millis(sync)
-                } else {
-                    SystemTime::now()
-                }
-            },
+            last_access_time: SystemTime::now(),
             file_time: header.file_time,
         };
 

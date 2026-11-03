@@ -1,7 +1,6 @@
 use glam::Vec3;
 use lazy_static::lazy_static;
 use std::sync::Mutex;
-use ww3d_core::ww3d::WW3D;
 use ww3d_engine::{self, EngineConfig};
 use ww3d_renderer_3d::rendering::wgpu_main_renderer::WgpuMainRenderer;
 use ww3d_renderer_3d::rendering::wgpu_renderer::wgpu_wrapper::WgpuWrapper;
@@ -43,8 +42,7 @@ fn headless_wrapper_supports_basic_lifecycle() {
 fn ww3d_stats_bridge_updates_after_frame() {
     let _guard = ENGINE_TEST_MUTEX.lock().expect("engine mutex poisoned");
 
-    // Ensure any previous renderer/engine state is torn down between tests.
-    WW3D::unregister_renderer();
+    // Ensure any previous engine state is torn down between tests.
     let _ = ww3d_engine::shutdown();
 
     let backend = WgpuWrapper::new_headless((32, 32), wgpu::TextureFormat::Bgra8Unorm)
@@ -54,17 +52,17 @@ fn ww3d_stats_bridge_updates_after_frame() {
     renderer.begin_frame().expect("begin frame");
     renderer.end_frame().expect("end frame");
     let stats = renderer.snapshot_stats();
-    let core_stats = WW3D::current_frame_stats().expect("stats bridge");
+    let core_stats = renderer.ww3d.current_frame_stats().expect("stats bridge");
     assert_eq!(core_stats.draw_calls, stats.draw_calls);
     assert_eq!(core_stats.triangles_rendered, stats.triangles_rendered);
-    WW3D::unregister_renderer();
+    renderer.ww3d.unregister_renderer();
 }
 
 #[test]
 fn engine_headless_flow() {
     let _guard = ENGINE_TEST_MUTEX.lock().expect("engine mutex poisoned");
 
-    WW3D::unregister_renderer();
+    // owned Ww3dContext drops with renderer
     let _ = ww3d_engine::shutdown();
 
     let mut config = EngineConfig::default();

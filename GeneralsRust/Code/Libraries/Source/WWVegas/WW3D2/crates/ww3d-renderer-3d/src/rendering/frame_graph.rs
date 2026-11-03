@@ -15,7 +15,6 @@ use glam::{Mat4, Vec2, Vec3};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
-use ww3d_core::WW3D;
 
 /// Identifier for a frame-graph pass node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -370,7 +369,7 @@ impl FrameGraphNode {
         self.submissions.push(submission);
         self.enqueue(index, resolved_queue);
 
-        if !is_decal && WW3D::are_decals_enabled() && !mesh.decal_meshes.is_empty() {
+        if !is_decal && StaticSortManager::are_decals_enabled() && !mesh.decal_meshes.is_empty() {
             for decal in &mesh.decal_meshes {
                 if decal.model.is_none() {
                     continue;

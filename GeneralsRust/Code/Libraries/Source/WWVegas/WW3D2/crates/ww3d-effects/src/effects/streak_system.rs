@@ -371,7 +371,7 @@ impl StreakRenderer {
     }
 
     /// Render all streaks
-    pub fn render(&mut self, _rinfo: &RenderInfoClass) -> Result<()> {
+    pub fn render(&mut self, rinfo: &RenderInfoClass) -> Result<()> {
         self.vertex_buffer.clear();
         self.index_buffer.clear();
 
@@ -477,7 +477,10 @@ impl StreakRenderer {
         mesh.update_cached_bounding_volumes();
 
         let mesh = Arc::new(mesh);
-        Renderer::with_global_mut(|renderer| {
+        let Some(ww3d) = rinfo.ww3d.as_deref() else {
+            return Ok(());
+        };
+        Renderer::with_global_mut(ww3d, |renderer| {
             renderer.queue_mesh(Arc::clone(&mesh))?;
             Ok(())
         })

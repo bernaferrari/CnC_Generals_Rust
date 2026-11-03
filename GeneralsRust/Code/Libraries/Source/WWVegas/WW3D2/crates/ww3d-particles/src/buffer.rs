@@ -121,6 +121,8 @@ pub struct ParticleBuffer {
 
     // State
     pub current_time_ms: u32,
+    /// Optional engine sync clock (ms). 0 = accumulate deltas only.
+    sync_time_ms: u32,
     pub is_emitter_dead: bool,
     pub max_size: f32,
 
@@ -230,6 +232,7 @@ impl ParticleBuffer {
             line_renderer,
             line_group_renderer,
             current_time_ms: 0,
+            sync_time_ms: 0,
             is_emitter_dead: false,
             max_size: 0.0,
             lod_bias: 1.0,
@@ -267,13 +270,18 @@ impl ParticleBuffer {
     }
 
     /// Update particle states
+    /// Drive the optional engine sync clock (ms). 0 disables sync override.
+    pub fn set_sync_time(&mut self, sync_time_ms: u32) {
+        self.sync_time_ms = sync_time_ms;
+    }
+
     pub fn update(&mut self, delta_time_ms: u32) {
         // Process newly emitted particles regardless of elapsed time.
         self.process_new_particles();
 
         let mut effective_delta_ms = delta_time_ms;
         let previous_time = self.current_time_ms;
-        let sync_time = WW3D::sync_time();
+        let sync_time = self.sync_time_ms;
 
         if sync_time != 0 {
             self.current_time_ms = sync_time;
