@@ -135,8 +135,9 @@ bd close bd-42 --reason "Completed" --json
 1. **Check ready work**: `bd ready` shows unblocked issues
 2. **Claim your task atomically**: `bd update <id> --claim`
 3. **Work on it**: Implement, test, document
-4. **Discover new work?** Create linked issue:
-   - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
+4. **Discover new work?** Prefer a checklist line on the existing survivor/focused bead. Only `bd create` when there is no survivor for that theme:
+   - Checklist: append `- <id-or-new> — <gap> — <C++ ref>` to the survivor description
+   - New bead (rare): `bd create "Found bug" --description="Details" -p 1 --deps discovered-from:<parent-id>`
 5. **Complete**: `bd close <id> --reason "Done"`
 
 ### Auto-Sync

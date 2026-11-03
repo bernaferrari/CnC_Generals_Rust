@@ -56,6 +56,7 @@ Every ported file should be explainable in terms of:
 - Remove self-referential residual/wave/honesty/hunt audit scaffolding while preserving real runtime behavior and executable behavioral tests. Do not introduce more source-string tables or tests that merely check their own constants.
 - Do not commit scratch reports, findings JSON, or probe output to the repo root. Put durable notes in the issue tracker.
 - Before opening a new issue, check that it blocks playing a skirmish faithfully or breaks instance isolation; prefer closing or updating an existing issue.
+- Do not create a new bead for a sub-gap of an existing survivor/focused tracker; add a checklist line (`id — gap — C++ ref`) to that survivor instead.
 
 ## Rendering and UI Rules
 - Exact draw dispatch matters more than prettier code.
