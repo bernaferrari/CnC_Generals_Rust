@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 #[test]
 fn world_construction_and_landmark_geometry_are_instance_owned() {
+    generals_main::game_logic::ensure_world_ambient();
     let ambient_ai = game_engine::common::ini::ini_ai_data::process_lifetime_ai_data_store();
     let previous_ai = ambient_ai.read().unwrap().clone();
     {

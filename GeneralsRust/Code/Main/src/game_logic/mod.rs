@@ -1,5 +1,13 @@
 //! Game logic, owned runtime adapters, and executable behavioral regressions.
 
+pub(crate) mod world_ambient;
+
+/// Register Main TLS ambient stack with GameLogic (idempotent).
+#[inline]
+pub fn ensure_world_ambient() {
+    world_ambient::bind_pre_ensure();
+    world_ambient::ensure_registered();
+}
 #[cfg(test)]
 mod runtime_regressions;
 
