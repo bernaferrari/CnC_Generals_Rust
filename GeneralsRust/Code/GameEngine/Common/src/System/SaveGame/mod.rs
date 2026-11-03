@@ -38,8 +38,11 @@ type SetSkirmishPayloadHook = Arc<dyn Fn(Option<Vec<u8>>) + Send + Sync>;
 type ClearGameDataHook = Arc<dyn Fn() + Send + Sync>;
 type MissionStartArgsHook = Arc<dyn Fn() -> (i32, i32) + Send + Sync>;
 type SaveLockGhostObjectsHook = Arc<dyn Fn(bool) + Send + Sync>;
-/// (campaign side, mission number, current campaign map). `None` = no campaign.
+/// (campaign_name_label key, mission number, current campaign map). `None` = no campaign.
 type CampaignSnapshotHook = Arc<dyn Fn() -> Option<(String, i32, String)> + Send + Sync>;
+type FetchGameTextHook = Arc<dyn Fn(&str) -> String + Send + Sync>;
+type PostUiMessageHook = Arc<dyn Fn(&str) + Send + Sync>;
+type MessageBoxOkHook = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
 #[derive(Default)]
 pub(crate) struct RuntimeIdCounterHooks {
@@ -64,6 +67,9 @@ pub(crate) struct SaveLoadLifecycleHooks {
     mission_start_args: Option<MissionStartArgsHook>,
     save_lock_ghost_objects: Option<SaveLockGhostObjectsHook>,
     get_campaign_snapshot: Option<CampaignSnapshotHook>,
+    fetch_game_text: Option<FetchGameTextHook>,
+    post_ui_message: Option<PostUiMessageHook>,
+    message_box_ok: Option<MessageBoxOkHook>,
 }
 
 fn id_counter_hooks() -> Arc<Mutex<RuntimeIdCounterHooks>> {
@@ -189,6 +195,47 @@ pub fn register_save_load_skirmish_hooks(
 pub fn register_save_load_campaign_hooks(get_campaign_snapshot: Option<CampaignSnapshotHook>) {
     if let Ok(mut hooks) = save_load_hooks().lock() {
         hooks.get_campaign_snapshot = get_campaign_snapshot;
+    }
+}
+
+/// Wire GameText + InGameUI/MessageBox paths used by `GameState::save_game` /
+/// `mission_save` (C++ GameState.cpp:548-596, 616-618).
+pub fn register_save_game_ui_hooks(
+    fetch_game_text: Option<FetchGameTextHook>,
+    post_ui_message: Option<PostUiMessageHook>,
+    message_box_ok: Option<MessageBoxOkHook>,
+) {
+    if let Ok(mut hooks) = save_load_hooks().lock() {
+        hooks.fetch_game_text = fetch_game_text;
+        hooks.post_ui_message = post_ui_message;
+        hooks.message_box_ok = message_box_ok;
+    }
+}
+
+pub(crate) fn notify_fetch_game_text(key: &str) -> String {
+    let hooks_arc = save_load_hooks();
+    if let Ok(hooks) = hooks_arc.lock() {
+        if let Some(fetch) = hooks.fetch_game_text.as_ref() {
+            return fetch(key);
+        }
+    }
+    // Fall back to the map-cache GameText provider when UI hooks are unset.
+    crate::common::ini::ini_map_cache::lookup_game_text(key).unwrap_or_else(|| key.to_string())
+}
+
+pub(crate) fn notify_post_ui_message(text_or_label: &str) {
+    if let Ok(hooks) = save_load_hooks().lock() {
+        if let Some(post) = hooks.post_ui_message.as_ref() {
+            post(text_or_label);
+        }
+    }
+}
+
+pub(crate) fn notify_message_box_ok(title: &str, body: &str) {
+    if let Ok(hooks) = save_load_hooks().lock() {
+        if let Some(mbox) = hooks.message_box_ok.as_ref() {
+            mbox(title, body);
+        }
     }
 }
 

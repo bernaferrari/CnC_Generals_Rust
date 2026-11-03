@@ -689,7 +689,7 @@ pub fn set_game_text_provider(provider: GameTextProvider) -> bool {
     true
 }
 
-fn lookup_game_text(tag: &str) -> Option<String> {
+pub(crate) fn lookup_game_text(tag: &str) -> Option<String> {
     let services = crate::common::common_services::common_services();
     let slot = services
         .ini
