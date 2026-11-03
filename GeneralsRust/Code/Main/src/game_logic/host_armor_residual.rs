@@ -1149,13 +1149,17 @@ pub fn host_death_type_from_residual_name(
 /// Look up Weapon.ini DamageType residual by weapon template name.
 pub fn host_damage_type_for_weapon_name(name: &str) -> crate::game_logic::combat::DamageType {
     use gamelogic::weapon::with_weapon_store;
-    let dt = with_weapon_store(|store| {
-        store
-            .find_weapon_template(name)
-            .map(|wt| map_store_damage_type(wt.damage_type))
-    })
-    .ok()
-    .flatten();
+    let dt = if gamelogic::system::engine_stores::try_active_services().is_some() {
+        with_weapon_store(|store| {
+            store
+                .find_weapon_template(name)
+                .map(|wt| map_store_damage_type(wt.damage_type))
+        })
+        .ok()
+        .flatten()
+    } else {
+        None
+    };
     if let Some(d) = dt {
         return d;
     }
