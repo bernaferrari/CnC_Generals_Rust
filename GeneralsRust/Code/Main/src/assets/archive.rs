@@ -579,11 +579,13 @@ impl ArchiveFileSystem {
 /// `read_dir` during Lone Eagle spawn/hydrate under noisy disk load.
 #[cfg(not(target_os = "macos"))]
 fn case_insensitive_dir_index(search_dir: &Path) -> Option<HashMap<String, PathBuf>> {
-    static DIR_INDEX: OnceLock<Mutex<HashMap<String, HashMap<String, PathBuf>>>> = OnceLock::new();
     let key = search_dir.to_string_lossy().to_ascii_lowercase();
-    let cache = DIR_INDEX.get_or_init(|| Mutex::new(HashMap::new()));
+    let services = crate::main_services::main_services();
     {
-        let guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = services
+            .archive_dir_index
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(hit) = guard.get(&key) {
             return Some(hit.clone());
         }
@@ -594,7 +596,10 @@ fn case_insensitive_dir_index(search_dir: &Path) -> Option<HashMap<String, PathB
         let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
         index.entry(name).or_insert_with(|| entry.path());
     }
-    let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = services
+        .archive_dir_index
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     // Cap growth on long-running hosts: drop if huge.
     if guard.len() > 4096 {
         guard.clear();
@@ -909,14 +914,6 @@ pub struct ArchiveStatistics {
     pub unique_files: usize,
 }
 
-/// Global archive file system instance - thread-safe version
-struct ArchiveSystemSlot(OnceLock<Arc<Mutex<ArchiveFileSystem>>>);
-impl std::ops::Deref for ArchiveSystemSlot {
-    type Target = OnceLock<Arc<Mutex<ArchiveFileSystem>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static ARCHIVE_SYSTEM: ArchiveSystemSlot = ArchiveSystemSlot(OnceLock::new());
-
 /// Initialize the global archive file system
 pub async fn init_archive_file_system() -> Result<()> {
     let archive_system = Arc::new(Mutex::new(ArchiveFileSystem::new()));
@@ -926,16 +923,25 @@ pub async fn init_archive_file_system() -> Result<()> {
         system.init().await?;
     }
 
-    ARCHIVE_SYSTEM
-        .set(archive_system.clone())
-        .map_err(|_| anyhow!("Archive system already initialized"))?;
-
+    let services = crate::main_services::main_services();
+    let mut slot = services
+        .archive_system
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if slot.is_some() {
+        return Err(anyhow!("Archive system already initialized"));
+    }
+    *slot = Some(archive_system);
     Ok(())
 }
 
 /// Get reference to global archive file system
 pub fn get_archive_file_system() -> Option<Arc<Mutex<ArchiveFileSystem>>> {
-    ARCHIVE_SYSTEM.get().cloned()
+    crate::main_services::main_services()
+        .archive_system
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 /// Adapter that exposes a blocking reader as an `AsyncRead` using `block_in_place`.
@@ -1034,20 +1040,28 @@ impl ArchiveFileReader for BigArchiveFileReader {
     }
 }
 
-static BIG_ARCHIVE_READER: OnceLock<Arc<BigArchiveFileReader>> = OnceLock::new();
-
 pub fn init_big_archive_file_reader() -> Result<()> {
     let archive_system =
         get_archive_file_system().ok_or_else(|| anyhow!("Archive file system not initialized"))?;
     let reader = Arc::new(BigArchiveFileReader::new(archive_system));
-    BIG_ARCHIVE_READER
-        .set(reader)
-        .map_err(|_| anyhow!("Big archive reader already initialized"))?;
+    let services = crate::main_services::main_services();
+    let mut slot = services
+        .big_archive_reader
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if slot.is_some() {
+        return Err(anyhow!("Big archive reader already initialized"));
+    }
+    *slot = Some(reader);
     Ok(())
 }
 
 pub fn get_big_archive_file_reader() -> Option<Arc<BigArchiveFileReader>> {
-    BIG_ARCHIVE_READER.get().cloned()
+    crate::main_services::main_services()
+        .big_archive_reader
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 #[cfg(test)]

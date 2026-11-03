@@ -250,12 +250,6 @@ impl ReplayPendingState {
     }
 }
 
-struct BridgesInstalledSlot(AtomicBool);
-impl std::ops::Deref for BridgesInstalledSlot {
-    type Target = AtomicBool;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static BRIDGES_INSTALLED: BridgesInstalledSlot = BridgesInstalledSlot(AtomicBool::new(false));
 
 /// C++ `GameLogic.cpp` / `MessageStream.h` game-mode integers.
 fn game_mode_to_new_game_code(mode: GameMode) -> i32 {
@@ -387,7 +381,7 @@ fn cull_host_command_list() {
 /// Install CommandList source/sink + command_router host authority.
 /// Safe to call repeatedly.
 pub fn install_host_replay_bridges() {
-    if BRIDGES_INSTALLED.swap(true, Ordering::SeqCst) {
+    if crate::main_services::main_services().bridges_installed.swap(true, Ordering::SeqCst) {
         return;
     }
 

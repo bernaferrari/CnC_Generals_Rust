@@ -162,7 +162,7 @@ pub struct GameClient {
     client_anim2d_instances: std::sync::Arc<parking_lot::Mutex<crate::system::anim2_d::Anim2DCollection>>,
 
     // Drawable management
-    drawables: drawable_world::DrawableWorld,
+    pub(crate) drawables: drawable_world::DrawableWorld,
     /// Drawable snapshot IDs in successful native Xfer visitation order.
     /// `None` means no completed restore is awaiting Drawable postprocessing.
     pub(crate) pending_drawable_post_process_order:

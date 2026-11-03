@@ -45,13 +45,17 @@ pub struct HostProductionProgressEvent {
     pub exit_delay_only: bool,
 }
 
-struct HostProductionProgressLogLogBag {
-    value: std::sync::Mutex<Vec<HostProductionProgressEvent>>,
-}
-static LOG: std::sync::LazyLock<HostProductionProgressLogLogBag> = std::sync::LazyLock::new(|| HostProductionProgressLogLogBag {
-    value: std::sync::Mutex::new(Vec::new()),
-});
 
+
+
+fn with_log_mut<R>(f: impl FnOnce(&mut Vec<HostProductionProgressEvent>) -> R) -> R {
+    let services = crate::main_services::main_services();
+    let mut log = services
+        .host_production_progress_log
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    f(&mut log)
+}
 
 pub fn record(
     producer: ObjectId,
@@ -82,7 +86,7 @@ pub fn record_with_exit_state(
     exit_state: ProductionExitRuntimeState,
     power_factor: f32,
 ) {
-    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); 
+    with_log_mut(|log| {
         log.push(HostProductionProgressEvent {
             producer,
             items,
@@ -94,12 +98,12 @@ pub fn record_with_exit_state(
             power_factor_only: false,
             exit_delay_only: false,
         });
-     };
+    });
 }
 
 /// Wave 477: sole-tick residual — publish host power factor without queue stomp.
 pub fn record_power_factor_only(producer: ObjectId, power_factor: f32) {
-    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); 
+    with_log_mut(|log| {
         log.push(HostProductionProgressEvent {
             producer,
             items: Vec::new(),
@@ -111,12 +115,12 @@ pub fn record_power_factor_only(producer: ObjectId, power_factor: f32) {
             power_factor_only: true,
             exit_delay_only: false,
         });
-     };
+    });
 }
 
 /// Wave 480: sole-tick residual — arm factory exit delay after a unit exits.
 pub fn record_exit_delay_only(producer: ObjectId, exit_delay_remaining: f32) {
-    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); 
+    with_log_mut(|log| {
         log.push(HostProductionProgressEvent {
             producer,
             items: Vec::new(),
@@ -128,7 +132,7 @@ pub fn record_exit_delay_only(producer: ObjectId, exit_delay_remaining: f32) {
             power_factor_only: false,
             exit_delay_only: true,
         });
-     };
+    });
 }
 
 /// Sole-tick post-exit writeback with exact Queue mutable state.  This is
@@ -139,7 +143,7 @@ pub fn record_exit_runtime_only(
     exit_delay_remaining: f32,
     exit_state: ProductionExitRuntimeState,
 ) {
-    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); 
+    with_log_mut(|log| {
         log.push(HostProductionProgressEvent {
             producer,
             items: Vec::new(),
@@ -151,17 +155,17 @@ pub fn record_exit_runtime_only(
             power_factor_only: false,
             exit_delay_only: true,
         });
-     };
+    });
 }
 
 pub fn drain() -> Vec<HostProductionProgressEvent> {
-    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); std::mem::take(&mut log) }
+    with_log_mut(std::mem::take)
 }
 
 pub fn clear() {
-    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); log.clear() };
+    with_log_mut(|log| log.clear());
 }
 
 pub fn len() -> usize {
-    { let mut log = LOG.value.lock().unwrap_or_else(|p| p.into_inner()); log.len() }
+    with_log_mut(|log| log.len())
 }

@@ -415,21 +415,17 @@ impl Drop for ScopedTimer {
     }
 }
 
-/// Global debug system instance
-struct DebugSystemSlot(std::sync::LazyLock<std::sync::Mutex<Option<Arc<DebugSystem>>>>);
-impl std::ops::Deref for DebugSystemSlot {
-    type Target = std::sync::LazyLock<std::sync::Mutex<Option<Arc<DebugSystem>>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static DEBUG_SYSTEM: DebugSystemSlot = DebugSystemSlot(std::sync::LazyLock::new(|| std::sync::Mutex::new(None)));
-
 /// Initialize the global debug system
 pub fn initialize_debug_system(config: Option<DebugConfig>) -> Result<Arc<DebugSystem>> {
     let config = config.unwrap_or_default();
     let system = Arc::new(DebugSystem::new(config)?);
 
     {
-        let mut global_system = DEBUG_SYSTEM.lock().unwrap_or_else(|e| e.into_inner());
+        let services = crate::main_services::main_services();
+        let mut global_system = services
+            .debug_system
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *global_system = Some(system.clone());
     }
 
@@ -439,7 +435,8 @@ pub fn initialize_debug_system(config: Option<DebugConfig>) -> Result<Arc<DebugS
 
 /// Get the global debug system
 pub fn get_debug_system() -> Option<Arc<DebugSystem>> {
-    DEBUG_SYSTEM
+    crate::main_services::main_services()
+        .debug_system
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone()

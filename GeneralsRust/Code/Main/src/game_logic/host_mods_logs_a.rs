@@ -27,7 +27,6 @@ pub mod host_attack_log;
 #[path = "host_construction_log.rs"]
 pub mod host_construction_log;
 
-#[cfg(test)]
 #[path = "host_destroy_log.rs"]
 pub mod host_destroy_log;
 

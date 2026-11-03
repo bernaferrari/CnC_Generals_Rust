@@ -1101,7 +1101,7 @@ fn propaganda_tower_name_residual_helix_propaganda_heals() {
 
 #[test]
 fn heal_pad_seeking_healing_residual_recovers_infantry_hp() {
-    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+    let _env_guard = host_state_residual_test_env_lock()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
 

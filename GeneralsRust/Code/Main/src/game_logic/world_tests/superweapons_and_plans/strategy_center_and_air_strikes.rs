@@ -1387,7 +1387,7 @@ fn emergency_repair_residual_heals_damaged_ally_vehicles() {
     // Leftover canDoSpecialPowerAtLocation refuses a shrouded cell; a parallel
     // test may have initialized the global shroud grid, so reset it and
     // serialize before the cast (C++ ActionManager.cpp:1439-1523).
-    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+    let _env_guard = host_state_residual_test_env_lock()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     gamelogic::system::shroud_manager::get_shroud_manager()
@@ -1538,7 +1538,7 @@ fn emergency_repair_does_not_queue_superweapon_strike() {
 
     // Reset the global shroud grid so the cast location is not shrouded; a
     // parallel test may have initialized it (C++ ActionManager.cpp:1439-1523).
-    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+    let _env_guard = host_state_residual_test_env_lock()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     gamelogic::system::shroud_manager::get_shroud_manager()
@@ -1653,7 +1653,7 @@ fn gps_scrambler_residual_grants_stealth_to_ally_units() {
     let impact = Vec3::new(0.0, 0.0, 0.0);
     // Reset the global shroud grid so the cast location is not shrouded; a
     // parallel test may have initialized it (C++ ActionManager.cpp:1439-1523).
-    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+    let _env_guard = host_state_residual_test_env_lock()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     gamelogic::system::shroud_manager::get_shroud_manager()
@@ -1827,7 +1827,7 @@ fn gps_scrambler_does_not_queue_superweapon_strike() {
     }
     // Reset the global shroud grid so the cast location is not shrouded; a
     // parallel test may have initialized it (C++ ActionManager.cpp:1439-1523).
-    let _env_guard = HOST_STATE_RESIDUAL_TEST_ENV_LOCK
+    let _env_guard = host_state_residual_test_env_lock()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     gamelogic::system::shroud_manager::get_shroud_manager()

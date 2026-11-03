@@ -315,20 +315,28 @@ where
 }
 
 pub fn peel_for_special_power(power_template: &str) -> Option<&'static OclSpecialPowerPeel> {
-    use std::sync::LazyLock;
-    static PEELS: LazyLock<Vec<OclSpecialPowerPeel>> = LazyLock::new(|| {
+    let services = crate::main_services::main_services();
+    let mut slot = services
+        .ocl_special_power_peels
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if slot.is_none() {
         let mut peels = america_command_center_ocl_peels();
         peels.extend(gla_command_center_ocl_peels());
         peels.extend(china_command_center_ocl_peels());
-        peels
-    });
+        *slot = Some(std::sync::Arc::new(peels));
+    }
+    let arc = slot.as_ref().expect("peels").clone();
     let key = power_template.to_ascii_lowercase();
-    PEELS.iter().find(|p| {
+    let idx = arc.iter().position(|p| {
         p.special_power_template
             .eq_ignore_ascii_case(power_template)
             || p.special_power_template.to_ascii_lowercase().contains(&key)
             || key.contains(&p.special_power_template.to_ascii_lowercase())
-    })
+    })?;
+    let ptr = &arc[idx] as *const OclSpecialPowerPeel;
+    std::mem::forget(arc);
+    Some(unsafe { &*ptr })
 }
 
 /// Creation + target coordinates for ObjectCreationList::create residual.
