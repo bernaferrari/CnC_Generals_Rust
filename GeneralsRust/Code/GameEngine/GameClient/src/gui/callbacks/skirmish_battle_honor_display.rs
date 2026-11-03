@@ -42,14 +42,6 @@ const DISABLED_COLOR: Color = Color {
     a: 255,
 };
 
-thread_local! {
-    static ROWS_TO_SKIP: Cell<i32> = const { Cell::new(0) };
-}
-
-fn reset_battle_honor_insertion() {
-    ROWS_TO_SKIP.with(|rows| rows.set(0));
-}
-
 fn ensure_listbox_row(listbox: &mut ListBox, row: usize) {
     while listbox.items().len() <= row {
         listbox.add_item("");
@@ -64,6 +56,7 @@ fn insert_battle_honor(
     row: &mut usize,
     column: &mut usize,
     extra: i32,
+    rows_to_skip: &mut i32,
 ) {
     let color = if enabled {
         ENABLED_COLOR
@@ -106,9 +99,9 @@ fn insert_battle_honor(
     let columns = listbox.columns().max(MAX_BATTLE_HONOR_COLUMNS) as usize;
     if *column >= columns {
         *column = 0;
-        let skip = ROWS_TO_SKIP.with(Cell::get);
+        let skip = *rows_to_skip;
         *row = *row + 1 + skip.max(0) as usize;
-        ROWS_TO_SKIP.with(|rows| rows.set((skip - 1).max(0)));
+        *rows_to_skip = (skip - 1).max(0);
     }
 }
 
@@ -404,7 +397,7 @@ pub fn populate(
         listbox.set_columns(MAX_BATTLE_HONOR_COLUMNS);
     }
 
-    reset_battle_honor_insertion();
+    let mut rows_to_skip = 0i32;
     ensure_listbox_row(listbox, 0);
     let mut row = 1usize;
     let mut column = 0usize;
@@ -424,6 +417,7 @@ pub fn populate(
         &mut row,
         &mut column,
         0,
+    &mut rows_to_skip,
     );
     let (gla_image, gla_on) =
         campaign_image("GLA", &stats, honors, BATTLE_HONOR_CAMPAIGN_GLA, effects);
@@ -435,6 +429,7 @@ pub fn populate(
         &mut row,
         &mut column,
         0,
+    &mut rows_to_skip,
     );
     let (usa_image, usa_on) =
         campaign_image("USA", &stats, honors, BATTLE_HONOR_CAMPAIGN_USA, effects);
@@ -446,6 +441,7 @@ pub fn populate(
         &mut row,
         &mut column,
         0,
+    &mut rows_to_skip,
     );
 
     let mut completed_hard = false;
@@ -479,6 +475,7 @@ pub fn populate(
         &mut row,
         &mut column,
         0,
+    &mut rows_to_skip,
     );
 
     insert_battle_honor(
@@ -489,6 +486,7 @@ pub fn populate(
         &mut row,
         &mut column,
         0,
+    &mut rows_to_skip,
     );
     insert_battle_honor(
         listbox,
@@ -498,6 +496,7 @@ pub fn populate(
         &mut row,
         &mut column,
         0,
+    &mut rows_to_skip,
     );
 
     ensure_listbox_row(listbox, 2);
@@ -513,6 +512,7 @@ pub fn populate(
         &mut row,
         &mut column,
         0,
+    &mut rows_to_skip,
     );
     insert_battle_honor(
         listbox,
@@ -522,6 +522,7 @@ pub fn populate(
         &mut row,
         &mut column,
         0,
+    &mut rows_to_skip,
     );
 
     if honors & BATTLE_HONOR_BLITZ5 != 0 {
@@ -533,6 +534,7 @@ pub fn populate(
             &mut row,
             &mut column,
             0,
+        &mut rows_to_skip,
         );
     } else if honors & BATTLE_HONOR_BLITZ10 != 0 {
         insert_battle_honor(
@@ -543,6 +545,7 @@ pub fn populate(
             &mut row,
             &mut column,
             0,
+        &mut rows_to_skip,
         );
     } else {
         insert_battle_honor(
@@ -553,6 +556,7 @@ pub fn populate(
             &mut row,
             &mut column,
             0,
+        &mut rows_to_skip,
         );
     }
 
@@ -578,6 +582,7 @@ pub fn populate(
         &mut row,
         &mut column,
         streak,
+    &mut rows_to_skip,
     );
 
     let total_wins = stats.get_wins();
@@ -598,6 +603,7 @@ pub fn populate(
         &mut row,
         &mut column,
         total_wins,
+    &mut rows_to_skip,
     );
 
     insert_battle_honor(
@@ -608,6 +614,7 @@ pub fn populate(
         &mut row,
         &mut column,
         0,
+    &mut rows_to_skip,
     );
 
     if get_unsigned_int_from_registry("", "Preorder").unwrap_or(0) != 0 {
@@ -619,6 +626,7 @@ pub fn populate(
             &mut row,
             &mut column,
             0,
+        &mut rows_to_skip,
         );
     }
 }
