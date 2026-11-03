@@ -332,6 +332,8 @@ pub struct ParticleSystemManager {
     runtime_owner: Arc<()>,
     random_state: game_engine::common::random_value::RandomState,
     definitions_admitted: bool,
+    /// Template id → name for the GameLogic particle bridge.
+    template_id_map: std::sync::Mutex<HashMap<u32, String>>,
     pub(crate) templates: HashMap<String, Arc<ParticleSystemTemplate>>,
     active_systems: HashMap<ParticleSystemId, Box<ParticleSystem>>,
     /// C++ keeps `m_allParticleSystemList` in creation order. The lookup map
@@ -419,6 +421,7 @@ impl ParticleSystemManager {
             runtime_owner: Arc::new(()),
             random_state: Default::default(),
             definitions_admitted: false,
+            template_id_map: std::sync::Mutex::new(HashMap::new()),
             templates: HashMap::new(),
             active_systems: HashMap::new(),
             active_system_order: Vec::new(),
@@ -1378,12 +1381,6 @@ pub use crate::effects::particle_system::ParticleSystem;
 /// Global particle system manager instance
 pub static PARTICLE_SYSTEM_MANAGER: RwLock<Option<ParticleSystemManager>> = RwLock::new(None);
 
-static PARTICLE_TEMPLATE_ID_MAP: OnceLock<RwLock<HashMap<u32, String>>> = OnceLock::new();
-
-fn template_id_map() -> &'static RwLock<HashMap<u32, String>> {
-    PARTICLE_TEMPLATE_ID_MAP.get_or_init(|| RwLock::new(HashMap::new()))
-}
-
 #[derive(Debug)]
 struct ParticleSystemManagerBridge;
 
@@ -1423,7 +1420,7 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
         let manager = manager_guard.as_ref()?;
         let template = manager.find_template(name)?;
         let id = NameKeyGenerator::name_to_key(template.name());
-        if let Ok(mut map) = template_id_map().write() {
+        if let Ok(mut map) = manager.template_id_map.lock() {
             map.insert(id, template.name().to_string());
         }
         Some(id)
@@ -1437,10 +1434,7 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
             return None;
         };
         let manager = manager_guard.as_mut()?;
-        let name = template_id_map()
-            .read()
-            .ok()
-            .and_then(|map| map.get(&template_id).cloned())?;
+        let name = manager.template_id_map.lock().ok()?.get(&template_id).cloned()?;
         let template = manager.find_template(&name)?;
         manager.create_particle_system(&template, true).ok()
     }
@@ -1454,10 +1448,7 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
             return None;
         };
         let manager = manager_guard.as_mut()?;
-        let name = template_id_map()
-            .read()
-            .ok()
-            .and_then(|map| map.get(&template_id).cloned())?;
+        let name = manager.template_id_map.lock().ok()?.get(&template_id).cloned()?;
         let template = manager.find_template(&name)?;
         manager
             .create_attached_particle_system(&template, object_id, true)
