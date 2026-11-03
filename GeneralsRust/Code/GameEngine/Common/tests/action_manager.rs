@@ -12,16 +12,32 @@ use game_engine::common::rts::action_manager::{
 use game_engine::common::rts::handles::ObjectHandle;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-fn provider_test_lock() -> MutexGuard<'static, ()> {
-    struct LockSlot(OnceLock<Mutex<()>>);
-    impl std::ops::Deref for LockSlot {
-        type Target = OnceLock<Mutex<()>>;
-        fn deref(&self) -> &Self::Target { &self.0 }
+struct ProviderTestGuard {
+    _lock: MutexGuard<'static, ()>,
+    services: std::sync::Arc<game_engine::common::common_services::CommonServices>,
+}
+
+impl ProviderTestGuard {
+    fn new() -> Self {
+        struct LockSlot(OnceLock<Mutex<()>>);
+        impl std::ops::Deref for LockSlot {
+            type Target = OnceLock<Mutex<()>>;
+            fn deref(&self) -> &Self::Target { &self.0 }
+        }
+        static LOCK: LockSlot = LockSlot(OnceLock::new());
+        let _lock = LOCK.0.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let services = std::sync::Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::install_common_services(std::sync::Arc::clone(&services));
+        Self { _lock, services }
     }
-    static LOCK: LockSlot = LockSlot(OnceLock::new());
-    LOCK.0.get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+impl Drop for ProviderTestGuard {
+    fn drop(&mut self) {
+        game_engine::common::common_services::uninstall_common_services_if_current(&self.services);
+    }
 }
 
 struct MockObjectDataProvider;
@@ -184,7 +200,7 @@ fn can_override_special_power_destination_false_for_null_object() {
 
 #[test]
 fn unset_provider_fail_closed_defaults_block_repair() {
-    let _guard = provider_test_lock();
+    let _guard = ProviderTestGuard::new();
     clear_object_data_provider();
     assert!(!object_data_provider_is_set());
 
@@ -197,7 +213,7 @@ fn unset_provider_fail_closed_defaults_block_repair() {
 
 #[test]
 fn installed_provider_queries_reach_mock() {
-    let _guard = provider_test_lock();
+    let _guard = ProviderTestGuard::new();
     clear_object_data_provider();
     set_object_data_provider(Arc::new(MockObjectDataProvider));
     assert!(object_data_provider_is_set());
