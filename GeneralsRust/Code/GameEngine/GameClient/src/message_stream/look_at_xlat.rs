@@ -581,8 +581,6 @@ mod tests {
         assert_eq!(translator.scroll_type, ScrollType::None);
     }
 
-    #[test]
-
     fn test_camera() -> impl FnMut(CameraInputAction, &mut crate::message_stream::ReceivingUi<'_>) -> CameraInputObservation {
         |action, _ui| {
             match action {
@@ -601,6 +599,7 @@ mod tests {
         }
     }
 
+    #[test]
     fn set_scrolling_locks_mouse_and_stop_restores_prev_cursor() {
         with_receiving_ui(|ui| {
         ui.set_scrolling(false);

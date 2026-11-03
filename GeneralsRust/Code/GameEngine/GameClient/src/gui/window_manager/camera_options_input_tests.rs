@@ -136,7 +136,7 @@ fn click_options(
             button.borrow().is_enabled()
         );
         // Same completion boundary as the actual OS dispatch, after manager/widget loans end.
-        context.complete_options_accept();
+        context.complete_options_accept(&mut manager);
     }
 }
 fn value(slider: &Rc<RefCell<GameWindow>>) -> i32 {
@@ -297,8 +297,8 @@ fn actual_quit_and_no_save_options_buttons_select_borrowed_camera_admission() {
                 true,
                 false,
                 false,
-                None,
                 effects,
+                None,
             )
         });
         assert!(down.is_none());
@@ -310,8 +310,8 @@ fn actual_quit_and_no_save_options_buttons_select_borrowed_camera_admission() {
                 true,
                 false,
                 false,
-                None,
                 effects,
+                None,
             )
         });
         let up = up.expect("actual push button must produce the selected pause Options action");

@@ -87,7 +87,6 @@ fn admitted_content_crc_refresh_preserves_active_native_selection_and_release() 
             220,
             120,
             key("ReplayMenu.wnd:ParentReplayMenu") as i32,
-            effects,
         )
         .unwrap();
     manager.bind_window_callbacks(
