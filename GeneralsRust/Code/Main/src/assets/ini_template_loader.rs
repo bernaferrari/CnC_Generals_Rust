@@ -1619,7 +1619,7 @@ fn apply_weapon_effect_references(
 }
 
 /// Register a science template parsed from INI into leftover leftover + live ScienceStore.
-fn register_science_template(name: &str, properties: &HashMap<String, String>) -> bool {
+pub(crate) fn register_science_template(name: &str, properties: &HashMap<String, String>) -> bool {
     use game_engine::common::ascii_string::AsciiString;
     use game_engine::common::ini::ini_science::{get_science_store_mut, parse_science_definition};
     use game_engine::common::rts::science::{

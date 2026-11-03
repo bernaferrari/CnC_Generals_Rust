@@ -2137,6 +2137,38 @@ mod tests {
         assert_eq!(store.get_internal_name_for_science(SCIENCE_INVALID), "");
     }
 
+    #[test]
+    fn science_store_keeps_prior_entries_across_multiple_ingestions() {
+        use crate::common::common_services::{CommonServices, with_common_services};
+        use std::sync::Arc;
+
+        let common = Arc::new(CommonServices::new());
+        with_common_services(&common, || {
+            init_science_store();
+            {
+                let mut store = get_science_store_mut().expect("live science store");
+                store.ingest_definition(ScienceDefinition {
+                    name: "SCIENCE_AccumRoot".into(),
+                    cost: Some(1),
+                    ..Default::default()
+                });
+                store.ingest_definition(ScienceDefinition {
+                    name: "SCIENCE_AccumChild".into(),
+                    cost: Some(2),
+                    prereq_names: Some(vec!["SCIENCE_AccumRoot".into()]),
+                    ..Default::default()
+                });
+            }
+            let store = get_science_store().expect("live science store");
+            let root = store.get_science_from_internal_name("SCIENCE_AccumRoot");
+            let child = store.get_science_from_internal_name("SCIENCE_AccumChild");
+            assert_ne!(root, SCIENCE_INVALID);
+            assert_ne!(child, SCIENCE_INVALID);
+            assert_ne!(root, child);
+            assert_eq!(store.get_science_purchase_cost(child), 2);
+        });
+    }
+
     /// Test display names and descriptions
     /// Matches C++ behavior from Science.cpp:241-254
     #[test]
