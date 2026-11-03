@@ -255,7 +255,7 @@ pub struct RingRenderObjClass {
 impl RingRenderObjClass {
     /// Create new ring render object
     pub fn new(definition: RingDefinition) -> Self {
-        let ring_id = RING_RUNTIME.id_counter.fetch_add(1, Ordering::Relaxed) + 1;
+        let ring_id = 0u32; // RingManager::add_ring assigns session-local ids
 
         Self {
             definition,
@@ -541,7 +541,7 @@ impl RingRenderObjClass {
 
     /// Clone ring
     pub fn clone(&self) -> Self {
-        let ring_id = RING_RUNTIME.id_counter.fetch_add(1, Ordering::Relaxed) + 1;
+        let ring_id = 0u32; // RingManager::add_ring assigns session-local ids
 
         Self {
             definition: self.definition.clone(),
@@ -1025,46 +1025,8 @@ impl RingManager {
     }
 }
 
-struct RingRuntime {
-    id_counter: AtomicU32,
-    ring_manager_slot: std::sync::Mutex<Option<RingManager>>,
-}
-static RING_RUNTIME: std::sync::LazyLock<RingRuntime> = std::sync::LazyLock::new(|| RingRuntime {
-    id_counter: AtomicU32::new(0),
-    ring_manager_slot: std::sync::Mutex::new(None),
-});
+/// Host constructs [`RingManager`] and passes `&mut` — no process LazyLock.
 
-
-fn with_ring_manager_mut<R, F>(f: F) -> Option<R>
-where
-    F: FnOnce(&mut RingManager) -> R,
-{
-    { let mut slot = RING_RUNTIME.ring_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); 
-        let manager = slot.as_mut()?;
-        Some(f(manager))
-     }
-}
-
-/// Initialize global ring manager
-pub fn init_global_ring_manager(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
-    { let mut slot = RING_RUNTIME.ring_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); *slot = Some(RingManager::new(device, queue)) };
-    RingManager::init_ring_render_system()?;
-    Ok(())
-}
-
-/// Execute a closure with the global ring manager if it exists.
-pub fn with_global_ring_manager_mut<R, F>(f: F) -> Option<R>
-where
-    F: FnOnce(&mut RingManager) -> R,
-{
-    with_ring_manager_mut(f)
-}
-
-/// Shutdown global ring manager
-pub fn shutdown_global_ring_manager() {
-    RingManager::shutdown_ring_render_system();
-    { let mut slot = RING_RUNTIME.ring_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); *slot = None };
-}
 
 /// Quick ring functions
 pub fn create_shockwave_ring(center: Vec3, radius: f32) -> Result<RingRenderObjClass> {

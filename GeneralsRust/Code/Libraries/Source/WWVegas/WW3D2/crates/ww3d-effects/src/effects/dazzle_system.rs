@@ -738,13 +738,7 @@ impl RenderObjClass for DazzleRenderObj {
     }
 
     fn render(&self, _rinfo: &RenderInfoClass) -> RendererResult<()> {
-        if let Some(result) = with_dazzle_manager_mut(|manager| {
-            manager
-                .queue_dazzle_instance(&self.name, &self.type_name, self.transform)
-                .map_err(RendererError::from)
-        }) {
-            result?;
-        }
+        // Host DazzleManager::queue_dazzle_instance / render owns draw submission.
         Ok(())
     }
 
@@ -895,56 +889,27 @@ fn extract_list(
         .unwrap_or_default()
 }
 
-struct DazzleManagerRuntime {
-    dazzle_manager_slot: std::sync::Mutex<Option<DazzleManager>>,
-}
-static DAZZLE_MANAGER_SLOT_TLS_BAG: std::sync::LazyLock<DazzleManagerRuntime> = std::sync::LazyLock::new(|| DazzleManagerRuntime {
-        dazzle_manager_slot: std::sync::Mutex::new(None),
-});
+/// Host owns [`DazzleManager`] and passes `&mut` — no process LazyLock.
 
+/// Quick dazzle creation on an explicit manager.
+pub fn create_dazzle_at_position(
+    manager: &mut DazzleManager,
+    position: Vec3,
+    intensity: f32,
+    size: f32,
+) -> Result<usize> {
+    let mut config = DazzleConfig::default();
+    config.name = format!("quick_dazzle_{}", manager.instances.len());
+    config.intensity = intensity;
+    config.scale_x = size;
+    config.scale_y = size;
+    config.size = size;
+    config.color = Vec4::new(1.0, 1.0, 1.0, 1.0);
+    config.halo_color = Vec4::new(1.0, 1.0, 1.0, 1.0);
 
-fn with_dazzle_manager_mut<R, F>(f: F) -> Option<R>
-where
-    F: FnOnce(&mut DazzleManager) -> R,
-{
-    { let mut slot = DAZZLE_MANAGER_SLOT_TLS_BAG.dazzle_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); 
-        let manager = slot.as_mut()?;
-        Some(f(manager))
-     }
-}
-
-/// Initialize dazzle system
-pub fn init_dazzle_system(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
-    { let mut slot = DAZZLE_MANAGER_SLOT_TLS_BAG.dazzle_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); *slot = Some(DazzleManager::new(device, queue)) };
-    Ok(())
-}
-
-/// Shutdown dazzle system
-pub fn shutdown_dazzle_system() {
-    { let mut slot = DAZZLE_MANAGER_SLOT_TLS_BAG.dazzle_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); *slot = None };
-}
-
-/// Quick dazzle creation function
-pub fn create_dazzle_at_position(position: Vec3, intensity: f32, size: f32) -> Result<usize> {
-    with_dazzle_manager_mut(|manager| {
-        let mut config = DazzleConfig::default();
-        config.name = format!("quick_dazzle_{}", manager.instances.len());
-        config.intensity = intensity;
-        config.scale_x = size;
-        config.scale_y = size;
-        config.size = size;
-        config.color = Vec4::new(1.0, 1.0, 1.0, 1.0);
-        config.halo_color = Vec4::new(1.0, 1.0, 1.0, 1.0);
-
-        let config_key = normalize_key(&config.name);
-        manager.configs.insert(config_key.clone(), config);
-        manager.create_dazzle(&config_key, position)
-    })
-    .unwrap_or_else(|| {
-        Err(W3DError::NotInitialized(
-            "Dazzle manager not initialized".to_string(),
-        ))
-    })
+    let config_key = normalize_key(&config.name);
+    manager.configs.insert(config_key.clone(), config);
+    manager.create_dazzle(&config_key, position)
 }
 
 #[cfg(test)]

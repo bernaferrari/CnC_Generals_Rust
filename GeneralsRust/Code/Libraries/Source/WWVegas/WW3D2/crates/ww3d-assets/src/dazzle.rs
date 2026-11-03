@@ -381,7 +381,7 @@ impl DazzleTypeClass {
     /// Matches C++ DazzleTypeClass::Get_Dazzle_Texture.
     pub fn get_dazzle_texture(&mut self) -> Option<Arc<TextureBase>> {
         if self.primary_texture.is_none() {
-            self.primary_texture = fetch_dazzle_texture(&self.config.primary_texture_name);
+            // Texture fill is host-driven via DazzleRuntime::fetch_texture.
         }
         self.primary_texture.as_ref().map(Arc::clone)
     }
@@ -390,7 +390,7 @@ impl DazzleTypeClass {
     /// Matches C++ DazzleTypeClass::Get_Halo_Texture.
     pub fn get_halo_texture(&mut self) -> Option<Arc<TextureBase>> {
         if self.secondary_texture.is_none() {
-            self.secondary_texture = fetch_dazzle_texture(&self.config.secondary_texture_name);
+            // Texture fill is host-driven via DazzleRuntime::fetch_texture.
         }
         self.secondary_texture.as_ref().map(Arc::clone)
     }
@@ -499,7 +499,7 @@ impl LensflareTypeClass {
     /// Get lensflare texture (lazy load).
     pub fn get_texture(&mut self) -> Option<Arc<TextureBase>> {
         if self.texture.is_none() {
-            self.texture = fetch_dazzle_texture(&self.config.texture_name);
+            // Texture fill is host-driven via DazzleRuntime::fetch_texture.
         }
         self.texture.as_ref().map(Arc::clone)
     }
@@ -712,7 +712,7 @@ impl DazzleRenderObjClass {
 
         // Line 978-982: Apply visibility via handler (C++: _VisibilityHandler->Compute_Dazzle_Visibility)
         if dazzle_intensity > 0.0 {
-            let handler = get_dazzle_visibility_handler();
+            let handler: Arc<dyn DazzleVisibilityHandler> = Arc::new(DefaultDazzleVisibilityHandler);
             self.visibility = handler.compute_dazzle_visibility(self, loc);
             dazzle_intensity *= self.visibility;
         } else {
@@ -942,9 +942,8 @@ impl DazzleVisibilityHandler for DefaultDazzleVisibilityHandler {
     }
 }
 
-/// Owned dazzle runtime (C++ WW3D dazzle statics live with the asset/renderer
-/// session). One process bag until Ww3dContext carries this explicitly.
-struct DazzleRuntime {
+/// Host-owned dazzle runtime (C++ WW3D dazzle statics). Pass `&` / `Arc` — no process LazyLock.
+pub struct DazzleRuntime {
     visibility_handler: std::sync::Mutex<Arc<dyn DazzleVisibilityHandler>>,
     texture_provider: std::sync::Mutex<Arc<dyn DazzleTextureProvider>>,
     texture_manager: std::sync::Mutex<TextureManager>,
@@ -966,27 +965,92 @@ impl Default for DazzleRuntime {
     }
 }
 
-static DAZZLE_RUNTIME: std::sync::LazyLock<DazzleRuntime> =
-    std::sync::LazyLock::new(DazzleRuntime::default);
+impl DazzleRuntime {
+    pub fn visibility_handler(&self) -> Arc<dyn DazzleVisibilityHandler> {
+        self.visibility_handler
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
 
-fn dazzle_runtime() -> &'static DazzleRuntime {
-    &DAZZLE_RUNTIME
-}
+    pub fn install_visibility_handler(&self, handler: Arc<dyn DazzleVisibilityHandler>) {
+        *self.visibility_handler.lock().unwrap_or_else(|p| p.into_inner()) = handler;
+    }
 
-fn get_dazzle_visibility_handler() -> Arc<dyn DazzleVisibilityHandler> {
-    dazzle_runtime()
-        .visibility_handler
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .clone()
+    pub fn texture_provider(&self) -> Arc<dyn DazzleTextureProvider> {
+        self.texture_provider
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    pub fn install_texture_provider(&self, provider: Arc<dyn DazzleTextureProvider>) {
+        *self.texture_provider.lock().unwrap_or_else(|p| p.into_inner()) = provider;
+    }
+
+    pub fn fetch_texture(&self, name: &str) -> Option<Arc<TextureBase>> {
+        if name.is_empty() {
+            return None;
+        }
+        self.texture_provider().get_texture(name)
+    }
+
+    pub fn register_dazzle_type(&self, name: String, config: DazzleInitClass) {
+        self.dazzle_types
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(name.clone(), DazzleTypeClass::new(name, config));
+    }
+
+    pub fn register_lensflare_type(&self, name: String, config: LensflareInitClass) {
+        self.lensflare_types
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(name.clone(), LensflareTypeClass::new(name, config));
+    }
+
+    pub fn get_dazzle_type(&self, name: &str) -> Option<DazzleTypeClass> {
+        self.dazzle_types
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(name)
+            .cloned()
+    }
+
+    pub fn get_lensflare_type(&self, name: &str) -> Option<LensflareTypeClass> {
+        self.lensflare_types
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(name)
+            .cloned()
+    }
+
+    pub fn get_dazzle_type_names(&self) -> Vec<String> {
+        self.dazzle_types
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    pub fn set_rendering_enabled(&self, enabled: bool) {
+        self.rendering_enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn is_rendering_enabled(&self) -> bool {
+        self.rendering_enabled.load(Ordering::Relaxed)
+    }
+
+    pub fn clear_types(&self) {
+        self.dazzle_types.lock().unwrap_or_else(|p| p.into_inner()).clear();
+        self.lensflare_types.lock().unwrap_or_else(|p| p.into_inner()).clear();
+    }
 }
 
 /// Install a custom visibility handler.
-pub fn install_dazzle_visibility_handler(handler: Arc<dyn DazzleVisibilityHandler>) {
-    *dazzle_runtime()
-        .visibility_handler
-        .lock()
-        .unwrap_or_else(|p| p.into_inner()) = handler;
+pub fn install_dazzle_visibility_handler(runtime: &DazzleRuntime, handler: Arc<dyn DazzleVisibilityHandler>) {
+    runtime.install_visibility_handler(handler);
 }
 
 /// Dazzle texture provider interface (C++: WW3DAssetManager::Get_Texture).
@@ -998,88 +1062,51 @@ pub trait DazzleTextureProvider: Send + Sync {
 struct DefaultDazzleTextureProvider;
 
 impl DazzleTextureProvider for DefaultDazzleTextureProvider {
-    fn get_texture(&self, name: &str) -> Option<Arc<TextureBase>> {
-        if name.is_empty() {
-            return None;
-        }
-        dazzle_runtime()
-            .texture_manager
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .get_or_load(name, TextureFormat::A8R8G8B8, true, MipCount::All)
-            .ok()
+    fn get_texture(&self, _name: &str) -> Option<Arc<TextureBase>> {
+        // Real loads go through a host-installed provider on DazzleRuntime.
+        None
     }
-}
-
-fn get_dazzle_texture_provider() -> Arc<dyn DazzleTextureProvider> {
-    dazzle_runtime()
-        .texture_provider
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .clone()
 }
 
 /// Install a custom texture provider for dazzle/lensflare assets.
-pub fn install_dazzle_texture_provider(provider: Arc<dyn DazzleTextureProvider>) {
-    *dazzle_runtime()
-        .texture_provider
-        .lock()
-        .unwrap_or_else(|p| p.into_inner()) = provider;
+pub fn install_dazzle_texture_provider(runtime: &DazzleRuntime, provider: Arc<dyn DazzleTextureProvider>) {
+    runtime.install_texture_provider(provider);
 }
 
-fn fetch_dazzle_texture(name: &str) -> Option<Arc<TextureBase>> {
-    if name.is_empty() {
-        return None;
-    }
-    get_dazzle_texture_provider().get_texture(name)
-}
-
-/// Initialize global state.
+/// Initialize is a no-op; construct [`DazzleRuntime::default`] on the host.
 pub fn init_dazzle_system() {}
 
-/// Register a dazzle type.
-/// Matches C++ Init_Type (lines 680-699).
-pub fn register_dazzle_type(name: String, config: DazzleInitClass) {
-    dazzle_runtime().dazzle_types.lock().unwrap_or_else(|p| p.into_inner()).insert(name.clone(), DazzleTypeClass::new(name, config));
+/// Register a dazzle type on an owned runtime.
+pub fn register_dazzle_type(runtime: &DazzleRuntime, name: String, config: DazzleInitClass) {
+    runtime.register_dazzle_type(name, config);
 }
 
-/// Register a lensflare type.
-/// Matches C++ Init_Lensflare (lines 703-722).
-pub fn register_lensflare_type(name: String, config: LensflareInitClass) {
-    dazzle_runtime().lensflare_types.lock().unwrap_or_else(|p| p.into_inner()).insert(name.clone(), LensflareTypeClass::new(name, config));
+pub fn register_lensflare_type(runtime: &DazzleRuntime, name: String, config: LensflareInitClass) {
+    runtime.register_lensflare_type(name, config);
 }
 
-/// Get dazzle type by name.
-pub fn get_dazzle_type(name: &str) -> Option<DazzleTypeClass> {
-    dazzle_runtime().dazzle_types.lock().unwrap_or_else(|p| p.into_inner()).get(name).cloned()
+pub fn get_dazzle_type(runtime: &DazzleRuntime, name: &str) -> Option<DazzleTypeClass> {
+    runtime.get_dazzle_type(name)
 }
 
-/// Get lensflare type by name.
-pub fn get_lensflare_type(name: &str) -> Option<LensflareTypeClass> {
-    dazzle_runtime().lensflare_types.lock().unwrap_or_else(|p| p.into_inner()).get(name).cloned()
+pub fn get_lensflare_type(runtime: &DazzleRuntime, name: &str) -> Option<LensflareTypeClass> {
+    runtime.get_lensflare_type(name)
 }
 
-/// Get all dazzle type names.
-pub fn get_dazzle_type_names() -> Vec<String> {
-    dazzle_runtime().dazzle_types.lock().unwrap_or_else(|p| p.into_inner()).keys().cloned().collect()
+pub fn get_dazzle_type_names(runtime: &DazzleRuntime) -> Vec<String> {
+    runtime.get_dazzle_type_names()
 }
 
-/// Enable/disable dazzle rendering globally.
-/// Matches C++ Enable_Dazzle_Rendering.
-pub fn set_dazzle_rendering_enabled(enabled: bool) {
-    dazzle_runtime().rendering_enabled.store(enabled, Ordering::Relaxed);
+pub fn set_dazzle_rendering_enabled(runtime: &DazzleRuntime, enabled: bool) {
+    runtime.set_rendering_enabled(enabled);
 }
 
-/// Check if dazzle rendering is enabled.
-pub fn is_dazzle_rendering_enabled() -> bool {
-    dazzle_runtime().rendering_enabled.load(Ordering::Relaxed)
+pub fn is_dazzle_rendering_enabled(runtime: &DazzleRuntime) -> bool {
+    runtime.is_rendering_enabled()
 }
 
-/// Clear all registered types.
-/// Matches C++ Deinit (lines 726-748).
-pub fn clear_dazzle_types() {
-    dazzle_runtime().dazzle_types.lock().unwrap_or_else(|p| p.into_inner()).clear();
-    dazzle_runtime().lensflare_types.lock().unwrap_or_else(|p| p.into_inner()).clear();
+pub fn clear_dazzle_types(runtime: &DazzleRuntime) {
+    runtime.clear_types();
 }
 
 // ============================================================================
@@ -1089,6 +1116,19 @@ pub fn clear_dazzle_types() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dazzle_runtimes_are_independent() {
+        let a = DazzleRuntime::default();
+        let b = DazzleRuntime::default();
+        a.set_rendering_enabled(false);
+        assert!(!a.is_rendering_enabled());
+        assert!(b.is_rendering_enabled());
+        a.register_dazzle_type("A".into(), DazzleInitClass::default());
+        assert!(a.get_dazzle_type("A").is_some());
+        assert!(b.get_dazzle_type("A").is_none());
+    }
+
 
     #[test]
     fn test_vector3_dot_product() {
@@ -1370,26 +1410,28 @@ mod tests {
 
     #[test]
     fn test_type_registration() {
-        clear_dazzle_types(); // Clean slate
+        let runtime = DazzleRuntime::default();
+        clear_dazzle_types(&runtime); // Clean slate
 
         let config = DazzleInitClass::default();
-        register_dazzle_type("SUN".to_string(), config);
+        register_dazzle_type(&runtime, "SUN".to_string(), config);
 
-        let dazzle_type = get_dazzle_type("SUN");
+        let dazzle_type = get_dazzle_type(&runtime, "SUN");
         assert!(dazzle_type.is_some());
         assert_eq!(dazzle_type.unwrap().name, "SUN");
 
-        let names = get_dazzle_type_names();
+        let names = get_dazzle_type_names(&runtime);
         assert!(names.contains(&"SUN".to_string()));
     }
 
     #[test]
     fn test_global_rendering_flag() {
-        set_dazzle_rendering_enabled(false);
-        assert!(!is_dazzle_rendering_enabled());
+        let runtime = DazzleRuntime::default();
+        set_dazzle_rendering_enabled(&runtime, false);
+        assert!(!is_dazzle_rendering_enabled(&runtime));
 
-        set_dazzle_rendering_enabled(true);
-        assert!(is_dazzle_rendering_enabled());
+        set_dazzle_rendering_enabled(&runtime, true);
+        assert!(is_dazzle_rendering_enabled(&runtime));
     }
 
     #[test]

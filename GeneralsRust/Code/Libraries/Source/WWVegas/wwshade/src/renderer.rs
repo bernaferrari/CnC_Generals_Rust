@@ -5,10 +5,9 @@
 //! The system is designed to be graphics API agnostic but includes a DirectX-style
 //! implementation as the primary backend.
 
-use once_cell::sync::Lazy;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 // Removed async_trait as we're making traits synchronous
 
 use crate::error::{ShdError, ShdResult};
@@ -587,14 +586,7 @@ impl ShdRenderer {
         // This would iterate through all available shader class IDs and initialize them
         // For now, we'll use a simplified approach
 
-        let factories = ShdDefManager::get_all_factories()?;
-        for factory in factories {
-            let class_id = factory.get_class_id();
-            if let Ok(shader_def) = factory.create_definition(class_id) {
-                // Initialize the shader definition
-                let _ = shader_def.is_valid_config();
-            }
-        }
+        // Host supplies factories via ShdDefManager; nothing process-global to scan.
 
         Ok(())
     }
@@ -608,77 +600,58 @@ impl ShdRenderer {
 }
 
 /// Global renderer instance
-struct GlobalRendererRuntime(Lazy<RwLock<Option<Box<dyn ShaderRenderer>>>>);
-impl std::ops::Deref for GlobalRendererRuntime {
-    type Target = Lazy<RwLock<Option<Box<dyn ShaderRenderer>>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static GLOBAL_RENDERER: GlobalRendererRuntime = GlobalRendererRuntime(Lazy::new(|| RwLock::new(None)));
-
 /// Shader renderer manager - provides global access to the renderer
-pub struct ShdRendererManager;
+/// Host-owned shader renderer session (no process LazyLock).
+pub struct ShdRendererManager {
+    renderer: Option<Box<dyn ShaderRenderer>>,
+}
+
+impl Default for ShdRendererManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl ShdRendererManager {
-    /// Initialize the global renderer
-    pub fn initialize() -> ShdResult<()> {
+    pub fn new() -> Self {
+        Self { renderer: None }
+    }
+
+    /// Initialize the owned renderer.
+    pub fn initialize(&mut self) -> ShdResult<()> {
         let mut renderer = Box::new(ShdRenderer::new());
         renderer.initialize()?;
-
-        let mut global = GLOBAL_RENDERER
-            .write()
-            .map_err(|_| ShdError::InvalidConfig("Failed to acquire renderer lock".to_string()))?;
-
-        *global = Some(renderer);
+        self.renderer = Some(renderer);
         Ok(())
     }
 
-    /// Shutdown the global renderer
-    pub fn shutdown() -> ShdResult<()> {
-        let mut global = GLOBAL_RENDERER
-            .write()
-            .map_err(|_| ShdError::InvalidConfig("Failed to acquire renderer lock".to_string()))?;
-
-        if let Some(renderer) = global.as_mut() {
+    /// Shutdown the owned renderer.
+    pub fn shutdown(&mut self) -> ShdResult<()> {
+        if let Some(renderer) = self.renderer.as_mut() {
             renderer.shutdown()?;
         }
-
-        *global = None;
+        self.renderer = None;
         Ok(())
     }
 
-    /// Get access to the global renderer
-    pub fn with_renderer<F, R>(f: F) -> ShdResult<R>
+    /// Borrow the owned renderer.
+    pub fn with_renderer<F, R>(&mut self, f: F) -> ShdResult<R>
     where
         F: FnOnce(&mut dyn ShaderRenderer) -> ShdResult<R>,
     {
-        let mut global = GLOBAL_RENDERER
-            .write()
-            .map_err(|_| ShdError::InvalidConfig("Failed to acquire renderer lock".to_string()))?;
-
-        if let Some(renderer) = global.as_mut() {
-            f(renderer.as_mut())
-        } else {
-            Err(ShdError::InvalidConfig(
-                "Renderer not initialized".to_string(),
-            ))
-        }
+        let renderer = self
+            .renderer
+            .as_mut()
+            .ok_or_else(|| ShdError::InvalidConfig("Renderer not initialized".to_string()))?;
+        f(renderer.as_mut())
     }
 
-    /// Flush the global renderer
-    pub fn flush() -> ShdResult<()> {
-        let mut global = GLOBAL_RENDERER
-            .write()
-            .map_err(|_| ShdError::InvalidConfig("Failed to acquire renderer lock".to_string()))?;
-
-        if let Some(renderer) = global.as_mut() {
-            renderer.flush()
-        } else {
-            Err(ShdError::InvalidConfig(
-                "Renderer not initialized".to_string(),
-            ))
-        }
+    /// Flush the owned renderer.
+    pub fn flush(&mut self) -> ShdResult<()> {
+        self.with_renderer(|r| r.flush())
     }
 }
+
 
 #[cfg(test)]
 mod tests {

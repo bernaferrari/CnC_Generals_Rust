@@ -18,7 +18,6 @@
 // C++ Source: /GeneralsMD/Code/Libraries/Source/WWVegas/WW3D2/shattersystem.cpp (1,268 lines)
 
 use glam::{Mat4, Vec2, Vec3, Vec4};
-use std::sync::{Mutex, OnceLock};
 
 // ============================================================================
 // Constants (C++ lines 64-72)
@@ -778,13 +777,6 @@ impl BSP {
 // read back by fragment consumers; the raw-pointer clipper aliasing inside
 // `shatter_mesh` is written against the mutex guard being held for the whole
 // operation, so keep the mutex.
-struct ShatterSystemRuntime(OnceLock<Mutex<ShatterSystemData>>);
-impl std::ops::Deref for ShatterSystemRuntime {
-    type Target = OnceLock<Mutex<ShatterSystemData>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static SHATTER_SYSTEM: ShatterSystemRuntime = ShatterSystemRuntime(OnceLock::new());
-
 /// Internal data for the shatter system
 struct ShatterSystemData {
     /// Array of BSP trees for different shatter patterns
@@ -833,29 +825,30 @@ pub struct MeshVertex {
 }
 
 /// Main interface for shattering meshes.
-/// Matches C++ ShatterSystem static class.
-pub struct ShatterSystem;
+/// Matches C++ ShatterSystem; host owns one instance (no process singleton).
+pub struct ShatterSystem {
+    data: ShatterSystemData,
+}
 
 impl ShatterSystem {
+    pub fn new() -> Self {
+        Self {
+            data: ShatterSystemData::new(),
+        }
+    }
+
     /// Initialize the shatter system.
     /// C++ reference: shattersystem.cpp lines 801-836
-    ///
-    /// Loads all shatter patterns from the asset manager.
-    pub fn init() {
-        let data = ShatterSystemData::new();
-        SHATTER_SYSTEM.get_or_init(|| Mutex::new(data));
+    pub fn init(&mut self) {
+        self.data = ShatterSystemData::new();
     }
 
     /// Shutdown the shatter system and release all resources.
     /// C++ reference: shattersystem.cpp lines 838-853
-    pub fn shutdown() {
-        if let Some(system) = SHATTER_SYSTEM.get() {
-            if let Ok(mut data) = system.lock() {
-                data.shatter_patterns.clear();
-                data.clip_pools.clear();
-                data.mesh_fragments.clear();
-            }
-        }
+    pub fn shutdown(&mut self) {
+        self.data.shatter_patterns.clear();
+        self.data.clip_pools.clear();
+        self.data.mesh_fragments.clear();
     }
 
     /// Load a shatter pattern from hierarchy transforms.
@@ -864,6 +857,7 @@ impl ShatterSystem {
     /// * `transforms` - Array of 4x4 transformation matrices
     /// * `parent_indices` - Parent index for each bone (-1 for root)
     pub fn load_shatter_pattern(
+        &mut self,
         transforms: Vec<Mat4>,
         parent_indices: Vec<i32>,
     ) -> Result<(), String> {
@@ -875,8 +869,7 @@ impl ShatterSystem {
             ));
         }
 
-        let system = SHATTER_SYSTEM.get_or_init(|| Mutex::new(ShatterSystemData::new()));
-        let mut data = system.lock().map_err(|e| e.to_string())?;
+        let data = &mut self.data;
 
         let mut leaf_index = 0;
         let bsp = BSP::from_hierarchy(&transforms, &parent_indices, 1, &mut leaf_index);
@@ -899,6 +892,7 @@ impl ShatterSystem {
     /// # Returns
     /// Vector of mesh fragments ready for physics simulation
     pub fn shatter_mesh(
+        &mut self,
         vertices: &[Vec3],
         normals: &[Vec3],
         indices: &[u32],
@@ -906,8 +900,7 @@ impl ShatterSystem {
         point: Vec3,
         direction: Vec3,
     ) -> Result<Vec<MeshFragment>, String> {
-        let system = SHATTER_SYSTEM.get_or_init(|| Mutex::new(ShatterSystemData::new()));
-        let mut data = system.lock().map_err(|e| e.to_string())?;
+        let data = &mut self.data;
 
         if data.shatter_patterns.is_empty() {
             return Err("No shatter patterns loaded".to_string());
@@ -1148,23 +1141,14 @@ impl ShatterSystem {
 
     /// Get the number of generated fragments.
     /// C++ reference: shattersystem.cpp lines 1047-1050
-    pub fn get_fragment_count() -> usize {
-        if let Some(system) = SHATTER_SYSTEM.get() {
-            if let Ok(data) = system.lock() {
-                return data.mesh_fragments.len();
-            }
-        }
-        0
+    pub fn get_fragment_count(&self) -> usize {
+        self.data.mesh_fragments.len()
     }
 
     /// Release all generated fragments.
     /// C++ reference: shattersystem.cpp lines 1065-1074
-    pub fn release_fragments() {
-        if let Some(system) = SHATTER_SYSTEM.get() {
-            if let Ok(mut data) = system.lock() {
-                data.mesh_fragments.clear();
-            }
-        }
+    pub fn release_fragments(&mut self) {
+        self.data.mesh_fragments.clear();
     }
 }
 
@@ -1174,6 +1158,20 @@ impl ShatterSystem {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn shatter_systems_are_independent() {
+        use super::*;
+        let mut a = ShatterSystem::new();
+        let mut b = ShatterSystem::new();
+        a.init();
+        b.init();
+        // Distinct fragment buffers.
+        assert_eq!(a.get_fragment_count(), 0);
+        assert_eq!(b.get_fragment_count(), 0);
+        a.release_fragments();
+        assert_eq!(b.get_fragment_count(), 0);
+    }
+
     use super::*;
 
     /// Test vertex creation and default values.
@@ -1341,9 +1339,10 @@ mod tests {
     /// Test shatter system initialization.
     #[test]
     fn test_shatter_system_init() {
-        ShatterSystem::init();
-        assert_eq!(ShatterSystem::get_fragment_count(), 0);
-        ShatterSystem::shutdown();
+        let mut system = ShatterSystem::new();
+        system.init();
+        assert_eq!(system.get_fragment_count(), 0);
+        system.shutdown();
     }
 
     /// Test color packing and unpacking.
@@ -1361,7 +1360,8 @@ mod tests {
     /// Test mesh fragment generation.
     #[test]
     fn test_mesh_fragment_generation() {
-        ShatterSystem::init();
+        let mut system = ShatterSystem::new();
+        system.init();
 
         // Simple cube vertices
         let vertices = vec![
@@ -1393,9 +1393,9 @@ mod tests {
         ];
         let parent_indices = vec![-1, 0, 1, 1];
 
-        let _ = ShatterSystem::load_shatter_pattern(transforms, parent_indices);
+        let _ = system.load_shatter_pattern(transforms, parent_indices);
 
-        let result = ShatterSystem::shatter_mesh(
+        let result = system.shatter_mesh(
             &vertices,
             &normals,
             &indices,
@@ -1417,6 +1417,6 @@ mod tests {
             }
         }
 
-        ShatterSystem::shutdown();
+        system.shutdown();
     }
 }

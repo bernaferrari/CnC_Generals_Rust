@@ -506,51 +506,7 @@ const BPT_EPSILON: f32 = 0.0001;
 #[allow(dead_code)] // C++ parity
 const BPT_COINCIDENCE_EPSILON: f32 = 0.000001;
 
-struct ShatterSystemRuntime {
-    shatter_system_slot: std::sync::Mutex<Option<ShatterSystem>>,
-}
-static SHATTER_SYSTEM_SLOT_TLS_BAG: std::sync::LazyLock<ShatterSystemRuntime> = std::sync::LazyLock::new(|| ShatterSystemRuntime {
-        shatter_system_slot: std::sync::Mutex::new(None),
-});
-
-
-fn with_shatter_system_mut<R, F>(f: F) -> Option<R>
-where
-    F: FnOnce(&mut ShatterSystem) -> R,
-{
-    { let mut slot = SHATTER_SYSTEM_SLOT_TLS_BAG.shatter_system_slot.lock().unwrap_or_else(|p| p.into_inner()); 
-        let system = slot.as_mut()?;
-        Some(f(system))
-     }
-}
-
-/// Initialize shatter system
-pub fn init_shatter_system() -> Result<()> {
-    { let mut slot = SHATTER_SYSTEM_SLOT_TLS_BAG.shatter_system_slot.lock().unwrap_or_else(|p| p.into_inner()); *slot = Some(ShatterSystem::new()) };
-    Ok(())
-}
-
-/// Shutdown shatter system
-pub fn shutdown_shatter_system() {
-    { let mut slot = SHATTER_SYSTEM_SLOT_TLS_BAG.shatter_system_slot.lock().unwrap_or_else(|p| p.into_inner()); *slot = None };
-}
-
-/// Quick shatter function
-pub fn shatter_object_at_point(
-    mesh: &MeshClass,
-    pattern_name: &str,
-    impact_point: Vec3,
-    impact_force: Vec3,
-) -> Result<()> {
-    with_shatter_system_mut(|system| {
-        system.shatter_mesh(mesh, pattern_name, impact_point, impact_force)
-    })
-    .unwrap_or_else(|| {
-        Err(W3DError::NotInitialized(
-            "Shatter system not initialized".to_string(),
-        ))
-    })
-}
+/// Host owns [`ShatterSystem`] and passes `&mut` — no process LazyLock.
 
 #[cfg(test)]
 mod tests {
