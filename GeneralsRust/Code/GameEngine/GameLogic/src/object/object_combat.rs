@@ -691,8 +691,22 @@ impl Object {
         // C++ forwards the call to the sink Object's tracker. Route through
         // that Object so its own template thresholds and level-change effects
         // are used; never apply the sink's returned transition to this source.
+        // Self/reciprocal sink edges have no supported CPP fixture (infinite
+        // recurse); reject them before acquiring another Object write while
+        // this source already holds write ownership (hq-lp5xr.1).
         if experience_sink != ExperienceTracker::INVALID_ID {
+            if experience_sink == self.id {
+                return false;
+            }
             if let Some(sink) = crate::helpers::TheGameLogic::find_object_by_id(experience_sink) {
+                if let Ok(sink_read) = sink.read() {
+                    let reciprocal = sink_read
+                        .with_experience_tracker(|tracker| tracker.get_experience_sink())
+                        .is_some_and(|peer| peer == self.id);
+                    if reciprocal {
+                        return false;
+                    }
+                }
                 let Ok(mut sink_guard) = sink.write() else {
                     return false;
                 };
@@ -738,7 +752,19 @@ impl Object {
             return false;
         };
         if sink_id != ExperienceTracker::INVALID_ID {
+            if sink_id == self.id {
+                // Self-sink is an unsupported cycle; do not re-enter this write lock.
+                return false;
+            }
             if let Some(sink) = crate::helpers::TheGameLogic::find_object_by_id(sink_id) {
+                if let Ok(sink_read) = sink.read() {
+                    let reciprocal = sink_read
+                        .with_experience_tracker(|tracker| tracker.get_experience_sink())
+                        .is_some_and(|peer| peer == self.id);
+                    if reciprocal {
+                        return false;
+                    }
+                }
                 if let Ok(mut sink) = sink.write() {
                     // C++ scales the source unconditionally, even when the
                     // sink's optional bonus scaling is disabled.

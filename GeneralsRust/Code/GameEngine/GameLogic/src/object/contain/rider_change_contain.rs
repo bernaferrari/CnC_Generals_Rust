@@ -1286,6 +1286,121 @@ mod tests {
 
         cleanup_objects(&[97026]);
     }
+
+    #[test]
+    fn set_experience_and_level_rejects_self_sink_cycle_without_reentry() {
+        let _lock = crate::test_sync::lock();
+        let common = std::sync::Arc::new(
+            game_engine::common::common_services::CommonServices::new(),
+        );
+        game_engine::common::common_services::with_common_services(&common, || {
+            let stores = std::sync::Arc::new(
+                crate::system::engine_stores::EngineStores::new_for_world(),
+            );
+            crate::system::engine_stores::with_active_stores(&stores, || {
+                reset_players();
+                let object = owned_trainable_object("ExperienceSelfSink", 97027, 0);
+                let mut tracker = Box::new(crate::common::ExperienceTracker::new(97027));
+                tracker.set_experience_sink(97027);
+                object.write().expect("object write").experience_tracker = Some(tracker);
+                assert!(
+                    object
+                        .write()
+                        .expect("object write")
+                        .set_veterancy_level_with_side_effects(
+                            crate::common::VeterancyLevel::Veteran,
+                            false,
+                        )
+                );
+
+                assert!(
+                    !object
+                        .write()
+                        .expect("object write")
+                        .set_experience_and_level_with_side_effects(0, false),
+                    "self experience-sink cycle must reject before re-entering the Object write lock"
+                );
+                assert_eq!(
+                    object
+                        .read()
+                        .expect("object read")
+                        .with_experience_tracker(|t| t.get_veterancy_level()),
+                    Some(crate::common::VeterancyLevel::Veteran),
+                    "rejected self-cycle leaves the source tracker unchanged"
+                );
+
+                cleanup_objects(&[97027]);
+            })
+        });
+    }
+
+    #[test]
+    fn set_experience_and_level_rejects_reciprocal_sink_cycle_without_deadlock() {
+        let _lock = crate::test_sync::lock();
+        let common = std::sync::Arc::new(
+            game_engine::common::common_services::CommonServices::new(),
+        );
+        game_engine::common::common_services::with_common_services(&common, || {
+            let stores = std::sync::Arc::new(
+                crate::system::engine_stores::EngineStores::new_for_world(),
+            );
+            crate::system::engine_stores::with_active_stores(&stores, || {
+                reset_players();
+                let source = owned_trainable_object("ExperienceReciprocalA", 97028, 0);
+                let peer = owned_trainable_object("ExperienceReciprocalB", 97029, 0);
+                let mut source_tracker = Box::new(crate::common::ExperienceTracker::new(97028));
+                let mut peer_tracker = Box::new(crate::common::ExperienceTracker::new(97029));
+                source_tracker.set_experience_sink(97029);
+                peer_tracker.set_experience_sink(97028);
+                source.write().expect("source write").experience_tracker = Some(source_tracker);
+                peer.write().expect("peer write").experience_tracker = Some(peer_tracker);
+                assert!(
+                    source
+                        .write()
+                        .expect("source write")
+                        .set_veterancy_level_with_side_effects(
+                            crate::common::VeterancyLevel::Veteran,
+                            false,
+                        )
+                );
+                assert!(
+                    peer
+                        .write()
+                        .expect("peer write")
+                        .set_veterancy_level_with_side_effects(
+                            crate::common::VeterancyLevel::Veteran,
+                            false,
+                        )
+                );
+
+                assert!(
+                    !source
+                        .write()
+                        .expect("source write")
+                        .set_experience_and_level_with_side_effects(0, false),
+                    "reciprocal experience-sink cycle must reject before peer Object write"
+                );
+                assert_eq!(
+                    source
+                        .read()
+                        .expect("source read")
+                        .with_experience_tracker(|t| t.get_veterancy_level()),
+                    Some(crate::common::VeterancyLevel::Veteran),
+                    "rejected reciprocal cycle leaves source unchanged"
+                );
+                assert_eq!(
+                    peer
+                        .read()
+                        .expect("peer read")
+                        .with_experience_tracker(|t| t.get_veterancy_level()),
+                    Some(crate::common::VeterancyLevel::Veteran),
+                    "rejected reciprocal cycle leaves peer unchanged"
+                );
+
+                cleanup_objects(&[97028, 97029]);
+            })
+        });
+    }
 }
 
 /// Rider change contain module - can transform contained units
