@@ -25,7 +25,7 @@ fn native_particle_ground_hit_uses_receiving_camera_not_core_view() {
             game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(
                 definition.name.to_string(),
                 game_client::fx_list::FXList::from_definition(&definition),
-            ); })
+            ); });
             let rules = game_engine::common::global_data::read().clone();
             assert!(rules.max_shake_range > 0. && rules.shake_normal_intensity > 0.);
             let mut owner = world();

@@ -290,7 +290,7 @@ fn execute_build_clears_removable_and_map_trees() {
         );
         exec.execute_build(&[ObjectId(9101)], "TestClearFootprintBarracks", site, 0.0)
     };
-    assert_eq!(result, Ok(CommandResult::Success, "placement must succeed");
+    assert_eq!(result, Ok(CommandResult::Success), "placement must succeed");
 
     let shrub = logic
         .host_object(ObjectId(9102))
