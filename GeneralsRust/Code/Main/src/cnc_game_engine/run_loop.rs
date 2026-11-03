@@ -998,13 +998,17 @@ pub async fn run_cnc_game(
                             execute_wait_deadline(prev_time, engine.live_present_interval());
                     }
                 }
+                // gpui/bench hosts must keep Poll after Menu: macOS WaitUntil
+                // stops waking AboutToWait once the window loses focus, which
+                // freezes status.txt at Loading and blocks open_skirmish_menu.
                 if matches!(
                     engine.startup_load_state,
                     super::StartupLoadState::InProgress { .. }
-                ) || (engine.live_present_interval().is_none()
-                    && !runtime_headless_mode
-                    && !cmd_args.wants_smoke_test()
-                    && !runtime_window_minimized)
+                ) || runtime_host_bridge.is_some()
+                    || (engine.live_present_interval().is_none()
+                        && !runtime_headless_mode
+                        && !cmd_args.wants_smoke_test()
+                        && !runtime_window_minimized)
                 {
                     elwt.set_control_flow(ControlFlow::Poll);
                 } else {
