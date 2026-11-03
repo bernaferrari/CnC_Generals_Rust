@@ -70,7 +70,7 @@ fn attack_move_uses_identical_destination() {
     }
     let ga = logic.host_object(a).unwrap().requested_destination;
     let gb = logic.host_object(b).unwrap().requested_destination;
-    assert!(ga, Some(dest), "a goal {ga:?}");
+    assert_eq!(ga, Some(dest), "a goal {ga:?}");
     assert_eq!(gb, Some(dest), "b goal {gb:?}");
 }
 
@@ -104,7 +104,7 @@ fn scatter_uses_bounding_circle_not_selection_radius() {
     let before_a = logic.host_object(a).unwrap().get_position();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_scatter(&[a, b]).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_scatter(&[a, b]) == CommandResult::Success);
     }
     let unit = logic.host_object(a).unwrap();
     let dest = unit
@@ -156,7 +156,7 @@ fn tighten_helicopters_use_offset_ring() {
     let click = Vec3::new(100.0, 10.0, 50.0);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_tighten_to_position(&[a, b], click).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_tighten_to_position(&[a, b], click) == CommandResult::Success);
     }
     let ga = logic
         .host_object(a)
@@ -206,7 +206,7 @@ fn group_move_clamps_waypoint_to_map_extent() {
         .expect("clamped command destination");
     let path_goal = unit.movement.path.last().copied().expect("clamped path");
     // AIPathfind::adjustCoordToCell quantizes the route, not the command.
-    assert!(logic.pathfinding_system.grid.world_to_grid(path_goal),
+    assert_eq!(logic.pathfinding_system.grid.world_to_grid(path_goal),
         logic.pathfinding_system.grid.world_to_grid(dest)
     );
     let margin = 4.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
@@ -263,7 +263,7 @@ fn compute_ground_path_infantry_line_passable_fallback() {
     logic.pathfinding_system.grid.set_blocked(obstacle, false);
     let mut executor = super::CommandExecutor::new(&mut logic, 0);
     assert!(executor.compute_ground_path_should_group(&members, goal));
-    assert_eq!(
+    assert!(
         executor.execute_move(&members, goal).is_ok_and(|r| r == crate::command_system::CommandResult::Success));
     for id in members {
         assert!(
@@ -318,14 +318,14 @@ fn script_formation_move_keeps_shared_obstacle_spine_and_group_speed() {
 
     assert!(CommandExecutor::new(&mut logic, 0)
             .execute_script_team_move(&members, destination)
-            .unwrap().is_ok_and(|r| r == CommandResult::Success));
+            .unwrap() == CommandResult::Success);
     for id in &members {
         let unit = logic.host_object(*id).unwrap();
         assert!(
             !unit.movement.path.is_empty(),
             "{id:?} must receive the shared route"
         );
-        assert!(unit.formation_id, 91,
+        assert_eq!(unit.formation_id, 91,
             "script movement keeps formation membership"
         );
         assert_eq!(
@@ -386,18 +386,18 @@ fn stamped_formation_move_does_not_tighten() {
     let dest = Vec3::new(20.0, 0.0, 0.0);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_create_formation(&[a, b]).is_ok_and(|r| r == CommandResult::Success));
+        assert!(
+            exec.execute_create_formation(&[a, b]) == CommandResult::Success);
         assert!(
             exec.should_tighten_group_move(&[a, b], dest),
             "click is inside the bbox; tighten would fire without the formation gate"
         );
-        assert!(exec.execute_move(&[a, b], dest).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_move(&[a, b], dest) == CommandResult::Success);
     }
     let fa = logic.host_object(a).unwrap();
     let fb = logic.host_object(b).unwrap();
     assert_ne!(fa.formation_id, 0, "tighten must not dissolve formation");
-    assert!(fa.formation_id, fb.formation_id);
+    assert_eq!(fa.formation_id, fb.formation_id);
     let ga = fa
         .movement
         .path
@@ -554,7 +554,7 @@ fn group_special_power_fires_every_capable_caster() {
             &SpecialPowerType::SpySatellite,
             &PowerTarget::Location(Vec3::new(80.0, 0.0, 80.0)),
         );
-        assert_eq!(res.is_ok_and(|r| r == CommandResult::Success));
+        assert!(res.is_ok_and(|r| r == CommandResult::Success));
     }
     let sa = logic.host_object(a).unwrap().ai_state().clone();
     let sb = logic.host_object(b).unwrap().ai_state().clone();
@@ -718,7 +718,7 @@ End
         );
         // ActiveBody.cpp:111,154 defaults InitialHealth to zero; these
         // independently authored fixtures must initialize live bodies.
-        assert!(unit.health.current, 200.0);
+        assert_eq!(unit.health.current, 200.0);
         assert_eq!(unit.transport_capacity(), 8);
         unit.status.airborne_target = true;
         unit.ground_height = raw;
@@ -736,14 +736,14 @@ fn assert_airborne_evacuation(
     passenger: crate::game_logic::ObjectId,
     expected_height: f32,
 ) {
-    assert_eq!(
+    assert!(
         super::CommandExecutor::new(world, 0)
             .execute_evacuate(&[id])
-            .expect("airborne evacuation command").is_ok_and(|r| r == crate::command_system::CommandResult::Success));
+            .expect("airborne evacuation command") == crate::command_system::CommandResult::Success);
     let unit = world.host_object(id).unwrap();
     assert!(unit.pending_evacuate_on_stop, "unload waits for arrival");
     let ai = unit.chinook_ai.as_ref().unwrap();
-    assert!(ai.dest,
+    assert_eq!(ai.dest,
         [10.0, 10.0, expected_height],
         "CPP layer-height evacuation command"
     );
@@ -888,12 +888,12 @@ fn object_attack_orders_passenger_fire() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
+        assert!(
             exec.execute_attack(&[humvee], enemy)
-                .expect("valid group attack fixture").is_ok_and(|r| r == CommandResult::Success));
+                .expect("valid group attack fixture") == CommandResult::Success);
     }
     let rider = logic.host_object(rider).unwrap();
-    assert!(rider.target,
+    assert_eq!(rider.target,
         Some(enemy),
         "passenger allowed to fire must receive the object-attack order"
     );
@@ -1012,10 +1012,10 @@ fn stop_idles_garrison_occupants_and_hive_slaves() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_stop(&[site]).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_stop(&[site]) == CommandResult::Success);
     }
     let occ = logic.host_object(occ).unwrap();
-    assert!(occ.ai_state(),
+    assert_eq!(occ.ai_state(),
         crate::game_logic::AIState::Idle,
         "S on a garrisoned structure must stop occupants"
     );
@@ -1074,7 +1074,7 @@ fn stop_idles_ai_transport_occupants() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_stop(&[truck]).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_stop(&[truck]) == CommandResult::Success);
     }
     let r = logic.host_object(rider).unwrap();
     assert_eq!(r.ai_state(), crate::game_logic::AIState::Idle);

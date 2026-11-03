@@ -82,7 +82,7 @@ pub(in crate::game_logic) fn isolated_at(_: &str, _: &str, run: impl FnOnce()) {
 
 pub(in crate::game_logic) fn authored_match() -> (GameLogic, ObjectId, ObjectId) {
     use game_engine::common::ini::ini_locomotor::load_locomotors_from_str;
-    assert!(load_locomotors_from_str(
+    assert_eq!(load_locomotors_from_str(
             r#"
 Locomotor HqO7b46HoverLocomotor
   Surfaces = AIR
@@ -172,10 +172,10 @@ End
         selected_units: vec![heli],
         modifier_keys: ModifierKeys::default(),
     };
-    assert_eq!(
+    assert!(
         CommandExecutor::new(&mut logic, 0)
             .execute_command(command)
-            .unwrap().is_ok_and(|r| r == CommandResult::Success));
+            .unwrap() == CommandResult::Success);
     let state = logic.heli_takeoff_or_landing[&heli];
     assert!(state.landing);
     assert_eq!(state.airfield_id, pad);

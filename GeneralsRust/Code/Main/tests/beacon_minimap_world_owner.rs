@@ -51,7 +51,7 @@ fn place(world: &mut GameLogic, position: glam::Vec3) -> ObjectId {
     };
     assert!(CommandExecutor::new(world, 1)
             .execute_command(command)
-            .unwrap().is_ok_and(|r| r == CommandResult::Success));
+            .unwrap() == CommandResult::Success);
     *world.host_objects().registered_keys().next().unwrap()
 }
 
@@ -66,7 +66,7 @@ fn remove(world: &mut GameLogic, id: ObjectId) {
     };
     assert!(CommandExecutor::new(world, 1)
             .execute_command(command)
-            .unwrap().is_ok_and(|r| r == CommandResult::Success));
+            .unwrap() == CommandResult::Success);
 }
 
 #[test]

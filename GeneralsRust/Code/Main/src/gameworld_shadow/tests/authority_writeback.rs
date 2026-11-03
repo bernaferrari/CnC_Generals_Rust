@@ -26,7 +26,7 @@ fn no_shadow_boundary_still_admits_projected_lethal_damage() {
     shadow.sync_from_host(&logic);
     logic.health_events.clear_damage();
     assert!(logic.host_lethal_finish_object(id, None));
-    assert!(logic.host_object(id).unwrap().health.current, 0.0);
+    assert_eq!(logic.host_object(id).unwrap().health.current, 0.0);
     assert!(logic.host_object(id).unwrap().status.destroyed);
     assert!(logic.host_object(id).unwrap().status.effectively_dead);
     assert!(logic.health_events.snapshot_damage().is_empty());
@@ -1952,7 +1952,7 @@ fn coupled_tick_group_speed_reads_script_damage_from_host_owner_before_shadow_bo
     // Use the actual command executor to establish the authored formation
     // stamp; the later Move is processed by GameLogic::process_commands.
     let formation = CommandExecutor::new(&mut logic, 0).execute_create_formation(&[fast, slow]);
-    assert_eq!(formation.is_ok_and(|r| r == CommandResult::Success));
+    assert!(formation == CommandResult::Success);
 
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);

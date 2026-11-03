@@ -27,7 +27,7 @@ fn attack_move_sets_is_attack_path_flag() {
     }
     let u = logic.host_object(id).unwrap();
     assert!(!u.is_attack_path);
-    assert!(u.ai_state(), AIState::AttackMoving);
+    assert_eq!(u.ai_state(), AIState::AttackMoving);
 }
 
 #[test]
@@ -52,13 +52,13 @@ fn follow_waypoint_as_team_preserves_offsets() {
     // Stamp formation.
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_create_formation(&[a, b]).is_ok_and(|r| r == CommandResult::Success));
+        assert!(
+            exec.execute_create_formation(&[a, b]) == CommandResult::Success);
     }
     let wps = vec![Vec3::new(100.0, 0.0, 0.0), Vec3::new(200.0, 0.0, 0.0)];
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_follow_waypoint_path(&[a, b], &wps, true, true).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_follow_waypoint_path(&[a, b], &wps, true, true) == CommandResult::Success);
     }
     let ga = logic
         .host_object(a)
@@ -85,7 +85,7 @@ fn follow_waypoint_as_team_preserves_offsets() {
         "as-team should preserve formation separation, ga={ga:?} gb={gb:?} sep={sep}"
     );
     // Formation id preserved.
-    assert!(logic.host_object(a).unwrap().formation_id,
+    assert_eq!(logic.host_object(a).unwrap().formation_id,
         logic.host_object(b).unwrap().formation_id
     );
     assert_ne!(logic.host_object(a).unwrap().formation_id, 0);
@@ -108,7 +108,7 @@ fn do_command_button_using_waypoints_attack_moves() {
     let wps = vec![Vec3::new(10.0, 0.0, 0.0), Vec3::new(80.0, 0.0, 0.0)];
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
+        assert!(
             exec.execute_do_command_button_using_waypoints(&[id], "Command_AttackMove", &wps).is_ok_and(|r| r == CommandResult::Success));
     }
     let u = logic.host_object(id).unwrap();
@@ -149,8 +149,7 @@ fn do_command_button_dispatches_stop() {
         assert!(exec.execute_do_command_button(&[id], "Command_Stop", None, None).is_ok_and(|r| r == CommandResult::Success));
     }
     let u = logic.host_object(id).unwrap();
-    assert!(
-        matches!(u.ai_state(), AIState::Idle) || u.target.is_none() || !u.status.moving,
+    assert_eq!(matches!(u.ai_state(), AIState::Idle) || u.target.is_none() || !u.status.moving,
         "stop should clear action state={:?} target={:?}",
         u.ai_state(),
         u.target
@@ -199,7 +198,7 @@ fn surrender_stops_and_flags_unit() {
     let id = logic.create_object("SR_I", Team::USA, Vec3::ZERO).unwrap();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_surrender(&[id], true).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_surrender(&[id], true) == CommandResult::Success);
     }
     let o = logic.host_object(id).unwrap();
     assert!(o.is_surrendered);
@@ -248,7 +247,7 @@ fn attack_team_engages_member_of_team() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         // team_code 0 = GLA
-        assert!(exec.execute_attack_team(&[u], 0, -1).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_attack_team(&[u], 0, -1) == CommandResult::Success);
     }
     let unit = logic.host_object(u).unwrap();
     assert!(
@@ -261,7 +260,7 @@ fn attack_team_engages_member_of_team() {
         unit.target,
         unit.ai_state()
     );
-    assert!(unit.max_shots_to_fire, -1);
+    assert_eq!(unit.max_shots_to_fire, -1);
     assert_eq!(
         unit.attack_priority_set.as_deref(),
         Some("AIGroup.AttackTeam.GLA")
@@ -297,19 +296,19 @@ fn weapon_lock_forces_slot_and_release() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_set_weapon_lock(&[id], 1, 2).is_ok_and(|r| r == CommandResult::Success));
+        assert!(
+            exec.execute_set_weapon_lock(&[id], 1, 2) == CommandResult::Success);
     }
     let u = logic.host_object(id).unwrap();
-    assert!(u.weapon_lock_type, WeaponLockType::LockedPermanently);
+    assert_eq!(u.weapon_lock_type, WeaponLockType::LockedPermanently);
     assert_eq!(u.weapon_lock_slot, 1);
     assert_eq!(u.active_weapon_slot, 1);
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_release_weapon_lock(&[id], 2).is_ok_and(|r| r == CommandResult::Success));
+        assert!(
+            exec.execute_release_weapon_lock(&[id], 2) == CommandResult::Success);
     }
-    assert!(logic.host_object(id).unwrap().weapon_lock_type,
+    assert_eq!(logic.host_object(id).unwrap().weapon_lock_type,
         WeaponLockType::NotLocked
     );
 }
@@ -346,9 +345,9 @@ fn move_to_releases_temporary_but_not_permanent_weapon_lock() {
         assert!(u.set_weapon_lock(1, WeaponLockType::LockedTemporarily));
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert_eq!(
-        exec.execute_move_to(&[id], Vec3::new(40.0, 0.0, 0.0), &[]).is_ok_and(|r| r == CommandResult::Success));
-    assert!(logic.host_object(id).unwrap().weapon_lock_type,
+    assert!(
+        exec.execute_move_to(&[id], Vec3::new(40.0, 0.0, 0.0), &[]) == CommandResult::Success);
+    assert_eq!(logic.host_object(id).unwrap().weapon_lock_type,
         WeaponLockType::NotLocked
     );
 
@@ -357,10 +356,10 @@ fn move_to_releases_temporary_but_not_permanent_weapon_lock() {
         assert!(u.set_weapon_lock(1, WeaponLockType::LockedPermanently));
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert_eq!(
-        exec.execute_move_to(&[id], Vec3::new(80.0, 0.0, 0.0), &[]).is_ok_and(|r| r == CommandResult::Success));
+    assert!(
+        exec.execute_move_to(&[id], Vec3::new(80.0, 0.0, 0.0), &[]) == CommandResult::Success);
     let u = logic.host_object(id).unwrap();
-    assert!(u.weapon_lock_type, WeaponLockType::LockedPermanently);
+    assert_eq!(u.weapon_lock_type, WeaponLockType::LockedPermanently);
     assert_eq!(u.weapon_lock_slot, 1);
 }
 
@@ -403,10 +402,10 @@ fn do_weapon_locks_the_requested_secondary_slot_before_targeting() {
         1,
         &WeaponTarget::Location(target),
     );
-    assert_eq!(result.is_ok_and(|r| r == CommandResult::Success));
+    assert!(result == CommandResult::Success);
 
     let unit = logic.host_object(unit_id).expect("unit");
-    assert!(unit.active_weapon_slot, 1);
+    assert_eq!(unit.active_weapon_slot, 1);
     assert_eq!(unit.weapon_lock_type, WeaponLockType::LockedTemporarily);
     assert_eq!(unit.weapon_lock_slot, 1);
     assert_eq!(unit.target_location, Some(target));
@@ -460,11 +459,11 @@ fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
         -1,
         &WeaponTarget::Object(target),
     );
-    assert_eq!(result.is_ok_and(|r| r == CommandResult::Success));
+    assert!(result == CommandResult::Success);
 
     let _ = logic.host_object_mut(unit_id).expect("unit");
     let unit = logic.objects.get_mut(&unit_id).expect("unit");
-    assert!(unit.active_weapon_slot, 2);
+    assert_eq!(unit.active_weapon_slot, 2);
     assert_eq!(unit.weapon_lock_type, WeaponLockType::LockedTemporarily);
     assert_eq!(unit.weapon_lock_slot, 2);
     assert!(unit.fire_at(
@@ -514,10 +513,10 @@ fn do_weapon_rejects_unrepresented_slots_without_primary_fallback() {
         -1,
         &WeaponTarget::Location(Vec3::new(75.0, 0.0, 25.0)),
     );
-    assert_eq!(result.is_ok_and(|r| r == CommandResult::InvalidCommand));
+    assert!(result == CommandResult::InvalidCommand);
 
     let unit = logic.host_object(unit_id).expect("unit");
-    assert!(unit.active_weapon_slot, 0);
+    assert_eq!(unit.active_weapon_slot, 0);
     assert_eq!(unit.weapon_lock_type, WeaponLockType::NotLocked);
     assert_eq!(unit.target_location, None);
 
@@ -527,8 +526,8 @@ fn do_weapon_rejects_unrepresented_slots_without_primary_fallback() {
         -1,
         &WeaponTarget::Location(Vec3::new(80.0, 0.0, 30.0)),
     );
-    assert_eq!(result.is_ok_and(|r| r == CommandResult::InvalidCommand));
-    assert!(logic.host_object(unit_id).expect("unit").target_location,
+    assert!(result == CommandResult::InvalidCommand);
+    assert_eq!(logic.host_object(unit_id).expect("unit").target_location,
         None
     );
 }
@@ -549,8 +548,8 @@ fn set_emoticon_stores_name_and_duration() {
     let id = logic.create_object("EM_U", Team::USA, Vec3::ZERO).unwrap();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_set_emoticon(&[id], "Emoticon_Alert", 60).is_ok_and(|r| r == CommandResult::Success));
+        assert!(
+            exec.execute_set_emoticon(&[id], "Emoticon_Alert", 60) == CommandResult::Success);
     }
     let u = logic.host_object(id).unwrap();
     assert!(u.emoticon_name, "Emoticon_Alert");
@@ -573,8 +572,8 @@ fn mine_clearing_detail_toggles_weapon_set_flag() {
     let d = logic.create_object("MC_D", Team::USA, Vec3::ZERO).unwrap();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            exec.execute_set_mine_clearing_detail(&[d], true).is_ok_and(|r| r == CommandResult::Success));
+        assert!(
+            exec.execute_set_mine_clearing_detail(&[d], true) == CommandResult::Success);
     }
     assert!(
         logic
@@ -584,7 +583,7 @@ fn mine_clearing_detail_toggles_weapon_set_flag() {
     );
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_set_mine_clearing_detail(&[d], false).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_set_mine_clearing_detail(&[d], false) == CommandResult::Success);
     }
     assert!(
         !logic
@@ -628,7 +627,7 @@ fn ordinary_do_weapon_uses_authored_mine_detail_and_disarms_only_when_armed() {
         -1,
         &WeaponTarget::Location(Vec3::new(2.0, 0.0, 0.0)),
     );
-    assert!(result.is_ok_and(|r| r == CommandResult::InvalidCommand));
+    assert!(result == CommandResult::InvalidCommand);
     assert!(
         logic
             .host_object(mine_id)
@@ -639,7 +638,7 @@ fn ordinary_do_weapon_uses_authored_mine_detail_and_disarms_only_when_armed() {
 
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(exec.execute_set_mine_clearing_detail(&[clearer_id], true).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_set_mine_clearing_detail(&[clearer_id], true) == CommandResult::Success);
         drop(exec);
         // Readiness belongs to the newly selected actual PRIMARY instance,
         // not a cached detail weapon created before the command.
@@ -656,11 +655,11 @@ fn ordinary_do_weapon_uses_authored_mine_detail_and_disarms_only_when_armed() {
                 &WeaponSlot::Primary,
                 -1,
                 &WeaponTarget::Location(Vec3::new(2.0, 0.0, 0.0)),
-            ).is_ok_and(|r| r == CommandResult::Success));
+            ) == CommandResult::Success);
     }
     let clearer = logic.host_object(clearer_id).expect("typed clearer");
     assert!(clearer.weapon_set_mine_clearing_detail);
-    assert!(clearer.weapon_name_for_slot(0),
+    assert_eq!(clearer.weapon_name_for_slot(0),
         Some("DozerMineDisarmingWeapon"),
         "ordinary DoWeapon must select the authored conditional source name"
     );
@@ -697,7 +696,7 @@ fn go_prone_sets_prone_timer_and_bit() {
     let i = logic.create_object("GP_I", Team::USA, Vec3::ZERO).unwrap();
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_go_prone(&[i]).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_go_prone(&[i]) == CommandResult::Success);
     }
     let u = logic.host_object(i).unwrap();
     assert!(u.prone_timer > 0.0);
@@ -729,7 +728,7 @@ fn attack_area_engages_enemy_inside_radius() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert!(exec.execute_attack_area(&[u], Vec3::new(40.0, 0.0, 0.0), 80.0, None)
-                .expect("valid attack-area fixture").is_ok_and(|r| r == CommandResult::Success));
+                .expect("valid attack-area fixture") == CommandResult::Success);
     }
     let unit = logic.host_object(u).unwrap();
     assert!(
@@ -893,13 +892,13 @@ fn evacuate_requires_container_not_passenger_only() {
         .unwrap();
     let mut exec = CommandExecutor::new(&mut logic, 0);
     // C++ groupEvacuate no-ops on non-containers without AI contain.
-    assert!(exec.execute_evacuate(&[a]).expect("evacuate command").is_ok_and(|r| r == CommandResult::InvalidCommand));
+    assert!(exec.execute_evacuate(&[a]).expect("evacuate command") == CommandResult::InvalidCommand);
 }
 
 // These are source contracts, so delimit the exact production methods rather
 // than assigning a byte budget that unrelated validation/comments can exhaust.
 fn command_source_method<'a>(source: &'a str, start: &str, next: &str) -> &'a str {
-    assert!(source.matches(start).count(), 1, "exact method {start}");
+    assert_eq!(source.matches(start).count(), 1, "exact method {start}");
     let (_, tail) = source.split_once(start).expect("method header");
     let (body, _) = tail.split_once(next).expect("next method boundary");
     body
@@ -963,10 +962,10 @@ fn deploy_command_uses_authored_metadata_and_pack_unpack_timing() {
     // Full player command -> executor -> authoritative GameLogic transition.
     {
         let mut executor = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
+        assert!(
             executor
                 .execute_command(deploy_command(1, vec![deployable]))
-                .expect("deploy command result").is_ok_and(|r| r == CommandResult::Success));
+                .expect("deploy command result") == CommandResult::Success);
     }
     let first = logic.host_object(deployable).expect("deploying unit");
     assert!(
@@ -1001,7 +1000,7 @@ fn deploy_command_uses_authored_metadata_and_pack_unpack_timing() {
         let mut executor = CommandExecutor::new(&mut logic, 0);
         assert!(executor
                 .execute_command(deploy_command(2, vec![deployable]))
-                .expect("undeploy command result").is_ok_and(|r| r == CommandResult::Success));
+                .expect("undeploy command result") == CommandResult::Success);
     }
     assert!(!logic.host_object(deployable).unwrap().is_deployed());
     logic.frame = 5;
@@ -1027,7 +1026,7 @@ fn deploy_command_uses_authored_metadata_and_pack_unpack_timing() {
     let mut executor = CommandExecutor::new(&mut logic, 0);
     assert!(executor
             .execute_command(deploy_command(3, vec![no_behavior]))
-            .expect("ordinary deploy command result").is_ok_and(|r| r == CommandResult::InvalidCommand));
+            .expect("ordinary deploy command result") == CommandResult::InvalidCommand);
     drop(executor);
     assert!(
         logic
@@ -1067,9 +1066,9 @@ fn stop_delays_mood_for_unstealthed_stealth_unit() {
         );
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert!(exec.execute_stop(&[a]).is_ok_and(|r| r == CommandResult::Success));
+    assert_eq!(exec.execute_stop(&[a]), CommandResult::Success);
     let u = logic.host_object(a).unwrap();
-    assert!(u.ai_state(), AIState::Idle);
+    assert_eq!(u.ai_state(), AIState::Idle);
     // now=100 + delay 45 + skew 0
     assert_eq!(
         u.next_mood_check_time, 145,
@@ -1102,8 +1101,8 @@ fn add_waypoint_uses_group_destinations() {
     }
     let click = Vec3::new(100.0, 0.0, 50.0);
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert_eq!(
-        exec.execute_add_waypoint(&[a, b], click).is_ok_and(|r| r == CommandResult::Success));
+    assert!(
+        exec.execute_add_waypoint(&[a, b], click) == CommandResult::Success);
     // Paths should not be identical stacked goals for multi-select.
     let pa = logic.host_object(a).unwrap().movement.path.clone();
     let pb = logic.host_object(b).unwrap().movement.path.clone();
@@ -1145,7 +1144,7 @@ fn add_waypoint_skips_immobile_and_still_succeeds() {
         .unwrap();
     let click = Vec3::new(80.0, 0.0, 0.0);
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert!(exec.execute_add_waypoint(&[a, b], click).is_ok_and(|r| r == CommandResult::Success));
+    assert!(exec.execute_add_waypoint(&[a, b], click) == CommandResult::Success);
     assert!(
         !logic.host_object(a).unwrap().movement.path.is_empty(),
         "mobile member must still receive the waypoint"
@@ -1173,7 +1172,7 @@ fn add_waypoint_clamps_to_map_extent() {
         .create_object("WP_CLAMP", Team::USA, Vec3::ZERO)
         .unwrap();
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert!(exec.execute_add_waypoint(&[a], Vec3::new(400.0, 0.0, 0.0)).is_ok_and(|r| r == CommandResult::Success));
+    assert!(exec.execute_add_waypoint(&[a], Vec3::new(400.0, 0.0, 0.0)) == CommandResult::Success);
     let goal = *logic
         .host_object(a)
         .unwrap()
@@ -1212,7 +1211,7 @@ fn add_waypoint_plays_voice_move_when_idle() {
         .unwrap();
     logic.queued_audio_events.clear();
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert!(exec.execute_add_waypoint(&[a], Vec3::new(40.0, 0.0, 0.0)).is_ok_and(|r| r == CommandResult::Success));
+    assert!(exec.execute_add_waypoint(&[a], Vec3::new(40.0, 0.0, 0.0)) == CommandResult::Success);
     assert!(
         logic
             .queued_audio_events
@@ -1227,7 +1226,7 @@ fn add_waypoint_plays_voice_move_when_idle() {
     );
     logic.queued_audio_events.clear();
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert!(exec.execute_add_waypoint(&[a], Vec3::new(80.0, 0.0, 0.0)).is_ok_and(|r| r == CommandResult::Success));
+    assert!(exec.execute_add_waypoint(&[a], Vec3::new(80.0, 0.0, 0.0)) == CommandResult::Success);
     assert!(
         logic
             .queued_audio_events
@@ -1272,7 +1271,7 @@ fn add_waypoint_breaks_off_attack() {
         );
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert!(exec.execute_add_waypoint(&[a], Vec3::new(90.0, 0.0, 0.0)).is_ok_and(|r| r == CommandResult::Success));
+    assert!(exec.execute_add_waypoint(&[a], Vec3::new(90.0, 0.0, 0.0)) == CommandResult::Success);
     let u = logic.host_object(a).unwrap();
     assert!(
         u.target.is_none(),
@@ -1282,7 +1281,7 @@ fn add_waypoint_breaks_off_attack() {
         u.active_guard_target().is_none(),
         "queued waypoint must drop guard"
     );
-    assert!(u.ai_state(), AIState::Moving);
+    assert_eq!(u.ai_state(), AIState::Moving);
     assert!(!u.status.attacking);
 }
 
@@ -1311,10 +1310,10 @@ fn move_delays_mood_for_unstealthed_stealth_unit() {
         u.next_mood_check_time = 0;
     }
     let mut exec = CommandExecutor::new(&mut logic, 0);
-    assert_eq!(
+    assert!(
         exec.execute_move(&[a], Vec3::new(50.0, 0.0, 0.0)).is_ok_and(|r| r == CommandResult::Success));
     let u = logic.host_object(a).unwrap();
-    assert!(u.next_mood_check_time, 80); // 50+30+0
+    assert_eq!(u.next_mood_check_time, 80); // 50+30+0
 }
 
 #[test]
@@ -1458,8 +1457,8 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
         .producer_id = Some(owner_airfield);
     {
         let mut executor = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            executor.execute_return_to_base(&[producer_jet]).is_ok_and(|r| r == CommandResult::Success));
+        assert!(
+            executor.execute_return_to_base(&[producer_jet]) == CommandResult::Success);
     }
     // C++ JetOrHeliReturnForLandingState (JetAIUpdate.cpp:1509-1545) only
     // reserves the producer parking space and assigns the approach goal on
@@ -1467,7 +1466,7 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
     // reservation must exist immediately, but containment waits for arrival.
     {
         let jet = logic.host_object(producer_jet).expect("producer jet");
-        assert!(jet.producer_id, Some(owner_airfield));
+        assert_eq!(jet.producer_id, Some(owner_airfield));
         assert_eq!(jet.airfield_parking_space_index, Some(0));
         assert_ne!(
             jet.contained_by,
@@ -1503,13 +1502,13 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
         .expect("rejected jet");
     {
         let mut executor = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            executor.execute_return_to_base(&[rejected_jet]).is_ok_and(|r| r == CommandResult::InvalidCommand));
+        assert!(
+            executor.execute_return_to_base(&[rejected_jet]) == CommandResult::InvalidCommand);
     }
     let rejected = logic
         .host_object(rejected_jet)
         .expect("rejected jet object");
-    assert!(rejected.contained_by, None);
+    assert_eq!(rejected.contained_by, None);
     assert_eq!(rejected.producer_id, None);
     assert_eq!(rejected.airfield_parking_space_index, None);
     assert_ne!(rejected.contained_by, Some(enemy_airfield));
@@ -1523,8 +1522,8 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
         .expect("allied fallback jet");
     {
         let mut executor = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            executor.execute_return_to_base(&[allied_fallback_jet]).is_ok_and(|r| r == CommandResult::Success));
+        assert!(
+            executor.execute_return_to_base(&[allied_fallback_jet]) == CommandResult::Success);
     }
     // Same C++ landing semantics as leg 1: consume the assigned approach
     // leg, then let the RTB tick progress to the dock.
@@ -1541,7 +1540,7 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
     let allied = logic
         .host_object(allied_fallback_jet)
         .expect("allied fallback jet object");
-    assert!(allied.contained_by,
+    assert_eq!(allied.contained_by,
         Some(same_faction_other_player_airfield),
         "only an explicit player alliance may unlock alternate-airfield RTB"
     );
@@ -1552,13 +1551,13 @@ fn return_to_base_prefers_exact_owner_producer_and_only_allows_explicitly_allied
     // release/reacquire capacity on each RTB update.
     {
         let mut executor = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(
-            executor.execute_return_to_base(&[allied_fallback_jet]).is_ok_and(|r| r == CommandResult::Success));
+        assert!(
+            executor.execute_return_to_base(&[allied_fallback_jet]) == CommandResult::Success);
     }
     let allied_again = logic
         .host_object(allied_fallback_jet)
         .expect("persisted allied fallback reservation");
-    assert!(allied_again.producer_id,
+    assert_eq!(allied_again.producer_id,
         Some(same_faction_other_player_airfield)
     );
     assert_eq!(allied_again.airfield_parking_space_index, Some(0));
@@ -1668,13 +1667,13 @@ End
         let mut executor = CommandExecutor::new(&mut logic, 0);
         executor.execute_railed_transport(&[carrier])
     };
-    assert_eq!(result.is_ok_and(|r| r == CommandResult::InvalidCommand));
+    assert_eq!(result, CommandResult::InvalidCommand);
 
     // No StartNN/EndNN pairs in leftover terrain or the host overlay:
     // ExecuteRailedTransport must not masquerade as Evacuate or a generic Move.
 
     let ferry = logic.host_object(carrier).expect("carrier after rejection");
-    assert!(ferry.contained_units(), vec![rider]);
+    assert_eq!(ferry.contained_units(), vec![rider]);
     assert_eq!(ferry.movement.path, original_path);
     assert_eq!(ferry.movement.target_position, original_target);
     assert_eq!(ferry.movement.current_path_index, 1);
@@ -1728,9 +1727,9 @@ fn attack_team_reacquires_after_victim_dies() {
     }
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert_eq!(exec.execute_attack_team(&[u], 0, 7).is_ok_and(|r| r == CommandResult::Success));
+        assert!(exec.execute_attack_team(&[u], 0, 7) == CommandResult::Success);
     }
-    assert!(logic.host_object(u).unwrap().target, Some(near));
+    assert_eq!(logic.host_object(u).unwrap().target, Some(near));
     assert_eq!(logic.host_object(u).unwrap().max_shots_to_fire, 7);
     logic.host_object_mut(near).unwrap().health.current = 0.0;
     logic.tick_attack_team_persist(&[u]);
@@ -1780,10 +1779,10 @@ fn attack_team_sleep_ai_picks_no_victim() {
     );
     {
         let mut exec = CommandExecutor::new(&mut logic, 1);
-        assert_eq!(
-            exec.execute_attack_team(&[u], 0, -1).is_ok_and(|r| r == CommandResult::Success));
+        assert!(
+            exec.execute_attack_team(&[u], 0, -1) == CommandResult::Success);
     }
-    assert!(logic.host_object(u).unwrap().target,
+    assert_eq!(logic.host_object(u).unwrap().target,
         None,
         "Sleep AI must not acquire an attack-team victim"
     );
@@ -1832,8 +1831,8 @@ fn attack_team_passive_ai_uses_last_attacker() {
     );
     {
         let mut exec = CommandExecutor::new(&mut logic, 1);
-        assert_eq!(
-            exec.execute_attack_team(&[u], 0, -1).is_ok_and(|r| r == CommandResult::Success));
+        assert!(
+            exec.execute_attack_team(&[u], 0, -1) == CommandResult::Success);
     }
     assert_eq!(logic.host_object(u).unwrap().target, Some(far));
     let _ = near;
