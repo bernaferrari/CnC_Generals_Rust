@@ -229,7 +229,6 @@ impl GameLogic {
             if let Some(player) = self.players.get_mut(&player_id) {
                 player.statistics.record_built(&template, &score_kind);
             }
-            gamelogic::player::notify_live_object_built(player_id, &template);
         }
     }
 
@@ -255,7 +254,6 @@ impl GameLogic {
             if let Some(player) = self.players.get_mut(&player_id) {
                 player.statistics.record_built(&template, &score_kind);
             }
-            gamelogic::player::notify_live_object_built(player_id, &template);
         }
     }
 

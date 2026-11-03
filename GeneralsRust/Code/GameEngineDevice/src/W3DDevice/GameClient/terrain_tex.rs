@@ -13,7 +13,7 @@
 //! - CloudMapTerrainTextureClass: Animated cloud shadows
 //! - ScorchTextureClass: Scorch marks and damage
 
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use wgpu::{Device, Queue, Sampler, Texture, TextureView};
 
@@ -302,11 +302,15 @@ pub struct GlobalData {
     pub multi_pass_terrain: bool,
 }
 
-// Global instance (would be properly initialized in real code)
-static THE_GLOBAL_DATA: OnceLock<RwLock<GlobalData>> = OnceLock::new();
-
-pub fn get_global_data() -> Option<&'static RwLock<GlobalData>> {
-    THE_GLOBAL_DATA.get()
+impl GlobalData {
+    pub fn default_lod() -> Self {
+        Self {
+            texture_reduction_factor: 0,
+            bilinear_terrain_tex: true,
+            trilinear_terrain_tex: false,
+            multi_pass_terrain: false,
+        }
+    }
 }
 
 // =============================================================================
@@ -674,10 +678,9 @@ impl TerrainTextureClass {
         }
 
         // Set LOD if texture reduction enabled (C++ lines 166-168)
-        if let Some(global_data) = get_global_data() {
-            if global_data.texture_reduction_factor > 0 {
-                self.base.set_lod(global_data.texture_reduction_factor);
-            }
+        let global_data = GlobalData::default_lod();
+        if global_data.texture_reduction_factor > 0 {
+            self.base.set_lod(global_data.texture_reduction_factor);
         }
 
         surface_height
@@ -685,12 +688,9 @@ impl TerrainTextureClass {
 
     fn terrain_filter() -> TextureFilter {
         let mut filter = TextureFilter::default();
-        let use_linear = get_global_data()
-            .map(|data| data.bilinear_terrain_tex || data.trilinear_terrain_tex)
-            .unwrap_or(false);
-        let use_trilinear = get_global_data()
-            .map(|data| data.trilinear_terrain_tex)
-            .unwrap_or(false);
+        let global_data = GlobalData::default_lod();
+        let use_linear = global_data.bilinear_terrain_tex || global_data.trilinear_terrain_tex;
+        let use_trilinear = global_data.trilinear_terrain_tex;
 
         filter.set_min_filter(if use_linear {
             FilterType::Linear
