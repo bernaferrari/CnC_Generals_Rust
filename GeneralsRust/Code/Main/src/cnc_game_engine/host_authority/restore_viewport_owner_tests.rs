@@ -145,6 +145,7 @@ fn unavailable_map_staging_preserves_actual_receiver_and_peer_viewports() {
                 &receiver.ocl_application_definitions(),
                 receiver.ai_definitions.baseline(),
                 receiver.production_energy_baseline(),
+                receiver.combat_system.historic_damage_limit(),
                 receiver.physics_rules_baseline(),
                 receiver.effective_terrain_definitions(),
                 receiver.current_armor_definitions(),
