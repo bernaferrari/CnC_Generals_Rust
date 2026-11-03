@@ -198,7 +198,7 @@ fn nested_stop_and_overlay_exit_take_the_loop_handle_exactly_once() {
             assert!(owner.unit_command_stop(id));
             // stop -> stop_moving -> overlay exit all share one receiving loan.
             let (object, output) = owner.host_object_and_audio_events_mut(id).unwrap();
-            let mut audio = ObjectAudio::record(output);
+            let mut audio = ObjectAudio::queue(output);
             object.stop_moving(&mut audio);
             object.end_temporary_move_overlay(&mut audio);
             object.set_ai_state(AIState::Idle, &mut audio);
