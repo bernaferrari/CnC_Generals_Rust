@@ -1932,6 +1932,11 @@ mod common_target_parity {
     fn idle_enter_delays_the_mood_check_then_jitters_once() {
         use gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
         let mut logic = GameLogic::new();
+        // hq-6tx39: C++ resetNextMoodCheckTime uses AIData.forceIdleFramesCount.
+        logic.set_ai_definition_base(game_engine::common::ini::AIData {
+            force_idle_frames_count: 3,
+            ..Default::default()
+        });
         logic.frame = 50;
         let id = logic
             .create_object("Ranger", Team::USA, glam::Vec3::ZERO)
