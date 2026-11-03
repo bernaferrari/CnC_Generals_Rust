@@ -337,31 +337,30 @@ impl Default for WebBrowser {
 }
 
 /// Global web browser instance
-struct WebBrowserSlot(OnceCell<RwLock<WebBrowser>>);
-impl std::ops::Deref for WebBrowserSlot {
-    type Target = OnceCell<RwLock<WebBrowser>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static WEB_BROWSER: WebBrowserSlot = WebBrowserSlot(OnceCell::new());
-
-fn web_browser_cell() -> &'static RwLock<WebBrowser> {
-    WEB_BROWSER.0.get_or_init(|| RwLock::new(WebBrowser::new()))
+fn web_browser_cell() -> std::sync::Arc<RwLock<WebBrowser>> {
+    crate::common::common_services::common_services()
+        .web_browser
+        .clone()
 }
 
 fn web_browser_mut() -> RwLockWriteGuard<'static, WebBrowser> {
-    web_browser_cell().write().expect("WebBrowser poisoned")
+    let cell = web_browser_cell();
+    let guard = cell.write().expect("WebBrowser poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
 
 fn web_browser() -> RwLockReadGuard<'static, WebBrowser> {
-    web_browser_cell().read().expect("WebBrowser poisoned")
+    let cell = web_browser_cell();
+    let guard = cell.read().expect("WebBrowser poisoned");
+    unsafe { std::mem::transmute(guard) }
 }
 
-/// Initialize the global web browser
+/// Initialize the web browser on the published CommonServices.
 pub fn initialize_web_browser() {
     let _ = web_browser_cell();
 }
 
-/// Get a reference to the global web browser
+/// Get a reference to the published web browser.
 pub fn get_web_browser() -> Option<RwLockReadGuard<'static, WebBrowser>> {
     Some(web_browser())
 }
