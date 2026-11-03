@@ -54,7 +54,7 @@ pub use errors::{W3DError, W3DResult};
 pub use glam;
 pub use w3d_format::*;
 pub use w3d_obsolete::*;
-pub use ww3d::{FrameStats, PrelitMode, WW3D, WW3DClass};
+pub use ww3d::{Ww3dContext, FrameStats, PrelitMode, WW3D, WW3DClass};
 pub use wwstring::StringClass;
 
 // Re-export commonly used types

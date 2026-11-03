@@ -17,7 +17,7 @@ use game_network::{GameInfo, MAX_SLOTS, PLAYERTEMPLATE_OBSERVER, SlotState};
 use gamelogic::helpers::TheGameText;
 
 #[derive(Default)]
-struct GameInfoWindowState {
+pub(crate) struct GameInfoWindowState {
     parent_id: i32,
     static_text_game_name_id: i32,
     static_text_map_name_id: i32,
@@ -34,9 +34,35 @@ struct GameInfoWindowState {
 
 // THREAD: main thread only — the state owns `Rc` window handles (already
 // `!Send`); the cell replaces the lock-wrapped `Arc` around it.
+#[cfg(test)]
 thread_local! {
-    static GAME_INFO_STATE: RefCell<GameInfoWindowState> =
+    static TEST_GAME_INFO_STATE: RefCell<GameInfoWindowState> =
         RefCell::new(GameInfoWindowState::default());
+}
+
+fn with_game_info_state_on_owner<R>(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+    f: impl FnOnce(&mut GameInfoWindowState) -> R,
+) -> R {
+    let mut f = Some(f);
+    if let Some(owner) = owner {
+        return owner.with_game_info_window_state_mut(|state| f.take().expect("game info")(state));
+    }
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_game_info_window_state_mut(|state| f.take().expect("game info")(state))
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_GAME_INFO_STATE.with(|slot| f.take().expect("game info")(&mut slot.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("game info")(&mut GameInfoWindowState::default())
+    }
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -77,7 +103,7 @@ pub fn create_lan_game_info_window(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let needs_layout = { GAME_INFO_STATE.with_borrow(|state| state.layout.is_none()) };
+    let needs_layout = { with_game_info_state_on_owner(effects.window_manager_owner, |state| state.layout.is_none()) };
 
     if needs_layout {
         if let Some(layout) = (|manager: &mut crate::gui::window_manager::WindowManager| {
@@ -90,11 +116,11 @@ pub fn create_lan_game_info_window(
             layout.borrow().run_init(None);
             layout.borrow_mut().bring_forward(receiving_manager);
             layout.borrow_mut().hide(receiving_manager, true);
-            GAME_INFO_STATE.with_borrow_mut(|state| state.layout = Some(layout));
+            with_game_info_state_on_owner(effects.window_manager_owner, |state| state.layout = Some(layout));
         }
     }
 
-    let parent = GAME_INFO_STATE.with_borrow_mut(|state| {
+    let parent = with_game_info_state_on_owner(effects.window_manager_owner, |state| {
         if state.parent.is_none() {
             (|manager: &mut crate::gui::window_manager::WindowManager| {
                 state.parent = manager.get_window_by_id(state.parent_id);
@@ -117,7 +143,7 @@ pub fn destroy_game_info_window(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    GAME_INFO_STATE.with_borrow_mut(|state| {
+    with_game_info_state_on_owner(effects.window_manager_owner, |state| {
         if let Some(layout) = state.layout.take() {
             (|manager: &mut crate::gui::window_manager::WindowManager| {
                 manager.destroy_layout(&layout, effects)
@@ -134,7 +160,7 @@ pub fn refresh_game_info_window(
     game_info: &GameInfo,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) {
-    GAME_INFO_STATE.with_borrow_mut(|state| {
+    with_game_info_state_on_owner(None, |state| {
         if state.layout.is_none() || state.parent.is_none() {
             return;
         }
@@ -247,7 +273,7 @@ pub fn hide_game_info_window(
     hide: bool,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) {
-    GAME_INFO_STATE.with_borrow(|state| {
+    with_game_info_state_on_owner(None, |state| {
         if let Some(parent) = state.parent.as_ref() {
             let _ = parent.borrow_mut().hide(hide, receiving_manager);
         }
@@ -259,7 +285,7 @@ pub fn game_info_window_init(
     _user_data: Option<&mut dyn std::any::Any>,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) {
-    GAME_INFO_STATE.with_borrow_mut(|state| {
+    with_game_info_state_on_owner(None, |state| {
         state.parent_id = name_to_id("GameInfoWindow.wnd:ParentGameInfo");
         state.static_text_game_name_id = name_to_id("GameInfoWindow.wnd:StaticTextGameName");
         state.static_text_map_name_id = name_to_id("GameInfoWindow.wnd:StaticTextMapName");

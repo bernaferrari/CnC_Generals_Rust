@@ -1235,7 +1235,8 @@ fn init_thing_factory_inner(
 
     let loaded = load_runtime_object_templates_with_module_factory(&mut factory, module_factory)?;
     if loaded > 0 {
-        info!("ThingFactory loaded {} object declarations", loaded);
+        // C++ ThingFactory is quiet on retail boot; keep the count at debug.
+        debug!("ThingFactory loaded {} object declarations", loaded);
     } else {
         debug!("ThingFactory initialized without runtime object declarations");
     }
@@ -1486,7 +1487,9 @@ impl ThingFactory {
         }
 
         if loaded > 0 {
-            info!(
+            // Per-INI-file loads can fire hundreds of times during Object/*.ini
+            // admission; C++ does not spam stdout. Gate behind debug.
+            debug!(
                 "ThingFactory loaded {} object templates from INI text",
                 loaded
             );

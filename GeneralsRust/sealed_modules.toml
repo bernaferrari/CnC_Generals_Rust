@@ -394,3 +394,113 @@ note = "PopupHostState on WindowManagerOwner (online_ui); removed process TLS; p
 path = "Code/GameEngine/GameClient/src/gui/callbacks/popup_player_info.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupPlayerInfo.cpp"
 note = "PopupPlayerInfoState on WindowManagerOwner (online_ui); removed process TLS; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/lan_map_select_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/LanMapSelectMenu.cpp"
+note = "LanMapSelectState on WindowManagerOwner; removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/motd.rs"
+cpp = "GeneralsMD/Code/GameEngineDevice/Source/W3DDevice/GameClient/GUI/GUICallbacks/W3DMOTD.cpp"
+note = "MOTD close-button id on WindowManagerOwner; removed process TLS Cell; peels prefer owner / live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/game_info_window.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/GameInfoWindow.cpp"
+note = "GameInfoWindowState on WindowManagerOwner; removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/download_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/DownloadMenu.cpp"
+note = "DownloadMenuState on WindowManagerOwner; removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/popup_ladder_select.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/PopupLadderSelect.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_status_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLStatusMenu.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_message_window.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLMessageWindow.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wolqm_score_screen.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLQMScoreScreen.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_custom_score_screen.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLCustomScoreScreen.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_locale_select_popup.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLLocaleSelectPopup.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_map_select_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLMapSelectMenu.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_lobby_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLLobbyMenu.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_game_setup_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLGameSetupMenu.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_quick_match_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLQuickMatchMenu.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/network_direct_connect.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/NetworkDirectConnect.cpp"
+note = "State on WindowManagerOwner (online_ui); removed process TLS; peels prefer effects.owner then live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_buddy_overlay.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLBuddyOverlay.cpp"
+note = "Instance state on WindowManagerOwner (online_ui); removed process TLS/OnceLocks; peels prefer owner/live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_welcome_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLWelcomeMenu.cpp"
+note = "Instance state on WindowManagerOwner (online_ui); removed process TLS/OnceLocks; peels prefer owner/live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_login_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLLoginMenu.cpp"
+note = "Instance state on WindowManagerOwner (online_ui); removed process TLS/OnceLocks; peels prefer owner/live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/wol_ladder_screen.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/WOLLadderScreen.cpp"
+note = "Instance state on WindowManagerOwner (online_ui); removed process TLS/OnceLocks; peels prefer owner/live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/drawable/drawable_manager.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/Drawable/DrawableManager.cpp"
+note = "DrawableManager owned on GameClient; peels use live-client loan / cfg(test) TLS fallback (no process TLS store)."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gamespy_overlay.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameSpyOverlay.cpp"
+note = "GameSpyOverlayState on WindowManagerOwner (online_ui); removed process TLS; peels prefer owner/live client; cfg(test) TLS fallback only."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gamespy_game.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GameSpyGame.cpp"
+note = "GameSpy GameInfo on WindowManagerOwner (online_ui); removed process TLS; peels prefer owner/live client; cfg(test) TLS fallback only."

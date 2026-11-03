@@ -48,7 +48,7 @@ pub struct GameSpyStagingRoom {
 }
 
 #[derive(Default)]
-struct GameSpyOverlayState {
+pub(crate) struct GameSpyOverlayState {
     overlays: HashMap<GameSpyOverlayType, Rc<RefCell<WindowLayout>>>,
     lobby_attempt_host_join: bool,
     current_staging_room_id: Option<i32>,
@@ -61,13 +61,40 @@ struct GameSpyOverlayState {
     reopen_player_info: bool,
 }
 
+#[cfg(test)]
 thread_local! {
-    static OVERLAY_STATE: Rc<RefCell<GameSpyOverlayState>> = Rc::new(RefCell::new(GameSpyOverlayState::default()));
+    static TEST_OVERLAY_STATE: std::cell::OnceCell<Rc<RefCell<GameSpyOverlayState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn overlay_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<GameSpyOverlayState>> {
+    if let Some(owner) = owner {
+        return owner.gamespy_overlay_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().gamespy_overlay_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_OVERLAY_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(GameSpyOverlayState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(GameSpyOverlayState::default()))
+    }
 }
 
 fn overlay_state() -> Rc<RefCell<GameSpyOverlayState>> {
-    OVERLAY_STATE.with(Rc::clone)
+    overlay_state_on_owner(None)
 }
+
 
 fn overlay_script(overlay: GameSpyOverlayType) -> &'static str {
     match overlay {

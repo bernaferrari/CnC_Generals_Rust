@@ -1,7 +1,7 @@
 {
-  "Common": 94,
-  "GameClient": 101,
+  "GameClient": 51,
   "GameLogic": 2,
-  "Main": 36,
-  "WWVegas": 82
+  "Common": 94,
+  "WWVegas": 80,
+  "Main": 36
 }

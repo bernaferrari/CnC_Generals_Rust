@@ -270,7 +270,7 @@ impl MeshLoader {
         reader.close_chunk()?;
 
         // C++ meshmdlio.cpp:256-294 — pick the prelit wrapper matching WW3D::Get_Prelit_Mode().
-        let prelit_chunk_id = Self::select_prelit_chunk_id(mesh.header.attributes);
+        let prelit_chunk_id = Self::select_prelit_chunk_id(mesh.header.attributes, PrelitMode::LightmapMultiPass);
         Self::read_chunks(reader, &mut mesh, prelit_chunk_id)?;
 
         Ok(mesh)
@@ -392,12 +392,12 @@ impl MeshLoader {
     }
 
     /// C++ `MeshModelClass::Load_W3D` prelit wrapper selection (meshmdlio.cpp:256-294).
-    fn select_prelit_chunk_id(attributes: u32) -> Option<u32> {
+    fn select_prelit_chunk_id(attributes: u32, prelit_mode: PrelitMode) -> Option<u32> {
         if attributes & W3D_MESH_FLAG_PRELIT_MASK == 0 {
             return None;
         }
 
-        match WW3D::get_prelit_mode() {
+        match prelit_mode {
             PrelitMode::LightmapMultiTexture
                 if attributes & W3D_MESH_FLAG_PRELIT_LIGHTMAP_MULTI_TEXTURE != 0 =>
             {

@@ -271,6 +271,8 @@ pub struct RenderInfoClass {
     pub fog: Option<FogSettings>,
     /// C++ D3DRS_ZBIAS consumed by extra-pass wireframe (ZBIAS 7).
     pub z_bias: i32,
+    /// Session WW3D context owned by the display/engine (multi-instance safe).
+    pub ww3d: Option<std::sync::Arc<ww3d_core::ww3d::Ww3dContext>>,
 }
 
 impl RenderInfoClass {
@@ -290,6 +292,7 @@ impl RenderInfoClass {
             override_stack: Vec::new(),
             fog: None,
             z_bias: 0,
+            ww3d: None,
         }
     }
 

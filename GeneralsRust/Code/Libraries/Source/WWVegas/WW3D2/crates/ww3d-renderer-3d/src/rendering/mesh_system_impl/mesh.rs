@@ -462,7 +462,7 @@ impl MeshClass {
 
     /// Create a decal on this mesh - equivalent to C++ MeshClass::Create_Decal
     pub fn create_decal(&mut self, generator: &mut DecalGeneratorClass) {
-        if !ww3d_core::WW3D::are_decals_enabled() {
+        if !StaticSortManager::are_decals_enabled() {
             return;
         }
 

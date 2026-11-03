@@ -53,7 +53,7 @@ pub struct GameSpyRcMenuData {
 }
 
 #[derive(Default)]
-struct WolBuddyOverlayState {
+pub(crate) struct WolBuddyOverlayState {
     parent_id: i32,
     button_hide_id: i32,
     button_add_buddy_id: i32,
@@ -91,16 +91,42 @@ struct WolBuddyOverlayState {
     is_overlay_active: bool,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_BUDDY_OVERLAY_STATE: Rc<RefCell<WolBuddyOverlayState>> = Rc::new(RefCell::new(WolBuddyOverlayState::default()));
+    static TEST_WOL_BUDDY_OVERLAY_STATE: std::cell::OnceCell<Rc<RefCell<WolBuddyOverlayState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn wol_buddy_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolBuddyOverlayState>> {
+    if let Some(owner) = owner {
+        return owner.wol_buddy_overlay_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_buddy_overlay_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_BUDDY_OVERLAY_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolBuddyOverlayState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolBuddyOverlayState::default()))
+    }
 }
 
 fn wol_buddy_state() -> Rc<RefCell<WolBuddyOverlayState>> {
-    WOL_BUDDY_OVERLAY_STATE.with(Rc::clone)
+    wol_buddy_state_on_owner(None)
 }
 
 #[derive(Default)]
-struct BuddyControls {
+pub(crate) struct BuddyControls {
     listbox_chat_id: i32,
     listbox_buddies_id: i32,
     text_entry_edit_id: i32,
@@ -110,12 +136,38 @@ struct BuddyControls {
     is_init: bool,
 }
 
+#[cfg(test)]
 thread_local! {
-    static BUDDY_CONTROLS: Rc<RefCell<BuddyControls>> = Rc::new(RefCell::new(BuddyControls::default()));
+    static TEST_BUDDY_CONTROLS: std::cell::OnceCell<Rc<RefCell<BuddyControls>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn buddy_controls_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<BuddyControls>> {
+    if let Some(owner) = owner {
+        return owner.wol_buddy_controls_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_buddy_controls_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_BUDDY_CONTROLS.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(BuddyControls::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(BuddyControls::default()))
+    }
 }
 
 fn buddy_controls() -> Rc<RefCell<BuddyControls>> {
-    BUDDY_CONTROLS.with(Rc::clone)
+    buddy_controls_on_owner(None)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

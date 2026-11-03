@@ -2,7 +2,6 @@
 
 use glam::{Mat4, Vec3};
 use std::sync::Arc;
-use ww3d_core::WW3D;
 use ww3d_renderer_3d::core::error::RendererResult;
 use ww3d_renderer_3d::math_utilities::Vector4;
 use ww3d_renderer_3d::pointgr::SphereObjClass;
@@ -13,6 +12,7 @@ use ww3d_renderer_3d::render_object_system::{
     StaticSortRenderObject,
 };
 use ww3d_renderer_3d::rendering::mesh_system::SORT_LEVEL_NONE;
+use ww3d_renderer_3d::rendering::mesh_system::StaticSortManager;
 use ww3d_renderer_3d::rendering::shader_core::{ShaderClass, ShaderPreset};
 
 /// Helper function to transpose a 3x3 basis matrix represented as [Vec3; 3]
@@ -91,14 +91,13 @@ impl RenderObjClass for SphereRenderObj {
         // C++ sphereobj.cpp:540-546. Guess only while polygon sorting is off.
         // Static-sort enqueue is a separate flag and does not require sorting.
         let mut sort_level = SORT_LEVEL_NONE;
-        if !WW3D::is_sorting_enabled() {
+        if !StaticSortManager::is_sorting_enabled() {
             sort_level = self.shader.guess_sort_level();
         }
-        if WW3D::are_static_sort_lists_enabled() && sort_level != SORT_LEVEL_NONE {
+        if StaticSortManager::are_static_sort_lists_enabled() && sort_level != SORT_LEVEL_NONE {
             let sort_object = StaticSortRenderObject::from_arc(Arc::new(self.clone()));
-            if WW3D::add_to_static_sort_list(sort_object, sort_level).is_ok() {
-                return Ok(());
-            }
+            StaticSortManager::add_to_static_sort_list(sort_object, sort_level);
+            return Ok(());
         }
         // Immediate path delegates to underlying sphere render
         // Note: SphereClass::render() returns RendererResult, already compatible

@@ -378,6 +378,8 @@ pub struct SegLineRenderer {
     /// Last sync time for UV animation
     /// C++ Reference: seglinerenderer.h line 159
     last_used_sync_time: u64,
+    /// Engine sync clock (ms); set via set_sync_time / sync.
+    current_sync_time_ms: u64,
 
     /// Current UV offset for animation
     /// C++ Reference: seglinerenderer.h line 160
@@ -414,7 +416,8 @@ impl SegLineRenderer {
             noise_amplitude: 0.0,
             merge_abort_factor: 1.5,
             texture_tile_factor: 1.0,
-            last_used_sync_time: 0, // WW3D::Get_Sync_Time()
+            last_used_sync_time: 0,
+            current_sync_time_ms: 0,
             current_uv_offset: Vec2::ZERO,
             uv_offset_delta_per_ms: Vec2::ZERO,
             flags: SegLineFlags::new(),
@@ -623,8 +626,16 @@ impl SegLineRenderer {
     /// # C++ Reference
     ///
     /// Matches Reset_Line (seglinerenderer.cpp lines 207-211)
+    pub fn set_sync_time(&mut self, sync_time_ms: u64) {
+        self.current_sync_time_ms = sync_time_ms;
+    }
+
+    pub fn sync(&mut self, sync_time_ms: u64) {
+        self.current_sync_time_ms = sync_time_ms;
+    }
+
     pub fn reset_line(&mut self) {
-        self.last_used_sync_time = WW3D::sync_time() as u64;
+        self.last_used_sync_time = self.current_sync_time_ms;
         self.current_uv_offset = Vec2::ZERO;
     }
 
@@ -686,7 +697,7 @@ impl SegLineRenderer {
 
         // Handle UV offset animation
         // C++ Reference: seglinerenderer.cpp lines 235-245
-        let current_time_ms = WW3D::sync_time() as u64;
+        let current_time_ms = self.current_sync_time_ms;
         let delta = current_time_ms.saturating_sub(self.last_used_sync_time);
         let del = delta as f32;
         let mut uv_offset = self.current_uv_offset + self.uv_offset_delta_per_ms * del;
@@ -1932,7 +1943,7 @@ mod tests {
         let mut renderer = SegLineRenderer::new();
         renderer.set_current_uv_offset(Vec2::new(0.5, 0.5));
 
-        WW3D::sync(1000);
+        renderer.sync(1000);
         renderer.reset_line();
         assert_eq!(renderer.get_current_uv_offset(), Vec2::ZERO);
         assert_eq!(renderer.last_used_sync_time, 1000);
@@ -1996,7 +2007,7 @@ mod tests {
         let transform = Mat4::IDENTITY;
         let view = Mat4::IDENTITY;
 
-        WW3D::sync(0);
+        renderer.sync(0);
         let (vertices, indices) = renderer.render(&transform, &view, &points, None);
 
         // Should generate vertices and indices
@@ -2022,7 +2033,7 @@ mod tests {
         let transform = Mat4::IDENTITY;
         let view = Mat4::IDENTITY;
 
-        WW3D::sync(0);
+        renderer.sync(0);
         let (vertices, _) = renderer.render(&transform, &view, &points, Some(&colors));
 
         // Vertices should have gradient colors
@@ -2035,7 +2046,7 @@ mod tests {
         let transform = Mat4::IDENTITY;
         let view = Mat4::IDENTITY;
 
-        WW3D::sync(0);
+        renderer.sync(0);
         let (vertices, indices) = renderer.render(&transform, &view, &[], None);
 
         assert!(vertices.is_empty());
@@ -2049,7 +2060,7 @@ mod tests {
         let view = Mat4::IDENTITY;
         let points = vec![Vec3::ZERO];
 
-        WW3D::sync(0);
+        renderer.sync(0);
         let (vertices, indices) = renderer.render(&transform, &view, &points, None);
 
         assert!(vertices.is_empty());
@@ -2060,7 +2071,7 @@ mod tests {
     fn test_uv_animation() {
         let mut renderer = SegLineRenderer::new();
         renderer.set_uv_offset_rate(Vec2::new(1.0, 0.5)); // 1.0 X, 0.5 Y per second
-        WW3D::sync(0);
+        renderer.sync(0);
         renderer.reset_line(); // Initialize sync time
 
         let points = vec![Vec3::new(0.0, 0.0, 0.0), Vec3::new(10.0, 0.0, 0.0)];
@@ -2068,7 +2079,7 @@ mod tests {
         let view = Mat4::IDENTITY;
 
         // Render at t=500ms (0.5 seconds after reset)
-        WW3D::sync(500);
+        renderer.sync(500);
         let (_vertices, _) = renderer.render(&transform, &view, &points, None);
 
         // UV offset should have changed

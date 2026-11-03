@@ -40,7 +40,7 @@ pub fn present_optional_frame<T>(
 use wgpu::{Device, Queue, Surface, SurfaceConfiguration, TextureFormat};
 use ww3d_assets::AssetManager;
 use ww3d_core::errors::{W3DError, W3DResult};
-use ww3d_core::ww3d::{FrameStats, RendererBackend, WW3D};
+use ww3d_core::ww3d::{FrameStats, RendererBackend, Ww3dContext};
 use ww3d_engine::{self, EngineError};
 use ww3d_gpu::device::GpuDevice;
 
@@ -105,6 +105,8 @@ pub struct WgpuMainRenderer {
     frame_stats_bridge: Arc<Mutex<FrameStats>>,
     ready_flag: Arc<AtomicBool>,
     registered_with_ww3d: bool,
+    /// Owned WW3D façade (C++ W3DDisplay owns WW3D session state).
+    pub ww3d: Arc<Ww3dContext>,
     pending_frame: Option<ww3d_engine::RenderFrame>,
     last_surface_presented: bool,
     pre_scene_callbacks: Vec<FrameCallback>,
@@ -226,14 +228,18 @@ impl WgpuMainRenderer {
 
         let frame_stats_bridge = Arc::new(Mutex::new(FrameStats::default()));
         let ready_flag = Arc::new(AtomicBool::new(true));
-        let mut registered_with_ww3d = WW3D::register_renderer(WgpuCoreBridge::new(
+        let ww3d = Arc::new(Ww3dContext::new());
+        if let Ok(mut guard) = renderer.lock() {
+            guard.set_ww3d(Arc::clone(&ww3d));
+        }
+        let mut registered_with_ww3d = ww3d.register_renderer(WgpuCoreBridge::new(
             frame_stats_bridge.clone(),
             ready_flag.clone(),
             Arc::clone(&renderer),
         ));
         if !registered_with_ww3d {
-            WW3D::unregister_renderer();
-            registered_with_ww3d = WW3D::register_renderer(WgpuCoreBridge::new(
+            ww3d.unregister_renderer();
+            registered_with_ww3d = ww3d.register_renderer(WgpuCoreBridge::new(
                 frame_stats_bridge.clone(),
                 ready_flag.clone(),
                 Arc::clone(&renderer),
@@ -252,6 +258,7 @@ impl WgpuMainRenderer {
             frame_stats_bridge,
             ready_flag,
             registered_with_ww3d,
+            ww3d,
             pending_frame: None,
             last_surface_presented: false,
             pre_scene_callbacks: Vec::new(),
@@ -303,14 +310,18 @@ impl WgpuMainRenderer {
 
         let frame_stats_bridge = Arc::new(Mutex::new(FrameStats::default()));
         let ready_flag = Arc::new(AtomicBool::new(true));
-        let mut registered_with_ww3d = WW3D::register_renderer(WgpuCoreBridge::new(
+        let ww3d = Arc::new(Ww3dContext::new());
+        if let Ok(mut guard) = renderer.lock() {
+            guard.set_ww3d(Arc::clone(&ww3d));
+        }
+        let mut registered_with_ww3d = ww3d.register_renderer(WgpuCoreBridge::new(
             frame_stats_bridge.clone(),
             ready_flag.clone(),
             Arc::clone(&renderer),
         ));
         if !registered_with_ww3d {
-            WW3D::unregister_renderer();
-            registered_with_ww3d = WW3D::register_renderer(WgpuCoreBridge::new(
+            ww3d.unregister_renderer();
+            registered_with_ww3d = ww3d.register_renderer(WgpuCoreBridge::new(
                 frame_stats_bridge.clone(),
                 ready_flag.clone(),
                 Arc::clone(&renderer),
@@ -329,6 +340,7 @@ impl WgpuMainRenderer {
             frame_stats_bridge,
             ready_flag,
             registered_with_ww3d,
+            ww3d,
             pending_frame: None,
             last_surface_presented: false,
             pre_scene_callbacks: Vec::new(),
@@ -515,7 +527,7 @@ impl WgpuMainRenderer {
 
         let frame_mesh_stats = if let Some(mut frame) = self.pending_frame.take() {
             let frame_timing = frame.timing;
-            WW3D::sync(frame_timing.total_time.as_millis() as u32);
+            self.ww3d.sync(frame_timing.total_time.as_millis() as u32);
             let frame_work_result: RendererResult<_> = (|| {
                 if skip_scene {
                     self.pre_scene_callbacks.clear();
@@ -601,7 +613,7 @@ impl WgpuMainRenderer {
                 let animation_input = self.legacy_frame_clock.advance();
                 let sync_ms = (animation_input.total_seconds.unwrap_or(0.0).max(0.0) * 1000.0)
                     .clamp(0.0, u32::MAX as f32) as u32;
-                WW3D::sync(sync_ms);
+                self.ww3d.sync(sync_ms);
 
                 let (stats, shadow_submissions) = backend.with_render_targets(|targets| {
                     renderer_guard.render_with_targets(
@@ -864,7 +876,7 @@ impl WgpuMainRenderer {
 impl Drop for WgpuMainRenderer {
     fn drop(&mut self) {
         if self.registered_with_ww3d {
-            WW3D::unregister_renderer();
+            self.ww3d.unregister_renderer();
         }
         self.ready_flag.store(false, Ordering::Release);
     }
@@ -939,6 +951,7 @@ impl RendererBackend for WgpuCoreBridge {
 
     fn set_sorting_enabled(&mut self, enabled: bool) -> W3DResult<()> {
         self.sorting_enabled = enabled;
+        mesh_system::StaticSortManager::set_sorting_enabled(enabled);
         Ok(())
     }
 

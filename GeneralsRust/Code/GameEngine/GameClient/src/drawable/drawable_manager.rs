@@ -889,19 +889,50 @@ impl Default for DrawableManager {
     }
 }
 
-// Global singleton instance (matching C++ TheDrawableManager pattern)
+// Owned on GameClient.drawable_manager. Peel helpers prefer the live client.
+#[cfg(test)]
 thread_local! {
-    static THE_DRAWABLE_MANAGER: RefCell<DrawableManager> = RefCell::new(DrawableManager::new());
+    static TEST_DRAWABLE_MANAGER: RefCell<DrawableManager> = RefCell::new(DrawableManager::new());
 }
 
-/// Access the global drawable manager
+/// Access the drawable manager for the live GameClient (or test fallback).
 pub fn with_drawable_manager<R>(f: impl FnOnce(&mut DrawableManager) -> R) -> R {
-    THE_DRAWABLE_MANAGER.with(|manager| f(&mut manager.borrow_mut()))
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        f.take().expect("drawable manager")(client.drawable_manager_mut())
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_DRAWABLE_MANAGER.with(|manager| {
+            f.take().expect("drawable manager")(&mut manager.borrow_mut())
+        });
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("drawable manager")(&mut DrawableManager::new())
+    }
 }
 
-/// Access the global drawable manager immutably
+/// Access the drawable manager immutably for the live GameClient (or test fallback).
 pub fn with_drawable_manager_ref<R>(f: impl FnOnce(&DrawableManager) -> R) -> R {
-    THE_DRAWABLE_MANAGER.with(|manager| f(&manager.borrow()))
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        f.take().expect("drawable manager")(client.drawable_manager())
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_DRAWABLE_MANAGER.with(|manager| {
+            f.take().expect("drawable manager")(&manager.borrow())
+        });
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("drawable manager")(&DrawableManager::new())
+    }
 }
 
 // Downcasting support is provided by DrawableExt in drawable.rs

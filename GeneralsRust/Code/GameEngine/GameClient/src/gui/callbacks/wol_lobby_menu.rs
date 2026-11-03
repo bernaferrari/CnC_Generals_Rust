@@ -65,7 +65,7 @@ impl Default for GameSortType {
 }
 
 #[derive(Default)]
-struct WolLobbyState {
+pub(crate) struct WolLobbyState {
     parent_id: i32,
     button_back_id: i32,
     button_host_id: i32,
@@ -110,12 +110,38 @@ struct WolLobbyState {
     queued_utms: VecDeque<PeerResponse>,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_LOBBY_STATE: Rc<RefCell<WolLobbyState>> = Rc::new(RefCell::new(WolLobbyState::default()));
+    static TEST_WOL_LOBBY_STATE: std::cell::OnceCell<Rc<RefCell<WolLobbyState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn wol_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolLobbyState>> {
+    if let Some(owner) = owner {
+        return owner.wol_lobby_menu_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_lobby_menu_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_LOBBY_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolLobbyState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolLobbyState::default()))
+    }
 }
 
 fn wol_state() -> Rc<RefCell<WolLobbyState>> {
-    WOL_LOBBY_STATE.with(Rc::clone)
+    wol_state_on_owner(None)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -919,7 +945,7 @@ pub fn wol_lobby_menu_init(
     _user_data: Option<&dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_slot = wol_state();
+    let state_slot = wol_state_on_owner(effects.window_manager_owner);
     let mut state = state_slot.borrow_mut();
     state.next_screen = None;
     state.button_pushed = false;
@@ -1083,7 +1109,7 @@ pub fn wol_lobby_menu_shutdown(
 
     let mut prefs = CustomMatchPreferences::new();
     let uses_long = {
-        let slot = wol_state();
+        let slot = wol_state_on_owner(effects.window_manager_owner);
         !slot.borrow().is_small_game_list
     };
     prefs.set_uses_long_game_list(uses_long);
@@ -1103,7 +1129,7 @@ pub fn wol_lobby_menu_shutdown(
         }
     }
 
-    let state_slot = wol_state();
+    let state_slot = wol_state_on_owner(effects.window_manager_owner);
     let mut state = state_slot.borrow_mut();
     state.listbox_lobby_chat = None;
     state.listbox_lobby_players = None;

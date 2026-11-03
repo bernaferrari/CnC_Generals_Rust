@@ -42,7 +42,7 @@ const LOGIN_TIMEOUT: Duration = Duration::from_millis(10_000);
 const PREF_FILENAME: &str = "GameSpyLogin.ini";
 
 #[derive(Default)]
-struct WolLoginState {
+pub(crate) struct WolLoginState {
     parent_id: i32,
     button_back_id: i32,
     button_login_id: i32,
@@ -89,13 +89,58 @@ struct WolLoginState {
     use_web_browser_for_tos: bool,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_LOGIN_STATE: Rc<RefCell<WolLoginState>> = Rc::new(RefCell::new(WolLoginState::default()));
-    static THE_TOS_BROWSER: RefCell<W3DWebBrowser> = RefCell::new(W3DWebBrowser::new());
+    static TEST_WOL_LOGIN_STATE: std::cell::OnceCell<Rc<RefCell<WolLoginState>>> =
+        const { std::cell::OnceCell::new() };
+    static TEST_TOS_BROWSER: RefCell<W3DWebBrowser> = RefCell::new(W3DWebBrowser::new());
+}
+
+fn wol_login_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolLoginState>> {
+    if let Some(owner) = owner {
+        return owner.wol_login_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_login_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_LOGIN_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolLoginState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolLoginState::default()))
+    }
 }
 
 fn wol_login_state() -> Rc<RefCell<WolLoginState>> {
-    WOL_LOGIN_STATE.with(Rc::clone)
+    wol_login_state_on_owner(None)
+}
+
+fn with_tos_browser_mut<R>(f: impl FnOnce(&mut W3DWebBrowser) -> R) -> R {
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_wol_login_tos_browser_mut(|browser| f.take().expect("tos")(browser))
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_TOS_BROWSER.with(|slot| f.take().expect("tos")(&mut slot.borrow_mut()));
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("tos")(&mut W3DWebBrowser::new())
+    }
 }
 
 #[derive(Default)]
@@ -406,7 +451,7 @@ fn show_tos(state: &mut WolLoginState) {
     }
     state.use_web_browser_for_tos = true;
     let opened = if let Some(listbox) = state.listbox_tos.as_ref() {
-        THE_TOS_BROWSER.with(|browser| {
+        with_tos_browser_mut(|browser| {
             let mut browser = browser.borrow_mut();
             let win = listbox.borrow();
             browser.create_browser_window("TermsOfService", &win)
@@ -764,7 +809,7 @@ pub fn wol_login_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
 
     if state.web_browser_active {
         if let Some(listbox) = state.listbox_tos.as_ref() {
-            THE_TOS_BROWSER.with(|browser| {
+            with_tos_browser_mut(|browser| {
                 browser.borrow_mut().close_browser_window(&listbox.borrow());
             });
         }

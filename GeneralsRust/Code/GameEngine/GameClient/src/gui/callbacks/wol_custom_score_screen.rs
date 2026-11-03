@@ -14,7 +14,7 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct WolCustomScoreState {
+pub(crate) struct WolCustomScoreState {
     parent_id: i32,
     button_disconnect_id: i32,
     button_lobby_id: i32,
@@ -23,12 +23,38 @@ struct WolCustomScoreState {
     button_lobby: Option<Rc<RefCell<GameWindow>>>,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_CUSTOM_SCORE_STATE: Rc<RefCell<WolCustomScoreState>> = Rc::new(RefCell::new(WolCustomScoreState::default()));
+    static TEST_WOL_CUSTOM_SCORE_STATE: std::cell::OnceCell<Rc<RefCell<WolCustomScoreState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn wol_custom_score_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolCustomScoreState>> {
+    if let Some(owner) = owner {
+        return owner.wol_custom_score_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_custom_score_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_CUSTOM_SCORE_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolCustomScoreState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolCustomScoreState::default()))
+    }
 }
 
 fn wol_custom_score_state() -> Rc<RefCell<WolCustomScoreState>> {
-    WOL_CUSTOM_SCORE_STATE.with(Rc::clone)
+    wol_custom_score_state_on_owner(None)
 }
 
 fn name_to_id(name: &str) -> i32 {

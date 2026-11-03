@@ -321,12 +321,15 @@ impl PointGroupClass {
         Some(Arc::new(mesh))
     }
 
-    pub fn render(&mut self, _rinfo: &RenderInfoClass) -> RendererResult<()> {
+    pub fn render(&mut self, rinfo: &RenderInfoClass) -> RendererResult<()> {
         let Some(mesh) = self.ensure_mesh() else {
             return Ok(());
         };
 
-        Renderer::with_global_mut(|renderer| {
+        let Some(ww3d) = rinfo.ww3d.as_deref() else {
+            return Ok(());
+        };
+        Renderer::with_global_mut(ww3d, |renderer| {
             renderer.queue_mesh(mesh.clone())?;
             Ok::<(), Error>(())
         })?;

@@ -21,7 +21,7 @@ const KEY_STATE_UP: usize = 0x0001;
 const LAN_PLAYER_NAME_LENGTH: usize = 12;
 
 #[derive(Default)]
-struct NetworkDirectConnectState {
+pub(crate) struct NetworkDirectConnectState {
     parent_id: i32,
     button_back_id: i32,
     button_host_id: i32,
@@ -40,12 +40,38 @@ struct NetworkDirectConnectState {
     is_shutting_down: bool,
 }
 
+#[cfg(test)]
 thread_local! {
-    static NETWORK_DIRECT_CONNECT_STATE: Rc<RefCell<NetworkDirectConnectState>> = Rc::new(RefCell::new(NetworkDirectConnectState::default()));
+    static TEST_NETWORK_DIRECT_CONNECT_STATE: std::cell::OnceCell<Rc<RefCell<NetworkDirectConnectState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn network_direct_connect_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<NetworkDirectConnectState>> {
+    if let Some(owner) = owner {
+        return owner.network_direct_connect_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().network_direct_connect_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_NETWORK_DIRECT_CONNECT_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(NetworkDirectConnectState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(NetworkDirectConnectState::default()))
+    }
 }
 
 fn network_direct_connect_state() -> Rc<RefCell<NetworkDirectConnectState>> {
-    NETWORK_DIRECT_CONNECT_STATE.with(Rc::clone)
+    network_direct_connect_state_on_owner(None)
 }
 fn lan_api_cell() -> &'static tokio::sync::Mutex<Option<LanApi>> {
     the_lan()
@@ -330,7 +356,7 @@ pub fn network_direct_connect_init(
     _user_data: Option<&dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_slot = network_direct_connect_state();
+    let state_slot = network_direct_connect_state_on_owner(effects.window_manager_owner);
     let mut state = state_slot.borrow_mut();
 
     state.button_pushed = false;
@@ -384,7 +410,7 @@ pub fn network_direct_connect_update(
     _user_data: Option<&dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_slot = network_direct_connect_state();
+    let state_slot = network_direct_connect_state_on_owner(effects.window_manager_owner);
     let mut state = state_slot.borrow_mut();
     if state.is_shutting_down
         && crate::gui::shell::base::shell_anim_finished_for_layout(effects)
@@ -417,7 +443,7 @@ pub fn network_direct_connect_shutdown(
         manager.transition_reverse("NetworkDirectConnectFade", None)
     });
 
-    let state_slot = network_direct_connect_state();
+    let state_slot = network_direct_connect_state_on_owner(effects.window_manager_owner);
     let mut state = state_slot.borrow_mut();
     state.is_shutting_down = true;
 }
@@ -429,7 +455,7 @@ pub fn network_direct_connect_system(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let state_slot = network_direct_connect_state();
+    let state_slot = network_direct_connect_state_on_owner(effects.window_manager_owner);
     let mut state = state_slot.borrow_mut();
 
     match msg {
@@ -471,7 +497,7 @@ pub fn network_direct_connect_input(
     if msg == WindowMessage::Char {
         if data1 == KEY_ESC && (data2 & KEY_STATE_UP) != 0 {
             let (button_pushed, parent, back_id) = {
-                let slot = network_direct_connect_state();
+                let slot = network_direct_connect_state_on_owner(effects.window_manager_owner);
                 let state = slot.borrow();
                 (
                     state.button_pushed,

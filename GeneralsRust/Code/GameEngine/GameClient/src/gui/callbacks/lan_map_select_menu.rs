@@ -25,7 +25,7 @@ const KEY_STATE_UP: usize = 0x0001;
 const MAX_SLOTS: usize = 8;
 
 #[derive(Default)]
-struct LanMapSelectState {
+pub(crate) struct LanMapSelectState {
     parent_id: i32,
     listbox_map_id: i32,
     button_ok_id: i32,
@@ -41,13 +41,40 @@ struct LanMapSelectState {
     use_system_maps: bool,
 }
 
+#[cfg(test)]
 thread_local! {
-    static LAN_MAP_SELECT_STATE: Arc<Mutex<LanMapSelectState>> =
-        Arc::new(Mutex::new(LanMapSelectState::default()));
+    static TEST_LAN_MAP_SELECT_STATE: std::cell::OnceCell<Arc<Mutex<LanMapSelectState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn map_select_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Arc<Mutex<LanMapSelectState>> {
+    if let Some(owner) = owner {
+        return owner.lan_map_select_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .lan_map_select_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_LAN_MAP_SELECT_STATE.with(|cell| {
+            cell.get_or_init(|| Arc::new(Mutex::new(LanMapSelectState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(Mutex::new(LanMapSelectState::default()))
+    }
 }
 
 fn map_select_state() -> Arc<Mutex<LanMapSelectState>> {
-    LAN_MAP_SELECT_STATE.with(|state| state.clone())
+    map_select_state_on_owner(None)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -212,7 +239,7 @@ pub fn lan_map_select_menu_init(
     _user_data: Option<&mut dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_handle = map_select_state();
+    let state_handle = map_select_state_on_owner(effects.window_manager_owner);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id("LanMapSelectMenu.wnd:LanMapSelectMenuParent");
@@ -321,7 +348,7 @@ pub fn lan_map_select_menu_system(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let state_handle = map_select_state();
+    let state_handle = map_select_state_on_owner(effects.window_manager_owner);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
@@ -415,7 +442,7 @@ pub fn lan_map_select_menu_input(
     }
 
     if (data2 & KEY_STATE_UP) != 0 {
-        let state_handle = map_select_state();
+        let state_handle = map_select_state_on_owner(effects.window_manager_owner);
         let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(parent) = state.parent.as_ref() {
             let _ = parent.borrow_mut().send_system_message(

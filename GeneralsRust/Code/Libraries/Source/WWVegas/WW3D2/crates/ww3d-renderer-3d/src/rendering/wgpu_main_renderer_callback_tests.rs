@@ -10,26 +10,39 @@ fn callbacks_run_once_in_order_on_the_driving_thread_even_after_errors() {
     })
     .expect("headless engine");
     let mut renderer = WgpuMainRenderer::from_engine(Default::default()).expect("renderer");
-    WW3D::with_renderer(|backend| {
-        assert!(backend.is_sorting_enabled());
-        assert!(backend.are_static_sort_lists_enabled());
-        assert!(backend.are_decals_enabled());
-        Ok(())
-    })
-    .expect("registered backend")
-    .expect("initial switches");
-    for enabled in [false, true] {
-        WW3D::enable_sorting(enabled).expect("sorting switch");
-        WW3D::set_static_sort_lists_enabled(enabled).expect("static sorting switch");
-        WW3D::set_decals_enabled(enabled).expect("decal switch");
-        WW3D::with_renderer(|backend| {
-            assert_eq!(backend.is_sorting_enabled(), enabled);
-            assert_eq!(backend.are_static_sort_lists_enabled(), enabled);
-            assert_eq!(backend.are_decals_enabled(), enabled);
+    renderer
+        .ww3d
+        .with_renderer(|backend| {
+            assert!(backend.is_sorting_enabled());
+            assert!(backend.are_static_sort_lists_enabled());
+            assert!(backend.are_decals_enabled());
             Ok(())
         })
         .expect("registered backend")
-        .expect("switch getters");
+        .expect("initial switches");
+    for enabled in [false, true] {
+        renderer
+            .ww3d
+            .enable_sorting(enabled)
+            .expect("sorting switch");
+        renderer
+            .ww3d
+            .set_static_sort_lists_enabled(enabled)
+            .expect("static sorting switch");
+        renderer
+            .ww3d
+            .set_decals_enabled(enabled)
+            .expect("decal switch");
+        renderer
+            .ww3d
+            .with_renderer(|backend| {
+                assert_eq!(backend.is_sorting_enabled(), enabled);
+                assert_eq!(backend.are_static_sort_lists_enabled(), enabled);
+                assert_eq!(backend.are_decals_enabled(), enabled);
+                Ok(())
+            })
+            .expect("registered backend")
+            .expect("switch getters");
     }
     let calls = Arc::new(Mutex::new(Vec::new()));
     let driver = std::thread::current().id();

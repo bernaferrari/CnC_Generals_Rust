@@ -82,6 +82,8 @@ pub struct ParticleEmitter {
 
     // Timing
     pub current_time_ms: u32,
+    /// Optional engine sync clock (ms). 0 = accumulate deltas only.
+    sync_time_ms: u32,
 
     // Transform
     pub current_transform: Mat4,
@@ -168,6 +170,7 @@ impl ParticleEmitter {
             current_group_id: 0,
             buffer,
             current_time_ms: 0,
+            sync_time_ms: 0,
             current_transform: Mat4::IDENTITY,
         }
     }
@@ -213,6 +216,11 @@ impl ParticleEmitter {
     }
 
     /// Emit particles for this frame using the accumulated transform
+    /// Drive the optional engine sync clock (ms). 0 disables sync override.
+    pub fn set_sync_time(&mut self, sync_time_ms: u32) {
+        self.sync_time_ms = sync_time_ms;
+    }
+
     pub fn update(&mut self, delta_time_ms: u32) {
         if !self.active || self.is_complete {
             return;
@@ -220,7 +228,7 @@ impl ParticleEmitter {
 
         let mut frame_time = delta_time_ms;
         let previous_time = self.current_time_ms;
-        let sync_time = WW3D::sync_time();
+        let sync_time = self.sync_time_ms;
 
         if sync_time != 0 {
             self.current_time_ms = sync_time;
