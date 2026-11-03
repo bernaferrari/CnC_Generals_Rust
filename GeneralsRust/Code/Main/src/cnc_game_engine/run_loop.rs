@@ -678,7 +678,14 @@ pub async fn run_cnc_game(
                     }
 
                     next_redraw_at = Instant::now() + STARTUP_POLL_INTERVAL;
-                    elwt.set_control_flow(control_flow_wait_until(next_redraw_at));
+                    if matches!(
+                        engine.as_ref().map(|e| &e.startup_load_state),
+                        Some(super::StartupLoadState::InProgress { .. })
+                    ) {
+                        elwt.set_control_flow(ControlFlow::Poll);
+                    } else {
+                        elwt.set_control_flow(control_flow_wait_until(next_redraw_at));
+                    }
                 }
                 _ => {}
             }
