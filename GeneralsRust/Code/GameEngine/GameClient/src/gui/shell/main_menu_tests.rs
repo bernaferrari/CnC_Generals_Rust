@@ -617,7 +617,7 @@ mod tests {
             let motd_id = ids.motd_id as i32;
             let map_pack_id = NameKeyGenerator::name_to_key("MainMenu.wnd:ButtonGetMapPack") as i32;
 
-            let capture_hidden = |id: i32| {
+            let hidden = |client: &crate::core::game_client::GameClient, id: i32| {
                 client.window_manager_owner().with_manager(|manager| {
                     manager
                         .get_window_by_id(id)
@@ -625,9 +625,9 @@ mod tests {
                 })
             };
 
-            let before_get_update = capture_hidden(get_update_id);
-            let before_motd = capture_hidden(motd_id);
-            let before_map_pack = capture_hidden(map_pack_id);
+            let before_get_update = hidden(client, get_update_id);
+            let before_motd = hidden(client, motd_id);
+            let before_map_pack = hidden(client, map_pack_id);
             assert_eq!(before_get_update, Some(true));
             assert_eq!(before_map_pack, Some(true));
 
@@ -636,9 +636,9 @@ mod tests {
             })
             .unwrap();
 
-            let after_get_update = capture_hidden(get_update_id);
-            let after_motd = capture_hidden(motd_id);
-            let after_map_pack = capture_hidden(map_pack_id);
+            let after_get_update = hidden(client, get_update_id);
+            let after_motd = hidden(client, motd_id);
+            let after_map_pack = hidden(client, map_pack_id);
 
             // C++ WindowLayout::hide walks info.windows (top-level only).
             // GetUpdate / GetMapPack are authored HIDDEN children of MainMenuParent.

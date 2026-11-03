@@ -208,7 +208,8 @@ fn presentation_input_owner_science_preserves_cpp_exceptions_and_player_preceden
     // Actual crate Player science ownership precedes the host fallback, even
     // when the actual player has no science and the frozen bar does have it.
     {
-        let mut players = logic_player_list().write().unwrap();
+        let player_list = logic_player_list();
+        let mut players = player_list.write().unwrap();
         players.add_player(Arc::new(RwLock::new(Player::new(0))));
         players.set_local_player_index(0);
     }

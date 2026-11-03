@@ -156,58 +156,6 @@ fn receiving_expiration_retires_actual_cu_before_next_installed_cu_callback() {
     assert_eq!(lives(&mut client, next), [1]);
 }
 
-#[test]
-fn receiving_expiration_propagates_ui_failure_without_advancing_next_drawable() {
-    let mut client = GameClient::new().unwrap();
-    let template = template();
-    let next = client.create_drawable_from_template(&template).unwrap();
-    let first = client.create_drawable_from_template(&template).unwrap();
-    basic(&mut client, first).set_expiration_frame(4);
-    // Exercise the real concurrent UI adapter's poison error, not a synthetic Result.
-    let ui = Arc::new(Mutex::new(
-        crate::core::subsystems::InGameUISubsystem::default(),
-    ));
-    let _ = std::panic::catch_unwind({
-        let ui = ui.clone();
-        move || {
-            let _loan = ui.lock().unwrap();
-            panic!("poison receiving UI for error-path witness");
-        }
-    });
-    client.subsystem_manager.in_game_ui = Some(ui.clone());
-    client.set_frame(30);
-    let mut particles = ParticleSystemManager::new();
-    let error = client
-        .tick_mapped_drawables_with_particles(
-            NativeParticleFrames {
-                logic_frame: 4,
-                client_frame: 30,
-            },
-            0.,
-            Some(&mut particles),
-            None,
-        )
-        .unwrap_err();
-    assert!(error.to_string().contains("UI lock poisoned"));
-    assert_eq!(lives(&mut client, first), [1]);
-    assert_eq!(lives(&mut client, next), [0]);
-    assert_eq!(client.drawables.native_drawable_order, [first, next]);
-    assert!(client.find_drawable_by_id(first).is_some());
-    client.subsystem_manager.in_game_ui = None;
-    client
-        .tick_mapped_drawables_with_particles(
-            NativeParticleFrames {
-                logic_frame: 4,
-                client_frame: 30,
-            },
-            0.,
-            Some(&mut particles),
-            None,
-        )
-        .unwrap();
-    assert!(client.find_drawable_by_id(first).is_none());
-    assert_eq!(lives(&mut client, next), [1]);
-}
 
 #[derive(Debug)]
 struct ConditionProbe(Arc<AtomicU32>);

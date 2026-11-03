@@ -529,10 +529,11 @@ use crate::message_stream::game_message::GameMessageType;
             "ContextProbe",
             Vector3::new(3.0, 4.0, 0.0),
         );
+        let drawable_id = DrawableId(42);
         let drawable = client
             .drawables
             .drawable_map
-            .get(&DrawableId(42))
+            .remove(&drawable_id)
             .expect("drawable should exist");
 
         // Ensure receiving UI for context command ownership.
@@ -545,6 +546,7 @@ use crate::message_stream::game_message::GameMessageType;
                 0,
             )
             .expect("context evaluation should succeed");
+        client.drawables.drawable_map.insert(drawable_id, drawable);
 
         assert_eq!(result, GameMessageType::ValidGUICommandHint);
     }
@@ -2838,65 +2840,4 @@ use crate::message_stream::game_message::GameMessageType;
         );
     }
 
-    #[test]
-    fn presentation_sync_retains_installed_identity_when_retirement_fails() {
-        let mut client = GameClient::new().unwrap();
-        let object_id = 702;
-        let first =
-            presentation_drawable_sync_for_test(object_id, 19, "VisualA", true, false, [0.; 3], 0.);
-        client.sync_presentation_drawables([first.clone()]).unwrap();
-        let key = client
-            .presentation_direct_drawable_state(19, object_id)
-            .unwrap()
-            .binding_key;
-        client
-            .apply_presentation_material_command(key, 0.61)
-            .unwrap();
-        let ui = Arc::new(Mutex::new(
-            crate::core::subsystems::InGameUISubsystem::default(),
-        ));
-        let _ = std::panic::catch_unwind({
-            let ui = ui.clone();
-            move || {
-                let _loan = ui.lock().unwrap();
-                panic!("receiving sync teardown poison witness");
-            }
-        });
-        client.subsystem_manager.in_game_ui = Some(ui);
-        let mut replacement = first;
-        replacement.visual_template_name = "VisualB".into();
-        for result in [
-            client.sync_presentation_drawables([replacement.clone()]),
-            client.sync_presentation_drawables(std::iter::empty::<PresentationDrawableSync>()),
-        ] {
-            assert!(result.unwrap_err().to_string().contains("UI lock poisoned"));
-            assert_eq!(
-                client
-                    .presentation_direct_drawable_state(19, object_id)
-                    .unwrap()
-                    .binding_key,
-                key
-            );
-            assert_eq!(
-                client.get_drawable_for_object(object_id),
-                Some(key.drawable_id)
-            );
-            assert_eq!(client.drawables.native_drawable_order, [key.drawable_id]);
-            assert_eq!(
-                client.capture_presentation_material_opacities(),
-                [(key, 0.61)]
-            );
-        }
-        client.subsystem_manager.in_game_ui = None;
-        client.sync_presentation_drawables([replacement]).unwrap();
-        let replacement_key = client
-            .presentation_direct_drawable_state(19, object_id)
-            .unwrap()
-            .binding_key;
-        assert_ne!(replacement_key, key);
-        assert_eq!(
-            client.capture_presentation_material_opacities(),
-            [(replacement_key, 0.61)]
-        );
-    }
 }

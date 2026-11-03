@@ -190,7 +190,8 @@ fn actual_native_material_shell_obeys_repeat_and_freeze_admission() {
                 client_frame: 32,
             },
             &[fact],
-        , 0)?;
+            0,
+        )?;
         observations.push(opacity(&receiver));
         // Retained Core preparation does not own an actual Draw. Its later
         // render entry advances the same receiver once, even when hidden.
@@ -244,7 +245,8 @@ fn actual_native_material_shell_obeys_repeat_and_freeze_admission() {
                 client_frame: 30,
             },
             &expiry_facts,
-        , 0)?;
+            0,
+        )?;
         observations.push(
             if expiry.presentation_direct_drawable_state(55, 42).is_none() {
                 0.0

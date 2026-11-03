@@ -136,7 +136,7 @@ fn click_options(
             button.borrow().is_enabled()
         );
         // Same completion boundary as the actual OS dispatch, after manager/widget loans end.
-        context.complete_options_accept(&mut manager);
+        context.complete_options_accept(manager);
     }
 }
 fn value(slider: &Rc<RefCell<GameWindow>>) -> i32 {

@@ -201,6 +201,7 @@ fn public_shell_missing_native_capabilities_reaches_actual_hud_and_existing_fx()
                     logic_frame: 104,
                     client_frame: 37,
                 },
+                0,
             )
             .map_err(|error| error.to_string());
         let gaps = capability_gaps(&client);

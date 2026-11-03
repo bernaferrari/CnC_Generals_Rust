@@ -23,6 +23,14 @@ fn test_state_lock() -> MutexGuard<'static, ()> {
         .unwrap_or_else(|e| e.into_inner())
 }
 
+fn noop_window_query(
+    _x: i32,
+    _y: i32,
+    _ui: &mut crate::message_stream::ReceivingUi<'_>,
+) -> bool {
+    false
+}
+
 #[derive(Debug)]
 struct TestThingTemplate {
     name: AsciiString,
@@ -1026,8 +1034,9 @@ fn test_raw_right_button_up_does_not_issue_commands() {
 
     ui.clear_pending_command();
     ui.set_pending_command(CommandType::Enter, CMD_NEED_TARGET_ENEMY_OBJECT, 0);
+    let mut window_query = noop_window_query;
     let messages =
-        translator.handle_mouse_button_up(&ICoord2D::new(50, 75), MouseButton::Right, 0, 2);
+        translator.handle_mouse_button_up(&ICoord2D::new(50, 75), MouseButton::Right, 0, 2, &mut window_query, ui);
     assert!(messages.is_empty());
     assert!(ui.get_pending_command().is_some());
     ui.clear_pending_command();
@@ -1175,7 +1184,8 @@ fn test_right_click_alt_mouse_does_not_execute_pending_position_command() {
         width: 0,
         height: 0,
     };
-    let messages = translator.handle_point_click(&region, true);
+    let mut window_query = noop_window_query;
+    let messages = translator.handle_point_click(&region, true, &mut window_query, ui);
     assert!(messages.is_empty());
     assert!(ui.get_pending_command().is_some());
 
