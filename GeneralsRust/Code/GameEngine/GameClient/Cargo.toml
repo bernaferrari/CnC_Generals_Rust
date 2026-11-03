@@ -174,7 +174,6 @@ objc = { workspace = true, optional = true }
 IOKit-sys = { workspace = true, optional = true }
 
 [dev-dependencies]
-ctor = "0.4"
 approx = {workspace = true}
 tempfile = {workspace = true}
 criterion = {workspace = true, features = ["html_reports"]}
