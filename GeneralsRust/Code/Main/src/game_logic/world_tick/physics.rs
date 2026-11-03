@@ -96,7 +96,12 @@ impl GameLogic {
         }
         let seed = scatter_seed_for_shot(attacker_id.0, target_id.0, self.frame);
         let offset = scatter_impact_offset(seed, scatter);
-        let impact = target_pos + offset;
+        let mut impact = target_pos + offset;
+        // C++ Weapon.cpp:990-995: fire at the ground (layer height) under the
+        // scattered XY, never at the victim's altitude.
+        if let Some(ground) = self.terrain_height_at(impact) {
+            impact.y = ground;
+        }
         let misses = scatter_misses_intended_target(scatter, seed, hit_r);
         (misses, impact, splash_r)
     }
@@ -1606,3 +1611,44 @@ mod physics_landing_phase_tests;
 #[cfg(test)]
 #[path = "physics/source_z_owner_tests.rs"]
 mod source_z_owner_tests;
+
+#[cfg(test)]
+mod instant_scatter_ground_tests {
+    use super::super::super::*;
+
+    /// C++ Weapon.cpp:990-995: after scatter, projectileDestination.z is
+    /// TheTerrainLogic->getLayerHeight at the scattered XY, not victim height.
+    #[test]
+    fn instant_scatter_impact_lands_on_terrain_not_victim_altitude() {
+        let mut logic = GameLogic::new();
+        logic.override_world_size(30., 30.);
+        let mut map = gamelogic::system::map_loader::MapData::new();
+        map.width = 4;
+        map.height = 4;
+        map.heightmap = vec![8; 16];
+        logic
+            .world_services
+            .terrain()
+            .write()
+            .unwrap()
+            .load_map_geometry(map);
+        let mut shooter = ThingTemplate::new("ScatterShooter");
+        shooter.set_primary_weapon_name("StrategyCenterGun");
+        shooter.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        logic.templates.insert("ScatterShooter".into(), shooter);
+        let mut air = ThingTemplate::new("ScatterAirTarget");
+        air.add_kind_of(KindOf::Vehicle).set_health(100.0);
+        logic.templates.insert("ScatterAirTarget".into(), air);
+        let a = logic
+            .create_object("ScatterShooter", Team::USA, glam::Vec3::new(5., 0., 5.))
+            .expect("shooter");
+        let target_pos = glam::Vec3::new(15., 40., 15.);
+        let t = logic
+            .create_object("ScatterAirTarget", Team::GLA, target_pos)
+            .expect("target");
+        let (_, impact, _) = logic.resolve_instant_scatter_shot(a, t, 0, target_pos, None);
+        assert_ne!((impact.x, impact.z), (15., 15.), "scatter must offset XY");
+        assert_eq!(impact.y, logic.terrain_height_at(impact).unwrap());
+        assert_eq!(impact.y, 5.);
+    }
+}
