@@ -24,11 +24,13 @@ impl ReplayMenuReceiver for Receiver {
     fn version_differs(&mut self, _: &str) -> bool {
         panic!("confirmation must not recheck current menu")
     }
-    fn playback_file(&mut self, filename: String) {
+    fn playback_file(&mut self, filename: String) -> Result<(), String> {
         self.0.push(filename);
+            Ok(())
     }
-    fn restart(&mut self) {
+    fn restart(&mut self) -> Result<(), String> {
         self.0.push("restart".into());
+            Ok(())
     }
 }
 fn confirmation(

@@ -582,6 +582,25 @@ mod tests {
     }
 
     #[test]
+
+    fn test_camera() -> impl FnMut(CameraInputAction, &mut crate::message_stream::ReceivingUi<'_>) -> CameraInputObservation {
+        |action, _ui| {
+            match action {
+                CameraInputAction::ClearTracking => {
+                    with_tactical_view(|view| {
+                        view.set_camera_lock(None);
+                        view.set_camera_lock_drawable(None);
+                    });
+                }
+                CameraInputAction::SetMouseLock(value) => {
+                    with_tactical_view(|view| view.set_mouse_lock(value));
+                }
+                _ => {}
+            }
+            CameraInputObservation::default()
+        }
+    }
+
     fn set_scrolling_locks_mouse_and_stop_restores_prev_cursor() {
         with_receiving_ui(|ui| {
         ui.set_scrolling(false);
@@ -593,7 +612,8 @@ mod tests {
         });
 
         let mut translator = LookAtTranslator::new();
-        translator.set_scrolling(ScrollType::Rmb);
+        let mut camera = test_camera();
+        translator.set_scrolling(ScrollType::Rmb, ui, &mut camera);
 
         assert!(translator.is_scrolling);
         assert_eq!(translator.scroll_type, ScrollType::Rmb);
@@ -608,7 +628,7 @@ mod tests {
         );
 
         ui.set_mouse_cursor(MouseCursor::Scroll);
-        translator.stop_scrolling();
+        translator.stop_scrolling(ui, &mut camera);
 
         assert!(!translator.is_scrolling);
         assert_eq!(translator.scroll_type, ScrollType::None);
@@ -629,7 +649,8 @@ mod tests {
         with_receiving_ui(|ui| {
         ui.set_mouse_cursor(MouseCursor::Selecting);
         let mut translator = LookAtTranslator::new();
-        translator.set_scrolling(ScrollType::Rmb);
+        let mut camera = test_camera();
+        translator.set_scrolling(ScrollType::Rmb, ui, &mut camera);
         let _ =
             translator.translate_game_message(&GameMessage::new(GameMessageType::RawMouseWheel(1)));
         assert!(!translator.is_scrolling);

@@ -209,6 +209,7 @@ impl ReplayMenuReceiver for CompatibilityReplayReceiver<'_, '_> {
             .ok_or_else(|| "standalone replay requires configured Recorder".to_string())?
             .map(|_| ())
             .map_err(|error| error.to_string())
+            Ok(())
     }
     fn confirm_older(&mut self, playback: ReplayPlayback) -> Result<(), String> {
         let mut playback = Some(playback);
@@ -258,6 +259,7 @@ impl ReplayMenuReceiver for CompatibilityReplayReceiver<'_, '_> {
     }
     fn restart(&mut self) -> Result<(), String> {
         Err("Core replay requires an explicit receiving restart service".into())
+            Ok(())
     }
 }
 
@@ -274,11 +276,13 @@ mod tests {
             self.version_queries.push(filename.into());
             false
         }
-        fn playback_file(&mut self, filename: String) {
+        fn playback_file(&mut self, filename: String) -> Result<(), String> {
             self.files.push(filename);
+            Ok(())
         }
-        fn restart(&mut self) {
+        fn restart(&mut self) -> Result<(), String> {
             panic!("unexpected restart")
+            Ok(())
         }
     }
     #[test]
