@@ -75,15 +75,18 @@ impl Default for AsciiString {
 }
 
 impl AsciiString {
+    /// Empty string (C++ TheEmptyString). Const so call sites need no process OnceLock.
+    pub const EMPTY: AsciiString = AsciiString { inner: None };
+
     /// Create a new empty AsciiString
     pub fn new() -> Self {
-        Self { inner: None }
+        Self::EMPTY
     }
 
     /// Get an empty string (compatibility helper matching C++ TheEmptyString)
     #[allow(non_snake_case)]
     pub fn TheEmptyString() -> Self {
-        Self::new()
+        Self::EMPTY
     }
 
     /// Create an AsciiString from a string slice

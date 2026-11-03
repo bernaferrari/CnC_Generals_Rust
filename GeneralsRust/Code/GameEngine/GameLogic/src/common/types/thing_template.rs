@@ -166,8 +166,7 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
 
     /// Command set string associated with this template (used by the control bar).
     fn get_command_set_string(&self) -> &AsciiString {
-        static EMPTY: OnceLock<AsciiString> = OnceLock::new();
-        EMPTY.get_or_init(AsciiString::new)
+        &AsciiString::EMPTY
     }
 
     fn module_descriptors(&self) -> ModuleDescriptorSet {
