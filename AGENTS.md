@@ -54,6 +54,7 @@ For Rust file splits, ownership migrations, or provenance review packets, read `
 - A scoped, private, synchronous context (publish + restore around one operation on the driving instance) is an acceptable TEMPORARY migration aid only; it is not the end-state architecture. Constructors must be inert: constructing a world never publishes global state.
 - Track progress with distinctions, not a single "ported" percentage: implemented / explicitly owned / instance-isolated / original-compared / save-load-verified / unsafe-boundary-reviewed.
 - Where C++ used engine singletons, pass the owning game instance explicitly. Any thin adapter must remain instance-scoped and must not publish mutable globals or TLS.
+- Do **not** add opaque `*Slot` / `*Bag` process static wrappers to hide `Mutex`/`Atomic`/`RefCell` from `scripts/count_globals.sh`. That script allowlists existing wrappers and **fails** on new ones. Move state onto owned per-instance context (`CommonServices`, `Ww3dContext`, engine/display fields) instead.
 
 ## Scope Rules
 - Do not modify GameNetwork until all non-network parity is done.
