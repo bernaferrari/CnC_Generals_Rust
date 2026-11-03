@@ -107,51 +107,15 @@ pub const MASK_CULLMODE: u32 = ((1 << 1) - 1) << SHIFT_CULLMODE;
 pub const MASK_POSTDETAILCOLORFUNC: u32 = ((1 << 4) - 1) << SHIFT_POSTDETAILCOLORFUNC;
 pub const MASK_POSTDETAILALPHAFUNC: u32 = ((1 << 2) - 1) << SHIFT_POSTDETAILALPHAFUNC;
 
-/// Global shader state tracking for dirty-flag optimization
-/// Matches C++ static variables: ShaderDirty and CurrentShader (shader.cpp lines 50-51)
-#[derive(Debug)]
-struct ShaderGlobalState {
-    /// True if shader cache needs full invalidation (apply all states)
-    dirty: bool,
-    /// Last applied shader bits for differential updates
-    current_shader: u32,
-    /// Last applied category masks for differential/state verification.
-    applied_blend_bits: u32,
-    applied_fog_bits: u32,
-    applied_texture_stage_bits: u32,
-    applied_depth_bits: u32,
-    applied_cull_bits: u32,
-    applied_sec_gradient_bits: u32,
-    applied_npatch_bits: u32,
-}
+/// Session shader state lives on [`crate::process_state::Renderer3dRuntime::shader_state`].
+use crate::process_state::ShaderGlobalState;
 
-impl ShaderGlobalState {
-    fn new() -> Self {
-        Self {
-            dirty: true, // Start dirty to force initial state application
-            current_shader: 0,
-            applied_blend_bits: 0,
-            applied_fog_bits: 0,
-            applied_texture_stage_bits: 0,
-            applied_depth_bits: 0,
-            applied_cull_bits: 0,
-            applied_sec_gradient_bits: 0,
-            applied_npatch_bits: 0,
-        }
-    }
-}
-
-struct ShaderStateRuntime {
-    shader_state: std::sync::Mutex<ShaderGlobalState>,
-}
-static SHADER_STATE_TLS_BAG: std::sync::LazyLock<ShaderStateRuntime> = std::sync::LazyLock::new(|| ShaderStateRuntime {
-        shader_state: std::sync::Mutex::new(ShaderGlobalState::new()),
-});
-
-
-/// Run `f` with mutable access to the global shader state.
+/// Run `f` with mutable access to the session shader state.
 fn with_shader_state<R>(f: impl FnOnce(&mut ShaderGlobalState) -> R) -> R {
-    f(&mut SHADER_STATE_TLS_BAG.shader_state.lock().unwrap_or_else(|p| p.into_inner()))
+    f(&mut crate::process_state::renderer_3d()
+        .shader_state
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()))
 }
 
 // Shader construction macro - converted to function
@@ -1762,7 +1726,7 @@ impl ShaderClass {
     /// Check if shader cache is dirty (needs full state update)
     /// Matches C++ ShaderClass::ShaderDirty (shader.cpp line 50)
     pub fn shader_dirty() -> bool {
-        { let state = SHADER_STATE_TLS_BAG.shader_state.lock().unwrap_or_else(|p| p.into_inner()); state.dirty }
+        with_shader_state(|state| state.dirty)
     }
 
     /// Invalidate shader cache - forces full state application on next apply
@@ -1786,13 +1750,13 @@ impl ShaderClass {
     /// }
     /// ```
     pub fn calculate_diff(&self) -> u32 {
-        { let state = SHADER_STATE_TLS_BAG.shader_state.lock().unwrap_or_else(|p| p.into_inner()); 
+        with_shader_state(|state| {
             if state.dirty {
                 0xffffffff // Apply all states when dirty
             } else {
                 state.current_shader ^ self.bits // XOR to find changed bits
             }
-         }
+        })
     }
 
     /// Apply shader state with differential optimization
@@ -1946,7 +1910,7 @@ impl ShaderClass {
 
     #[cfg(test)]
     fn debug_applied_state_snapshot() -> (u32, u32, u32, u32, u32, u32, u32) {
-        { let state = SHADER_STATE_TLS_BAG.shader_state.lock().unwrap_or_else(|p| p.into_inner()); 
+        with_shader_state(|state| {
             (
                 state.applied_blend_bits,
                 state.applied_fog_bits,
@@ -1956,7 +1920,7 @@ impl ShaderClass {
                 state.applied_sec_gradient_bits,
                 state.applied_npatch_bits,
             )
-         }
+        })
     }
 }
 

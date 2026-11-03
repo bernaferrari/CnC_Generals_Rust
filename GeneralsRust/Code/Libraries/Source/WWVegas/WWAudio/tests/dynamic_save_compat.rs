@@ -181,9 +181,8 @@ fn dynamic_audio_round_trips_legacy_sample() {
     assert_eq!(logical.listener_timestamp, 123);
     assert_eq!(logical.display_name.as_deref(), Some("Alert"));
 
-    LogicalListener::set_global_scale(loader.logical_listener_global_scale());
-
     let mut scene = SoundScene::new();
+    scene.set_logical_global_scale(loader.logical_listener_global_scale());
     for record in loader.loaded_dynamic_sounds() {
         scene.dynamic_sounds.push(record.instantiate());
     }

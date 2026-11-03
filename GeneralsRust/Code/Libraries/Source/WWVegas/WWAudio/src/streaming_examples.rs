@@ -8,7 +8,7 @@ use crate::aud_stream_buffering::{AccessId,
 };
 use crate::aud_streamer::{
     AudioStreamer as AdvancedAudioStreamer, StreamConfig as AdvancedStreamConfig, StreamManager,
-    StreamState as AdvancedStreamState, get_stream_manager,
+    StreamState as AdvancedStreamState, new_stream_manager,
 };
 use crate::error::Result;
 use crate::{AudioDevice, AudioFormat, AudioSystem, ChannelLayout, SampleRate, SampleWidth};
@@ -131,7 +131,7 @@ pub async fn example_multiple_streams<P: AsRef<Path>>(audio_files: Vec<P>) -> Re
     let audio_system = AudioSystem::new().await?;
     let device = audio_system.open_device(None).await?;
     let device = Arc::new(device);
-    let manager = get_stream_manager();
+    let manager = new_stream_manager();
 
     let mut streamers = Vec::new();
 
