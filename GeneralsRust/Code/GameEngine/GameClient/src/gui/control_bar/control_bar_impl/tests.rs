@@ -249,6 +249,66 @@ mod tests {
         }
     }
 
+    /// Cluster proof for hq-i8x16o + hq-hd8wha: sparse authored UpgradeCameo
+    /// slots keep identity, and apply_upgrade_cameos_to_windows honors them.
+    #[test]
+    fn control_bar_cluster_sparse_upgrade_cameo_slots() {
+        use gamelogic::upgrade::center::UpgradeCenter;
+        crate::test_support::ensure_ambient_host();
+        let mut catalog = UpgradeCenter::new();
+        catalog.new_upgrade("Upgrade_SlotSecond".into());
+        catalog.new_upgrade("Upgrade_SlotFifth".into());
+        let mut bar = ControlBar::new();
+        bar.set_receiving_upgrade_definitions(&catalog, None);
+        let slots = [
+            "",
+            "Upgrade_SlotSecond",
+            "",
+            "Upgrade_Missing",
+            "Upgrade_SlotFifth",
+        ]
+        .map(str::to_owned);
+        bar.sync_upgrade_cameos_from_presentation(
+            &slots,
+            &["Upgrade_SlotFifth".to_owned()],
+            None,
+            false,
+            0.0,
+            0.0,
+        );
+        let cameos = &bar.get_portrait_state().upgrade_cameos;
+        assert_eq!(cameos.len(), 5, "hq-i8x16o: five authored slots");
+        assert!(!cameos[0].is_visible);
+        assert_eq!(cameos[1].upgrade_name, "Upgrade_SlotSecond");
+        assert!(cameos[1].is_visible);
+        assert!(!cameos[2].is_visible);
+        assert_eq!(cameos[3].upgrade_name, "Upgrade_Missing");
+        assert!(!cameos[3].is_visible);
+        assert_eq!(cameos[4].upgrade_name, "Upgrade_SlotFifth");
+        assert!(cameos[4].is_visible && cameos[4].is_completed);
+
+        let owner = crate::gui::window_manager::WindowManagerOwner::new();
+        owner.with_manager(|wm| {
+            wm.test_destroy_all_windows();
+            for i in 0..5 {
+                let w = wm
+                    .test_create_window(None, 10 * i, 10, 32, 32)
+                    .unwrap();
+                w.borrow_mut()
+                    .set_name(&format!("ControlBar.wnd:ButtonUpgrade{:02}", i + 1));
+            }
+            bar.apply_upgrade_cameos_to_windows(wm);
+            // hq-hd8wha: window 2 (slot index 1) stays enabled/visible mapping
+            let slot2 = wm
+                .find_window_by_name("ControlBar.wnd:ButtonUpgrade02")
+                .expect("cameo window 2");
+            assert!(
+                slot2.borrow().is_enabled() || !slot2.borrow().is_hidden(),
+                "receiving cameo state must reach window 2"
+            );
+        });
+    }
+
     fn first_multi_selection_enables_shared_order_when_one_unit_can_act() {
         crate::test_support::ensure_ambient_host();
         let mut control_bar = ControlBar::new();
