@@ -2117,20 +2117,30 @@ impl TheActionManager {
             return Ok(result);
         }
 
+        // C++ ActionManager.cpp:755-771: the first spawn interface evaluates
+        // only getClosestSlave(target position), not any slave.
+        // TODO(hq-2qedt.6): Firebase closest-rider fallback when no spawn interface.
         if obj.is_kind_of(KindOf::SpawnsAreTheWeapons) {
             for mut behavior in obj.get_behavior_modules() {
                 let Ok(mut behavior) = behavior.access() else {
                     continue;
                 };
                 if let Some(spawn_behavior) = behavior.get_spawn_behavior_full_interface() {
-                    let result = spawn_behavior.get_can_any_slaves_attack_specific_target(
-                        attack_type,
-                        object_to_attack,
-                        command_source,
-                    );
-                    if result != ATTACKRESULT_NOT_POSSIBLE {
-                        return Ok(result);
+                    let slave = spawn_behavior.get_closest_slave(object_to_attack.get_position());
+                    drop(behavior);
+                    if let Some(slave) = slave {
+                        let result = slave.read().map_or(ATTACKRESULT_NOT_POSSIBLE, |slave| {
+                            slave.get_able_to_attack_specific_object(
+                                attack_type,
+                                object_to_attack,
+                                command_source,
+                            )
+                        });
+                        if result != ATTACKRESULT_NOT_POSSIBLE {
+                            return Ok(result);
+                        }
                     }
+                    break;
                 }
             }
         }
@@ -3158,6 +3168,149 @@ mod tests {
             &full,
             CommandSourceType::FromPlayer
         ));
+    }
+
+    // C++ ActionManager.cpp:755-771: SPAWNS_ARE_THE_WEAPONS evaluates only
+    // getClosestSlave(target pos); a farther slave able to attack must not
+    // authorize when the closest one cannot.
+    struct ClosestSlaveSpawn {
+        closest: Arc<RwLock<Object>>,
+    }
+
+    type SpawnErr = Box<dyn std::error::Error + Send + Sync>;
+
+    impl crate::object::behavior::spawn_behavior::SpawnBehaviorInterface for ClosestSlaveSpawn {
+        fn may_spawn_self_task_ai(&self, _r: f32) -> bool {
+            false
+        }
+        fn on_spawn_death(
+            &mut self,
+            _d: ObjectID,
+            _i: &mut crate::damage::DamageInfo,
+        ) -> Result<(), SpawnErr> {
+            Ok(())
+        }
+        fn get_closest_slave(&self, _pos: &Coord3D) -> Option<Arc<RwLock<Object>>> {
+            Some(self.closest.clone())
+        }
+        fn order_slaves_to_attack_target(
+            &mut self,
+            _t: &Object,
+            _m: i32,
+            _c: CommandSourceType,
+        ) -> Result<(), SpawnErr> {
+            Ok(())
+        }
+        fn order_slaves_to_attack_position(
+            &mut self,
+            _p: &Coord3D,
+            _m: i32,
+            _c: CommandSourceType,
+        ) -> Result<(), SpawnErr> {
+            Ok(())
+        }
+        fn get_can_any_slaves_attack_specific_target(
+            &self,
+            _a: AbleToAttackType,
+            _t: &Object,
+            _c: CommandSourceType,
+        ) -> CanAttackResult {
+            // A farther slave could attack.
+            CanAttackResult::Possible
+        }
+        fn get_can_any_slaves_use_weapon_against_target(
+            &self,
+            _a: AbleToAttackType,
+            _v: &Object,
+            _p: &Coord3D,
+            _c: CommandSourceType,
+        ) -> CanAttackResult {
+            CanAttackResult::Possible
+        }
+        fn can_any_slaves_attack(&self) -> bool {
+            true
+        }
+        fn order_slaves_to_go_idle(&mut self, _c: CommandSourceType) -> Result<(), SpawnErr> {
+            Ok(())
+        }
+        fn order_slaves_disabled_until(
+            &mut self,
+            _d: DisabledType,
+            _f: u32,
+        ) -> Result<(), SpawnErr> {
+            Ok(())
+        }
+        fn order_slaves_to_clear_disabled(&mut self, _d: DisabledType) -> Result<(), SpawnErr> {
+            Ok(())
+        }
+        fn give_slaves_stealth_upgrade(&mut self, _g: bool) -> Result<(), SpawnErr> {
+            Ok(())
+        }
+        fn are_all_slaves_stealthed(&self) -> bool {
+            false
+        }
+        fn reveal_slaves(&mut self) -> Result<(), SpawnErr> {
+            Ok(())
+        }
+        fn do_slaves_have_freedom(&self) -> bool {
+            false
+        }
+    }
+
+    struct ClosestSlaveSpawnBehavior {
+        spawn: ClosestSlaveSpawn,
+    }
+
+    impl BehaviorModuleInterface for ClosestSlaveSpawnBehavior {
+        fn get_spawn_behavior_full_interface(
+            &mut self,
+        ) -> Option<&mut dyn crate::object::behavior::spawn_behavior::SpawnBehaviorInterface>
+        {
+            Some(&mut self.spawn)
+        }
+    }
+
+    #[test]
+    fn spawns_are_the_weapons_uses_only_closest_slave_not_any_slave() {
+        let _serial = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let stores = crate::system::engine_stores::new_for_world();
+            crate::system::engine_stores::with_active_stores(&stores, || {
+                let closest = Arc::new(RwLock::new(Object::new_test(8951, 100.0)));
+                let mut site = object_with_kinds(
+                    8950,
+                    500.0,
+                    &[
+                        KindOf::Structure,
+                        KindOf::CanAttack,
+                        KindOf::SpawnsAreTheWeapons,
+                    ],
+                );
+                let behavior: Arc<Mutex<dyn BehaviorModuleInterface>> =
+                    Arc::new(Mutex::new(ClosestSlaveSpawnBehavior {
+                        spawn: ClosestSlaveSpawn { closest },
+                    }));
+                site.push_behavior_module_for_test(behavior);
+                // Site's own WeaponSet returns NOT_POSSIBLE (masked victim), so the
+                // SPAWNS_ARE_THE_WEAPONS branch decides via the closest slave only.
+                let mut target = object_with_kinds(8952, 100.0, &[KindOf::Vehicle]);
+                target.set_status(
+                    crate::MAKE_OBJECT_STATUS_MASK!(crate::common::OBJECT_STATUS_MASKED),
+                    true,
+                );
+                assert_eq!(
+                    TheActionManager::get_can_attack_object(
+                        &site,
+                        &target,
+                        CommandSourceType::FromScript,
+                        AbleToAttackType::NewTarget,
+                    ),
+                    ATTACKRESULT_NOT_POSSIBLE,
+                    "closest slave (unarmed) decides; farther armed slave must not authorize"
+                );
+            })
+        })
     }
 }
 
