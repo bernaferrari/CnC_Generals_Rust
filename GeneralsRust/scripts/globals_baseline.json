@@ -1,6 +1,6 @@
 {
   "Common": 0,
-  "GameClient": 0,
+  "GameClient": 1,
   "GameLogic": 24,
   "Main": 0,
   "WWVegas": 0
