@@ -681,6 +681,9 @@ pub(crate) fn parse_player_template_definition_into(
     ini: &mut INI,
     store: &mut PlayerTemplateStore,
 ) -> INIResult<()> {
+    // C++ PlayerTemplate.cpp:360-378 — existing records mutate in place;
+    // brand-new records parse into a local npt and push_back only after
+    // initFromINI succeeds (malformed new defs must not leave a partial entry).
     let tokens = ini.get_line_tokens();
     let name = tokens
         .iter()
@@ -689,20 +692,19 @@ pub(crate) fn parse_player_template_definition_into(
         .ok_or(INIError::InvalidData)?
         .to_string();
 
-    let template_index = if let Some(index) = store.find_template_index(&name) {
-        index
-    } else {
-        let key = ini.name_to_key(&name);
-        store.add_template(PlayerTemplate::new_with_name_key(name, key));
-        store.len().saturating_sub(1)
-    };
-
-    if let Some(template) = store.get_nth_player_template_mut(template_index) {
+    if let Some(index) = store.find_template_index(&name) {
+        let template = store
+            .get_nth_player_template_mut(index)
+            .ok_or(INIError::InvalidData)?;
         ini.init_from_ini_with_fields(template, PLAYER_TEMPLATE_FIELDS)?;
-        Ok(())
-    } else {
-        Err(INIError::InvalidData)
+        return Ok(());
     }
+
+    let key = ini.name_to_key(&name);
+    let mut npt = PlayerTemplate::new_with_name_key(name, key);
+    ini.init_from_ini_with_fields(&mut npt, PLAYER_TEMPLATE_FIELDS)?;
+    store.add_template(npt);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -755,6 +757,28 @@ End
             assert_eq!(template.side, "America");
             assert!(template.playable);
         }
+    }
+
+    #[test]
+    fn newly_malformed_player_template_is_not_appended() {
+        // hq-bseq8 — C++ only push_back after initFromINI on a local npt.
+        let mut store = PlayerTemplateStore::new();
+        let mut ini = INI::new();
+        let source = r#"
+PlayerTemplate FactionBroken
+  Side = America
+  StartMoney = NOT_A_NUMBER
+End
+"#;
+        let result = ini.with_inline_source(source, |ini| {
+            parse_player_template_definition_into(ini, &mut store)
+        });
+        assert!(result.is_err(), "malformed StartMoney must fail the walker");
+        assert_eq!(
+            store.len(),
+            0,
+            "failed new-record parse must not leave a partial template"
+        );
     }
 
     #[test]
