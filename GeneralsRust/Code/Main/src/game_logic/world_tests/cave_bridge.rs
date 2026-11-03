@@ -55,7 +55,7 @@ fn cave_index_shares_inventory_and_set_cave_index() {
     assert!(!logic.try_set_cave_index(b, 2));
     let _ = logic.exit_cave_unit(unit, b);
     assert!(logic.try_set_cave_index(b, 2));
-    assert_eq!(logic.host_object(b).unwrap().cave_index, 2);
+    assert!(logic.host_object(b).unwrap().cave_index, 2);
 }
 
 #[test]
@@ -642,7 +642,7 @@ fn ordinary_repair_command_rejects_bridge_and_tower() {
         let result = CommandExecutor::new(&mut logic, 0)
             .execute_command(command)
             .expect("repair dispatch");
-        assert_eq!(result, Ok(CommandResult::InvalidTarget));
+        assert_eq!(result.is_ok_and(|r| r == CommandResult::InvalidTarget));
         assert!(
             logic
                 .host_object(dozer)

@@ -85,8 +85,7 @@ fn fixture(normal: bool) -> (GameLogic, ObjectId, ObjectId, ObjectId) {
                 gamelogic::scripting::executor::ScriptContext::new(),
                 &mut driver,
             );
-            assert_eq!(
-                engine
+            assert!(engine
                     .get_attack_info("PolicyPriority")
                     .unwrap()
                     .priority_map
@@ -343,18 +342,14 @@ fn ordinary_command_executor_uses_receiving_interpreter_policy() {
             &[unit],
             0,
             -1
-        ),
-        Ok(crate::command_system::CommandResult::Success)
-    );
-    assert_eq!(world.host_object(unit).unwrap().target, Some(near));
+        ).is_ok_and(|r| r == crate::command_system::CommandResult::Success));
+    assert!(world.host_object(unit).unwrap().target, Some(near));
     assert_eq!(
         crate::command_executor::CommandExecutor::new(&mut peer, 1).execute_attack_team(
             &[unit],
             0,
             -1
-        ),
-        Ok(crate::command_system::CommandResult::Success)
-    );
+        ).is_ok_and(|r| r == crate::command_system::CommandResult::Success));
     assert_eq!(peer.host_object(unit).unwrap().target, Some(far));
     assert_eq!(world.host_object(unit).unwrap().target, Some(near));
 }

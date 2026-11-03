@@ -307,9 +307,8 @@ fn enter(world: &mut GameLogic, host: ObjectId, rider: ObjectId) {
             modifier_keys: ModifierKeys::default(),
         })
         .expect("production Enter command executes");
-    assert_eq!(result, Ok(CommandResult::Success));
-    assert_eq!(
-        world.host_object(rider).unwrap().ai_state(),
+    assert!(result.is_ok_and(|r| r == CommandResult::Success));
+    assert!(world.host_object(rider).unwrap().ai_state(),
         AIState::Entering
     );
     assert_eq!(world.host_object(rider).unwrap().target, Some(host));
@@ -438,9 +437,9 @@ fn collision_entry_records_receiving_player_without_touching_peer() {
             modifier_keys: ModifierKeys::default(),
         })
         .expect("issue authored Enter command");
-    assert_eq!(result, Ok(CommandResult::Success));
+    assert_eq!(result.is_ok_and(|r| r == CommandResult::Success));
     game.try_physics_collide(rider, host, 1.0).unwrap();
-    assert_eq!(game.host_object(rider).unwrap().contained_by, Some(host));
+    assert!(game.host_object(rider).unwrap().contained_by, Some(host));
     assert_eq!(game.host_object(host).unwrap().player_who_entered, Some(2));
     assert_eq!(
         game.host_object(host).unwrap().team_instance_identity(),
@@ -499,13 +498,10 @@ fn collision_transport_rechecks_slot_capacity_and_controller() {
                     selected_units: vec![rider],
                     modifier_keys: ModifierKeys::default(),
                 })
-                .unwrap(),
-            Ok(CommandResult::Success)
-        );
+                .unwrap().is_ok_and(|r| r == CommandResult::Success));
     }
     game.try_physics_collide(small, transport, 1.0).unwrap();
-    assert_eq!(
-        game.host_object(small).unwrap().contained_by,
+    assert!(game.host_object(small).unwrap().contained_by,
         Some(transport)
     );
     game.try_physics_collide(heavy, transport, 1.0).unwrap();
@@ -538,14 +534,11 @@ fn collision_transport_rechecks_slot_capacity_and_controller() {
                 selected_units: vec![peer_heavy],
                 modifier_keys: ModifierKeys::default(),
             })
-            .unwrap(),
-        Ok(CommandResult::Success)
-    );
+            .unwrap().is_ok_and(|r| r == CommandResult::Success));
     peer.host_object_mut(peer_heavy).unwrap().owner_player_id = Some(1);
     peer.try_physics_collide(peer_heavy, peer_transport, 1.0)
         .unwrap();
-    assert_eq!(
-        peer.host_object(peer_heavy).unwrap().contained_by,
+    assert!(peer.host_object(peer_heavy).unwrap().contained_by,
         None,
         "TransportContain requires the same controlling player at collision"
     );
@@ -643,9 +636,7 @@ fn cave_enter_queries_use_shared_capacity_and_occupants() {
                 selected_units: vec![overflow],
                 modifier_keys: ModifierKeys::default(),
             })
-            .unwrap(),
-        Ok(CommandResult::InvalidCommand)
-    );
+            .unwrap().is_ok_and(|r| r == CommandResult::InvalidCommand));
 
     // A stale entrance-local list must not manufacture a shared passenger.
     let ghost_position = peer.host_object(peer_outsider).unwrap().get_position();
@@ -656,8 +647,7 @@ fn cave_enter_queries_use_shared_capacity_and_occupants() {
         .unwrap()
         .garrisoned_units
         .push(peer_outsider);
-    assert_eq!(
-        CommandExecutor::new(&mut peer, 2)
+    assert!(CommandExecutor::new(&mut peer, 2)
             .execute_command(GameCommand {
                 command_type: CommandType::Exit,
                 player_id: 2,
@@ -666,11 +656,8 @@ fn cave_enter_queries_use_shared_capacity_and_occupants() {
                 selected_units: vec![peer_b],
                 modifier_keys: ModifierKeys::default(),
             })
-            .unwrap(),
-        Ok(CommandResult::InvalidCommand)
-    );
-    assert_eq!(
-        peer.host_object(peer_outsider).unwrap().get_position(),
+            .unwrap().is_ok_and(|r| r == CommandResult::InvalidCommand));
+    assert!(peer.host_object(peer_outsider).unwrap().get_position(),
         ghost_position
     );
     assert!(!peer.evacuate_container_now(peer_b, false));
@@ -949,10 +936,8 @@ fn connected_caves_transfer_and_restore_exact_player_team_across_save() {
                 selected_units: vec![b],
                 modifier_keys: ModifierKeys::default(),
             })
-            .unwrap(),
-        Ok(CommandResult::Success)
-    );
-    assert_eq!(game.host_object(rider).unwrap().contained_by, None);
+            .unwrap().is_ok_and(|r| r == CommandResult::Success));
+    assert!(game.host_object(rider).unwrap().contained_by, None);
     assert!(restored.exit_cave_unit(rider, b));
     for cave in [a, b] {
         assert_eq!(
@@ -1366,12 +1351,12 @@ fn collision_garrison_rejects_invalid_rider_and_reports_missing_owner() {
             modifier_keys: ModifierKeys::default(),
         })
         .unwrap();
-    assert_eq!(result, Ok(CommandResult::Success));
+    assert_eq!(result.is_ok_and(|r| r == CommandResult::Success));
     let team = game.host_object(host).unwrap().team_instance_identity();
     game.host_object_mut(rider).unwrap().owner_player_id = Some(u32::MAX);
     let error = game.try_physics_collide(rider, host, 1.0).unwrap_err();
     assert!(error.to_string().contains("controller is missing"));
-    assert_eq!(game.host_object(rider).unwrap().contained_by, None);
+    assert!(game.host_object(rider).unwrap().contained_by, None);
     assert!(game.host_object(host).unwrap().contained_units().is_empty());
     assert_eq!(
         game.host_object(host).unwrap().team_instance_identity(),
@@ -1399,12 +1384,12 @@ fn transport_exit_door_continues_across_bincode_and_direct_xfer() {
             modifier_keys: ModifierKeys::default(),
         })
         .expect("execute passenger exit");
-    assert_eq!(result, Ok(CommandResult::Success));
+    assert_eq!(result.is_ok_and(|r| r == CommandResult::Success));
     let remaining = original
         .host_object(transport)
         .unwrap()
         .door_close_countdown;
-    assert_eq!(remaining, 3, "100 ms arms three logic frames");
+    assert!(remaining, 3, "100 ms arms three logic frames");
     let plain = original
         .create_object_for_player("PlainNonContainer", 1, Vec3::new(80.0, 0.0, 80.0))
         .unwrap();
@@ -2983,11 +2968,8 @@ fn full_shared_pools_do_not_readmit_a_contained_passenger_at_another_entrance() 
                     selected_units: vec![b],
                     modifier_keys: ModifierKeys::default(),
                 })
-                .unwrap(),
-            Ok(CommandResult::Success),
-            "cave={cave} capacity={capacity}"
-        );
-        assert_eq!(game.host_object(rider).unwrap().contained_by, None);
+                .unwrap().is_ok_and(|r| r == CommandResult::Success), "cave={cave} capacity={capacity}");
+        assert!(game.host_object(rider).unwrap().contained_by, None);
         assert!(game.host_authoritative_contained_units(b).is_empty());
     }
 }
@@ -3126,9 +3108,7 @@ fn cave_and_tunnel_entry_eligibility_matches_shared_tracker() {
                 selected_units: vec![ally],
                 modifier_keys: ModifierKeys::default(),
             })
-            .unwrap(),
-        Ok(CommandResult::Success)
-    );
+            .unwrap().is_ok_and(|r| r == CommandResult::Success));
     game.try_physics_collide(ally, tunnel, 1.0).unwrap();
     assert_eq!(game.host_object(ally).unwrap().contained_by, Some(tunnel));
     let extra = game

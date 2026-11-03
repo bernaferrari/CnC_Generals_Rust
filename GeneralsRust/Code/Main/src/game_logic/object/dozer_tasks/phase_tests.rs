@@ -71,12 +71,9 @@ fn drive(world: &mut GameLogic, id: ObjectId, frame: u32) {
 fn authored_repair_command_records_request_then_enters_action_on_original_phases() {
     let (mut world, id, target) = world();
     let hp = world.host_object(target).unwrap().health.current;
-    assert_eq!(
-        command(&mut world, id, CommandType::Repair { target_id: target }),
-        Ok(CommandResult::Success)
-    );
+    assert!(command(&mut world, id, CommandType::Repair { target_id: target }).is_ok_and(|r| r == CommandResult::Success));
     let actor = world.host_object(id).unwrap();
-    assert_eq!(actor.dozer_tasks.current, DozerTask::Invalid);
+    assert!(actor.dozer_tasks.current, DozerTask::Invalid);
     assert_eq!(actor.dozer_tasks.requests[1].target, Some(target));
     assert!(actor.dozer_tasks.docks[1].iter().all(|point| point.valid));
     assert_eq!(world.host_object(target).unwrap().health.current, hp);
@@ -114,19 +111,14 @@ fn disabled_entered_task_cancels_only_the_driving_same_id_actor() {
     let (mut peer, peer_id, peer_target) = world();
     assert_eq!((id, target), (peer_id, peer_target));
     assert_eq!(
-        command(&mut first, id, CommandType::Repair { target_id: target }),
-        Ok(CommandResult::Success)
-    );
-    assert_eq!(
-        command(
+        command(&mut first, id, CommandType::Repair { target_id: target }).is_ok_and(|r| r == CommandResult::Success));
+    assert!(command(
             &mut peer,
             peer_id,
             CommandType::Repair {
                 target_id: peer_target
             }
-        ),
-        Ok(CommandResult::Success)
-    );
+        ).is_ok_and(|r| r == CommandResult::Success));
     drive(&mut first, id, 11);
     drive(&mut peer, peer_id, 11);
     assert!(
@@ -134,8 +126,7 @@ fn disabled_entered_task_cancels_only_the_driving_same_id_actor() {
             .set_owned_disabled_until(id, DisabledType::DisabledEmp, 50)
             .expect("receiving disabled fixture operation")
     );
-    assert_eq!(
-        first.host_object(id).unwrap().dozer_tasks.current,
+    assert!(first.host_object(id).unwrap().dozer_tasks.current,
         DozerTask::Invalid
     );
     assert_eq!(
@@ -218,11 +209,9 @@ fn supplied_build_request_does_not_interrupt_busy_motion_but_repair_invalid_curr
             CommandType::Move {
                 destination: Vec3::new(500.0, 0.0, 0.0)
             }
-        ),
-        Ok(CommandResult::Success)
-    );
+        ).is_ok_and(|r| r == CommandResult::Success));
     let before = world.host_object(id).unwrap().movement.target_position;
-    assert_eq!(world.host_object(id).unwrap().ai_state(), AIState::Moving);
+    assert!(world.host_object(id).unwrap().ai_state(), AIState::Moving);
     let site = world
         .create_object_under_construction_for_player(
             "PhaseSite",
@@ -248,12 +237,9 @@ fn supplied_build_request_does_not_interrupt_busy_motion_but_repair_invalid_curr
         "primary Idle waits for inherited AI Idle"
     );
     assert_eq!(
-        command(&mut world, id, CommandType::Repair { target_id: target }),
-        Ok(CommandResult::Success)
-    );
+        command(&mut world, id, CommandType::Repair { target_id: target }).is_ok_and(|r| r == CommandResult::Success));
     let actor = world.host_object(id).unwrap();
-    assert_eq!(
-        actor.ai_state(),
+    assert!(actor.ai_state(),
         AIState::Idle,
         "CPP2359 preamble only for INVALID current"
     );
@@ -268,9 +254,7 @@ fn supplied_build_request_does_not_interrupt_busy_motion_but_repair_invalid_curr
 fn native32_entered_action_keeps_current_but_restarts_nested_pick() {
     let (mut source, id, target) = world();
     assert_eq!(
-        command(&mut source, id, CommandType::Repair { target_id: target }),
-        Ok(CommandResult::Success)
-    );
+        command(&mut source, id, CommandType::Repair { target_id: target }).is_ok_and(|r| r == CommandResult::Success));
     for frame in 11..14 {
         drive(&mut source, id, frame);
     }
@@ -283,7 +267,7 @@ fn native32_entered_action_keeps_current_but_restarts_nested_pick() {
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("restore entered action");
     let actor = restored.host_object(id).unwrap();
-    assert_eq!(actor.dozer_tasks.current, DozerTask::Repair);
+    assert!(actor.dozer_tasks.current, DozerTask::Repair);
     assert!(
         matches!(
             actor.dozer_tasks.primary.actions[1].state,
@@ -385,11 +369,9 @@ fn disabled_pending_sibling_waits_for_original_module_disabled_mask() {
 fn frozen_idle_worker_query_excludes_an_entered_task_with_inherited_ai_idle() {
     let (mut source, id, target) = world();
     assert_eq!(
-        command(&mut source, id, CommandType::Repair { target_id: target }),
-        Ok(CommandResult::Success)
-    );
+        command(&mut source, id, CommandType::Repair { target_id: target }).is_ok_and(|r| r == CommandResult::Success));
     drive(&mut source, id, 11);
-    assert_eq!(source.host_object(id).unwrap().ai_state(), AIState::Idle);
+    assert!(source.host_object(id).unwrap().ai_state(), AIState::Idle);
     assert_eq!(
         source.host_object(id).unwrap().dozer_tasks.current,
         DozerTask::Repair
@@ -566,11 +548,8 @@ fn actual_player_move_cancels_only_the_receiving_dozer_same_id_task() {
             CommandType::Move {
                 destination: Vec3::new(500.0, 0.0, 0.0),
             },
-        ),
-        Ok(CommandResult::Success)
-    );
-    assert_eq!(
-        first.host_object(first_id).unwrap().dozer_tasks.current,
+        ).is_ok_and(|r| r == CommandResult::Success));
+    assert!(first.host_object(first_id).unwrap().dozer_tasks.current,
         DozerTask::Invalid,
         "the checked Dozer aiDoCommand cancel runs before the new move"
     );
@@ -719,10 +698,8 @@ fn actual_command_system_build_runs_source_idle_then_factory_then_pending_reques
                 CommandType::Move {
                     destination: Vec3::new(500.0, 0.0, 0.0),
                 }
-            ),
-            Ok(CommandResult::Success)
-        );
-        assert_eq!(world.host_object(id).unwrap().ai_state(), AIState::Moving);
+            ).is_ok_and(|r| r == CommandResult::Success));
+        assert!(world.host_object(id).unwrap().ai_state(), AIState::Moving);
         world.attack_events.clear();
     }
     let peer_goal = peer.host_object(peer_id).unwrap().movement.target_position;
@@ -735,12 +712,9 @@ fn actual_command_system_build_runs_source_idle_then_factory_then_pending_reques
                 template_name: "PhasePaidSite".into(),
                 location: Vec3::new(200.0, 0.0, 0.0),
             }
-        ),
-        Ok(CommandResult::Success)
-    );
+        ).is_ok_and(|r| r == CommandResult::Success));
     let actor = first.host_object(id).unwrap();
-    assert_eq!(
-        actor.ai_state(),
+    assert!(actor.ai_state(),
         AIState::Idle,
         "BuildAssistant Idle precedes construct"
     );
@@ -791,11 +765,8 @@ fn actual_command_system_build_runs_source_idle_then_factory_then_pending_reques
             &mut first,
             id,
             CommandType::DozerCancelConstruct { object_id: site }
-        ),
-        Ok(CommandResult::Success)
-    );
-    assert_eq!(
-        first.get_player(0).unwrap().effective_supplies(),
+        ).is_ok_and(|r| r == CommandResult::Success));
+    assert!(first.get_player(0).unwrap().effective_supplies(),
         1000,
         "explicit cancel refunds the actual paid scaffold once"
     );
@@ -813,22 +784,17 @@ fn actual_command_system_unaffordable_build_idles_without_factory_payment_or_req
             CommandType::Move {
                 destination: Vec3::new(500.0, 0.0, 0.0),
             }
-        ),
-        Ok(CommandResult::Success)
-    );
+        ).is_ok_and(|r| r == CommandResult::Success));
     let callbacks = world.supply_create_warehouse_registers;
-    assert_eq!(
-        system_command(
+    assert!(system_command(
             &mut world,
             id,
             CommandType::Build {
                 template_name: "PhasePaidSite".into(),
                 location: Vec3::new(200.0, 0.0, 0.0),
             }
-        ),
-        Ok(CommandResult::InvalidCommand)
-    );
-    assert_eq!(world.host_object(id).unwrap().ai_state(), AIState::Idle);
+        ).is_ok_and(|r| r == CommandResult::InvalidCommand));
+    assert!(world.host_object(id).unwrap().ai_state(), AIState::Idle);
     assert_eq!(
         world.host_object(id).unwrap().dozer_tasks.requests[0].target,
         None
@@ -899,9 +865,7 @@ fn actual_command_system_kindof_dozer_with_base_ai_cannot_admit_a_dozer_task() {
                 template_name: "FalseDozerSite".into(),
                 location: Vec3::new(200.0, 0.0, 0.0),
             }
-        ),
-        Ok(CommandResult::InvalidCommand)
-    );
+        ).is_ok_and(|r| r == CommandResult::InvalidCommand));
     assert_eq!(world.get_player(0).unwrap().effective_supplies(), 1000);
     assert_eq!(
         world.host_object(id).unwrap().dozer_tasks.requests[0].target,

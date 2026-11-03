@@ -372,7 +372,6 @@ ALLOW_SLOT_BAG = {
     "PendingSlot",
     "PerfGatherRegistryBag",
     "PlayerListLockSlot",
-    "PlayerObjectWorldBag",
     "PlayerSlot",
     "PlayerTemplateStoreSlot",
     "PoolRegistrySlot",

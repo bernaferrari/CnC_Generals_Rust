@@ -11,6 +11,7 @@
 
 use crate::common::random_value::{RandomState, SessionRandom};
 use crate::common::thing::thing_factory::ThingFactory;
+use crate::common::rts::player::PlayerObjectWorld;
 use crate::common::time::SimulationClock;
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -100,6 +101,8 @@ pub struct CommonServices {
     pub sim_clock: Mutex<SimulationClock>,
     /// Players with pending C++ recordIncome marks (was PendingIncomeBag).
     pub pending_income: Mutex<HashSet<i32>>,
+    /// Optional PlayerObjectWorld bridge (was process PLAYER_OBJECT_WORLD bag).
+    pub player_object_world: Mutex<Option<Arc<dyn PlayerObjectWorld>>>,
 }
 
 impl Default for CommonServices {
@@ -111,6 +114,7 @@ impl Default for CommonServices {
             logic_rng_owner: Mutex::new(None),
             sim_clock: Mutex::new(SimulationClock::default()),
             pending_income: Mutex::new(HashSet::new()),
+            player_object_world: Mutex::new(None),
         }
     }
 }

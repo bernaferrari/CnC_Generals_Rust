@@ -80,7 +80,7 @@ fn authored_combat_drop_full_frame_obeys_one_locomotor_step() {
             let before = logic.host_object(transport).unwrap().get_position();
             let frame = logic.frame;
             logic.update_with_dt(1.0 / 30.0);
-            assert_eq!(logic.frame, frame + 1, "actual full logic frame advanced");
+            assert!(logic.frame, frame + 1, "actual full logic frame advanced");
             let object = logic.host_object(transport).unwrap();
             let after = object.get_position();
             let horizontal = Vec3::new(after.x - before.x, 0.0, after.z - before.z).length();
@@ -262,9 +262,7 @@ fn authored_evacuation_retains_passenger_through_takeoff_and_landing() {
             assert_eq!(
                 CommandExecutor::new(&mut logic, 0)
                     .execute_command(command)
-                    .unwrap(),
-                Ok(CommandResult::Success)
-            );
+                    .unwrap().is_ok_and(|r| r == CommandResult::Success));
             let ai = logic
                 .host_object(transport)
                 .unwrap()

@@ -222,32 +222,23 @@ pub trait PlayerObjectWorld: Send + Sync + std::fmt::Debug {
     }
 }
 
-// THREAD: C++ plain static; driven only by the single game/client thread.
-struct PlayerObjectWorldBag {
-    value: std::sync::Mutex<Option<Arc<dyn PlayerObjectWorld>>>,
-}
-static PLAYER_OBJECT_WORLD: std::sync::LazyLock<PlayerObjectWorldBag> = std::sync::LazyLock::new(|| PlayerObjectWorldBag {
-    value: std::sync::Mutex::new(None),
-});
-
-
 pub fn set_player_object_world(world: Arc<dyn PlayerObjectWorld>) {
-    *PLAYER_OBJECT_WORLD
-        .value
+    *crate::common::common_services::common_services()
+        .player_object_world
         .lock()
         .unwrap_or_else(|p| p.into_inner()) = Some(world);
 }
 
 pub fn clear_player_object_world() {
-    *PLAYER_OBJECT_WORLD
-        .value
+    *crate::common::common_services::common_services()
+        .player_object_world
         .lock()
         .unwrap_or_else(|p| p.into_inner()) = None;
 }
 
 pub fn get_player_object_world() -> Option<Arc<dyn PlayerObjectWorld>> {
-    PLAYER_OBJECT_WORLD
-        .value
+    crate::common::common_services::common_services()
+        .player_object_world
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .clone()

@@ -1932,7 +1932,7 @@ fn mixed_selection_hijack_skips_rebel() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         exec.execute_hijack(&[hijacker, rebel], tank)
     };
-    assert_eq!(result, Ok(CommandResult::Success));
+    assert!(matches!(result, Ok(CommandResult::Success)));
     assert!(matches!(
         logic.pending_special_abilities.get(&hijacker),
         Some(PendingSpecialAbility::Hijack { target_id }) if *target_id == tank
@@ -1976,7 +1976,7 @@ fn mixed_selection_carbomb_skips_rebel() {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         exec.execute_convert_carbomb(&[terrorist, rebel], car)
     };
-    assert_eq!(result, Ok(CommandResult::Success));
+    assert!(matches!(result, Ok(CommandResult::Success)));
     assert!(matches!(
         logic.pending_special_abilities.get(&terrorist),
         Some(PendingSpecialAbility::CarBomb { target_id }) if *target_id == car
