@@ -1381,7 +1381,7 @@ fn restored_object_allocator_never_reuses_a_dead_object_id() {
                 );
             }
             let dead_id = *live_ids.last().expect("allocated ids");
-            source.destroy_object(dead_id);
+            source.destroy_object(dead_id).unwrap();
             // Drain the destruction list so the dead object is gone from the
             // saved world (C++ processes destruction during the logic update).
             for _ in 0..16 {

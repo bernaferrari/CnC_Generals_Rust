@@ -2558,7 +2558,7 @@ fn script_named_receive_upgrade_writes_live_object() {
     let mut action = ScriptAction::new(ScriptActionType::NamedReceiveUpgrade);
     action
         .add_parameter(Parameter::with_string(ParameterType::Unit, "Hero".into()))
-        .unwrap();
+        .unwrap().expect("ObjectId");
     action
         .add_parameter(Parameter::with_string(
             ParameterType::Upgrade,

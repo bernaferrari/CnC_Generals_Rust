@@ -68,7 +68,7 @@ fn authored_removal_keeps_enemy_credit_bounty_and_once_only_stats() {
             25,
             "{class}: CPP scoreTheKill awards Player skill exactly once before onDie"
         );
-        world.destroy_object(victim); // repeated public request must not overwrite credit.
+        world.destroy_object(victim).unwrap(); // repeated public request must not overwrite credit.
         world.process_destroy_list();
         assert!(
             !world.objects.contains_key(&victim),

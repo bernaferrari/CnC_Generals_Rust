@@ -17,9 +17,9 @@ mod tests {
             bytes
         };
         std::fs::write(&path, encode("first")).unwrap();
-        let first = load_chunky_map(path.to_str().unwrap()).unwrap().unwrap();
+        let first = load_chunky_map(path.to_str().unwrap()).unwrap();
         std::fs::write(&path, encode("second")).unwrap();
-        let second = load_chunky_map(path.to_str().unwrap()).unwrap().unwrap();
+        let second = load_chunky_map(path.to_str().unwrap()).unwrap();
         assert_eq!(first.toc[&1], "first");
         assert_eq!(second.toc[&1], "second");
         // Retaining the first document while loading another never mutates its bytes.

@@ -246,7 +246,7 @@ fn assert_full_snapshot_waypoint_preflight_preserves_receiver(
     let bytes = bincode_legacy::serialize(&malformed).unwrap();
     let malformed = crate::save_load::snapshot::decode_bincode_world_snapshot(&bytes).unwrap();
     let (mut receiving, old_id) = world();
-    receiving.destroy_object(old_id);
+    receiving.destroy_object(old_id).unwrap();
     receiving.process_destroy_list();
     receiving.set_next_object_id_for_restore(ObjectId(77));
     let outgoing = receiving

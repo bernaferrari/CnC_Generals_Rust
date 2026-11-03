@@ -881,7 +881,7 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
         .collect();
     assert_eq!(starter_ids.len(), 1, "authored one-shot starter exists");
     for starter_id in starter_ids {
-        logic.destroy_object(starter_id);
+        logic.destroy_object(starter_id).unwrap();
     }
     logic.process_destroy_list();
     assert!(
@@ -1249,7 +1249,7 @@ fn captured_pad_unbinds_and_gla_hole_rebinds() {
         hole.set_team_with_partition_owner(Team::USA, ownership_events, partition);
     }
     ai.building_queue[0].object_id = Some(factory_id);
-    logic.destroy_object(factory_id);
+    logic.destroy_object(factory_id).unwrap();
     ai.sync_build_list_object_status(&logic, 13.0);
     assert_eq!(ai.building_queue[0].object_id, Some(hole_id));
 }
@@ -3584,8 +3584,8 @@ fn find_supply_center_uses_warehouse_dock_and_cash_gen_and_sixty_forty() {
         "own cash-gen within CLOSE_DIST skips the near warehouse"
     );
 
-    logic.destroy_object(own);
-    logic.destroy_object(near);
+    logic.destroy_object(own).unwrap();
+    logic.destroy_object(near).unwrap();
     // Warehouse at 100 is closer to the China structure midpoint (0) than
     // to our base at 1000 under the 60/40 expansion gate.
     logic.set_fixture_object_position(far, Vec3::new(100.0, 0.0, 0.0));

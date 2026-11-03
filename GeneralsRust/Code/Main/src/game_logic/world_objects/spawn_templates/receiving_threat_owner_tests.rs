@@ -449,7 +449,7 @@ fn actual_direct_delete_retains_original_scalar_residual_but_lethal_body_clears_
             let mut lethal = receiving_scalar_grid(17);
             assert_eq!(spawn(&mut lethal, 17), id);
             lethal.update_owned_partition_with_effects(&mut Default::default()).unwrap();
-            direct.destroy_object(id);
+            direct.destroy_object(id).unwrap();
             assert!(!direct.host_object(id).unwrap().status.effectively_dead);
             assert_eq!(
                 threat_cell(&direct, 0.),

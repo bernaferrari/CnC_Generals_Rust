@@ -54,7 +54,7 @@ fn fixture() -> (GameLogic, ObjectId) {
                 power: 0,
             },
         )
-        .unwrap();
+        .unwrap().expect("ObjectId");
     let dozer = world.host_object_mut(builder).unwrap();
     dozer.set_dozer_task_build_target(Some(id));
     dozer.set_dozer_dock_action(Some(Vec3::ZERO));

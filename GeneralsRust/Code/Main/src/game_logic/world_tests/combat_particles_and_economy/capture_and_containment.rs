@@ -831,7 +831,7 @@ fn black_market_residual_skips_under_construction() {
 
     let market_id = game_logic
         .create_object_under_construction("GLABlackMarket", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("under-construction market");
+        .expect("under-construction market").expect("ObjectId");
     assert!(
         game_logic
             .host_object(market_id)

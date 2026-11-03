@@ -613,7 +613,7 @@ fn construction_complete_clears_after_duration() {
         )
         .expect("pp");
     logic.frame = 10;
-    logic.notify_structure_construction_complete(id);
+    logic.notify_structure_construction_complete(id).unwrap();
     let o = logic.host_object(id).expect("o");
     assert!(host_model_condition_has(
         o.model_condition_bits,
@@ -888,7 +888,7 @@ fn structure_placement_rejects_shrouded_location_residual() {
     assert!(scaffold.is_ok());
     // Remove the admitted scaffold through the normal deletion boundary:
     // otherwise the next query tests occupied ground, not revealed shroud.
-    logic.destroy_object(scaffold.unwrap());
+    logic.destroy_object(scaffold.unwrap().unwrap());
     logic.process_destroy_list();
 
     // Permanent reveal → CELLSHROUD_CLEAR residual (active lookers).
@@ -1141,7 +1141,7 @@ fn structure_placement_rejects_objects_in_the_way_residual() {
             Team::USA,
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
-        .expect("first pad");
+        .expect("first pad").expect("ObjectId");
     assert_eq!(
         logic.legal_build_code_at(Team::USA, glam::Vec3::new(0.0, 0.0, 0.0), "TestBarracksPad"),
         LBC_OBJECTS_IN_THE_WAY
@@ -1227,7 +1227,7 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
             Team::USA,
             glam::Vec3::new(-10.0, 0.0, 0.0),
         )
-        .expect("cc");
+        .expect("cc").expect("ObjectId");
     // Prove under-construction gate opens, then place completed tech buildings far apart.
     assert!(
         logic
@@ -1244,7 +1244,7 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
             Team::USA,
             glam::Vec3::new(200.0, 0.0, 0.0),
         )
-        .expect("supply");
+        .expect("supply").expect("ObjectId");
 
     // WarFactory needs supply.
     assert!(
@@ -1262,7 +1262,7 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
             Team::USA,
             glam::Vec3::new(400.0, 0.0, 0.0),
         )
-        .expect("wf");
+        .expect("wf").expect("ObjectId");
 
     // Strategy needs WF OR Airfield (or_chain residual).
     assert!(
@@ -1280,7 +1280,7 @@ fn usa_puc_tech_tree_prereq_chain_residual() {
             Team::USA,
             glam::Vec3::new(600.0, 0.0, 0.0),
         )
-        .expect("sc");
+        .expect("sc").expect("ObjectId");
 
     // PUC needs Strategy.
     assert!(
@@ -1341,7 +1341,7 @@ fn superweapon_structure_requires_tech_building_prereq() {
             Team::USA,
             glam::Vec3::new(100.0, 0.0, 0.0),
         )
-        .expect("strategy");
+        .expect("strategy").expect("ObjectId");
     assert!(logic.host_object(sc).unwrap().is_constructed());
     assert!(
         logic
@@ -1366,7 +1366,7 @@ fn superweapon_structure_requires_tech_building_prereq() {
     );
     let palace = logic
         .create_object("GLAPalace", Team::USA, glam::Vec3::new(400.0, 0.0, 0.0))
-        .expect("palace");
+        .expect("palace").expect("ObjectId");
     let _ = palace;
     assert!(
         logic
@@ -1669,7 +1669,7 @@ fn structure_superweapon_creation_starts_full_recharge() {
             Team::USA,
             glam::Vec3::new(50.0, 0.0, 0.0),
         )
-        .expect("scud uc");
+        .expect("scud uc").expect("ObjectId");
     {
         let o = logic.host_object(scud_uc).expect("scud");
         // Under construction: not yet recharging (or ready default).
@@ -1687,7 +1687,7 @@ fn structure_superweapon_creation_starts_full_recharge() {
         o.construction_percent = 1.0;
         o.set_status_under_construction(false);
     }
-    logic.notify_structure_construction_complete(scud_uc);
+    logic.notify_structure_construction_complete(scud_uc).unwrap();
     let scud_cd = special_power_reload_seconds(&SpecialPowerType::ScudStorm).unwrap();
     {
         let o = logic.host_object(scud_uc).expect("scud done");
@@ -1859,7 +1859,7 @@ fn superweapon_max_simultaneous_blocks_second_when_limited() {
             Team::USA,
             glam::Vec3::new(0.0, 0.0, 0.0),
         )
-        .expect("first SW");
+        .expect("first SW").expect("ObjectId");
     assert!(logic.host_object(first).is_some());
     // Second SW of any Superweapon link key blocked.
     assert!(
@@ -2077,7 +2077,7 @@ fn presentation_structure_sw_timer_uses_object_cooldown() {
     // Destroy structure → removeSuperweapon residual (row gone). A killer-less
     // destroy_object is the C++ GameLogic::destroyObject → DestroyDie /
     // InstantDeath immediate-removal path (no death-animation deferral).
-    logic.destroy_object(id);
+    logic.destroy_object(id).unwrap();
     logic.process_destroy_list();
     let frame2 = PresentationFrame::build_from_logic(&mut logic, 1);
     assert!(

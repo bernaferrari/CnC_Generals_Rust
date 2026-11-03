@@ -658,7 +658,7 @@ fn actual_retired_a10_producer_reuse_cannot_receive_visible_missile_damage_credi
         .a10_strike_flight_reg
         .delivery_for_transport(jet)
         .unwrap();
-    world.destroy_object(jet);
+    world.destroy_object(jet).unwrap();
     world.process_destroy_list();
     assert!(world.host_object(jet).is_none());
     let next = world.next_object_id_for_snapshot();
@@ -1196,7 +1196,7 @@ fn actual_same_id_same_role_replacement_is_not_a_historical_delivery_transport()
         .a10_strike_flight_reg
         .delivery_for_transport(jet)
         .unwrap();
-    world.destroy_object(jet);
+    world.destroy_object(jet).unwrap();
     world.process_destroy_list();
     let next = world.next_object_id_for_snapshot();
     world.set_next_object_id_for_restore(jet);

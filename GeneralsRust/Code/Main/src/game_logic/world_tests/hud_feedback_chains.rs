@@ -20,33 +20,50 @@ const SW_POWER_NAME: &str = "SWHudChainScudStorm";
 const UC_OBJECT_ID: u32 = 972_771;
 const OCL_OBJECT_ID: u32 = 972_883;
 
-fn install_named_window(name: &str, width: i32, height: i32) {
-    game_client::gui::with_window_manager(|manager| {
-        let win = manager
-            .create_window(None, 0, 0, width, height)
-            .expect(name);
-        win.borrow_mut().set_name(name);
+fn install_named_window(
+    owner: &game_client::gui::window_manager::WindowManagerOwner,
+    name: &str,
+    width: i32,
+    height: i32,
+) {
+    game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+        owner.with_manager(|manager| {
+            let win = manager
+                .create_window(None, 0, 0, width, height, effects)
+                .expect(name);
+            win.borrow_mut().set_name(name);
+        });
     });
 }
 
-fn set_window_hidden(name: &str, hidden: bool) {
-    game_client::gui::with_window_manager(|manager| {
+fn set_window_hidden(
+    owner: &game_client::gui::window_manager::WindowManagerOwner,
+    name: &str,
+    hidden: bool,
+) {
+    owner.with_manager(|manager| {
         if let Some(win) = manager.find_window_by_name(name) {
             let _ = win.borrow_mut().hide(hidden);
         }
     });
 }
 
-fn window_text(name: &str) -> Option<String> {
-    game_client::gui::with_window_manager_ref(|manager| {
+fn window_text(
+    owner: &game_client::gui::window_manager::WindowManagerOwner,
+    name: &str,
+) -> Option<String> {
+    owner.with_manager_ref(|manager| {
         manager
             .find_window_by_name(name)
             .map(|w| w.borrow().get_text().to_string())
     })
 }
 
-fn window_hidden(name: &str) -> Option<bool> {
-    game_client::gui::with_window_manager_ref(|manager| {
+fn window_hidden(
+    owner: &game_client::gui::window_manager::WindowManagerOwner,
+    name: &str,
+) -> Option<bool> {
+    owner.with_manager_ref(|manager| {
         manager
             .find_window_by_name(name)
             .map(|w| w.borrow().is_hidden())
@@ -187,92 +204,21 @@ fn defeat_message_routes_localized_to_hud_and_local_defeat_forces_radar_and_chat
 /// (C++ ControlBarUnderConstruction.cpp:24-41, ControlBar.cpp:2271).
 #[test]
 fn under_construction_selection_writes_localized_percent_label() {
-    let owner = game_client::gui::window_manager::WindowManagerOwner::new();
-    owner.with_scope(|| {
-        let _guard = hud_feedback_chain_lock()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-
-        install_named_window("ControlBar.wnd:UnderConstructionDesc", 80, 24);
-        install_named_window("ControlBar.wnd:UnderConstructionWindow", 200, 60);
-        set_window_hidden("ControlBar.wnd:UnderConstructionWindow", true);
-        game_client::gui::with_window_manager(|manager| {
-            if let Some(win) = manager.find_window_by_name("ControlBar.wnd:UnderConstructionDesc") {
-                let _ = win
-                    .borrow_mut()
-                    .set_text("CONTROLBAR:UnderConstructionDesc");
-            }
-        });
-
-        let mut bar = game_client::gui::control_bar::ControlBar::new();
-        // Host presentation freeze: one selected structure, 35% constructed.
-        bar.sync_selection_display_from_presentation(
-            Some("AmericaCommandCenter"),
-            100.0,
-            100.0,
-            1,
-            None,
-            None,
-            None,
-            &[],
-            false,
-        );
-        bar.sync_structure_context_from_presentation(0, 0, true, 0.35);
-
-        {
-
-
-            let __wm = game_client::gui::window_manager::WindowManagerOwner::new();
-
-
-            game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
-
-
-                __wm.with_manager(|manager| {
-
-
-                    bar.update_for_selection(vec![UC_OBJECT_ID], manager, effects).unwrap();
-
-
-                });
-
-
-            });
-
-
-        }
-            .expect("update_for_selection");
-
-        let text = window_text("ControlBar.wnd:UnderConstructionDesc");
-        let text = text.as_deref();
-        assert!(
-            text.is_some_and(|t| t.contains("Under Construction") && t.contains("35%")),
-            "under-construction label must be localized with the live percent, got {text:?}"
-        );
-        assert!(
-            !text.is_some_and(|t| t.contains("CONTROLBAR:")),
-            "the raw WND label key must never show, got {text:?}"
-        );
-        assert_eq!(
-            window_hidden("ControlBar.wnd:UnderConstructionWindow"),
-            Some(false),
-            "under-construction context window must be revealed"
-        );
-    });
-}
-
-/// A host presentation OCL countdown must reveal the timer window and tick
-/// its seconds (C++ ControlBarOCLTimer.cpp:23-49: updateOCLTimerTextDisplay
-/// runs whenever the displayed second changes).
-#[test]
-fn ocl_countdown_object_reveals_timer_window_with_ticking_seconds() {
     let _guard = hud_feedback_chain_lock()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
+    let owner = game_client::gui::window_manager::WindowManagerOwner::new();
 
-    install_named_window("ControlBar.wnd:OCLTimerWindow", 120, 40);
-    install_named_window("ControlBar.wnd:OCLTimerStaticText", 80, 24);
-    set_window_hidden("ControlBar.wnd:OCLTimerWindow", true);
+    install_named_window(&owner, "ControlBar.wnd:UnderConstructionDesc", 80, 24);
+    install_named_window(&owner, "ControlBar.wnd:UnderConstructionWindow", 200, 60);
+    set_window_hidden(&owner, "ControlBar.wnd:UnderConstructionWindow", true);
+    owner.with_manager(|manager| {
+        if let Some(win) = manager.find_window_by_name("ControlBar.wnd:UnderConstructionDesc") {
+            let _ = win
+                .borrow_mut()
+                .set_text("CONTROLBAR:UnderConstructionDesc");
+        }
+    });
 
     let mut bar = game_client::gui::control_bar::ControlBar::new();
     bar.sync_selection_display_from_presentation(
@@ -286,94 +232,109 @@ fn ocl_countdown_object_reveals_timer_window_with_ticking_seconds() {
         &[],
         false,
     );
-    {
+    bar.sync_structure_context_from_presentation(0, 0, true, 0.35);
 
-        let __wm = game_client::gui::window_manager::WindowManagerOwner::new();
-
-        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
-
-            __wm.with_manager(|manager| {
-
-                bar.update_for_selection(vec![OCL_OBJECT_ID], manager, effects).unwrap();
-
-            });
-
+    game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+        owner.with_manager(|manager| {
+            bar.update_for_selection(vec![UC_OBJECT_ID], manager, effects)
+                .unwrap();
         });
+    });
 
-    }
-        .expect("update_for_selection");
-
-    // Presentation-synced countdown: the window reveals with formatted time.
-    {
-        let __wm = game_client::gui::window_manager::WindowManagerOwner::new();
-        __wm.with_manager(|manager| {
-            bar.sync_ocl_timer_from_presentation(7, manager);
-        });
-    }
+    let text = window_text(&owner, "ControlBar.wnd:UnderConstructionDesc");
+    let text = text.as_deref();
+    assert!(
+        text.is_some_and(|t| t.contains("Under Construction") && t.contains("35%")),
+        "under-construction label must be localized with the live percent, got {text:?}"
+    );
+    assert!(
+        !text.is_some_and(|t| t.contains("CONTROLBAR:")),
+        "the raw WND label key must never show, got {text:?}"
+    );
     assert_eq!(
-        window_hidden("ControlBar.wnd:OCLTimerWindow"),
+        window_hidden(&owner, "ControlBar.wnd:UnderConstructionWindow"),
+        Some(false),
+        "under-construction context window must be revealed"
+    );
+}
+
+/// A host presentation OCL countdown must reveal the timer window and tick
+/// its seconds (C++ ControlBarOCLTimer.cpp:23-49: updateOCLTimerTextDisplay
+/// runs whenever the displayed second changes).
+#[test]
+fn ocl_countdown_object_reveals_timer_window_with_ticking_seconds() {
+    let _guard = hud_feedback_chain_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let owner = game_client::gui::window_manager::WindowManagerOwner::new();
+
+    install_named_window(&owner, "ControlBar.wnd:OCLTimerWindow", 120, 40);
+    install_named_window(&owner, "ControlBar.wnd:OCLTimerStaticText", 80, 24);
+    set_window_hidden(&owner, "ControlBar.wnd:OCLTimerWindow", true);
+
+    let mut bar = game_client::gui::control_bar::ControlBar::new();
+    bar.sync_selection_display_from_presentation(
+        Some("AmericaCommandCenter"),
+        100.0,
+        100.0,
+        1,
+        None,
+        None,
+        None,
+        &[],
+        false,
+    );
+
+    game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+        owner.with_manager(|manager| {
+            bar.update_for_selection(vec![OCL_OBJECT_ID], manager, effects)
+                .unwrap();
+        });
+    });
+
+    owner.with_manager(|manager| {
+        bar.sync_ocl_timer_from_presentation(7, manager);
+    });
+    assert_eq!(
+        window_hidden(&owner, "ControlBar.wnd:OCLTimerWindow"),
         Some(false),
         "OCL timer window must reveal on the presentation countdown"
     );
     assert_eq!(
-        window_text("ControlBar.wnd:OCLTimerStaticText").as_deref(),
+        window_text(&owner, "ControlBar.wnd:OCLTimerStaticText").as_deref(),
         Some("0:07"),
         "OCL timer text must show the synced seconds"
     );
 
-    // The per-frame context update keeps ticking (registry-empty host path
-    // no longer swallows the OCL context behind the early return).
-    {
-
-        let __wm = game_client::gui::window_manager::WindowManagerOwner::new();
-
-        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
-
-            __wm.with_manager(|manager| {
-
-                bar.update_for_selection(vec![OCL_OBJECT_ID], manager, effects).unwrap();
-
-            });
-
+    game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+        owner.with_manager(|manager| {
+            bar.update_for_selection(vec![OCL_OBJECT_ID], manager, effects)
+                .unwrap();
         });
-
-    }
-        .expect("update_for_selection");
+    });
     assert_eq!(
-        window_text("ControlBar.wnd:OCLTimerStaticText").as_deref(),
+        window_text(&owner, "ControlBar.wnd:OCLTimerStaticText").as_deref(),
         Some("0:07"),
         "OCL timer context update must keep the revealed text live"
     );
 
-    {
-        let __wm = game_client::gui::window_manager::WindowManagerOwner::new();
-        __wm.with_manager(|manager| {
-            bar.sync_ocl_timer_from_presentation(5, manager);
-        });
-    }
+    owner.with_manager(|manager| {
+        bar.sync_ocl_timer_from_presentation(5, manager);
+    });
     assert_eq!(
-        window_text("ControlBar.wnd:OCLTimerStaticText").as_deref(),
+        window_text(&owner, "ControlBar.wnd:OCLTimerStaticText").as_deref(),
         Some("0:05"),
         "OCL timer text must tick with the changing second"
     );
-    {
 
-        let __wm = game_client::gui::window_manager::WindowManagerOwner::new();
-
-        game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
-
-            __wm.with_manager(|manager| {
-
-                bar.update_for_selection(vec![OCL_OBJECT_ID], manager, effects).unwrap();
-
-            });
-
+    game_client::gui::game_window::WindowEventEffects::with_standalone(|effects| {
+        owner.with_manager(|manager| {
+            bar.update_for_selection(vec![OCL_OBJECT_ID], manager, effects)
+                .unwrap();
         });
-
-    }
-        .expect("update_for_selection");
+    });
     assert_eq!(
-        window_text("ControlBar.wnd:OCLTimerStaticText").as_deref(),
+        window_text(&owner, "ControlBar.wnd:OCLTimerStaticText").as_deref(),
         Some("0:05"),
         "OCL timer context update must render the current second"
     );

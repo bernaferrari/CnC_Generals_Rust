@@ -305,7 +305,7 @@ mod tests {
             .unwrap();
         let scaffold = world
             .create_object_under_construction_for_player("PeriodicPowered", 1, Vec3::ZERO, 0.)
-            .unwrap();
+            .unwrap().expect("ObjectId");
         assert!(
             world
                 .host_object(scaffold)

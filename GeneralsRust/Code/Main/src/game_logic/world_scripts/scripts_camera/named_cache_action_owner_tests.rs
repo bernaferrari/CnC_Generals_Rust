@@ -196,7 +196,7 @@ fn actual_named_spawn_checks_cached_live_pointer_then_reuses_original_tombstone(
                     assert_eq!(driver.world.host_objects().registered().count(), 1);
                 })
                 .unwrap();
-            owner.destroy_object(old);
+            owner.destroy_object(old).unwrap();
             owner.process_destroy_list();
             assert!(owner.named_script_cache.did_exist("SourceName"));
             owner

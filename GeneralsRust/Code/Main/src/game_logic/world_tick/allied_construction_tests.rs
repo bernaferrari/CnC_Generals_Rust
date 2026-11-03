@@ -35,7 +35,7 @@ fn world() -> (GameLogic, ObjectId, ObjectId) {
     world.templates.insert("AlliedTimingDozer".into(), dozer);
     let site = world
         .create_object_under_construction_for_player("AlliedTimingSite", 1, Vec3::ZERO, 0.0)
-        .unwrap();
+        .unwrap().expect("ObjectId");
     let builder = world
         .create_object_for_player("AlliedTimingDozer", 0, Vec3::new(2.0, 0.0, 0.0))
         .unwrap();

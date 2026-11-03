@@ -868,7 +868,7 @@ End
         );
         let palace = logic
             .create_object("GLAPalace", Team::GLA, glam::Vec3::new(40.0, 0.0, 0.0))
-            .expect("palace");
+            .expect("palace").expect("ObjectId");
         assert!(
             logic
                 .host_object(palace)
@@ -3252,7 +3252,7 @@ End
                         .init_shroud_grid(512.0, 512.0);
                     let looker_id = logic
                         .create_object_for_player("OwnedCoiLooker", 1, Vec3::new(120.0, 0.0, 120.0))
-                        .unwrap();
+                        .unwrap().expect("ObjectId");
                     let enemy_id = logic
                         .create_object_for_player("OwnedCoiEnemy", 2, Vec3::new(130.0, 0.0, 120.0))
                         .unwrap();

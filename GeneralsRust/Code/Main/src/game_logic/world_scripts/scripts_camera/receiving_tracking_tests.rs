@@ -112,7 +112,7 @@ fn authored_tracking_moves_only_receiving_same_id_and_retains_removed_target_thr
                 angle_to(hold_target).to_bits(),
                 "hold phase follows directly instead of restarting interpolation"
             );
-            owner.destroy_object(id);
+            owner.destroy_object(id).unwrap();
             assert!(
                 owner.objects.contains_key(&id),
                 "destroy is deferred until the real cleanup phase"
@@ -122,7 +122,7 @@ fn authored_tracking_moves_only_receiving_same_id_and_retains_removed_target_thr
             let encoded = owner.capture_camera_continuation().unwrap();
             let (mut restored, restored_id, _) = world(110.);
             assert_eq!(id, restored_id);
-            restored.destroy_object(restored_id);
+            restored.destroy_object(restored_id).unwrap();
             restored.process_destroy_list();
             assert!(!restored.objects.contains_key(&restored_id));
             restored

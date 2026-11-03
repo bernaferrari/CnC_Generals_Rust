@@ -39,7 +39,7 @@ fn command_production_construction_log() -> bool {
     };
     logic
         .get_player_mut(player)
-        .expect("selected player")
+        .expect("selected player").expect("ObjectId")
         .resources
         .supplies = 1000;
     let mut unit_template = ThingTemplate::new("CancelUnit199");

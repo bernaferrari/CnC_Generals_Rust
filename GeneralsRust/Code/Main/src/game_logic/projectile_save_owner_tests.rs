@@ -115,7 +115,7 @@ fn encoded_live_missile_restores_exact_flight_and_real_body_future() {
 #[test]
 fn restored_live_flight_survives_missing_launcher_and_keeps_allocation_cursor() {
     let (mut original, source, target) = launch(0);
-    original.destroy_object(source);
+    original.destroy_object(source).unwrap();
     original.process_destroy_list();
     assert!(original.host_object(source).is_none());
     assert_eq!(
@@ -184,7 +184,7 @@ fn encoded_empty_arena_keeps_the_next_launch_identity() {
 #[test]
 fn encoded_missing_target_keeps_actual_missile_retirement_without_body_damage() {
     let (mut original, source, target) = launch(0);
-    original.destroy_object(target);
+    original.destroy_object(target).unwrap();
     original.process_destroy_list();
     assert!(original.host_object(target).is_none());
     assert_eq!(

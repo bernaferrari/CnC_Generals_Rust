@@ -95,7 +95,7 @@ fn construct(world: &mut GameLogic, builder: ObjectId, position: Vec3) -> Object
                 power: 0,
             },
         )
-        .unwrap()
+        .unwrap().expect("ObjectId")
 }
 
 fn bytes(world: &GameLogic) -> Vec<u8> {

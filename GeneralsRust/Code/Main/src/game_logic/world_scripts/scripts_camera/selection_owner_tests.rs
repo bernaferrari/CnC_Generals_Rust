@@ -143,7 +143,7 @@ fn actual_area_click_unit_delete_and_remote_mask_use_local_selection_owner() {
     );
     assert!(!status(&mut owner, "NamedTarget").selected);
     owner.frame = 7;
-    owner.destroy_object(id);
+    owner.destroy_object(id).unwrap();
     assert!(
         status(&mut owner, "NamedUnit").selected,
         "CPP destroyObject queues removal; onDelete does not destroy the drawable"

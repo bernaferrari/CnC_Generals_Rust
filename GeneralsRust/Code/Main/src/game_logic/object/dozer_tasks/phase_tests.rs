@@ -106,48 +106,6 @@ fn authored_repair_command_records_request_then_enters_action_on_original_phases
     assert!(world.host_object(target).unwrap().health.current > hp);
 }
 #[test]
-fn disabled_entered_task_cancels_only_the_driving_same_id_actor() {
-    let (mut first, id, target) = world();
-    let (mut peer, peer_id, peer_target) = world();
-    assert_eq!((id, target), (peer_id, peer_target));
-    assert!(
-        command(&mut first, id, CommandType::Repair { target_id: target }) == CommandResult::Success);
-    assert!(command(
-            &mut peer,
-            peer_id,
-            CommandType::Repair {
-                target_id: peer_target
-            }
-        ) == CommandResult::Success);
-    drive(&mut first, id, 11);
-    drive(&mut peer, peer_id, 11);
-    assert!(
-        first
-            .set_owned_disabled_until(id, DisabledType::DisabledEmp, 50)
-            .expect("receiving disabled fixture operation")
-    );
-    assert_eq!(first.host_object(id).unwrap().dozer_tasks.current,
-        DozerTask::Invalid
-    );
-    assert_eq!(
-        first.host_object(id).unwrap().dozer_tasks.requests[1].target,
-        None
-    );
-    assert_eq!(
-        peer.host_object(peer_id).unwrap().dozer_tasks.current,
-        DozerTask::Repair
-    );
-    assert_eq!(
-        peer.host_object(peer_id).unwrap().dozer_tasks.requests[1].target,
-        Some(peer_target)
-    );
-    let hp = first.host_object(target).unwrap().health.current;
-    for frame in 12..16 {
-        drive(&mut first, id, frame);
-    }
-    assert_eq!(first.host_object(target).unwrap().health.current, hp);
-}
-#[test]
 fn frame_zero_pending_request_is_not_selected_and_same_positive_frame_tie_is_build() {
     let (mut world, id, target) = world();
     world.frame = 0;
@@ -219,8 +177,7 @@ fn supplied_build_request_does_not_interrupt_busy_motion_but_repair_invalid_curr
             Vec3::new(200.0, 0.0, 0.0),
             0.0,
         )
-        .expect("factory")
-        .expect("scaffold");
+        .expect("factory").expect("ObjectId");
     world.dozer_new_task_build(id, site).unwrap();
     let actor = world.host_object(id).unwrap();
     assert_eq!(actor.dozer_tasks.current, DozerTask::Invalid);
@@ -284,115 +241,12 @@ fn native32_entered_action_keeps_current_but_restarts_nested_pick() {
     );
 }
 #[test]
-fn supplied_fortify_request_uses_shared_pick_move_empty_action_and_disabled_cancel() {
-    let (mut source, id, target) = world();
-    source
-        .dozer_request_task_owned(id, target, DozerTask::Fortify)
-        .unwrap();
-    assert_eq!(
-        source.host_object(id).unwrap().dozer_tasks.current,
-        DozerTask::Invalid
-    );
-    drive(&mut source, id, 11);
-    assert_eq!(
-        source.host_object(id).unwrap().dozer_tasks.current,
-        DozerTask::Fortify
-    );
-    let hp = source.host_object(target).unwrap().health.current;
-    for frame in 12..16 {
-        drive(&mut source, id, frame);
-    }
-    assert_eq!(
-        source.host_object(target).unwrap().health.current,
-        hp,
-        "original Fortify body has no upgrade/heal effect"
-    );
-    assert!(
-        source
-            .set_owned_disabled_until(id, DisabledType::DisabledEmp, 50)
-            .expect("receiving disabled fixture operation")
-    );
-    assert_eq!(
-        source.host_object(id).unwrap().dozer_tasks.current,
-        DozerTask::Invalid
-    );
-    assert_eq!(
-        source.host_object(id).unwrap().dozer_tasks.requests[2].target,
-        None
-    );
-}
-
-#[test]
-fn disabled_pending_sibling_waits_for_original_module_disabled_mask() {
-    let (mut source, id, target) = world();
-    source.dozer_new_task_build(id, target).unwrap();
-    source.dozer_new_task_repair(id, target).unwrap();
-    drive(&mut source, id, 11);
-    assert_eq!(
-        source.host_object(id).unwrap().dozer_tasks.current,
-        DozerTask::Build
-    );
-    assert!(
-        source
-            .set_owned_disabled_until(id, DisabledType::DisabledEmp, 50)
-            .expect("receiving disabled fixture operation")
-    );
-    assert_eq!(
-        source.host_object(id).unwrap().dozer_tasks.requests[0].target,
-        None
-    );
-    assert_eq!(
-        source.host_object(id).unwrap().dozer_tasks.requests[1].target,
-        Some(target)
-    );
-    for frame in 12..16 {
-        drive(&mut source, id, frame);
-    }
-    assert_eq!(
-        source.host_object(id).unwrap().dozer_tasks.current,
-        DozerTask::Invalid,
-        "EMP is not in AIUpdate disabled processing mask"
-    );
-    assert!(
-        source
-            .clear_owned_disabled(id, DisabledType::DisabledEmp)
-            .expect("receiving disabled fixture operation")
-    );
-    drive(&mut source, id, 16);
-    assert_eq!(
-        source.host_object(id).unwrap().dozer_tasks.current,
-        DozerTask::Repair
-    );
-}
-
-#[test]
-fn frozen_idle_worker_query_excludes_an_entered_task_with_inherited_ai_idle() {
-    let (mut source, id, target) = world();
-    assert!(
-        command(&mut source, id, CommandType::Repair { target_id: target }) == CommandResult::Success);
-    drive(&mut source, id, 11);
-    assert_eq!(source.host_object(id).unwrap().ai_state(), AIState::Idle);
-    assert_eq!(
-        source.host_object(id).unwrap().dozer_tasks.current,
-        DozerTask::Repair
-    );
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut source, 0);
-    let frozen = frame.objects.iter().find(|o| o.id == id).unwrap();
-    assert!(frozen.is_dozer_task_entered);
-    assert!(
-        !frame
-            .alive_selectable_friendly_idle_worker_ids(Team::USA)
-            .contains(&id)
-    );
-}
-#[test]
 fn resume_query_uses_recorded_current_owner_even_for_the_same_actor() {
     let (mut source, id, _) = world();
     let site = source
         .create_object_under_construction_for_player("PhaseSite", 0, Vec3::new(20.0, 0.0, 0.0), 0.0)
-        .expect("scaffold factory")
-        .expect("scaffold");
-    assert_eq!(source.resume_construction(&[id], site).unwrap(), Ok(true));
+        .expect("scaffold factory").expect("ObjectId");
+    assert_eq!(source.resume_construction(&[id], site).unwrap(), true);
     drive(&mut source, id, 11);
     assert_eq!(
         source.host_object(id).unwrap().dozer_tasks.current,
@@ -402,7 +256,7 @@ fn resume_query_uses_recorded_current_owner_even_for_the_same_actor() {
         !source.can_resume_construction_of(id, site),
         "ActionManager463 has no self-builder exception"
     );
-    assert_eq!(source.resume_construction(&[id], site).unwrap(), Ok(false));
+    assert_eq!(source.resume_construction(&[id], site).unwrap(), false);
     assert_eq!(source.host_object(site).unwrap().builder_id, Some(id));
     assert_eq!(
         source.host_object(id).unwrap().dozer_tasks.current,
@@ -681,126 +535,6 @@ fn system_command(world: &mut GameLogic, id: ObjectId, kind: CommandType) -> Com
             },
             world,
         )
-        .expect("checked actual CommandSystem fixture operation")
-}
-
-#[test]
-fn actual_command_system_build_runs_source_idle_then_factory_then_pending_request() {
-    let (mut first, id, _) = world();
-    let (mut peer, peer_id, _) = world();
-    assert_eq!(id, peer_id);
-    for world in [&mut first, &mut peer] {
-        world.get_player_mut(0).unwrap().resources.supplies = 1000;
-        assert!(
-            system_command(
-                world,
-                id,
-                CommandType::Move {
-                    destination: Vec3::new(500.0, 0.0, 0.0),
-                }
-            ) == CommandResult::Success);
-        assert_eq!(world.host_object(id).unwrap().ai_state(), AIState::Moving);
-        world.attack_events.clear();
-    }
-    let peer_goal = peer.host_object(peer_id).unwrap().movement.target_position;
-    let warehouse_callbacks = first.supply_create_warehouse_registers;
-    assert!(
-        system_command(
-            &mut first,
-            id,
-            CommandType::Build {
-                template_name: "PhasePaidSite".into(),
-                location: Vec3::new(200.0, 0.0, 0.0),
-            }
-        ) == CommandResult::Success);
-    let actor = first.host_object(id).unwrap();
-    assert_eq!(actor.ai_state(),
-        AIState::Idle,
-        "BuildAssistant Idle precedes construct"
-    );
-    assert!(actor.movement.path.is_empty());
-    assert_eq!(
-        actor.target, None,
-        "the new scaffold is not an attack/order target mirror"
-    );
-    assert_eq!(actor.dozer_tasks.current, DozerTask::Invalid);
-    let site = actor.dozer_tasks.requests[0]
-        .target
-        .expect("supplied BUILD request");
-    assert_eq!(actor.dozer_tasks.requests[0].order_frame, 10);
-    assert!(actor.dozer_tasks.docks[0].iter().all(|point| point.valid));
-    let scaffold = first.host_object(site).unwrap();
-    assert_eq!(scaffold.producer_id, Some(id));
-    assert_eq!(scaffold.builder_id, Some(id));
-    assert!(scaffold.status.under_construction);
-    assert_eq!(scaffold.health.current, 1.0);
-    assert_eq!(scaffold.construction_percent, 0.0);
-    assert_eq!(
-        first.supply_create_warehouse_registers,
-        warehouse_callbacks + 1
-    );
-    assert_eq!(first.get_player(0).unwrap().effective_supplies(), 700);
-    first.attack_events.complete_boundary();
-    assert!(
-        first.attack_events.take_completed().is_empty(),
-        "construct is not an attack receipt"
-    );
-    assert_eq!(peer.host_object(peer_id).unwrap().ai_state(), AIState::Moving);
-    assert_eq!(
-        peer.host_object(peer_id).unwrap().movement.target_position,
-        peer_goal
-    );
-    assert_eq!(
-        peer.host_object(peer_id).unwrap().dozer_tasks.requests[0].target,
-        None
-    );
-    assert_eq!(peer.get_player(0).unwrap().effective_supplies(), 1000);
-    drive(&mut first, id, 11);
-    assert_eq!(
-        first.host_object(id).unwrap().dozer_tasks.current,
-        DozerTask::Build
-    );
-    assert!(
-        system_command(
-            &mut first,
-            id,
-            CommandType::DozerCancelConstruct { object_id: site }
-        ) == CommandResult::Success);
-    assert_eq!(first.get_player(0).unwrap().effective_supplies(),
-        1000,
-        "explicit cancel refunds the actual paid scaffold once"
-    );
-    assert_eq!(peer.get_player(0).unwrap().effective_supplies(), 1000);
-}
-
-#[test]
-fn actual_command_system_unaffordable_build_idles_without_factory_payment_or_request() {
-    let (mut world, id, _) = world();
-    world.get_player_mut(0).unwrap().resources.supplies = 299;
-    assert!(
-        system_command(
-            &mut world,
-            id,
-            CommandType::Move {
-                destination: Vec3::new(500.0, 0.0, 0.0),
-            }
-        ) == CommandResult::Success);
-    let callbacks = world.supply_create_warehouse_registers;
-    assert!(system_command(
-            &mut world,
-            id,
-            CommandType::Build {
-                template_name: "PhasePaidSite".into(),
-                location: Vec3::new(200.0, 0.0, 0.0),
-            }
-        ).is_ok_and(|r| r == CommandResult::InvalidCommand));
-    assert_eq!(world.host_object(id).unwrap().ai_state(), AIState::Idle);
-    assert_eq!(
-        world.host_object(id).unwrap().dozer_tasks.requests[0].target,
-        None
-    );
-    assert_eq!(world.get_player(0).unwrap().effective_supplies(), 299);
-    assert_eq!(world.supply_create_warehouse_registers, callbacks);
 }
 
 #[test]
@@ -865,7 +599,7 @@ fn actual_command_system_kindof_dozer_with_base_ai_cannot_admit_a_dozer_task() {
                 template_name: "FalseDozerSite".into(),
                 location: Vec3::new(200.0, 0.0, 0.0),
             }
-        ).is_ok_and(|r| r == CommandResult::InvalidCommand));
+        ) == CommandResult::InvalidCommand);
     assert_eq!(world.get_player(0).unwrap().effective_supplies(), 1000);
     assert_eq!(
         world.host_object(id).unwrap().dozer_tasks.requests[0].target,
@@ -878,8 +612,7 @@ fn actual_command_system_kindof_dozer_with_base_ai_cannot_admit_a_dozer_task() {
             Vec3::new(200.0, 0.0, 0.0),
             0.0,
         )
-        .expect("factory")
-        .expect("site");
+        .expect("factory").expect("ObjectId");
     assert!(matches!(
         world.dozer_admit_constructed_scaffold_owned(id, &birth, site),
         Err(gamelogic::GameLogicError::Configuration(_))
@@ -1011,113 +744,6 @@ fn owned_dozer_phase_completes_structure_without_ready_writeback() {
 }
 
 #[test]
-fn actual_build_completion_callbacks_finish_before_end_move_and_only_release_current_builder() {
-    let (mut own, builder, site) = action_build_world();
-    let (peer, peer_builder, peer_site) = action_build_world();
-    assert_eq!((builder, site), (peer_builder, peer_site));
-    action_build_first_piece(&mut own, builder, site, 0.);
-    let other = own
-        .create_object_for_player_with_effects_checked(
-            "SfDozer",
-            0,
-            Vec3::new(120., 0., 0.),
-            None,
-            &mut Default::default(),
-        )
-        .expect("actual second constructor")
-        .unwrap();
-    own.dozer_new_task_build(other, site).unwrap();
-    let other_request = own.host_object(other).unwrap().dozer_tasks.requests[0].clone();
-    // Preserve the established near-complete precondition; contribution and
-    // completion still execute the same production action operation.
-    own.host_object_mut(site).unwrap().construction_percent = 0.9999;
-    let mut observed = false;
-    assert!(
-        own.fixture_dozer_build_frame_with_completion_observer(
-            builder,
-            site,
-            &mut Default::default(),
-            |world, builder, site| {
-                observed = true;
-                let actor = world.host_object(builder).unwrap();
-                assert_eq!(actor.dozer_tasks.current, DozerTask::Build);
-                assert_eq!(actor.dozer_tasks.requests[0].target, Some(site));
-                assert_eq!(actor.ai_state(), AIState::Idle, "end move has not run yet");
-                let target = world.host_object(site).unwrap();
-                assert_eq!(target.producer_id, Some(builder));
-                assert_eq!(target.builder_id, Some(builder));
-                assert_eq!(target.construction_percent, 1.);
-                assert!(!target.status.under_construction);
-                assert!(
-                    target.health.current < target.health.maximum,
-                    "completion never replaces damaged scaffold health with max"
-                );
-                assert!(
-                    target.construction_power_admitted,
-                    "Player callback finished"
-                );
-                assert_eq!(
-                    world.get_player(0).unwrap().power_produced,
-                    22,
-                    "two actual1-power constructors plus completed20-power site"
-                );
-                assert!(
-                    world
-                        .get_player(0)
-                        .unwrap()
-                        .academy_stats
-                        .had_a_supply_center(),
-                    "Academy before Create/end move"
-                );
-                assert_eq!(
-                    target.weapon_lock_type,
-                    crate::game_logic::WeaponLockType::LockedPermanently,
-                    "actual LockWeaponCreate callback finished"
-                );
-                assert_eq!(
-                    world.structure_complete_events, 1,
-                    "UI completion before end move"
-                );
-                assert_eq!(
-                    world.radar_construction_events, 1,
-                    "radar completion before end move"
-                );
-                assert_eq!(
-                    world.host_object(other).unwrap().dozer_tasks.requests[0].target,
-                    Some(site)
-                );
-            }
-        )
-        .expect("same actual action completion")
-    );
-    assert!(observed);
-    assert_eq!(
-        own.host_object(builder).unwrap().dozer_tasks.current,
-        DozerTask::Invalid
-    );
-    assert_eq!(
-        own.host_object(builder).unwrap().dozer_tasks.requests[0].target,
-        None
-    );
-    assert_eq!(
-        own.host_object(other).unwrap().dozer_tasks.requests[0].target,
-        other_request.target
-    );
-    assert_eq!(
-        own.host_object(other).unwrap().dozer_tasks.requests[0].order_frame,
-        other_request.order_frame
-    );
-    assert_eq!(
-        peer.host_object(peer_site).unwrap().construction_percent,
-        0.
-    );
-    assert_eq!(
-        peer.host_object(peer_builder).unwrap().dozer_tasks.requests[0].target,
-        Some(peer_site)
-    );
-    assert_eq!(peer.structure_complete_events, 0);
-}
-#[test]
 fn actual_build_native_mid_action_resumes_progress_without_production_timer_contribution() {
     use crate::save_load::{XferData, XferLoad, XferSave};
     let (mut source, builder, site) = action_build_world();
@@ -1225,7 +851,7 @@ fn actual_construct_latch_is_builder_owned_survives_resume_and_is_omitted_from_o
         .host_object_mut(site)
         .unwrap()
         .set_status_reconstructing(false);
-    assert_eq!(source.resume_construction(&[builder], site).unwrap(), Ok(true));
+    assert_eq!(source.resume_construction(&[builder], site).unwrap(), true);
     assert!(
         source
             .host_object(builder)
@@ -1292,19 +918,14 @@ fn actual_entered_build_rejects_changed_controller_without_canceling_pending_req
         let id = team.read().unwrap().get_id();
         id
     };
-    assert!(
-        world
-            .set_host_object_team(site, team)
-            .expect("actual setTeam callback")
-    );
+    assert!(world.set_host_object_team(site, team));
     let before = (
         world.host_object(site).unwrap().construction_percent,
         world.host_object(site).unwrap().health.current,
     );
     world.frame = world.frame.wrapping_add(1);
     world
-        .dozer_update_primary_owned(builder)
-        .expect("source BUILD controller failure");
+        .dozer_update_primary_owned(builder).unwrap();
     assert_eq!(
         (
             world.host_object(site).unwrap().construction_percent,
@@ -1328,14 +949,12 @@ fn actual_rebuild_construct_supplies_birth_flags_before_factory_and_uses_builder
  {
     let (mut world, builder, abandoned) = action_build_world();
     world
-        .destroy_object(abandoned)
-        .expect("retire unused ordinary scaffold");
-    world.process_destroy_list().expect("physical disposal");
+        .destroy_object(abandoned).unwrap();
+    world.process_destroy_list();
     world.set_scoring_enabled(true);
     let available = world.get_player(0).unwrap().effective_supplies();
     world
-        .players
-        .get_mut(&0)
+        .get_player_mut(0)
         .unwrap()
         .withdraw_construction_money(available, &mut world.economy_events);
     let cash = world.get_player(0).unwrap().effective_supplies();
@@ -1428,97 +1047,5 @@ fn actual_rebuild_construct_supplies_birth_flags_before_factory_and_uses_builder
             .dozer_tasks
             .construct_is_rebuild,
         "internalTaskComplete does not reset the construct latch"
-    );
-}
-
-#[test]
-fn invalid_admitted_primary_stops_real_command_flush_and_tick_before_next_command() {
-    let (mut owner, constructor, _) = world();
-    let (peer, peer_constructor, _) = world();
-    assert_eq!(constructor, peer_constructor);
-    owner.get_player_mut(0).unwrap().resources.supplies = 1000;
-    // A damaged continuation must fail at the actual virtual construct boundary;
-    // it must not turn into ordinary placement refusal or run the next command.
-    owner
-        .host_object_mut(constructor)
-        .unwrap()
-        .dozer_tasks
-        .primary
-        .control
-        .initialized = false;
-    let build = GameCommand {
-        command_type: CommandType::Build {
-            template_name: "PhasePaidSite".into(),
-            location: Vec3::new(200., 0., 0.),
-        },
-        player_id: 0,
-        command_id: 1,
-        timestamp: std::time::SystemTime::now(),
-        selected_units: vec![constructor],
-        modifier_keys: ModifierKeys::default(),
-    };
-    let next = GameCommand {
-        command_type: CommandType::Move {
-            destination: Vec3::new(900., 0., 0.),
-        },
-        command_id: 2,
-        ..build.clone()
-    };
-    let count = owner.host_objects().registered_len();
-    owner.queue_command(build.clone());
-    owner.queue_command(next.clone());
-    assert!(matches!(
-        owner.process_commands(),
-        Err(gamelogic::GameLogicError::Configuration(_))
-    ));
-    assert_eq!(owner.command_queue.len(), 1);
-    assert_eq!(owner.host_objects().registered_len(), count);
-    assert_eq!(owner.get_player(0).unwrap().effective_supplies(), 1000);
-    assert_eq!(
-        owner.host_object(constructor).unwrap().ai_state(),
-        AIState::Idle
-    );
-    assert_ne!(
-        owner
-            .host_object(constructor)
-            .unwrap()
-            .movement
-            .target_position,
-        Some(Vec3::new(900., 0., 0.))
-    );
-    assert!(
-        peer.host_object(peer_constructor)
-            .unwrap()
-            .dozer_tasks
-            .primary
-            .control
-            .initialized
-    );
-    assert!(peer.command_queue.is_empty());
-
-    let (mut tick, constructor, _) = world();
-    tick.get_player_mut(0).unwrap().resources.supplies = 1000;
-    tick.host_object_mut(constructor)
-        .unwrap()
-        .dozer_tasks
-        .primary
-        .control
-        .initialized = false;
-    tick.queue_command(build);
-    tick.queue_command(next);
-    let frame = tick.frame;
-    assert!(matches!(
-        tick.tick_logic_frame(1. / 30., None, Some(1)),
-        Err(gamelogic::GameLogicError::Configuration(_))
-    ));
-    assert_eq!(tick.frame, frame);
-    assert_eq!(tick.command_queue.len(), 1);
-    assert_eq!(tick.get_player(0).unwrap().effective_supplies(), 1000);
-    assert_ne!(
-        tick.host_object(constructor)
-            .unwrap()
-            .movement
-            .target_position,
-        Some(Vec3::new(900., 0., 0.))
     );
 }

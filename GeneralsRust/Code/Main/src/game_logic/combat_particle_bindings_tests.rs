@@ -448,7 +448,7 @@ fn receiving_particle_loaded_receipt_rejects_peer_without_mutating_host_bindings
     peer.create_preset_system_at("AdoptLoaded", Vec3::ZERO)
         .unwrap();
     let bytes = first.capture_xfer_bytes().unwrap();
-    let receipt = first.restore_xfer_bytes(&bytes).unwrap().unwrap();
+    let receipt = first.restore_xfer_bytes(&bytes).unwrap();
     let mut saved = entry(1, "AdoptLoaded");
     saved.client_system_id = Some(id);
     let mut registry = make_registry(vec![saved]);
@@ -715,7 +715,7 @@ fn receiving_particle_companion_receipt_rejects_later_created_omitted_id() {
         .set_saveable(false);
     let bytes = source.capture_xfer_bytes().unwrap();
     let mut receiving = manager("ReceiptMembership");
-    let receipt = receiving.restore_xfer_bytes(&bytes).unwrap().unwrap();
+    let receipt = receiving.restore_xfer_bytes(&bytes).unwrap();
     assert!(receipt.contains_system(first_id));
     assert!(!receipt.contains_system(omitted_id));
     let template = receiving.find_template("ReceiptMembership").unwrap();
@@ -758,7 +758,7 @@ fn receiving_particle_companion_rejects_same_id_wrong_template_before_mutation()
     let bytes = source.capture_xfer_bytes().unwrap();
     let mut receiving = manager("LoadedEffect");
     receiving.register_template(Arc::new(ParticleSystemTemplate::new("OtherEffect".into())));
-    let receipt = receiving.restore_xfer_bytes(&bytes).unwrap().unwrap();
+    let receipt = receiving.restore_xfer_bytes(&bytes).unwrap();
     assert!(receipt.contains_system(id));
 
     let mut wrong_entry = entry(1, "OtherEffect");

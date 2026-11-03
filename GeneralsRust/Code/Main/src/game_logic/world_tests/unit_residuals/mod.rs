@@ -25,7 +25,7 @@ fn strip_troop_crawler_payload(game_logic: &mut GameLogic, crawler_id: ObjectId)
         if let Some((u, fixture_partition_u)) = game_logic.host_object_and_partition_mut(oid) {
             u.set_contained_by_with_partition_owner(None, true, fixture_partition_u);
         }
-        game_logic.destroy_object(oid);
+        game_logic.destroy_object(oid).unwrap();
     }
 }
 

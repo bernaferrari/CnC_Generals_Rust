@@ -63,7 +63,7 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn update_ai(
+    pub(crate) fn update_ai(
         &mut self,
         object_ids: &[ObjectId],
         dt: f32,
@@ -75,7 +75,7 @@ impl GameLogic {
         )
     }
 
-    pub(in super::super) fn update_ai_with_effects(
+    pub(crate) fn update_ai_with_effects(
         &mut self,
         object_ids: &[ObjectId],
         dt: f32,

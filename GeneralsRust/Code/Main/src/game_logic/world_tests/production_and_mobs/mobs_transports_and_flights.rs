@@ -80,7 +80,7 @@ fn preorder_create_sets_model_bit_on_command_center_complete() {
         let o = logic.host_object_mut(id).unwrap();
         o.status.under_construction = true;
     }
-    logic.notify_structure_construction_complete(id);
+    logic.notify_structure_construction_complete(id).unwrap();
     let o = logic.host_object(id).unwrap();
     assert!(
         has_preorder_model_bit(o.model_condition_bits),
@@ -90,7 +90,7 @@ fn preorder_create_sets_model_bit_on_command_center_complete() {
 
     // A repeated completion cannot re-run this creation callback.
     logic.set_player_did_preorder(Team::USA, false);
-    logic.notify_structure_construction_complete(id);
+    logic.notify_structure_construction_complete(id).unwrap();
     assert!(has_preorder_model_bit(
         logic.host_object(id).unwrap().model_condition_bits
     ));
@@ -106,7 +106,7 @@ fn preorder_create_sets_model_bit_on_command_center_complete() {
         )
         .unwrap();
     logic.host_object_mut(other).unwrap().model_condition_bits |= 1u128 << MC_BIT_PREORDER;
-    logic.notify_structure_construction_complete(other);
+    logic.notify_structure_construction_complete(other).unwrap();
     assert!(!has_preorder_model_bit(
         logic.host_object(other).unwrap().model_condition_bits
     ));

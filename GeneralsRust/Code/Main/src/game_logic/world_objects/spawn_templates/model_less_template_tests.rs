@@ -68,7 +68,7 @@ fn model_less_template_admits_real_client_only_and_behavior_only_objects_without
             .unwrap();
         assert!(input.model_key.is_empty());
         assert!(input.draw_models.is_empty());
-        world.destroy_object(id);
+        world.destroy_object(id).unwrap();
         world.process_destroy_list();
         assert!(world.host_object(id).is_none());
     }

@@ -2660,7 +2660,7 @@ fn troop_crawler_assault_keeps_wounded_and_retrieves_outside() {
         if let Some((u, fixture_partition_u)) = game_logic.host_object_and_partition_mut(oid) {
             u.set_contained_by_with_partition_owner(None, true, fixture_partition_u);
         }
-        game_logic.destroy_object(oid);
+        game_logic.destroy_object(oid).unwrap();
     }
     let healthy_id = game_logic
         .create_object("TestInfantry", Team::China, Vec3::new(1.0, 0.0, 0.0))
@@ -2967,7 +2967,7 @@ fn troop_crawler_target_death_retrieves_members() {
             .unwrap_or(false)
     );
 
-    game_logic.destroy_object(enemy);
+    game_logic.destroy_object(enemy).unwrap();
     game_logic
         .tick_assault_transport_updates()
         .expect("valid assault transport fixture");
@@ -3022,7 +3022,7 @@ fn troop_crawler_attack_move_continues_after_target_death() {
         1
     );
 
-    game_logic.destroy_object(enemy);
+    game_logic.destroy_object(enemy).unwrap();
     game_logic
         .tick_assault_transport_updates()
         .expect("valid assault transport fixture");
