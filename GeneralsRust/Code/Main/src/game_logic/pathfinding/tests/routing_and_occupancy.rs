@@ -1887,3 +1887,66 @@ fn obstacle_start_terrain_mapping_never_bridges_an_impassable_wall() {
     assert!(!grid.quick_path_exists_for(from, to, SURFACE_GROUND | SURFACE_CLIFF));
     assert!(!grid.quick_path_exists_for(from, to, SURFACE_GROUND | SURFACE_RUBBLE));
 }
+
+/// Cluster proof for hq-985ts + hq-zjbin + hq-wbbbc2: one pass over
+/// clearCellForDiameter, grounded-aircraft UNIT_PRESENT, and human logical extent.
+#[test]
+fn pathfind_cluster_diameter_aircraft_human_extent() {
+    use crate::game_logic::{KindOf, Object, ObjectId, ObjectType, Team, ThingTemplate};
+
+    // hq-985ts — diameter clearance shrinks when an adjacent cell is blocked.
+    let mut g = open_grid(16, 16);
+    assert_eq!(g.clear_cell_for_diameter(false, GridPos::new(8, 8), 2), 2);
+    g.set_blocked(GridPos::new(7, 8), true);
+    assert_eq!(
+        g.clear_cell_for_diameter(false, GridPos::new(8, 8), 2),
+        1,
+        "blocked neighbor must reduce clearCellForDiameter"
+    );
+
+    // hq-zjbin — parked/taxiing aircraft never stamp UNIT_PRESENT.
+    let mut objects = HostObjectStore::new();
+    let mut tmpl = ThingTemplate::new("AmericaJetRaptor");
+    tmpl.add_kind_of(KindOf::Aircraft);
+    tmpl.add_kind_of(KindOf::Vehicle);
+    let mut jet = Object::new(tmpl, ObjectId(7), Team::USA);
+    jet.object_type = ObjectType::Aircraft;
+    jet.loco_appearance = LocomotorAppearance::Wings;
+    jet.cur_locomotor_name = Some("TestWingLocomotor".into());
+    jet.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_AIR;
+    jet.status.airborne_target = false;
+    jet.set_position(Vec3::new(55.0, 0.0, 55.0));
+    jet.owner_player_id = Some(0);
+    objects.admit(jet.id, jet);
+    g.update_dynamic_obstacles(
+        objects.read(),
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
+    let center = g.world_to_grid(Vec3::new(55.0, 0.0, 55.0));
+    assert!(
+        !g.is_blocked(center),
+        "grounded aircraft must not stamp UNIT_PRESENT"
+    );
+
+    // hq-wbbbc2 — human adjustDestination stays inside m_logicalExtent.
+    let mut sys = PathfindingSystem::new(200.0, 200.0);
+    sys.grid
+        .set_logical_extent(GridPos::new(0, 0), GridPos::new(10, 10));
+    sys.grid.set_query_is_human(true);
+    let outside = sys.grid.adjust_destination_on_layer(
+        GridPos::new(15, 5),
+        SURFACE_GROUND,
+        false,
+        4,
+        Some(0),
+        0,
+        PathfindLayerEnum::Ground,
+        &crate::game_logic::pathfinding::PathfindingGround::Flat(0.0),
+    );
+    if let Some(adj) = outside {
+        assert!(
+            sys.grid.in_logical_extent(adj),
+            "human adjust must not land outside m_logicalExtent"
+        );
+    }
+}
