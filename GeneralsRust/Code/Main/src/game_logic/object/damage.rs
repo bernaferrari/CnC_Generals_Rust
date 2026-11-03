@@ -2432,6 +2432,43 @@ mod tests {
     }
 
     #[test]
+    fn battle_bus_start_undeath_fx_precedes_ai_idle_and_throw() {
+        // C++ BattleBusSlowDeathBehavior.cpp:128-150: doFXObj(m_fxStartUndeath)
+        // runs before aiIdle and before scrubVelocity2D/applyShock.
+        let mut bus = vehicle("GLAVehicleBattleBus", 97, 50.0);
+        bus.install_battle_bus_transport();
+        bus.target = Some(ObjectId(4242));
+        bus.status.attacking = true;
+        bus.movement.velocity = glam::Vec3::new(3.0, 0.0, 4.0);
+        let mut seen: Vec<(bool, Option<ObjectId>, bool, glam::Vec3)> = Vec::new();
+        bus.start_battle_bus_second_life_with_body_fx(
+            10,
+            None,
+            &mut |object: &mut Object, fx: BodyStateFx, _| {
+                if matches!(fx, BodyStateFx::ObjectPhase { .. }) {
+                    seen.push((
+                        true,
+                        object.target,
+                        object.status.attacking,
+                        object.movement.velocity,
+                    ));
+                }
+            },
+        );
+        assert_eq!(seen.len(), 1, "StartUndeath FX fires exactly once");
+        let (_, target, attacking, velocity) = seen[0];
+        assert_eq!(target, Some(ObjectId(4242)), "FX must run before aiIdle");
+        assert!(attacking, "FX must run before aiIdle");
+        assert_eq!(
+            velocity,
+            glam::Vec3::new(3.0, 0.0, 4.0),
+            "FX must run before physics scrub/throw"
+        );
+        assert!(bus.target.is_none());
+        assert!(bus.armor_set_second_life);
+    }
+
+    #[test]
     fn undead_body_intercepts_on_raw_amount_not_post_armor() {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
 
