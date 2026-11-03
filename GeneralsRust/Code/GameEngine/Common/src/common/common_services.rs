@@ -15,6 +15,8 @@ use crate::common::thing::thing_factory::ThingFactory;
 use crate::common::rts::player::PlayerObjectWorld;
 use crate::common::rts::academy_stats::AcademyTemplateContextProvider;
 use crate::common::rts::action_manager::ObjectDataProvider;
+use crate::common::rts::team::TeamCommandSink;
+use crate::common::system::geometry::Coord3D;
 use crate::common::time::SimulationClock;
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -110,6 +112,10 @@ pub struct CommonServices {
     pub academy_template_context: Mutex<Option<AcademyTemplateContextProvider>>,
     /// ActionManager object data bridge (was process OBJECT_DATA_PROVIDER bag).
     pub object_data_provider: Mutex<Option<Arc<dyn ObjectDataProvider + Send + Sync>>>,
+    /// Team home waypoint resolver (was process TEAM_HOME_WAYPOINT bag).
+    pub team_home_waypoint_resolver: Mutex<Option<fn(&str) -> Option<Coord3D>>>,
+    /// Team command sink (was process TEAM_COMMAND_SINK_SLOT).
+    pub team_command_sink: Mutex<Option<Arc<dyn TeamCommandSink>>>,
 }
 
 impl Default for CommonServices {
@@ -124,6 +130,8 @@ impl Default for CommonServices {
             player_object_world: Mutex::new(None),
             academy_template_context: Mutex::new(None),
             object_data_provider: Mutex::new(None),
+            team_home_waypoint_resolver: Mutex::new(None),
+            team_command_sink: Mutex::new(None),
         }
     }
 }

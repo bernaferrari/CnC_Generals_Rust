@@ -36,32 +36,27 @@ use crate::common::well_known_keys::{
     key_team_unit_type7,
 };
 
-struct TeamHomeWaypointSlot {
-    resolver: std::sync::Mutex<Option<fn(&str) -> Option<Coord3D>>>,
-}
-
-static TEAM_HOME_WAYPOINT: LazyLock<TeamHomeWaypointSlot> = LazyLock::new(|| TeamHomeWaypointSlot {
-    resolver: std::sync::Mutex::new(None),
-});
-
 /// GameLogic registers terrain waypoint lookup so leftover `from_dict` can resolve `teamHome`.
 pub fn set_team_home_waypoint_resolver(resolver: fn(&str) -> Option<Coord3D>) {
-    *TEAM_HOME_WAYPOINT
-        .resolver
+    let services = crate::common::common_services::common_services();
+    *services
+        .team_home_waypoint_resolver
         .lock()
         .unwrap_or_else(|p| p.into_inner()) = Some(resolver);
 }
 
 pub fn clear_team_home_waypoint_resolver() {
-    *TEAM_HOME_WAYPOINT
-        .resolver
+    let services = crate::common::common_services::common_services();
+    *services
+        .team_home_waypoint_resolver
         .lock()
         .unwrap_or_else(|p| p.into_inner()) = None;
 }
 
 fn resolve_team_home_waypoint(name: &str) -> Option<Coord3D> {
-    TEAM_HOME_WAYPOINT
-        .resolver
+    let services = crate::common::common_services::common_services();
+    services
+        .team_home_waypoint_resolver
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .and_then(|resolver| resolver(name))
@@ -3164,32 +3159,26 @@ pub trait TeamCommandSink: Send + Sync {
     }
 }
 
-struct TeamCommandSinkSlot {
-    sink: std::sync::Mutex<Option<Arc<dyn TeamCommandSink>>>,
-}
-
-static TEAM_COMMAND_SINK_SLOT: LazyLock<TeamCommandSinkSlot> =
-    LazyLock::new(|| TeamCommandSinkSlot {
-        sink: std::sync::Mutex::new(None),
-    });
-
 pub fn set_team_command_sink(sink: Arc<dyn TeamCommandSink>) {
-    *TEAM_COMMAND_SINK_SLOT
-        .sink
+    let services = crate::common::common_services::common_services();
+    *services
+        .team_command_sink
         .lock()
         .unwrap_or_else(|p| p.into_inner()) = Some(sink);
 }
 
 pub fn clear_team_command_sink() {
-    *TEAM_COMMAND_SINK_SLOT
-        .sink
+    let services = crate::common::common_services::common_services();
+    *services
+        .team_command_sink
         .lock()
         .unwrap_or_else(|p| p.into_inner()) = None;
 }
 
 pub fn get_team_command_sink() -> Option<Arc<dyn TeamCommandSink>> {
-    TEAM_COMMAND_SINK_SLOT
-        .sink
+    let services = crate::common::common_services::common_services();
+    services
+        .team_command_sink
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .clone()
@@ -3669,6 +3658,11 @@ impl Default for TeamFactory {
 
 #[cfg(test)]
 mod tests {
+    fn with_services<R>(f: impl FnOnce() -> R) -> R {
+        let services = std::sync::Arc::new(crate::common::common_services::CommonServices::new());
+        crate::common::common_services::with_common_services(&services, f)
+    }
+
     use super::*;
 
     #[derive(Clone)]
@@ -3867,22 +3861,24 @@ mod tests {
 
     #[test]
     fn from_dict_resolves_team_home_waypoint() {
-        set_team_home_waypoint_resolver(|name| {
-            (name == "HomeFlag").then_some(Coord3D::new(120.0, 40.0, 3.0))
+        with_services(|| {
+            set_team_home_waypoint_resolver(|name| {
+                (name == "HomeFlag").then_some(Coord3D::new(120.0, 40.0, 3.0))
+            });
+            let mut dict = crate::common::dict::Dict::new();
+            dict.set_ascii_string(key_team_home(), "HomeFlag");
+            dict.set_int(key_team_unit_min_count1(), 1);
+            dict.set_int(key_team_unit_max_count1(), 3);
+            dict.set_ascii_string(key_team_unit_type1(), "AmericaTankCrusader");
+
+            let info = TeamTemplateInfo::from_dict(&dict);
+            clear_team_home_waypoint_resolver();
+
+            assert!(info.has_home_location);
+            assert_eq!(info.home_location, Coord3D::new(120.0, 40.0, 3.0));
+            assert_eq!(info.num_units_info, 1);
+            assert_eq!(info.units_info[0].unit_thing_name, "AmericaTankCrusader");
         });
-        let mut dict = crate::common::dict::Dict::new();
-        dict.set_ascii_string(key_team_home(), "HomeFlag");
-        dict.set_int(key_team_unit_min_count1(), 1);
-        dict.set_int(key_team_unit_max_count1(), 3);
-        dict.set_ascii_string(key_team_unit_type1(), "AmericaTankCrusader");
-
-        let info = TeamTemplateInfo::from_dict(&dict);
-        clear_team_home_waypoint_resolver();
-
-        assert!(info.has_home_location);
-        assert_eq!(info.home_location, Coord3D::new(120.0, 40.0, 3.0));
-        assert_eq!(info.num_units_info, 1);
-        assert_eq!(info.units_info[0].unit_thing_name, "AmericaTankCrusader");
     }
 
     #[test]
