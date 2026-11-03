@@ -5,6 +5,8 @@ use game_engine::common::ini::{INI, INILoadType};
 use game_engine::common::thing::thing_factory::ThingFactory;
 
 fn captured_override(name: &str, body: &str) -> HashMap<String, String> {
+    // ThingFactory override bridge lives on CommonServices.
+    let _common = game_engine::common::common_services::CommonServicesScope::new();
     let source = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(source.path(), format!("{body}\nEnd\n")).unwrap();
     let mut factory = ThingFactory::new();

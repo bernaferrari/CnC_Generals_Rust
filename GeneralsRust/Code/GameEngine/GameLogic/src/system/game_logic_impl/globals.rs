@@ -279,7 +279,7 @@ fn install_save_game_counter_integration() {
 
 static SAVE_GAME_COUNTER_HOOKS: OnceLock<()> = OnceLock::new();
 
-fn game_logic_mutex() -> &'static Mutex<GameLogic> {
+fn try_game_logic_mutex() -> Option<&'static Mutex<GameLogic>> {
     // Published Core preferred; Main world-services use the per-world slot.
     // No process-lifetime fallback bag.
     let mutex = if let Some(core) =
@@ -289,20 +289,32 @@ fn game_logic_mutex() -> &'static Mutex<GameLogic> {
     } else if let Some(services) = crate::system::engine_stores::try_active_services() {
         services.game_logic_mutex()
     } else {
-        panic!(
-            "GameLogic mutex requires with_active_stores / with_world_services (no process bag)"
-        );
+        return None;
     };
     SAVE_GAME_COUNTER_HOOKS.get_or_init(|| {
         install_save_game_counter_integration();
     });
-    mutex
+    Some(mutex)
+}
+
+fn game_logic_mutex() -> &'static Mutex<GameLogic> {
+    try_game_logic_mutex().unwrap_or_else(|| {
+        panic!(
+            "GameLogic mutex requires with_active_stores / with_world_services (no process bag)"
+        )
+    })
 }
 
 /// Get the GameLogic mutex for the active Core runtime (was process OnceLock).
 pub fn get_game_logic() -> &'static Mutex<GameLogic> {
     crate::system::object_data_provider::ensure_object_data_provider();
     game_logic_mutex()
+}
+
+/// Optional GameLogic mutex when no world/core is published on this thread.
+pub fn try_get_game_logic() -> Option<&'static Mutex<GameLogic>> {
+    crate::system::object_data_provider::ensure_object_data_provider();
+    try_game_logic_mutex()
 }
 
 /// Scoped in-update frame (migration aid, shape of the logic-RNG owner and

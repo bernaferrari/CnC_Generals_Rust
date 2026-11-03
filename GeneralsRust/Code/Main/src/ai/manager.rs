@@ -1050,12 +1050,15 @@ mod aidata_owner_tests {
     use std::time::{Duration, Instant};
 
     struct RestoreCommonStore {
+        /// Keeps CommonServices published for install_ai_data_store / Drop.
+        _common: game_engine::common::common_services::CommonServicesScope,
         installed: Arc<RwLock<AIDataStore>>,
         previous: Option<Arc<RwLock<AIDataStore>>>,
     }
 
     impl RestoreCommonStore {
         fn foreign_sentinel() -> Self {
+            let _common = game_engine::common::common_services::CommonServicesScope::new();
             let installed = Arc::new(RwLock::new(AIDataStore::default()));
             {
                 let mut store = installed.write().unwrap();
@@ -1065,6 +1068,7 @@ mod aidata_owner_tests {
                 data.rotate_skirmish_bases = true;
             }
             Self {
+                _common,
                 installed,
                 previous: None,
             }
@@ -1264,6 +1268,7 @@ mod aidata_owner_tests {
 
         // Run this test in an isolated/serial harness: it temporarily exercises the
         // same Common active-store selector used by legacy parser callers.
+        let _common = game_engine::common::common_services::CommonServicesScope::new();
         let sentinel = Arc::new(RwLock::new(AIDataStore::default()));
         {
             let mut store = sentinel.write().unwrap();
@@ -1377,6 +1382,7 @@ mod aidata_owner_tests {
             return;
         }
 
+        let _common = game_engine::common::common_services::CommonServicesScope::new();
         let process_store = ini_ai_data::process_lifetime_ai_data_store();
         let mut first = crate::game_logic::GameLogic::new();
         let mut second = crate::game_logic::GameLogic::new();
@@ -1516,13 +1522,16 @@ mod aidata_owner_tests {
             // Default-team units are deliberately recruitable beyond maxDist in C++.
             // Use a real active, recruitable source team to exercise the radius rule.
             let source = {
-                let mut factory = world.team_factory.lock().unwrap();
-                let mut prototype =
-                    gamelogic::team::TeamPrototype::new("CatalogOwnerSource".into());
-                prototype.set_ai_recruitable(true);
-                prototype.set_production_priority(1);
-                factory.replace_team_prototype(prototype);
-                factory.create_inactive_team("CatalogOwnerSource").unwrap()
+                let factory_arc = world.team_factory.clone();
+                world.with_own_services(|| {
+                    let mut factory = factory_arc.lock().unwrap();
+                    let mut prototype =
+                        gamelogic::team::TeamPrototype::new("CatalogOwnerSource".into());
+                    prototype.set_ai_recruitable(true);
+                    prototype.set_production_priority(1);
+                    factory.replace_team_prototype(prototype);
+                    factory.create_inactive_team("CatalogOwnerSource").unwrap()
+                })
             };
             source.write().unwrap().set_active();
             world.host_object_mut(id).unwrap().team_instance_name = "CatalogOwnerSource".into();

@@ -158,6 +158,12 @@ pub fn player_list() -> std::sync::Arc<RwLock<PlayerList>> {
     std::sync::Arc::clone(crate::system::engine_stores::active_services().players())
 }
 
+/// PlayerList when a world/core is published; None if unbound on this thread.
+pub fn try_player_list() -> Option<std::sync::Arc<RwLock<PlayerList>>> {
+    crate::system::engine_stores::try_active_services()
+        .map(|services| std::sync::Arc::clone(services.players()))
+}
+
 /// Convenience alias for C++ compatibility
 pub use player_list as ThePlayerList;
 

@@ -879,13 +879,17 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::checkQueuedTeams` (`AIPlayer.cpp:2810-2870`).
     pub(super) fn check_queued_teams(&mut self, game_logic: &mut GameLogic, current_time: f32) {
-        let skirmish = self.receiving_is_skirmish_ai(game_logic);
-        self.check_queued_teams_with_owner(
-            game_logic,
-            current_time,
-            skirmish,
-            &mut super::team_lifecycle::notify_installed_team_destroy,
-        );
+        game_logic.with_own_services_mut(|game_logic| {
+
+            let skirmish = self.receiving_is_skirmish_ai(game_logic);
+            self.check_queued_teams_with_owner(
+                game_logic,
+                current_time,
+                skirmish,
+                &mut super::team_lifecycle::notify_installed_team_destroy,
+            );
+    
+        })
     }
 
     pub(super) fn check_queued_teams_with_owner(
@@ -1056,8 +1060,12 @@ impl AIPlayer {
     /// points from an `AISideInfo` SkillSet. Host also runs a
     /// residual of `AIPlayer::buildUpgrade` (AIPlayer.cpp:1728).
     pub(super) fn do_upgrades_and_skills(&mut self, game_logic: &mut GameLogic) {
-        let ai_data = AiDataView::from_world(game_logic);
-        self.do_upgrades_and_skills_with_ai_data(game_logic, &ai_data);
+        game_logic.with_own_services_mut(|game_logic| {
+
+            let ai_data = AiDataView::from_world(game_logic);
+            self.do_upgrades_and_skills_with_ai_data(game_logic, &ai_data);
+    
+        })
     }
 
     pub(super) fn do_upgrades_and_skills_with_ai_data(
@@ -1951,6 +1959,7 @@ impl AIPlayer {
         max_dist: Option<f32>,
         ai_data: &AiDataView,
     ) -> Option<ObjectId> {
+
         let game_logic = &AiWorldView::new(game_logic);
         let mut assigned: HashSet<ObjectId> = HashSet::new();
         for team in self.team_queue.iter().chain(self.team_ready_queue.iter()) {
@@ -1966,6 +1975,8 @@ impl AIPlayer {
             max_dist.unwrap_or_else(|| Self::aidata_max_recruit_distance(ai_data)),
             &assigned,
         )
+
+    
     }
 
     pub(super) fn dest_team_production_priority(&self, dest_team_name: &str) -> i32 {
@@ -2038,6 +2049,7 @@ impl AIPlayer {
         max_dist: f32,
         assigned: &HashSet<ObjectId>,
     ) -> Option<ObjectId> {
+
         let game_logic = &AiWorldView::new(game_logic);
         let dest_priority = self.dest_team_production_priority(dest_team_name);
         let mut dist_sqr = max_dist * max_dist;
@@ -2104,11 +2116,17 @@ impl AIPlayer {
             recruit = Some(id);
         }
         recruit
+
+    
     }
 
     pub(super) fn recruit_waiting_work_orders(&mut self, game_logic: &mut GameLogic) {
-        let ai_data = AiDataView::from_world(game_logic);
-        self.recruit_waiting_work_orders_with_ai_data(game_logic, &ai_data);
+        game_logic.with_own_services_mut(|game_logic| {
+
+            let ai_data = AiDataView::from_world(game_logic);
+            self.recruit_waiting_work_orders_with_ai_data(game_logic, &ai_data);
+    
+        })
     }
 
     pub(super) fn recruit_waiting_work_orders_with_ai_data(
@@ -2223,80 +2241,84 @@ impl AIPlayer {
         team_name: &str,
         priority_build: bool,
     ) -> bool {
-        let can_build = game_logic
-            .get_player(self.player_id)
-            .map(|p| p.can_build_units)
-            .unwrap_or(true);
-        if !can_build {
-            return false;
-        }
+        game_logic.with_own_services_mut(|game_logic| {
 
-        let proto = {
-            let Ok(mut factory) = self.team_factory.lock() else {
+            let can_build = game_logic
+                .get_player(self.player_id)
+                .map(|p| p.can_build_units)
+                .unwrap_or(true);
+            if !can_build {
                 return false;
-            };
-            let Some(proto) = factory.find_team_prototype(team_name) else {
-                return false;
-            };
-            if priority_build && proto.is_singleton() {
-                if let Some(existing) = factory.find_team(team_name) {
-                    if existing.read().ok().is_some_and(|eg| eg.has_any_objects()) {
-                        return false;
+            }
+
+            let proto = {
+                let Ok(mut factory) = self.team_factory.lock() else {
+                    return false;
+                };
+                let Some(proto) = factory.find_team_prototype(team_name) else {
+                    return false;
+                };
+                if priority_build && proto.is_singleton() {
+                    if let Some(existing) = factory.find_team(team_name) {
+                        if existing.read().ok().is_some_and(|eg| eg.has_any_objects()) {
+                            return false;
+                        }
                     }
                 }
+                proto
+            };
+
+            let execute_actions = proto.get_execute_actions_on_create();
+            let production_condition = proto.get_production_condition().to_string();
+            drop(proto);
+
+            let orders = self.build_team_work_orders(game_logic, team_name);
+            if orders.is_empty() {
+                return false;
             }
-            proto
-        };
+            // C++ `isPossibleToBuildTeam(proto, false)`: factories must exist;
+            // missing money still queues.
+            if !self.team_factories_exist(game_logic, &orders) {
+                return false;
+            }
 
-        let execute_actions = proto.get_execute_actions_on_create();
-        let production_condition = proto.get_production_condition().to_string();
-        drop(proto);
+            let team_id = self
+                .team_factory
+                .lock()
+                .ok()
+                .and_then(|mut factory| factory.create_inactive_team(team_name))
+                .and_then(|arc| arc.read().ok().map(|t| t.get_id()));
 
-        let orders = self.build_team_work_orders(game_logic, team_name);
-        if orders.is_empty() {
-            return false;
-        }
-        // C++ `isPossibleToBuildTeam(proto, false)`: factories must exist;
-        // missing money still queues.
-        if !self.team_factories_exist(game_logic, &orders) {
-            return false;
-        }
+            let mut team = AITeamQueue::new(
+                team_name.to_string(),
+                orders,
+                priority_build,
+                game_logic.frame as u32,
+            );
+            team.team_id = team_id;
+            team.execute_actions = execute_actions;
+            if priority_build {
+                self.team_queue.push_front(team);
+            } else {
+                self.team_queue.push_back(team);
+            }
+            // C++ `m_teamDelay = 0` so `queueUnits` retries immediately.
+            self.next_team_queue_time = 0.0;
+            self.activity_count = self.activity_count.saturating_add(1);
 
-        let team_id = self
-            .team_factory
-            .lock()
-            .ok()
-            .and_then(|mut factory| factory.create_inactive_team(team_name))
-            .and_then(|arc| arc.read().ok().map(|t| t.get_id()));
-
-        let mut team = AITeamQueue::new(
-            team_name.to_string(),
-            orders,
-            priority_build,
-            game_logic.frame as u32,
-        );
-        team.team_id = team_id;
-        team.execute_actions = execute_actions;
-        if priority_build {
-            self.team_queue.push_front(team);
-        } else {
-            self.team_queue.push_back(team);
-        }
-        // C++ `m_teamDelay = 0` so `queueUnits` retries immediately.
-        self.next_team_queue_time = 0.0;
-        self.activity_count = self.activity_count.saturating_add(1);
-
-        if execute_actions && !production_condition.is_empty() {
-            game_logic.with_owned_script_engine(|engine, world| {
-                if let Some(action) = engine
-                    .find_script_clone_by_name(&production_condition)
-                    .and_then(|script| script.get_action().cloned())
-                {
-                    world.execute_script_team_actions(engine, &action, team_id);
-                }
-            });
-        }
-        true
+            if execute_actions && !production_condition.is_empty() {
+                game_logic.with_owned_script_engine(|engine, world| {
+                    if let Some(action) = engine
+                        .find_script_clone_by_name(&production_condition)
+                        .and_then(|script| script.get_action().cloned())
+                    {
+                        world.execute_script_team_actions(engine, &action, team_id);
+                    }
+                });
+            }
+            true
+    
+        })
     }
 
     /// C++ `AIPlayer::recruitSpecificAITeam`.
@@ -2306,75 +2328,79 @@ impl AIPlayer {
         team_name: &str,
         recruit_radius: f32,
     ) -> bool {
-        let radius = if recruit_radius < 1.0 {
-            99_999.0
-        } else {
-            recruit_radius
-        };
-        if let Ok(factory) = self.team_factory.lock() {
-            if let Some(proto) = factory.find_team_prototype(team_name) {
-                if proto.is_singleton() {
-                    if let Some(existing) =
-                        factory.find_team_instances(team_name).into_iter().next()
-                    {
-                        if let Ok(eg) = existing.read() {
-                            if eg.has_any_objects() {
-                                return false;
+        game_logic.with_own_services_mut(|game_logic| {
+
+            let radius = if recruit_radius < 1.0 {
+                99_999.0
+            } else {
+                recruit_radius
+            };
+            if let Ok(factory) = self.team_factory.lock() {
+                if let Some(proto) = factory.find_team_prototype(team_name) {
+                    if proto.is_singleton() {
+                        if let Some(existing) =
+                            factory.find_team_instances(team_name).into_iter().next()
+                        {
+                            if let Ok(eg) = existing.read() {
+                                if eg.has_any_objects() {
+                                    return false;
+                                }
                             }
                         }
                     }
                 }
             }
-        }
-        let mut orders = self.create_work_orders_for_team(team_name);
-        if orders.is_empty() {
-            if let Ok(factory) = self.team_factory.lock() {
-                if let Some(proto) = factory.find_team_prototype(team_name) {
-                    for unit in proto.units_info() {
-                        if unit.max_units < 1 || unit.unit_thing_name.is_empty() {
-                            continue;
+            let mut orders = self.create_work_orders_for_team(team_name);
+            if orders.is_empty() {
+                if let Ok(factory) = self.team_factory.lock() {
+                    if let Some(proto) = factory.find_team_prototype(team_name) {
+                        for unit in proto.units_info() {
+                            if unit.max_units < 1 || unit.unit_thing_name.is_empty() {
+                                continue;
+                            }
+                            orders.push(AIWorkOrder::new(
+                                unit.unit_thing_name.to_string(),
+                                unit.max_units.max(0) as u32,
+                                100,
+                            ));
                         }
-                        orders.push(AIWorkOrder::new(
-                            unit.unit_thing_name.to_string(),
-                            unit.max_units.max(0) as u32,
-                            100,
-                        ));
                     }
                 }
             }
-        }
-        if orders.is_empty() {
-            return false;
-        }
-        let home = self.team_home_or_base(team_name);
-        let ai_data = AiDataView::from_world(game_logic);
-        let mut recruited = 0u32;
-        for order in &mut orders {
-            while order.num_completed < order.num_required {
-                let Some(unit_id) = self.try_to_recruit(
-                    game_logic,
-                    team_name,
-                    &order.template_name,
-                    home,
-                    Some(radius),
-                    &ai_data,
-                ) else {
-                    break;
-                };
-                order.num_completed = order.num_completed.saturating_add(1);
-                order.observed_unit_ids.push(unit_id);
-                recruited = recruited.saturating_add(1);
-                let _ = game_logic.unit_command_move_to(unit_id, home);
+            if orders.is_empty() {
+                return false;
             }
-        }
-        if recruited == 0 {
-            return false;
-        }
-        let mut q = AITeamQueue::new(team_name.to_string(), orders, false, 0);
-        Self::bind_inactive_team_handle(&self.team_factory, &mut q);
-        self.team_ready_queue.push_back(q);
-        self.activity_count = self.activity_count.saturating_add(1);
-        true
+            let home = self.team_home_or_base(team_name);
+            let ai_data = AiDataView::from_world(game_logic);
+            let mut recruited = 0u32;
+            for order in &mut orders {
+                while order.num_completed < order.num_required {
+                    let Some(unit_id) = self.try_to_recruit(
+                        game_logic,
+                        team_name,
+                        &order.template_name,
+                        home,
+                        Some(radius),
+                        &ai_data,
+                    ) else {
+                        break;
+                    };
+                    order.num_completed = order.num_completed.saturating_add(1);
+                    order.observed_unit_ids.push(unit_id);
+                    recruited = recruited.saturating_add(1);
+                    let _ = game_logic.unit_command_move_to(unit_id, home);
+                }
+            }
+            if recruited == 0 {
+                return false;
+            }
+            let mut q = AITeamQueue::new(team_name.to_string(), orders, false, 0);
+            Self::bind_inactive_team_handle(&self.team_factory, &mut q);
+            self.team_ready_queue.push_back(q);
+            self.activity_count = self.activity_count.saturating_add(1);
+            true
+    
+        })
     }
 
     /// Select early game team composition

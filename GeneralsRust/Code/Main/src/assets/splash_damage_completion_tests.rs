@@ -219,9 +219,6 @@ fn create_single_file_big(path: &Path, virtual_path: &str, data: &[u8]) {
 }
 
 fn install() -> (GameLogic, Observer) {
-    // CommonServices for DamageFX / FXList / audio; WorldServices bound after
-    // GameLogic::new so initialize_weapon_store hits this world's cell.
-    let _common = game_engine::common::common_services::CommonServicesScope::new();
     let mut weapons = String::new();
     for (name, radius, affects, scatter) in [
         ("SplashCompletionHit", 5, "ENEMIES NEUTRALS", ""),
@@ -253,24 +250,6 @@ End
 "#
         ));
     }
-    // Weapon store registration waits until this world's services are bound.
-    init_global_damage_fx_store();
-    let mut effects = String::new();
-    for rows in ["SplashCompletionRows", "SplashCompletionNestedRows"] {
-        effects.push_str(&format!("DamageFX {rows}\n"));
-        for (level, ms) in [("REGULAR", 100), ("VETERAN", 500), ("ELITE", 900)] {
-            effects.push_str(&format!(" VeterancyMajorFX = {level} SMALL_ARMS FX_{rows}_{level}\n VeterancyAmountForMajorFX = {level} SMALL_ARMS 0\n VeterancyThrottleTime = {level} SMALL_ARMS {ms}\n"));
-        }
-        effects.push_str("End\n");
-        for level in ["REGULAR", "VETERAN", "ELITE"] {
-            effects.push_str(&format!(
-                "FXList FX_{rows}_{level}\n Sound\n  Name = Sound_{rows}_{level}\n End\nEnd\n"
-            ));
-        }
-    }
-    INI::new()
-        .with_inline_source(&effects, |ini| ini.parse_current_file())
-        .unwrap();
     let slow = "Behavior = SlowDeathBehavior ModuleTag_Retain\n DestructionDelay = 10000\n SinkDelay = 10000\nEnd";
     let instant = "Behavior = InstantDeathBehavior ModuleTag_Explosion\n DeathTypes = ALL\n Weapon = SplashCompletionDeath\nEnd";
     let mut objects = object(
@@ -366,43 +345,66 @@ End
     // Keep the AssetManager alive for this test; process ASSET_MANAGER is gone.
     let _asset_manager = Arc::new(Mutex::new(manager));
     let (sender, receiver) = std::sync::mpsc::channel();
-    for rows in ["SplashCompletionRows", "SplashCompletionNestedRows"] {
-        for level in ["REGULAR", "VETERAN", "ELITE"] {
-            let name = format!("FX_{rows}_{level}");
-            let definition = game_engine::common::ini::ini_fx_list::get_fx_list_store()
-                .find_fx_list(&name)
-                .expect("actual parsed FX list")
-                .clone();
-            let mut list = game_client::fx_list::FXList::from_definition(&definition);
-            list.add_fx_nugget(Box::new(ObserveList {
-                name: name.clone(),
-                sender: sender.clone(),
-            }));
-            game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(name, list); });
-            let sound = format!("Sound_{rows}_{level}");
-            let manager = game_engine::common::audio::game_audio::get_global_audio_manager()
-                .unwrap_or_else(
-                    game_engine::common::audio::game_audio::initialize_global_audio_manager,
-                );
-            manager.lock().unwrap().register_audio_event_info(
-                game_engine::common::audio::audio_event_rts::AudioEventInfo {
-                    audio_name: sound.clone(),
-                    sounds: vec![format!("{sound}.wav")],
-                    volume: 1.0,
-                    type_field: game_engine::common::audio::audio_event_rts::ST_WORLD,
-                    ..Default::default()
-                },
-            );
-        }
-    }
+
+    // World owns CommonServices; register DamageFX / FXList / audio / weapons into
+    // that bag, then leave it published for the isolated child (apply uses free-fns).
     let mut world = GameLogic::new();
     world.with_own_services(|| {
+        init_global_damage_fx_store();
+        let mut effects = String::new();
+        for rows in ["SplashCompletionRows", "SplashCompletionNestedRows"] {
+            effects.push_str(&format!("DamageFX {rows}\n"));
+            for (level, ms) in [("REGULAR", 100), ("VETERAN", 500), ("ELITE", 900)] {
+                effects.push_str(&format!(" VeterancyMajorFX = {level} SMALL_ARMS FX_{rows}_{level}\n VeterancyAmountForMajorFX = {level} SMALL_ARMS 0\n VeterancyThrottleTime = {level} SMALL_ARMS {ms}\n"));
+            }
+            effects.push_str("End\n");
+            for level in ["REGULAR", "VETERAN", "ELITE"] {
+                effects.push_str(&format!(
+                    "FXList FX_{rows}_{level}\n Sound\n  Name = Sound_{rows}_{level}\n End\nEnd\n"
+                ));
+            }
+        }
+        INI::new()
+            .with_inline_source(&effects, |ini| ini.parse_current_file())
+            .unwrap();
+        for rows in ["SplashCompletionRows", "SplashCompletionNestedRows"] {
+            for level in ["REGULAR", "VETERAN", "ELITE"] {
+                let name = format!("FX_{rows}_{level}");
+                let definition = game_engine::common::ini::ini_fx_list::get_fx_list_store()
+                    .find_fx_list(&name)
+                    .expect("actual parsed FX list")
+                    .clone();
+                let mut list = game_client::fx_list::FXList::from_definition(&definition);
+                list.add_fx_nugget(Box::new(ObserveList {
+                    name: name.clone(),
+                    sender: sender.clone(),
+                }));
+                game_client::fx_list::with_fx_list_store_mut(|s| {
+                    s.add_fx_list(name, list);
+                });
+                let sound = format!("Sound_{rows}_{level}");
+                let manager = game_engine::common::audio::game_audio::get_global_audio_manager()
+                    .unwrap_or_else(
+                        game_engine::common::audio::game_audio::initialize_global_audio_manager,
+                    );
+                manager.lock().unwrap().register_audio_event_info(
+                    game_engine::common::audio::audio_event_rts::AudioEventInfo {
+                        audio_name: sound.clone(),
+                        sounds: vec![format!("{sound}.wav")],
+                        volume: 1.0,
+                        type_field: game_engine::common::audio::audio_event_rts::ST_WORLD,
+                        ..Default::default()
+                    },
+                );
+            }
+        }
         gamelogic::initialize_weapon_store().unwrap();
         assert_eq!(
             crate::assets::ini_template_loader::register_weapons_from_ini_text(&weapons),
             3
         );
     });
+    world.install_as_active_stores();
     let content = crate::assets::ReceivingObjectContent::from_sources([(
         "Data/INI/Object/SplashCompletion.ini".into(),
         objects,

@@ -442,6 +442,18 @@ fn capture_persist_v18_impl(
     game_logic: &GameLogic,
     #[cfg(feature = "game_client")] client: Option<&game_client::core::game_client::GameClient>,
 ) -> WorldPersistV18 {
+    // TheGameLogic free-fns need this world's services published for the capture.
+    game_logic.with_own_services(|| capture_persist_v18_bound(
+        game_logic,
+        #[cfg(feature = "game_client")]
+        client,
+    ))
+}
+
+fn capture_persist_v18_bound(
+    game_logic: &GameLogic,
+    #[cfg(feature = "game_client")] client: Option<&game_client::core::game_client::GameClient>,
+) -> WorldPersistV18 {
     let mut persist = WorldPersistV18::default();
 
     persist.rank_level_limit = game_logic.rank_level_limit();
@@ -789,9 +801,11 @@ pub(super) fn restore_persist_v18_with_scale_encoding(
         }
     }
     game_logic.set_rank_level_limit(persist.rank_level_limit);
-    TheGameLogic::set_show_behind_building_markers(persist.show_behind_building_markers);
     game_logic.set_draw_icon_ui(persist.draw_icon_ui);
-    TheGameLogic::set_show_dynamic_lod(persist.show_dynamic_lod);
+    game_logic.with_own_services(|| {
+        TheGameLogic::set_show_behind_building_markers(persist.show_behind_building_markers);
+        TheGameLogic::set_show_dynamic_lod(persist.show_dynamic_lod);
+    });
     game_logic.native_hulk_max_lifetime_override = persist.script_hulk_max_lifetime_override;
     game_logic.set_rank_points_to_add_at_game_start(persist.rank_points_to_add_at_game_start);
     game_logic.restore_buildable_status_overrides(persist.buildable_overrides.clone());

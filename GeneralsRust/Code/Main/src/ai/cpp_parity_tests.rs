@@ -166,17 +166,22 @@ fn script_build_team_drains_onto_host_ai_queue() {
     let _ = logic.create_object("AmericaBarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0));
 
     {
-        let mut factory = logic.team_factory.lock().expect("world team factory");
-        factory.reset();
-        factory.init_team(
-            gamelogic::common::AsciiString::from("USA_RangerSquad"),
-            gamelogic::common::AsciiString::from("PlyrAmerica"),
-            false,
-            None,
-        );
+        let factory_arc = logic.team_factory.clone();
+        logic.with_own_services(|| {
+            let mut factory = factory_arc.lock().expect("world team factory");
+            factory.reset();
+            factory.init_team(
+                gamelogic::common::AsciiString::from("USA_RangerSquad"),
+                gamelogic::common::AsciiString::from("PlyrAmerica"),
+                false,
+                None,
+            );
+        });
     }
 
-    gamelogic::scripting::request_host_build_team("PlyrAmerica", "USA_RangerSquad");
+    logic.with_own_services(|| {
+        gamelogic::scripting::request_host_build_team("PlyrAmerica", "USA_RangerSquad");
+    });
     logic.apply_host_loco_set_script_requests();
 
     let queued = logic
@@ -3231,10 +3236,7 @@ fn skillset_selector_uses_chosen_ai_side_info_set() {
 #[test]
 fn do_upgrades_and_skills_skips_first_two_frames_like_cpp() {
     // C++ AIPlayer.cpp:2910-2912 — if (TheGameLogic->getFrame() < 2) return;
-    let __arc_bind = gamelogic::player::player_list();
-if let Ok(mut list) = __arc_bind.write() {
-        list.clear();
-    }
+    // PlayerList is per-world; a fresh GameLogic starts empty — no process clear.
     let mut logic = crate::game_logic::GameLogic::new();
     logic.frame = 0;
     let mut player = crate::game_logic::Player::new(1, Team::China, "China AI", false);

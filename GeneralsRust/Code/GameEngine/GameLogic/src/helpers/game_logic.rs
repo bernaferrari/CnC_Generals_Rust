@@ -98,8 +98,8 @@ impl TheGameLogic {
 
     /// C++ `TheGameLogic::getFrameObjectsChangedTriggerAreas()`.
     pub fn get_frame_objects_changed_trigger_areas() -> UnsignedInt {
-        crate::system::game_logic::get_game_logic()
-            .lock()
+        crate::system::game_logic::try_get_game_logic()
+            .and_then(|m| m.lock().ok())
             .map(|logic| logic.get_frame_objects_changed_trigger_areas())
             .unwrap_or(0)
     }
@@ -111,69 +111,69 @@ impl TheGameLogic {
 
     /// Get number of sleepy update modules queued in GameLogic.
     pub fn get_number_sleepy_updates() -> usize {
-        crate::system::game_logic::get_game_logic()
-            .lock()
+        crate::system::game_logic::try_get_game_logic()
+            .and_then(|m| m.lock().ok())
             .map(|logic| logic.get_number_sleepy_updates())
             .unwrap_or(0)
     }
 
     /// Get the next object-id counter value from GameLogic.
     pub fn get_object_id_counter() -> ObjectID {
-        crate::system::game_logic::get_game_logic()
-            .lock()
+        crate::system::game_logic::try_get_game_logic()
+            .and_then(|m| m.lock().ok())
             .map(|logic| logic.get_object_id_counter())
             .unwrap_or(1)
     }
 
     /// Get whether draw icon UI indicators are enabled.
     pub fn get_draw_icon_ui() -> Bool {
-        crate::system::game_logic::get_game_logic()
-            .lock()
+        crate::system::game_logic::try_get_game_logic()
+            .and_then(|m| m.lock().ok())
             .map(|logic| logic.get_draw_icon_ui())
             .unwrap_or(true)
     }
 
     /// Get whether behind-building markers are enabled.
     pub fn get_show_behind_building_markers() -> Bool {
-        crate::system::game_logic::get_game_logic()
-            .lock()
+        crate::system::game_logic::try_get_game_logic()
+            .and_then(|m| m.lock().ok())
             .map(|logic| logic.get_show_behind_building_markers())
             .unwrap_or(true)
     }
 
     /// Set whether behind-building markers are enabled.
     pub fn set_show_behind_building_markers(enabled: Bool) {
-        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
+        if let Some(Ok(mut logic)) = crate::system::game_logic::try_get_game_logic().map(|m| m.lock()) {
             logic.set_show_behind_building_markers(enabled);
         }
     }
 
     /// Set whether draw icon UI indicators are enabled.
     pub fn set_draw_icon_ui(enabled: Bool) {
-        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
+        if let Some(Ok(mut logic)) = crate::system::game_logic::try_get_game_logic().map(|m| m.lock()) {
             logic.set_draw_icon_ui(enabled);
         }
     }
 
     /// Get whether dynamic LOD is enabled.
     pub fn get_show_dynamic_lod() -> Bool {
-        crate::system::game_logic::get_game_logic()
-            .lock()
+        crate::system::game_logic::try_get_game_logic()
+            .and_then(|m| m.lock().ok())
             .map(|logic| logic.get_show_dynamic_lod())
             .unwrap_or(true)
     }
 
     /// Set whether dynamic LOD is enabled.
     pub fn set_show_dynamic_lod(enabled: Bool) {
-        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
+        if let Some(Ok(mut logic)) = crate::system::game_logic::try_get_game_logic().map(|m| m.lock()) {
             logic.set_show_dynamic_lod(enabled);
         }
     }
 
     /// Get whether scoring is enabled.
     pub fn is_scoring_enabled() -> Bool {
-        crate::system::game_logic::get_game_logic()
-            .lock()
+        crate::system::game_logic::try_get_game_logic()
+            .and_then(|m| m.lock().ok())
             .map(|logic| logic.is_scoring_enabled())
             .unwrap_or(true)
     }

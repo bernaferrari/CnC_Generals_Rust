@@ -637,6 +637,10 @@ fn host_script_queues() -> std::sync::Arc<crate::system::engine_stores::WorldSer
     crate::system::engine_stores::active_services()
 }
 
+fn try_host_script_queues() -> Option<std::sync::Arc<crate::system::engine_stores::WorldServices>> {
+    crate::system::engine_stores::try_active_services()
+}
+
 
 /// Live host drain: `SKIRMISH_FIRE_SPECIAL_POWER_AT_MOST_COST` when crate
 /// `OBJECT_REGISTRY` is empty (Wave 284 leftover no-op).
@@ -753,7 +757,16 @@ pub fn request_host_build_team(owner_name: &str, team_name: &str) {
 }
 
 pub fn take_host_build_team_requests() -> Vec<(String, String)> {
-    { let services = host_script_queues(); std::mem::take(&mut *services.host_script_requests().build_team_requests.lock().unwrap_or_else(|p| p.into_inner())) }
+    let Some(services) = try_host_script_queues() else {
+        return Vec::new();
+    };
+    std::mem::take(
+        &mut *services
+            .host_script_requests()
+            .build_team_requests
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()),
+    )
 }
 
 /// Live host drain: `RECRUIT_TEAM` → `AIPlayer::recruitSpecificAITeam`.
