@@ -3705,6 +3705,38 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn authored_look_toward_retarget_resets_cur_frame_and_start() {
+        crate::test_support::ensure_ambient_host();
+        let mut view = View::new();
+        view.init();
+        view.set_position(&Point3::new(100.0, 100.0, 0.0));
+        view.set_angle(0.0);
+        view.rotate_camera_toward_position(&Point3::new(200.0, 100.0, 0.0), 1000, 0.0, 0.0, false);
+        let first = view.rotate_camera_toward.clone().expect("toward active");
+        assert_eq!(first.cur_frame, 0);
+        // Advance mid-transition.
+        for _ in 0..5 {
+            view.update_view();
+        }
+        let mid = view.rotate_camera_toward.clone().expect("still active");
+        assert!(mid.cur_frame > 0, "transition must advance before retarget");
+        let mid_start = mid.start_angle;
+        // Authored retarget must restart like C++ lookTowardPosition, not preserve frame.
+        view.rotate_camera_toward_position(&Point3::new(100.0, 300.0, 0.0), 1000, 0.0, 0.0, false);
+        let retarget = view.rotate_camera_toward.clone().expect("retarget active");
+        assert_eq!(retarget.cur_frame, 0, "authored retarget resets curFrame");
+        assert_ne!(
+            retarget.end_angle, mid.end_angle,
+            "retarget aims at the new position"
+        );
+        assert_eq!(
+            retarget.start_angle, view.angle,
+            "retarget start is the live camera angle at admission"
+        );
+        let _ = mid_start;
+    }
+
     fn test_camera_mod_look_toward_applies_to_active_move_transition() {
         crate::test_support::ensure_ambient_host();
         let mut view = View::new();
