@@ -2480,7 +2480,7 @@ impl CnCGameEngine {
         let transaction = gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(
             &live.world_services,
         );
-        let mut candidate = crate::game_logic::GameLogic::new();
+        let mut candidate = crate::game_logic::GameLogic::new_unpublished();
         let preparation = (|| -> Result<_, String> {
             candidate.start_new_game_for_restore_in_campaign_session(
                 live.game_mode(),
@@ -2807,7 +2807,7 @@ impl CnCGameEngine {
         // transaction state is restored before installing the candidate.
         let runtime_stage =
             gamelogic::runtime_world_transaction::HostRuntimeWorldStage::begin(live_services);
-        let mut staged = crate::game_logic::GameLogic::new();
+        let mut staged = crate::game_logic::GameLogic::new_unpublished();
         // Match the receiving application's pristine Upgrade.ini catalog before
         // GameLogic startup/reset and saved-map INI parsing. Current is reset to
         // this base, then map-owned definitions are reapplied in original order.

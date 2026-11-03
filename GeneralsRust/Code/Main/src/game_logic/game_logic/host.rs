@@ -111,6 +111,9 @@ pub struct GameLogic {
     /// displaced (see `install_as_active_stores` and
     /// `impl Drop for GameLogic`).
     pub(crate) world_services: std::sync::Arc<gamelogic::system::engine_stores::WorldServices>,
+    /// Main runtime bag (assets, command system, host logs). Bound with the
+    /// world for this instance's free-function bridges; no process fallback.
+    pub(crate) main_services: std::sync::Arc<crate::main_services::MainServices>,
     /// Trigger membership for this host world. Objects keep only a weak
     /// handle so pose changes update this owner's slots without selecting an
     /// ambient game instance.
@@ -1565,6 +1568,7 @@ impl Drop for GameLogic {
         // died while a newer one was live only drops its buried entry so no
         // later pop can reinstate it.
         gamelogic::system::engine_stores::uninstall_services(&self.world_services);
+        crate::main_services::uninstall_main_services_if_current(&self.main_services);
     }
 }
 

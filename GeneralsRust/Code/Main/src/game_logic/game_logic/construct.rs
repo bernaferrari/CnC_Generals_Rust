@@ -66,8 +66,15 @@ impl GameLogic {
         // Hoisting this one allocation creates no additional identity owner.
         let live_draw_playback_world = std::sync::Arc::new(());
         let world_services = gamelogic::system::engine_stores::new_world_services();
+        let main_services = std::sync::Arc::new(crate::main_services::MainServices::new());
+        // Bind this instance's WorldServices (and nested CommonServices) plus
+        // MainServices before UpgradeCenter::init / NameKey work. Stay bound
+        // for method-call free-function bridges; Drop uninstalls. Staged
+        // candidates that must stay unpublished use new_unpublished().
+        gamelogic::system::engine_stores::install_services(std::sync::Arc::clone(&world_services));
+        crate::main_services::install_main_services(std::sync::Arc::clone(&main_services));
         // The original UpgradeCenter::init reserves these three mask bits
-        // before authored content. A constructor never samples another world.
+        // before authored content. Uses this instance's bound CommonServices.
         let mut upgrade_definitions = game_engine::common::system::upgrade::UpgradeCenter::new();
         upgrade_definitions.init();
         let mut instance = Self {
@@ -114,9 +121,9 @@ impl GameLogic {
             construction_events: Default::default(),
             // C++ engine-init order (GameEngine.cpp:468-481): immutable content
             // is admitted before the world. Main constructs no Core AI.
-            // Construction is inert (no active-slot write); Main installs
-            // the bundle at the explicit world-start boundaries below.
+            // new() publishes this bundle for free-function bridges; Drop pops it.
             world_services: std::sync::Arc::clone(&world_services),
+            main_services: std::sync::Arc::clone(&main_services),
             host_trigger_world,
             team_factory: team_factory.clone(),
             prepared_map_sides: gamelogic::sides_list::SidesList::new(),
@@ -789,10 +796,19 @@ impl GameLogic {
         };
         instance.refresh_pathfinding_ai_definitions();
         instance.rebuild_objective_lookup();
-        // C++ GameLogic::GameLogic only initializes fields. Constructing a
-        // candidate must not publish its authority, store bundle, or override
-        // callback while another world is live. WorldServices constructs a
-        // fresh shroud; it never copies a previous match's mutable state.
+        // Instance owns and remains bound to its WorldServices/CommonServices
+        // and MainServices (installed above). Drop pops them. Staged restore
+        // candidates that must not displace a live world use new_unpublished().
+        // WorldServices constructs a fresh shroud; it never copies prior state.
+        instance
+    }
+
+    /// Staged-restore / inert candidate: owns fresh services but does not stay
+    /// on the ambient World/Common/Main stacks (a live world remains head).
+    pub fn new_unpublished() -> Self {
+        let instance = Self::new();
+        let _ = gamelogic::system::engine_stores::uninstall_services(&instance.world_services);
+        let _ = crate::main_services::uninstall_main_services_if_current(&instance.main_services);
         instance
     }
 
