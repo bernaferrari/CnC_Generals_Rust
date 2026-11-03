@@ -1222,6 +1222,7 @@ mod tests {
 
     #[test]
     fn visible_box_contains_camera_target() {
+        crate::test_support::ensure_ambient_host();
         let box_ = maximum_visible_box(
             [0.0, 0.0, 100.0],
             [0.0, 100.0, 0.0],
@@ -1236,6 +1237,7 @@ mod tests {
 
     #[test]
     fn rebuild_discards_queued_unit_casters() {
+        crate::test_support::ensure_ambient_host();
         clear_unit_shadows();
         register_unit_shadow(UnitShadowCaster {
             position: [10.0, 20.0, 0.0],
@@ -1254,6 +1256,7 @@ mod tests {
 
     #[test]
     fn collect_unit_decal_items_does_not_invent_caster_blobs() {
+        crate::test_support::ensure_ambient_host();
         let before = collect_unit_decal_items().len();
         register_unit_shadow(UnitShadowCaster {
             position: [10.0, 20.0, 0.0],
@@ -1276,6 +1279,7 @@ mod tests {
 
     #[test]
     fn volumetric_present_skips_without_stencil() {
+        crate::test_support::ensure_ambient_host();
         assert!(!volumetric_stencil_supported());
         assert!(!depth_format_has_stencil(wgpu::TextureFormat::Depth32Float));
         assert!(depth_format_has_stencil(
@@ -1289,6 +1293,7 @@ mod tests {
 
     #[test]
     fn volumetric_present_submits_volume_casters_when_stencil_available() {
+        crate::test_support::ensure_ambient_host();
         clear_unit_shadows();
         register_unit_shadow(UnitShadowCaster {
             position: [0.0, 0.0, 0.0],
@@ -1320,6 +1325,7 @@ mod tests {
 
     #[test]
     fn occluded_player_color_uses_hsv_luminance_and_half_alpha() {
+        crate::test_support::ensure_ambient_host();
         clear_unit_shadows();
         register_unit_shadow(UnitShadowCaster {
             position: [1.0, 2.0, 3.0],

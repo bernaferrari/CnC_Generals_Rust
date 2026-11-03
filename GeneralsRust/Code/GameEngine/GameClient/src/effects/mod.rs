@@ -474,6 +474,7 @@ mod tests {
 
     #[test]
     fn test_effects_quality_settings() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(EffectsQuality::Low.max_particles(), 500);
         assert_eq!(EffectsQuality::Ultra.max_particles(), 6000);
 
@@ -486,6 +487,7 @@ mod tests {
 
     #[test]
     fn test_effects_lod() {
+        crate::test_support::ensure_ambient_host();
         let config = EffectsConfig::default();
 
         assert_eq!(calculate_effects_lod(50.0, &config), EffectsLOD::High);
@@ -500,6 +502,7 @@ mod tests {
 
     #[test]
     fn test_effects_config_defaults() {
+        crate::test_support::ensure_ambient_host();
         let config = EffectsConfig::default();
 
         assert!(config.particles_enabled);
@@ -510,6 +513,7 @@ mod tests {
 
     #[test]
     fn test_effects_stats() {
+        crate::test_support::ensure_ambient_host();
         let mut stats = EffectsStats::default();
         stats.active_particles = 1000;
 
@@ -527,6 +531,7 @@ mod tests {
 
     #[test]
     fn test_utils_random_sphere() {
+        crate::test_support::ensure_ambient_host();
         use crate::effects::utils::*;
 
         let center = Vec3::new(0.0, 0.0, 0.0);
@@ -541,6 +546,7 @@ mod tests {
 
     #[test]
     fn test_utils_color_interpolation() {
+        crate::test_support::ensure_ambient_host();
         use crate::effects::utils::*;
 
         let start = [1.0, 0.0, 0.0, 1.0]; // Red

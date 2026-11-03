@@ -28,6 +28,7 @@ mod tests {
 
     #[test]
     fn chunk_texture_ranking_reuses_unchanged_map_work() {
+        crate::test_support::ensure_ambient_host();
         let mut visual = texture_ranking_fixture(512);
         let expected = visual.select_stable_chunk_texture_ids(&[]);
         let started = std::time::Instant::now();
@@ -47,6 +48,7 @@ mod tests {
 
     #[test]
     fn chunk_texture_ranking_rebuilds_for_map_and_class_replacement() {
+        crate::test_support::ensure_ambient_host();
         let mut visual = texture_ranking_fixture(8);
         let first = visual.select_stable_chunk_texture_ids(&[]);
         let mut classes = visual.source_tile_classes.clone();
@@ -76,6 +78,7 @@ mod tests {
 
     #[test]
     fn chunk_texture_ranking_keeps_late_texture_lookup_live() {
+        crate::test_support::ensure_ambient_host();
         let mut visual = texture_ranking_fixture(8);
         visual.texture_system = TerrainTextures::new();
         assert_eq!(
@@ -99,6 +102,7 @@ mod tests {
 
     #[test]
     fn chunk_texture_ranking_is_instance_owned_and_reset_invalidates() {
+        crate::test_support::ensure_ambient_host();
         let mut first = texture_ranking_fixture(8);
         let mut second = texture_ranking_fixture(8);
         first.select_stable_chunk_texture_ids(&[]);
@@ -115,6 +119,7 @@ mod tests {
 
     #[test]
     fn chunk_texture_ranking_survives_height_only_changes() {
+        crate::test_support::ensure_ambient_host();
         let mut visual = texture_ranking_fixture(8);
         visual.height_map.as_mut().unwrap().heights[0] = 0.5;
         let expected = visual.select_stable_chunk_texture_ids(&[]);
@@ -151,6 +156,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn shroud_delta_preserves_static_chunk_gpu_mesh() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DShroud changes its destination texture and replays a material
         // pass; it does not rebuild HeightMapRenderObjClass vertex buffers.
         let device = terrain_test_gpu_device();
@@ -189,6 +195,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn expired_pulse_restores_cached_gpu_mesh_after_chunk_returns_to_draw_window() {
+        crate::test_support::ensure_ambient_host();
         use crate::fx_list::{DisplayLightPulse, DisplayLightScene};
         let mut scene = DisplayLightScene::default();
         let (device, queue) = terrain_test_gpu_device_and_queue();
@@ -276,6 +283,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn disabled_water_grid_consumes_dirty_flag_without_rebuilding_all_overlays() {
+        crate::test_support::ensure_ambient_host();
         // No W3DWater grid is allocated when the map has no active water
         // table. An empty result is still a completed bake, not a request to
         // rebuild every overlay on every presentation frame.
@@ -290,6 +298,7 @@ mod tests {
 
     #[test]
     fn terrain_draw_window_tracks_visible_ground_instead_of_camera_eye() {
+        crate::test_support::ensure_ambient_host();
         // At C++'s default pitch, the view eye sits hundreds of world units
         // behind the visible terrain. Centering 129 cells on the eye clips the
         // far rows even while they pass frustum culling.
@@ -323,6 +332,7 @@ mod tests {
 
     #[test]
     fn bordered_draw_window_uses_authored_heightmap_sample_coordinates() {
+        crate::test_support::ensure_ambient_host();
         // C++ HeightMap.cpp ADJUST_FROM_INDEX_TO_REAL and updateCenter use
         // MAP_XY_FACTOR plus the stored border, even though camera bounds use
         // only the playable interior. A 200-sample map with 20 border samples
@@ -345,6 +355,7 @@ mod tests {
 
     #[test]
     fn draw_window_casts_after_border_offset_for_negative_fractional_world_position() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(200, 200, 255.0, 10.0);
         heightmap.border_size = 70;
         let mut visual = TerrainVisualImpl::new();
@@ -386,6 +397,7 @@ mod tests {
 
     #[test]
     fn alpha_join_synthesis_scales_texture_width_not_road_width_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let source_width = 10.0;
         let segments = vec![
             runtime_road_segment(
@@ -418,6 +430,7 @@ mod tests {
 
     #[test]
     fn terrain_static_diffuse_uses_negative_light_position_and_clamps() {
+        crate::test_support::ensure_ambient_host();
         let diffuse = TerrainVisualImpl::terrain_static_diffuse_from_normal(
             Vec3::Y,
             &[(Vec3::new(0.0, -1.0, 0.0), [0.6, 0.5, 0.4])],
@@ -435,6 +448,7 @@ mod tests {
 
     #[test]
     fn terrain_static_diffuse_sums_all_global_lights_like_do_the_light() {
+        crate::test_support::ensure_ambient_host();
         // C++ doTheLight (BaseHeightMap.cpp:556-566) adds clamp(N·L,0,1)*diffuse
         // for every global light on top of light-0 ambient.
         let multi = TerrainVisualImpl::terrain_static_diffuse_from_normal(
@@ -450,6 +464,7 @@ mod tests {
 
     #[test]
     fn terrain_shader_fogs_only_when_fog_range_is_set() {
+        crate::test_support::ensure_ambient_host();
         let shader = include_str!("../../shaders/terrain.wgsl");
         assert!(
             shader.contains("fog_span > 0.0"),
@@ -481,6 +496,7 @@ mod tests {
 
     #[test]
     fn extra_blend_gpu_upload_is_called_with_non_empty_positions() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(3, 3, 255.0, 1.0);
         let mut extra = vec![0i16; 9];
         extra[0] = 2; // cell (0,0)
@@ -518,6 +534,7 @@ mod tests {
 
     #[test]
     fn extra_blend_ndxes_produce_non_empty_draw_mesh() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(3, 3, 255.0, 1.0);
         let mut extra = vec![0i16; 9];
         extra[0] = 2;
@@ -539,6 +556,7 @@ mod tests {
 
     #[test]
     fn extra_blend_draw_increments_when_tiles_exist_and_stays_zero_when_none() {
+        crate::test_support::ensure_ambient_host();
         let mut with_tiles = HeightMap::new(3, 3, 255.0, 1.0);
         let mut extra = vec![0i16; 9];
         extra[0] = 2;
@@ -568,6 +586,7 @@ mod tests {
 
     #[test]
     fn water_tracks_flush_is_called_from_live_water_record() {
+        crate::test_support::ensure_ambient_host();
         // C++ WaterTracksRenderSystem::flush (W3DWaterTracks.cpp) is invoked
         // from the live water record (W3DWater.cpp / TerrainVisual update).
         let mut visual = TerrainVisualImpl::new();
@@ -595,6 +614,7 @@ mod tests {
 
     #[test]
     fn runtime_bridges_use_authored_model_scale_towers_not_granite() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DBridge::load (W3DBridgeBuffer.cpp:182-191) uses findBridge
         // BridgeModelName + BridgeScale + TowerObjectName*, not granite ribbons.
         use crate::terrain::roads::{RoadType, StoneType};
@@ -670,6 +690,7 @@ mod tests {
 
     #[test]
     fn live_chunk_upload_bakes_do_the_dynamic_light() {
+        crate::test_support::ensure_ambient_host();
         use crate::fx_list::{
             DisplayLightPulse, DisplayLightScene, clear_scene_dynamic_lights, create_display_light_pulse,
             do_the_dynamic_light, drain_display_light_pulses, scene_dynamic_lights,
@@ -718,6 +739,7 @@ mod tests {
 
     #[test]
     fn add_terrain_scorch_forces_visual_rebuild_and_exscorch01() {
+        crate::test_support::ensure_ambient_host();
         let mut visual = TerrainVisualImpl::new();
         assert!(
             !visual.scorches_need_gpu_rebuild(),
@@ -745,6 +767,7 @@ mod tests {
 
     #[test]
     fn scorch_vertex_color_rebakes_from_receiving_lighting_changes() {
+        crate::test_support::ensure_ambient_host();
         let mut visual = TerrainVisualImpl::new();
         visual
             .load_heightmap_from_data(HeightMap::new(8, 8, 0.0, 10.0), None, None)
@@ -788,6 +811,7 @@ mod tests {
 
     #[test]
     fn receiving_height_effect_keeps_logical_scorches_and_invalidates_only_its_gpu_cache() {
+        crate::test_support::ensure_ambient_host();
         let mut a = TerrainVisualImpl::new();
         let mut b = TerrainVisualImpl::new();
         a.load_heightmap_from_data(HeightMap::new(8, 8, 0.0, 10.0), None, None)
@@ -831,6 +855,7 @@ mod tests {
     /// removeHighlighting).
     #[test]
     fn placement_highlight_bib_session_adds_prunes_and_clears() {
+        crate::test_support::ensure_ambient_host();
         let mut visual = bib_test_visual();
         let object = TerrainBibOwnerKind::Object;
         let drawable = TerrainBibOwnerKind::Drawable;
@@ -870,6 +895,7 @@ mod tests {
     /// TGA) the stand-in is the C++ red highlight read at partial alpha.
     #[test]
     fn bib_stand_in_is_translucent_red_when_tga_missing() {
+        crate::test_support::ensure_ambient_host();
         let (highlight_color, highlight_alpha) = bib_stand_in_appearance(true, false);
         let (normal_color, normal_alpha) = bib_stand_in_appearance(false, false);
         let (art_color, art_alpha) = bib_stand_in_appearance(true, true);
@@ -885,6 +911,7 @@ mod tests {
     /// water — a cell fully above the water plane gets no geometry.
     #[test]
     fn water_grid_cell_is_wet_tracks_water_plane_vs_terrain() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(8, 8, 255.0, 10.0);
         // Left half flat at height 10 (wet under a plane at 15), right half
         // at height 200 (dry).
@@ -912,6 +939,7 @@ mod tests {
     /// must not consume a slot a heavily used class needs.
     #[test]
     fn chunk_texture_selection_ranks_classes_by_tile_usage() {
+        crate::test_support::ensure_ambient_host();
         let mut visual = TerrainVisualImpl::new();
         let mut heightmap = HeightMap::new(8, 8, 255.0, 1.0);
         // 62 samples of class "Common" (firstTile 4), 2 of "Rare"

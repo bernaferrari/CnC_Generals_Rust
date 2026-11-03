@@ -898,6 +898,7 @@ mod terrain_ini_archive_tests {
     /// `Data\INI\Terrain.ini` override, extracted through the game FS.
     #[test]
     fn terrain_registry_loads_from_inizh_big() {
+        crate::test_support::ensure_ambient_host();
         let Some(assets) = assets_root() else {
             eprintln!("skipping: no INIZH.big under Main/assets");
             return;

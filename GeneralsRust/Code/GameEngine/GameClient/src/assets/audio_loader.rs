@@ -1275,6 +1275,7 @@ mod tests {
 
     #[test]
     fn test_audio_quality_settings() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(AudioQuality::Low.sample_rate(), 22050);
         assert_eq!(AudioQuality::Medium.sample_rate(), 44100);
         assert_eq!(AudioQuality::High.sample_rate(), 48000);
@@ -1283,6 +1284,7 @@ mod tests {
 
     #[test]
     fn test_audio_3d_settings() {
+        crate::test_support::ensure_ambient_host();
         let settings = Audio3DSettings::default();
         assert_eq!(settings.max_distance, 100.0);
         assert_eq!(settings.rolloff_factor, 1.0);

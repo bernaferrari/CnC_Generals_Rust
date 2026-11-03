@@ -392,6 +392,7 @@ mod tests {
 
     #[test]
     fn test_config_defaults() {
+        crate::test_support::ensure_ambient_host();
         let config = W3DConfig::default();
         assert!(config.enable_pbr);
         assert!(config.enable_deferred_rendering);
@@ -400,6 +401,7 @@ mod tests {
 
     #[test]
     fn test_profiler() {
+        crate::test_support::ensure_ambient_host();
         let mut profiler = W3DProfiler::new(60);
         profiler.update(0.016); // 60 FPS
         assert!((profiler.stats().fps - 62.5).abs() < 0.1);

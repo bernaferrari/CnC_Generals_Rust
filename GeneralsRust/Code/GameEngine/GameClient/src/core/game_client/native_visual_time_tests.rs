@@ -17,6 +17,7 @@ fn frames(frame: u32) -> NativeParticleFrames {
 }
 #[test]
 fn native_visual_time_is_instance_scoped_and_repeated_frame_is_consumed_once() {
+    crate::test_support::ensure_ambient_host();
     let mut a = client(71);
     let mut b = client(71);
     assert_eq!(
@@ -64,6 +65,7 @@ fn native_visual_time_is_instance_scoped_and_repeated_frame_is_consumed_once() {
 }
 #[test]
 fn invalid_visual_speed_does_not_consume_receiving_frame() {
+    crate::test_support::ensure_ambient_host();
     let mut client = client(93);
     let before = client.last_visual_time_frame;
     for speed in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
@@ -89,6 +91,7 @@ fn invalid_visual_speed_does_not_consume_receiving_frame() {
 }
 #[test]
 fn actual_native_prefix_uses_supplied_facts_despite_foreign_core_observation() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "actual_native_prefix_uses_supplied_facts_despite_foreign_core_observation",
@@ -171,6 +174,7 @@ mod delta_drawable;
 
 #[test]
 fn actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isolation() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isolation",
@@ -242,6 +246,7 @@ fn actual_prefix_delivers_receiving_scaled_delta_repeat_zero_and_peer_reset_isol
 
 #[test]
 fn receiving_freeze_admission_matches_extracted_cpp_truth_repeat_and_unsigned_wrap_trace() {
+    crate::test_support::ensure_ambient_host();
     let corpus = include_str!("native_visual_time_tests/fixtures/client_freeze_cpp.csv");
     let mut client = GameClient::new().unwrap();
     let mut rows = 0;
@@ -282,6 +287,7 @@ fn receiving_freeze_admission_matches_extracted_cpp_truth_repeat_and_unsigned_wr
 
 #[test]
 fn native_shell_never_advances_foreign_core_impulse_but_standalone_effects_do() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "native_shell_never_advances_foreign_core_impulse_but_standalone_effects_do",
@@ -338,6 +344,7 @@ fn native_shell_never_advances_foreign_core_impulse_but_standalone_effects_do() 
 
 #[test]
 fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
@@ -419,6 +426,7 @@ fn native_prefix_preserves_foreign_core_tracking_and_standalone_still_follows() 
 
 #[test]
 fn fallible_native_observation_rejects_at_late_boundary_without_consuming_visual_frame() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "fallible_native_observation_rejects_at_late_boundary_without_consuming_visual_frame",
@@ -476,6 +484,7 @@ fn fallible_native_observation_rejects_at_late_boundary_without_consuming_visual
 
 #[test]
 fn native_presentation_prefix_does_not_reactivate_hidden_shell_or_replace_match() {
+    crate::test_support::ensure_ambient_host();
     if crate::core::game_client::global_boundary_fixture::run_in_private_child(
         module_path!(),
         "native_presentation_prefix_does_not_reactivate_hidden_shell_or_replace_match",

@@ -1028,6 +1028,7 @@ mod native_observer_roster_portrait_tests {
 
     #[test]
     fn hosted_observer_portrait_uses_receiving_roster_over_conflicting_core_player() {
+        crate::test_support::ensure_ambient_host();
         struct RestorePlayers(Option<PlayerList>);
         impl Drop for RestorePlayers {
             fn drop(&mut self) {

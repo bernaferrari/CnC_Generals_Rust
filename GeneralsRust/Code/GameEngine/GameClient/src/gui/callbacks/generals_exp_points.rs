@@ -198,6 +198,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn mouse_entering_keeps_legacy_placement_cancel_when_bridge_is_disabled() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
@@ -225,6 +226,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn mouse_entering_publishes_host_placement_cancel_when_bridge_is_enabled() {
+        crate::test_support::ensure_ambient_host();
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
         transport_ui.admit_native_control_bar_transport();

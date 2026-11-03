@@ -349,6 +349,7 @@ mod tests {
 
     #[test]
     fn live_terrain_visual_xfer_keeps_scorches() {
+        crate::test_support::ensure_ambient_host();
         clear_terrain_scorches();
         assert!(add_terrain_scorch([120.0, 40.0, 6.0], 18.0, 2));
         assert_eq!(terrain_scorch_marks().len(), 1);
@@ -374,6 +375,7 @@ mod tests {
 
     #[test]
     fn live_terrain_visual_xfer_empty_starts_with_cpp_w3d_layout() {
+        crate::test_support::ensure_ambient_host();
         clear_terrain_scorches();
         if let Ok(mut visual) = get_terrain_visual() {
             if let Some(visual) = visual.as_mut() {

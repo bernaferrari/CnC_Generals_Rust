@@ -751,6 +751,7 @@ mod tests {
 
     #[test]
     fn unit_specific_sound_plays_named_event_for_local_player() {
+        crate::test_support::ensure_ambient_host();
         // C++ processCommandUI plays getUnitSpecificSound with local player index.
         if let Ok(mut list) = logic_player_list().write() {
             list.set_local_player_index(0);
@@ -771,6 +772,7 @@ mod tests {
 
     #[test]
     fn empty_unit_specific_sound_is_a_no_op() {
+        crate::test_support::ensure_ambient_host();
         if let Ok(mut list) = logic_player_list().write() {
             list.set_local_player_index(0);
         }

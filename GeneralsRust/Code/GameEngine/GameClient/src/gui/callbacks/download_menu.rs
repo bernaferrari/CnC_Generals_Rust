@@ -486,6 +486,7 @@ mod tests {
 
     #[test]
     fn download_menu_system_consumes_lifecycle_messages_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
 
         assert_eq!(

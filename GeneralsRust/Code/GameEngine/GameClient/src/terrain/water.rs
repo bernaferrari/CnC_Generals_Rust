@@ -1693,6 +1693,7 @@ mod tests {
 
     #[test]
     fn test_water_body_creation() {
+        crate::test_support::ensure_ambient_host();
         let water_type = WaterType::Lake {
             depth: 5.0,
             clarity: 0.8,
@@ -1707,6 +1708,7 @@ mod tests {
 
     #[test]
     fn test_water_segment_creation() {
+        crate::test_support::ensure_ambient_host();
         let shape = WaterShape::Rectangle {
             center: Vec3::new(0.0, 0.0, 0.0),
             width: 10.0,
@@ -1722,6 +1724,7 @@ mod tests {
 
     #[test]
     fn test_water_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = WaterManager::new();
 
         let body_id = manager.create_water_body(
@@ -1761,6 +1764,7 @@ mod tests {
 
     #[test]
     fn test_wave_calculation() {
+        crate::test_support::ensure_ambient_host();
         let water_type = WaterType::Ocean {
             wave_height: 1.0,
             wave_frequency: 0.5,
@@ -1780,6 +1784,7 @@ mod tests {
 
     #[test]
     fn test_bounds_calculation() {
+        crate::test_support::ensure_ambient_host();
         let rectangle_shape = WaterShape::Rectangle {
             center: Vec3::new(5.0, 0.0, 5.0),
             width: 10.0,
@@ -1796,6 +1801,7 @@ mod tests {
 
     #[test]
     fn test_rectangle_water_generates_shore_geometry() {
+        crate::test_support::ensure_ambient_host();
         let mut segment = WaterSegment::new(
             1,
             1,
@@ -1830,6 +1836,7 @@ mod tests {
 
     #[test]
     fn test_path_water_generates_shore_geometry() {
+        crate::test_support::ensure_ambient_host();
         let mut segment = WaterSegment::new(
             7,
             2,

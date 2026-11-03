@@ -1426,6 +1426,7 @@ mod tests {
 
     #[test]
     fn display_lighting_uses_object_lighting_for_scene_and_w3d_lights() {
+        crate::test_support::ensure_ambient_host();
         let mut global_data = GlobalData::new();
         global_data.init();
         global_data.num_global_lights = 2;
@@ -1461,6 +1462,7 @@ mod tests {
 
     #[test]
     fn display_lighting_clamps_active_light_count_and_invalid_uses_current_time() {
+        crate::test_support::ensure_ambient_host();
         let mut global_data = GlobalData::new();
         global_data.init();
         global_data.time_of_day = TimeOfDay::Evening;
@@ -1482,6 +1484,7 @@ mod tests {
 
     #[test]
     fn set_display_mode_rejects_zero_resolution() {
+        crate::test_support::ensure_ambient_host();
         // C++ W3DDisplay::setDisplayMode returns FALSE and restores on device failure.
         assert!(!display_fx::is_valid_device_mode(0, 0, 32));
         assert!(display_fx::display_mode_count() > 0);
@@ -1491,6 +1494,7 @@ mod tests {
 
     #[test]
     fn leftover_letterbox_matches_cpp_fade_out() {
+        crate::test_support::ensure_ambient_host();
         let fade_out = display_fx::letterbox_plan(1280.0, 1024.0, 0.4, false);
         assert!(fade_out.draw_top);
         assert!(!fade_out.draw_bottom);

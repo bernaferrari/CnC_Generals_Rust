@@ -837,6 +837,7 @@ mod need_special_power_science_hide_tests {
 
     #[test]
     fn need_special_power_science_hides_only_on_power_required_science() {
+        crate::test_support::ensure_ambient_host();
         // C++ ControlBarCommand.cpp:333-343 — ScienceVec[0] is never a hide gate.
         assert!(
             !ControlBar::hide_need_special_power_science(SCIENCE_INVALID, false),

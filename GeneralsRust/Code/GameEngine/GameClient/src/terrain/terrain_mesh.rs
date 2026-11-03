@@ -583,6 +583,7 @@ mod tests {
 
     #[test]
     fn test_terrain_tile_creation() {
+        crate::test_support::ensure_ambient_host();
         let heightmap = HeightMap::new(128, 128, 100.0, 1.0);
         let tile = TerrainTile::new(1, (0, 0, 63, 63), &heightmap);
 
@@ -594,6 +595,7 @@ mod tests {
 
     #[test]
     fn test_mesh_generation() {
+        crate::test_support::ensure_ambient_host();
         let heightmap = HeightMap::new(64, 64, 100.0, 1.0);
         let mut tile = TerrainTile::new(1, (0, 0, 31, 31), &heightmap);
 
@@ -613,6 +615,7 @@ mod tests {
 
     #[test]
     fn test_blend_weight_calculation() {
+        crate::test_support::ensure_ambient_host();
         let heightmap = HeightMap::new(32, 32, 100.0, 1.0);
         let tile = TerrainTile::new(1, (0, 0, 15, 15), &heightmap);
 
@@ -623,6 +626,7 @@ mod tests {
 
     #[test]
     fn test_terrain_mesh_manager() {
+        crate::test_support::ensure_ambient_host();
         let heightmap = HeightMap::new(128, 128, 100.0, 1.0);
         let mut manager = TerrainMeshManager::new();
 

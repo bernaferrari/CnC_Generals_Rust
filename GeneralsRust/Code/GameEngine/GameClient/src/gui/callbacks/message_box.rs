@@ -1283,6 +1283,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn test_message_box_system() {
+        crate::test_support::ensure_ambient_host();
         #[cfg(not(target_arch = "wasm32"))]
         if let crate::test_process::TestProcess::ParentVerified =
             crate::test_process::run_bounded(module_path!(), "test_message_box_system")
@@ -1301,6 +1302,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn test_global_functions() {
+        crate::test_support::ensure_ambient_host();
         #[cfg(not(target_arch = "wasm32"))]
         if let crate::test_process::TestProcess::ParentVerified =
             crate::test_process::run_bounded(module_path!(), "test_global_functions")
@@ -1625,6 +1627,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_message_box_yes_hits_button_then_latches() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let system = MessageBoxSystem::new();
         install_named_button(&owner, "MessageBox.wnd:ButtonYes", 10, 10);
@@ -1642,6 +1645,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_message_box_prepare_ok_hits_title_and_ok() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         install_named_button(&owner, "MessageBox.wnd:StaticTextTitle", 10, 40);
         install_named_button(&owner, "MessageBox.wnd:StaticTextMessage", 10, 70);

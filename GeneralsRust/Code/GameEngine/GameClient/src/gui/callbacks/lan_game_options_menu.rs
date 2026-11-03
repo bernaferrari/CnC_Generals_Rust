@@ -1404,6 +1404,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut window = GameWindow::new();
         set_lan_button_pushed(&owner, false);
@@ -1423,6 +1424,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn esc_char_is_ignored_after_button_pushed_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut window = GameWindow::new();
         set_lan_button_pushed(&owner, true);
@@ -1446,6 +1448,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn glm_right_clicked_routes_start_position_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
         with_state(|state| {
             *state = LanGameOptionsState::default();

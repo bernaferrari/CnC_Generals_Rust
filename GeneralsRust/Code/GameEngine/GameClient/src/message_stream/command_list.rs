@@ -365,6 +365,7 @@ mod tests {
 
     #[test]
     fn test_command_list_basic() {
+        crate::test_support::ensure_ambient_host();
         let mut command_list = CommandList::new();
 
         assert_eq!(command_list.pending_command_count(), 0);
@@ -383,6 +384,7 @@ mod tests {
 
     #[test]
     fn test_command_limit() {
+        crate::test_support::ensure_ambient_host();
         let mut command_list = CommandList::with_limit(2);
 
         // Add 3 commands
@@ -408,6 +410,7 @@ mod tests {
 
     #[test]
     fn test_message_list_operations() {
+        crate::test_support::ensure_ambient_host();
         let mut command_list = CommandList::new();
 
         let messages = vec![
@@ -437,6 +440,7 @@ mod tests {
 
     #[test]
     fn test_peek_functionality() {
+        crate::test_support::ensure_ambient_host();
         let mut command_list = CommandList::new();
 
         let msg = GameMessage::new(GameMessageType::Invalid);
@@ -458,6 +462,7 @@ mod tests {
 
     #[test]
     fn test_statistics() {
+        crate::test_support::ensure_ambient_host();
         let mut command_list = CommandList::with_limit(10);
 
         // Add different types of commands
@@ -492,6 +497,7 @@ mod tests {
 
     #[test]
     fn test_subsystem_interface() {
+        crate::test_support::ensure_ambient_host();
         let mut command_list = CommandList::new();
 
         assert!(command_list.init().is_ok());
@@ -513,6 +519,7 @@ mod tests {
 
     #[test]
     fn test_global_command_list() {
+        crate::test_support::ensure_ambient_host();
         // Test that we can get the global command list
         let list1 = get_command_list();
         let list2 = get_command_list();
@@ -534,6 +541,7 @@ mod tests {
 
     #[test]
     fn test_clear_all_commands() {
+        crate::test_support::ensure_ambient_host();
         let mut command_list = CommandList::new();
 
         // Add several commands
@@ -550,6 +558,7 @@ mod tests {
 
     #[test]
     fn test_frame_counter_edge_cases() {
+        crate::test_support::ensure_ambient_host();
         let mut command_list = CommandList::with_limit(1);
 
         // Add two commands

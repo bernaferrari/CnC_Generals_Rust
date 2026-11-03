@@ -2,6 +2,7 @@
 
 #[test]
 fn peer_loading_state_and_retirement_are_independent() {
+    crate::test_support::ensure_ambient_host();
     let mut owner = LoadScreenFixture::new();
     owner.with_runtime(|runtime, _, _| {
         runtime.state.single_player.movie_label = "owner-intro".into();
@@ -22,6 +23,7 @@ fn peer_loading_state_and_retirement_are_independent() {
 
 #[test]
 fn reset_visits_only_the_receiving_window_tree() {
+    crate::test_support::ensure_ambient_host();
     let mut first = LoadScreenFixture::new();
     let mut second = LoadScreenFixture::new();
     let root_name = descriptor_for_kind(LoadScreenKind::Multiplayer).root;

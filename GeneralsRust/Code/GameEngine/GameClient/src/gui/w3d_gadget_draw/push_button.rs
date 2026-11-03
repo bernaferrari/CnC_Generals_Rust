@@ -535,6 +535,7 @@ mod overlay_tests {
 
     #[test]
     fn cameo_overlay_follows_cpp_selected_and_hilited_flags() {
+        crate::test_support::ensure_ambient_host();
         let status = WindowStatus::ENABLED | WindowStatus::USE_OVERLAY_STATES;
         assert_eq!(
             push_button_state_overlay_name(status, WindowState::HILITED),

@@ -118,6 +118,7 @@ mod tests {
 
     #[test]
     fn apply_common_preserves_ini_percent_and_pixel_offsets() {
+        crate::test_support::ensure_ambient_host();
         let mut common = common_draw_group_info::DrawGroupInfo::new();
         common.use_player_color = false;
         common.color_for_text = common_draw_group_info::Color::new(1, 2, 3, 4);

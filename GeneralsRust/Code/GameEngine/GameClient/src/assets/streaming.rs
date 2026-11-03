@@ -1189,6 +1189,7 @@ mod tests {
 
     #[test]
     fn test_eviction_score_calculation() {
+        crate::test_support::ensure_ambient_host();
         let info = StreamingAssetInfo {
             handle: AssetHandle(1),
             path: PathBuf::from("test"),

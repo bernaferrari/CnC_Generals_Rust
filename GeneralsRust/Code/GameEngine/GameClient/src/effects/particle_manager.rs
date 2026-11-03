@@ -1852,12 +1852,14 @@ mod tests {
 
     #[test]
     fn test_particle_priority_ordering() {
+        crate::test_support::ensure_ambient_host();
         assert!(ParticlePriorityType::AlwaysRender > ParticlePriorityType::WeaponExplosion);
         assert!(ParticlePriorityType::Critical > ParticlePriorityType::Constant);
     }
 
     #[test]
     fn test_random_variable_sampling() {
+        crate::test_support::ensure_ambient_host();
         let var = GameClientRandomVariable::new(1.0, 5.0);
 
         for _ in 0..100 {
@@ -1868,6 +1870,7 @@ mod tests {
 
     #[test]
     fn test_template_creation() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let template = manager.new_template("TestExplosion".to_string());
 
@@ -1880,6 +1883,7 @@ mod tests {
 
     #[test]
     fn attach_particle_system_to_object_helper_records_parent_object_id() {
+        crate::test_support::ensure_ambient_host();
         let _ = initialize_particle_system_manager();
         register_particle_system_manager_bridge();
         {
@@ -1911,6 +1915,7 @@ mod tests {
 
     #[test]
     fn preload_assets_matches_cpp_particle_texture_filter() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
 
         let mut particle = ParticleSystemTemplate::new("TextureParticle".to_string());
@@ -1943,6 +1948,7 @@ mod tests {
 
     #[test]
     fn remove_oldest_particles_culls_real_low_priority_particles() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let mut template = ParticleSystemTemplate::new("Dust".to_string());
         template.info_mut().priority = ParticlePriorityType::DustTrail;
@@ -1978,6 +1984,7 @@ mod tests {
 
     #[test]
     fn can_create_particle_preserves_exact_cap_and_rejects_after_excess_eviction() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         manager.set_fallback_particle_limits(2, 2);
 
@@ -2037,6 +2044,7 @@ mod tests {
     /// without ParticleSystems.ini (fail-closed: not full W3D GPU parity).
     #[test]
     fn manager_update_emits_then_integrates_newborn_same_frame() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let mut template = ParticleSystemTemplate::new("BurstNow".to_string());
         {
@@ -2081,6 +2089,7 @@ mod tests {
 
     #[test]
     fn create_preset_system_at_registers_combat_death_and_muzzle_entries() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         assert_eq!(manager.active_system_count(), 0);
 
@@ -2116,6 +2125,7 @@ mod tests {
     /// system only after leftover particles die.
     #[test]
     fn destroy_particle_system_keeps_updating_until_particles_die() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let mut template = ParticleSystemTemplate::new("FadeOut".to_string());
         {
@@ -2175,6 +2185,7 @@ mod tests {
 
     #[test]
     fn live_particle_system_xfer_keeps_mid_flight_explosion() {
+        crate::test_support::ensure_ambient_host();
         let _ = initialize_particle_system_manager();
         let template_name = format!("LiveSaveBurst_{}", std::process::id());
         let system_id = {
@@ -2220,6 +2231,7 @@ mod tests {
 
     #[test]
     fn visible_box_cull_marks_offscreen_and_caps_batch() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let template = manager.new_template("CullBox".to_string());
         let system_id = manager.create_particle_system(&template, false).unwrap();
@@ -2252,6 +2264,7 @@ mod tests {
 
     #[test]
     fn field_particle_count_is_on_screen_area_effect_only() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let mut template = manager.new_template("FieldCap".to_string());
         {
@@ -2292,6 +2305,7 @@ mod tests {
     /// (C++ ParticleSys.cpp:2059 `m_isDestroyed && !m_systemParticlesHead`).
     #[test]
     fn destroy_empty_system_removed_on_next_update() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let template = manager.new_template("EmptyFade".to_string());
         let system_id = manager.create_particle_system(&template, false).unwrap();

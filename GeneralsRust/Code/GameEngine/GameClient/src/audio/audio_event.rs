@@ -338,6 +338,7 @@ mod tests {
 
     #[test]
     fn test_audio_event_builder() {
+        crate::test_support::ensure_ambient_host();
         let mut ev = AudioEvent::new("ExplosionLarge");
         ev.set_object_id(42);
         ev.set_volume(0.8);
@@ -350,6 +351,7 @@ mod tests {
 
     #[test]
     fn test_audio_event_with_position() {
+        crate::test_support::ensure_ambient_host();
         let pos = AudioPosition::new(100.0, 0.0, 50.0);
         let ev = AudioEvent::with_position("AmbientWind", pos);
         assert!(ev.is_positional());
@@ -358,6 +360,7 @@ mod tests {
 
     #[test]
     fn test_audio_event_queue() {
+        crate::test_support::ensure_ambient_host();
         let mut q = AudioEventQueue::new(16);
         assert!(q.is_empty());
         q.push(AudioRequest::Play {

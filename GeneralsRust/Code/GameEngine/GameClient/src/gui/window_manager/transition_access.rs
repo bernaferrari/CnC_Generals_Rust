@@ -206,6 +206,7 @@ mod tests {
 
     #[test]
     fn selected_window_uses_canonical_state_and_clears_only_its_owner() {
+        crate::test_support::ensure_ambient_host();
         let window = Rc::new(RefCell::new(GameWindow::new()));
         window.borrow_mut().set_user_data(123u32);
         let mut owner = WindowManager::new();

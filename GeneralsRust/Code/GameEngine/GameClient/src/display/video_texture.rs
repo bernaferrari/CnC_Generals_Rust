@@ -1174,6 +1174,7 @@ mod tests {
 
     #[test]
     fn test_video_format_detection() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             VideoFormat::from_path(Path::new("video.bik")),
             Some(VideoFormat::Bik)
@@ -1195,6 +1196,7 @@ mod tests {
 
     #[test]
     fn test_stub_decoder_produces_gray_frames() {
+        crate::test_support::ensure_ambient_host();
         let mut decoder = StubVideoDecoder::new(640, 480, Duration::from_secs(10), 30.0);
         assert_eq!(decoder.width(), 640);
         assert_eq!(decoder.height(), 480);
@@ -1213,6 +1215,7 @@ mod tests {
 
     #[test]
     fn test_stub_decoder_state_transitions() {
+        crate::test_support::ensure_ambient_host();
         let decoder = Box::new(StubVideoDecoder::new(
             640,
             480,
@@ -1239,6 +1242,7 @@ mod tests {
 
     #[test]
     fn test_raw_frame_decoder_basic() {
+        crate::test_support::ensure_ambient_host();
         let width = 4u32;
         let height = 4u32;
         let fps = 30.0f32;
@@ -1307,6 +1311,7 @@ mod tests {
 
     #[test]
     fn test_raw_frame_decoder_seek_and_reset() {
+        crate::test_support::ensure_ambient_host();
         let width = 2u32;
         let height = 2u32;
         let fps = 10.0f32;
@@ -1344,6 +1349,7 @@ mod tests {
 
     #[test]
     fn test_raw_frame_decoder_with_timestamps() {
+        crate::test_support::ensure_ambient_host();
         let width = 2u32;
         let height = 2u32;
         let fps = 10.0f32;
@@ -1371,6 +1377,7 @@ mod tests {
 
     #[test]
     fn test_raw_frame_decoder_from_frames() {
+        crate::test_support::ensure_ambient_host();
         let width = 2u32;
         let height = 2u32;
         let frame_size = (width * height * 4) as usize;
@@ -1389,6 +1396,7 @@ mod tests {
 
     #[test]
     fn test_yuv_to_rgb() {
+        crate::test_support::ensure_ambient_host();
         // White: Y=255, U=128, V=128 (neutral chroma)
         let (r, g, b) = yuv_to_rgb(255, 128, 128);
         assert_eq!(r, 255);
@@ -1404,6 +1412,7 @@ mod tests {
 
     #[test]
     fn test_yuv420_to_rgba_dimensions() {
+        crate::test_support::ensure_ambient_host();
         let w = 4u32;
         let h = 4u32;
         let y_plane = vec![128u8; (w * h) as usize];
@@ -1422,6 +1431,7 @@ mod tests {
 
     #[test]
     fn test_yuv422_to_rgba_dimensions() {
+        crate::test_support::ensure_ambient_host();
         let w = 4u32;
         let h = 2u32;
         let yuyv_data = vec![128u8; (w * 2 * h) as usize];
@@ -1432,6 +1442,7 @@ mod tests {
 
     #[test]
     fn test_letterbox_viewport_preserves_aspect_ratio() {
+        crate::test_support::ensure_ambient_host();
         // 16:9 video in 4:3 target
         let (x, y, w, h) = compute_letterbox_viewport(800, 600, 1920, 1080);
         assert!(x >= 0.0);
@@ -1449,6 +1460,7 @@ mod tests {
 
     #[test]
     fn test_video_state_machine_transitions() {
+        crate::test_support::ensure_ambient_host();
         let decoder = Box::new(StubVideoDecoder::new(
             640,
             480,
@@ -1495,6 +1507,7 @@ mod tests {
 
     #[test]
     fn test_volume_clamping() {
+        crate::test_support::ensure_ambient_host();
         let decoder = Box::new(StubVideoDecoder::new(
             640,
             480,

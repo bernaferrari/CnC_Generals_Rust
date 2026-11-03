@@ -18,6 +18,7 @@ fn admit(manager: &mut ParticleSystemManager) -> ParticleSystemId {
 
 #[test]
 fn receiving_reset_clock_runs_frame_zero_once_and_keeps_peer_independent() {
+    crate::test_support::ensure_ambient_host();
     let mut a = ParticleSystemManager::new();
     let original = admit(&mut a);
     a.update(0, 0);

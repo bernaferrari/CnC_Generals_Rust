@@ -130,6 +130,7 @@ impl DrawModule for WeaponFireDispatchTestDrawModule {
 
 #[test]
 fn test_drawable_creation() {
+    crate::test_support::ensure_ambient_host();
     let drawable = BasicDrawable::new(DrawableId(1));
     assert_eq!(drawable.get_id(), DrawableId(1));
     assert_eq!(drawable.get_position(), Vector3::zero());
@@ -146,6 +147,7 @@ fn test_drawable_creation() {
 
 #[test]
 fn get_current_client_bone_positions_reads_w3d_bone_data() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(1));
     let mut bones = BoneData::default();
     bones.add_current_bone(
@@ -168,6 +170,7 @@ fn get_current_client_bone_positions_reads_w3d_bone_data() {
 
 #[test]
 fn direct_shroud_history_is_volatile_but_survives_live_rebinds() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
@@ -226,6 +229,7 @@ fn direct_shroud_history_is_volatile_but_survives_live_rebinds() {
 
 #[test]
 fn fade_in_reaches_full_opacity_after_requested_frames() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(10));
     drawable.fade_in(10);
 
@@ -254,6 +258,7 @@ fn fade_in_reaches_full_opacity_after_requested_frames() {
 
 #[test]
 fn fade_out_reaches_zero_opacity_after_requested_frames() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(11));
     drawable.fade_out(10);
     assert_near(drawable.get_explicit_opacity(), 1.0);
@@ -271,6 +276,7 @@ fn fade_out_reaches_zero_opacity_after_requested_frames() {
 
 #[test]
 fn expired_update_fades_then_skips_flash_and_tint() {
+    crate::test_support::ensure_ambient_host();
     // C++ updateDrawable: client updates, fade, decal, then destroy and return
     // before flash (`m_flashCount`) and tint status.
     let mut drawable = BasicDrawable::new(DrawableId(90_001));
@@ -299,6 +305,7 @@ fn expired_update_fades_then_skips_flash_and_tint() {
 
 #[test]
 fn test_drawable_visibility() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(1));
 
     drawable.set_visible(false);
@@ -313,6 +320,7 @@ fn test_drawable_visibility() {
 
 #[test]
 fn fully_obscured_state_dispatches_only_on_change() {
+    crate::test_support::ensure_ambient_host();
     let observed = Arc::new(Mutex::new(Vec::new()));
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.add_draw_module(Box::new(ShroudDispatchTestDrawModule {
@@ -328,6 +336,7 @@ fn fully_obscured_state_dispatches_only_on_change() {
 
 #[test]
 fn test_drawable_selection() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(1));
 
     assert!(!drawable.is_selected());
@@ -344,6 +353,7 @@ fn test_drawable_selection() {
 
 #[test]
 fn icon_pip_gate_matches_cpp_selected_or_moused_over_drawable() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(424_242));
     let peer = BasicDrawable::new(DrawableId(424_242));
     assert!(!drawable.selected_or_moused_over_for_icon_pips());
@@ -359,6 +369,7 @@ fn icon_pip_gate_matches_cpp_selected_or_moused_over_drawable() {
 
 #[test]
 fn caption_text_is_language_filtered() {
+    crate::test_support::ensure_ambient_host();
     get_language_filter().write().unwrap_or_else(|e| e.into_inner()).set_words_for_test(["badword"]);
 
     let mut drawable = BasicDrawable::new(DrawableId(1));
@@ -369,6 +380,7 @@ fn caption_text_is_language_filtered() {
 
 #[test]
 fn draw_caption_publishes_caption_overlay() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.set_caption_text("Beacon Alpha");
 
@@ -386,6 +398,7 @@ fn draw_caption_publishes_caption_overlay() {
 
 #[test]
 fn draw_caption_clears_stale_overlay_without_caption_text() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.set_caption_text("Beacon Alpha");
     drawable.draw_caption(&IRegion2D::new(
@@ -404,6 +417,7 @@ fn draw_caption_clears_stale_overlay_without_caption_text() {
 
 #[test]
 fn indicator_color_is_dispatched_to_draw_modules() {
+    crate::test_support::ensure_ambient_host();
     let observed = Arc::new(Mutex::new(IndicatorDispatchObservation::default()));
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.add_draw_module(Box::new(IndicatorDispatchTestDrawModule {
@@ -418,6 +432,7 @@ fn indicator_color_is_dispatched_to_draw_modules() {
 
 #[test]
 fn object_binding_notifies_draw_modules() {
+    crate::test_support::ensure_ambient_host();
     let observed = Arc::new(Mutex::new(IndicatorDispatchObservation::default()));
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.add_draw_module(Box::new(IndicatorDispatchTestDrawModule {
@@ -432,6 +447,7 @@ fn object_binding_notifies_draw_modules() {
 
 #[test]
 fn model_draw_bridge_uses_bound_object_not_client_drawable_id() {
+    crate::test_support::ensure_ambient_host();
     let client = TheGameClient::get().expect("logic game-client bridge");
     let object_id = 9_020_001;
     client.clear_object_model_draws(object_id);
@@ -480,6 +496,7 @@ fn model_draw_bridge_uses_bound_object_not_client_drawable_id() {
 
 #[test]
 fn set_object_id_uses_binding_side_effects_once_per_object() {
+    crate::test_support::ensure_ambient_host();
     let observed = Arc::new(Mutex::new(IndicatorDispatchObservation::default()));
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.add_draw_module(Box::new(IndicatorDispatchTestDrawModule {
@@ -496,6 +513,7 @@ fn set_object_id_uses_binding_side_effects_once_per_object() {
 
 #[test]
 fn test_hotkey_squad_resolution() {
+    crate::test_support::ensure_ambient_host();
     let mut player = gamelogic::player::Player::new(0);
     player.init_from_dict_defaults();
 
@@ -516,6 +534,7 @@ fn test_hotkey_squad_resolution() {
 
 #[test]
 fn test_tint_envelope() {
+    crate::test_support::ensure_ambient_host();
     let mut envelope = TintEnvelope::new();
 
     envelope.play(Vector3::new(1.0, 0.5, 0.0), 2, 2, 1);
@@ -551,6 +570,7 @@ fn test_tint_envelope() {
 
 #[test]
 fn test_drawable_status_flags() {
+    crate::test_support::ensure_ambient_host();
     let mut status = DrawableStatus::NONE;
 
     assert!(!status.has(DrawableStatus::SHADOWS));
@@ -564,6 +584,7 @@ fn test_drawable_status_flags() {
 
 #[test]
 fn test_icon_info() {
+    crate::test_support::ensure_ambient_host();
     let mut icon_info = IconInfo::new();
 
     // Mock icon implementation
@@ -592,6 +613,7 @@ fn test_icon_info() {
 
 #[test]
 fn test_icon_xfer_order_matches_cpp_slot_order() {
+    crate::test_support::ensure_ambient_host();
     let names: Vec<&'static str> = IconType::XFER_ORDER
         .iter()
         .map(|icon_type| icon_type.name())
@@ -619,6 +641,7 @@ fn test_icon_xfer_order_matches_cpp_slot_order() {
 
 #[test]
 fn test_icon_info_cpp_layout_empty_writes_only_count() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
 
@@ -637,6 +660,7 @@ fn test_icon_info_cpp_layout_empty_writes_only_count() {
 
 #[test]
 fn test_drawable_modules_save_writes_cpp_empty_type_buckets() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
 
@@ -655,6 +679,7 @@ fn test_drawable_modules_save_writes_cpp_empty_type_buckets() {
 
 #[test]
 fn test_drawable_modules_save_writes_named_snapshot_blocks() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
@@ -723,6 +748,7 @@ fn test_drawable_modules_save_writes_named_snapshot_blocks() {
 
 #[test]
 fn test_logic_draw_module_adapter_saves_concrete_w3d_snapshot_block() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use gamelogic::object::draw::{W3DTreeDraw, W3DTreeDrawModuleData};
@@ -776,6 +802,7 @@ fn test_logic_draw_module_adapter_saves_concrete_w3d_snapshot_block() {
 
 #[test]
 fn test_logic_draw_module_adapter_loads_matching_w3d_snapshot_block() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use gamelogic::object::draw::{W3DTreeDraw, W3DTreeDrawModuleData};
@@ -821,6 +848,7 @@ fn test_logic_draw_module_adapter_loads_matching_w3d_snapshot_block() {
 
 #[test]
 fn test_drawable_modules_load_applies_matching_snapshot_block() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
@@ -868,6 +896,7 @@ fn test_drawable_modules_load_applies_matching_snapshot_block() {
 
 #[test]
 fn test_drawable_modules_load_skips_unknown_module_blocks() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
@@ -913,6 +942,7 @@ fn test_drawable_modules_load_skips_unknown_module_blocks() {
 
 #[test]
 fn test_matrix3d_save_layout_matches_cpp_xfer_matrix3d() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
 
@@ -939,6 +969,7 @@ fn test_matrix3d_save_layout_matches_cpp_xfer_matrix3d() {
 
 #[test]
 fn test_matrix3d_user_load_restores_identity_bottom_row() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
@@ -975,6 +1006,7 @@ fn test_matrix3d_user_load_restores_identity_bottom_row() {
 
 #[test]
 fn test_tint_envelope_xfer_order_matches_cpp() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
@@ -1022,6 +1054,7 @@ fn test_tint_envelope_xfer_order_matches_cpp() {
 
 #[test]
 fn test_drawable_enum_fields_use_cpp_u32_layout() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
@@ -1067,6 +1100,7 @@ fn test_drawable_enum_fields_use_cpp_u32_layout() {
 
 #[test]
 fn test_loco_info_uses_inline_cpp_layout() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
@@ -1137,6 +1171,7 @@ fn test_loco_info_uses_inline_cpp_layout() {
 
 #[test]
 fn test_drawable_xfer_preserves_instance_matrix() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
@@ -1169,6 +1204,7 @@ fn test_drawable_xfer_preserves_instance_matrix() {
 
 #[test]
 fn test_drawable_xfer_preserves_shroud_status_object_id() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
@@ -1199,6 +1235,7 @@ fn test_drawable_xfer_preserves_shroud_status_object_id() {
 
 #[test]
 fn test_drawable_xfer_preserves_ambient_sound_flags() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
@@ -1231,6 +1268,7 @@ fn test_drawable_xfer_preserves_ambient_sound_flags() {
 
 #[test]
 fn test_drawable_xfer_preserves_custom_ambient_sound_info() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "test_drawable_xfer_preserves_custom_ambient_sound_info",
@@ -1287,6 +1325,7 @@ fn test_drawable_xfer_preserves_custom_ambient_sound_info() {
 
 #[test]
 fn drawable_load_post_process_restarts_only_permanent_ambient() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "drawable_load_post_process_restarts_only_permanent_ambient",
@@ -1348,6 +1387,7 @@ fn drawable_load_post_process_restarts_only_permanent_ambient() {
 
 #[test]
 fn drawable_load_post_process_stops_when_ambient_disabled() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
@@ -1377,6 +1417,7 @@ fn drawable_load_post_process_stops_when_ambient_disabled() {
 
 #[test]
 fn test_model_condition_flags_flow_into_render_flags() {
+    crate::test_support::ensure_ambient_host();
     use crate::render_bridge::RenderConditionFlags;
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.set_model_condition_state(ModelConditionFlags::DAMAGED);
@@ -1393,6 +1434,7 @@ fn test_model_condition_flags_flow_into_render_flags() {
 
 #[test]
 fn react_to_body_damage_sets_exclusive_damage_condition_bits() {
+    crate::test_support::ensure_ambient_host();
     use gamelogic::common::types::BodyDamageType;
 
     let mut drawable = BasicDrawable::new(DrawableId(42));
@@ -1421,6 +1463,7 @@ fn react_to_body_damage_sets_exclusive_damage_condition_bits() {
 
 #[test]
 fn is_object_kind_of_fail_closed_when_dual_world_empty_and_no_presentation_kinds() {
+    crate::test_support::ensure_ambient_host();
     let drawable = BasicDrawable::new(DrawableId(11));
     assert!(
         drawable.presentation_kind_names.is_empty(),
@@ -1434,6 +1477,7 @@ fn is_object_kind_of_fail_closed_when_dual_world_empty_and_no_presentation_kinds
 
 #[test]
 fn draw_construct_percent_fail_closed_on_sold_not_dead_health() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "draw_construct_percent_fail_closed_on_sold_not_dead_health",
@@ -1492,6 +1536,7 @@ fn draw_construct_percent_fail_closed_on_sold_not_dead_health() {
 
 #[test]
 fn compute_health_region_falls_back_to_seeded_region_without_object() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "compute_health_region_falls_back_to_seeded_region_without_object",
@@ -1518,6 +1563,7 @@ fn compute_health_region_falls_back_to_seeded_region_without_object() {
 
 #[test]
 fn test_model_draw_bits_flow_into_render_flags() {
+    crate::test_support::ensure_ambient_host();
     use crate::render_bridge::RenderConditionFlags;
     use gamelogic::common::ModelConditionFlags as LogicModelConditionFlags;
 
@@ -1530,6 +1576,7 @@ fn test_model_draw_bits_flow_into_render_flags() {
 
 #[test]
 fn test_model_draw_animation_mode_mapping_matches_logic_discriminants() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(
         BasicDrawable::animation_mode_from_model_draw(0),
         Some(ww3d_core::animation::AnimationMode::Manual)
@@ -1559,6 +1606,7 @@ fn test_model_draw_animation_mode_mapping_matches_logic_discriminants() {
 
 #[test]
 fn test_model_draw_bone_override_preserves_index_and_transform() {
+    crate::test_support::ensure_ambient_host();
     let transform = glam::Mat4::from_translation(glam::Vec3::new(1.0, 2.0, 3.0));
     let override_state = BoneOverrideState {
         bone_index: 7,
@@ -1573,6 +1621,7 @@ fn test_model_draw_bone_override_preserves_index_and_transform() {
 
 #[test]
 fn test_render_state_from_flags_preserves_condition_overrides() {
+    crate::test_support::ensure_ambient_host();
     use crate::render_bridge::RenderConditionFlags;
 
     let flags = RenderConditionFlags::NIGHT
@@ -1597,6 +1646,7 @@ fn test_render_state_from_flags_preserves_condition_overrides() {
 
 #[test]
 fn test_shadow_status_enabled_after_create() {
+    crate::test_support::ensure_ambient_host();
     // Residual: shadow enable is observable after create without GPU mesh alloc.
     let drawable = BasicDrawable::new(DrawableId(1));
     assert!(
@@ -1608,6 +1658,7 @@ fn test_shadow_status_enabled_after_create() {
 
 #[test]
 fn test_shadow_toggle_helpers() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(1));
     assert!(drawable.get_shadows_enabled());
 
@@ -1637,6 +1688,7 @@ fn test_shadow_toggle_helpers() {
 
 #[test]
 fn test_model_condition_change_preserves_shadow_status() {
+    crate::test_support::ensure_ambient_host();
     // Model condition swaps must not clear shadow enable (C++ keeps m_shadowEnabled
     // and only reallocates mesh resources on condition change).
     let mut drawable = BasicDrawable::new(DrawableId(42));
@@ -1661,6 +1713,7 @@ fn test_model_condition_change_preserves_shadow_status() {
 
 #[test]
 fn test_set_shadows_enabled_dispatches_to_draw_modules() {
+    crate::test_support::ensure_ambient_host();
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
     static ENABLED: AtomicBool = AtomicBool::new(true);
@@ -1706,6 +1759,7 @@ fn test_set_shadows_enabled_dispatches_to_draw_modules() {
 
 #[test]
 fn weapon_fire_recoil_subtracts_bound_object_orientation() {
+    crate::test_support::ensure_ambient_host();
     use gamelogic::common::{DefaultThingTemplate, ObjectStatusMaskType};
     use gamelogic::object::Object;
     use std::sync::Arc;
@@ -1744,6 +1798,7 @@ fn weapon_fire_recoil_subtracts_bound_object_orientation() {
 
 #[test]
 fn weapon_fire_dispatch_reports_first_handled_draw_module_index() {
+    crate::test_support::ensure_ambient_host();
     let first_calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
     let second_calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
     let mut drawable = BasicDrawable::new(DrawableId(900_003));
@@ -1775,6 +1830,7 @@ fn weapon_fire_dispatch_reports_first_handled_draw_module_index() {
 
 #[test]
 fn weapon_fire_dispatch_without_handler_visits_all_modules_in_order() {
+    crate::test_support::ensure_ambient_host();
     let first_calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
     let second_calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
     let mut drawable = BasicDrawable::new(DrawableId(900_004));
@@ -1805,6 +1861,7 @@ fn weapon_fire_dispatch_without_handler_visits_all_modules_in_order() {
 
 #[test]
 fn render_does_not_apply_persisted_loco_info_without_exact_frozen_source() {
+    crate::test_support::ensure_ambient_host();
     #[derive(Debug)]
     struct TransformCaptureModule {
         observed: Arc<Mutex<Option<Matrix4>>>,
@@ -1845,6 +1902,7 @@ fn render_does_not_apply_persisted_loco_info_without_exact_frozen_source() {
 
 #[test]
 fn projectile_launch_offset_forwards_pitch_pointer_to_draw_module() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.add_draw_module(Box::new(ProjectileLaunchTestDrawModule));
 
@@ -1871,6 +1929,7 @@ fn projectile_launch_offset_forwards_pitch_pointer_to_draw_module() {
 
 #[test]
 fn draw_bombed_carbomb_icon_requires_local_player_not_status() {
+    crate::test_support::ensure_ambient_host();
     use gamelogic::common::{ObjectStatusMaskType, ObjectStatusTypes};
     use gamelogic::object::Object;
     use gamelogic::weapon::WeaponSetType;
@@ -1905,6 +1964,7 @@ fn draw_bombed_carbomb_icon_requires_local_player_not_status() {
 
 #[test]
 fn visible_friendly_stealth_uses_module_friendly_opacity_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     use gamelogic::common::{DefaultThingTemplate, ObjectStatusMaskType};
     use gamelogic::object::Object;
     use gamelogic::stealth_update::{StealthUpdateModule, StealthUpdateModuleData};
@@ -1938,6 +1998,7 @@ fn visible_friendly_stealth_uses_module_friendly_opacity_like_cpp() {
 
 #[test]
 fn disguised_friendly_stealth_leaves_opacity_and_second_pass_like_cpp_break() {
+    crate::test_support::ensure_ambient_host();
     use gamelogic::common::{DefaultThingTemplate, ObjectStatusMaskType};
     use gamelogic::object::Object;
     use gamelogic::stealth_update::{StealthUpdateModule, StealthUpdateModuleData};
@@ -1972,6 +2033,7 @@ fn disguised_friendly_stealth_leaves_opacity_and_second_pass_like_cpp_break() {
 
 #[test]
 fn test_vector3_operations() {
+    crate::test_support::ensure_ambient_host();
     let v1 = Vector3::new(1.0, 2.0, 3.0);
     let v2 = Vector3::zero();
     let v3 = Vector3::one();
@@ -1983,6 +2045,7 @@ fn test_vector3_operations() {
 
 #[test]
 fn test_matrix4_operations() {
+    crate::test_support::ensure_ambient_host();
     let identity = Matrix4::identity();
     let translation = Matrix4::translation(Vector3::new(1.0, 2.0, 3.0));
     let scale = Matrix4::scale(2.0);
@@ -2011,6 +2074,7 @@ fn test_matrix4_operations() {
 
 #[test]
 fn legacy_matrix4_bridge_conversion_preserves_cpp_affine_semantics() {
+    crate::test_support::ensure_ambient_host();
     let legacy = Matrix4::translation(Vector3::new(1.0, 2.0, 3.0))
         .mul(&Matrix4::rotation_z(std::f32::consts::FRAC_PI_2));
 
@@ -2053,6 +2117,7 @@ impl DrawModule for ConditionAndHiddenTestModule {
 
 #[test]
 fn set_effective_opacity_does_not_overwrite_explicit_opacity() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.set_opacity(1.0);
     drawable.set_effective_opacity(0.0, Some(0.5));
@@ -2062,6 +2127,7 @@ fn set_effective_opacity_does_not_overwrite_explicit_opacity() {
 
 #[test]
 fn detected_stealth_does_not_invent_first_pass_opacity() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.apply_stealth_look(StealthLook::VisibleDetected);
     assert!(!drawable.is_effectively_hidden());
@@ -2071,6 +2137,7 @@ fn detected_stealth_does_not_invent_first_pass_opacity() {
 
 #[test]
 fn stealth_invisible_hides_modules_and_deselects() {
+    crate::test_support::ensure_ambient_host();
     let observed = Arc::new(Mutex::new(ConditionAndHiddenObservation::default()));
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.add_draw_module(Box::new(ConditionAndHiddenTestModule {
@@ -2087,6 +2154,7 @@ fn stealth_invisible_hides_modules_and_deselects() {
 
 #[test]
 fn condition_flags_dirty_apply_to_draw_modules() {
+    crate::test_support::ensure_ambient_host();
     let observed = Arc::new(Mutex::new(ConditionAndHiddenObservation::default()));
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.add_draw_module(Box::new(ConditionAndHiddenTestModule {
@@ -2112,6 +2180,7 @@ fn condition_flags_dirty_apply_to_draw_modules() {
 
 #[test]
 fn signed_disabled_tint_fades_in_instead_of_snapping() {
+    crate::test_support::ensure_ambient_host();
     let mut envelope = TintEnvelope::new();
     envelope.play(DARK_GRAY_DISABLED_COLOR, 30, 30, SUSTAIN_INDEFINITELY);
     envelope.update();
@@ -2133,6 +2202,7 @@ fn signed_disabled_tint_fades_in_instead_of_snapping() {
 
 #[test]
 fn selection_flash_uses_saturated_white_and_survives_deselect() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.flash_as_selected(None);
     let envelope = drawable.selection_flash_envelope.as_ref().unwrap();
@@ -2149,6 +2219,7 @@ fn selection_flash_uses_saturated_white_and_survives_deselect() {
 
 #[test]
 fn color_tint_envelope_ticks_and_is_sampled_by_get_tint_color() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.color_flash_envelope(Some(Vector3::new(1.0, 0.0, 0.0)), 4, 1, 0);
     drawable.update(0.0, 0);
@@ -2159,6 +2230,7 @@ fn color_tint_envelope_ticks_and_is_sampled_by_get_tint_color() {
 
 #[test]
 fn frenzy_status_plays_vehicle_frenzy_color_without_infantry_kind() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(1));
     drawable.set_tint_status(TintStatus::FRENZY);
     drawable.update(0.0, 0);
@@ -2170,6 +2242,7 @@ fn frenzy_status_plays_vehicle_frenzy_color_without_infantry_kind() {
 
 #[test]
 fn frenzy_infantry_color_matches_cpp_authored_values() {
+    crate::test_support::ensure_ambient_host();
     assert_near(FRENZY_COLOR_INFANTRY.x, 0.0);
     assert_near(FRENZY_COLOR_INFANTRY.y, -0.7);
     assert_near(FRENZY_COLOR_INFANTRY.z, -0.7);
@@ -2177,6 +2250,7 @@ fn frenzy_infantry_color_matches_cpp_authored_values() {
 
 #[test]
 fn start_ambient_sound_uses_template_when_custom_info_absent() {
+    crate::test_support::ensure_ambient_host();
     // C++ Drawable::startAmbientSound (`Drawable.cpp:4459-4468`) reads
     // getAmbientSoundByDamage / template SoundAmbient when custom info is null.
     let mut drawable = BasicDrawable::new(DrawableId(7));
@@ -2196,6 +2270,7 @@ fn start_ambient_sound_uses_template_when_custom_info_absent() {
 
 #[test]
 fn local_ambient_range_uses_cpp_ground_axes_and_strict_boundary() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::audio::{AudioEventInfo, AudioPriority, Coord3D, ST_GLOBAL};
 
     let listener = Coord3D::new(1000.0, 2000.0, 30.0);
@@ -2236,6 +2311,7 @@ fn local_ambient_range_uses_cpp_ground_axes_and_strict_boundary() {
 
 #[test]
 fn set_time_of_day_queues_ambient_restart() {
+    crate::test_support::ensure_ambient_host();
     // C++ Drawable::setTimeOfDay (`Drawable.cpp:4344-4350`) restarts ambient.
     let mut drawable = BasicDrawable::new(DrawableId(8));
     let mut custom = DynamicAudioEventInfo::new();
@@ -2257,6 +2333,7 @@ fn set_time_of_day_queues_ambient_restart() {
 
 #[test]
 fn health_bar_requires_selected_and_show_object_health() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "health_bar_requires_selected_and_show_object_health",
@@ -2297,6 +2374,7 @@ fn health_bar_requires_selected_and_show_object_health() {
 
 #[test]
 fn presentation_health_region_reprojects_after_zoom_and_camera_motion() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "presentation_health_region_reprojects_after_zoom_and_camera_motion",
@@ -2347,6 +2425,7 @@ fn presentation_health_region_reprojects_after_zoom_and_camera_motion() {
 
 #[test]
 fn health_bar_force_attackable_is_hidden() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified =
         crate::test_process::run_bounded(module_path!(), "health_bar_force_attackable_is_hidden")
     {
@@ -2373,6 +2452,7 @@ fn health_bar_force_attackable_is_hidden() {
 
 #[test]
 fn health_bar_construction_uses_cyan_channel() {
+    crate::test_support::ensure_ambient_host();
     // C++ GameMakeColor(0, healthRatio*255, 255, 255) (`Drawable.cpp:3872-3875`).
     let (fill, _) = health_bar_colors(0.5, true, false, false);
     assert_eq!(fill[0], 0.0);
@@ -2386,6 +2466,7 @@ fn health_bar_construction_uses_cyan_channel() {
 
 #[test]
 fn construct_percent_uses_under_construction_desc() {
+    crate::test_support::ensure_ambient_host();
     // C++ Drawable::drawConstructPercent (`Drawable.cpp:3707`).
     let text = format_under_construction_desc(0.42);
     assert!(
@@ -2400,6 +2481,7 @@ fn construct_percent_uses_under_construction_desc() {
 
 #[test]
 fn ammo_pips_require_show_object_health_and_local() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "ammo_pips_require_show_object_health_and_local",
@@ -2432,6 +2514,7 @@ fn ammo_pips_require_show_object_health_and_local() {
 
 #[test]
 fn draw_icon_ui_honors_draw_icon_ui_gate() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified =
         crate::test_process::run_bounded(module_path!(), "draw_icon_ui_honors_draw_icon_ui_gate")
     {
@@ -2454,6 +2537,7 @@ fn draw_icon_ui_honors_draw_icon_ui_gate() {
 
 #[test]
 fn draws_any_ui_text_for_selected_hotkey_group() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "draws_any_ui_text_for_selected_hotkey_group",
@@ -2478,6 +2562,7 @@ fn draws_any_ui_text_for_selected_hotkey_group() {
 
 #[test]
 fn status_icons_are_submitted_on_overlay_data() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "status_icons_are_submitted_on_overlay_data",
@@ -2502,6 +2587,7 @@ fn status_icons_are_submitted_on_overlay_data() {
 
 #[test]
 fn source_instance_does_not_replace_object_pose_or_particle_parent() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(91));
     let position = Vector3::new(10., 20., 30.);
     let base = Matrix4::rotation_y(0.4);
@@ -2526,6 +2612,7 @@ fn source_instance_does_not_replace_object_pose_or_particle_parent() {
 }
 #[test]
 fn source_base_and_instance_xfer_independently() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
     use std::io::Cursor;
     let mut source = BasicDrawable::new(DrawableId(78));

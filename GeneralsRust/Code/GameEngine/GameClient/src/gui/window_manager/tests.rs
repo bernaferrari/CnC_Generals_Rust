@@ -37,6 +37,7 @@ fn with_managed_effects<R>(f: impl FnOnce(&mut WindowEventEffects<'_>) -> R) -> 
 
 #[test]
 fn test_window_manager_creation() {
+    crate::test_support::ensure_ambient_host();
     let manager = WindowManager::new();
     assert_eq!(manager.window_count, 0);
     assert!(manager.root_windows.is_empty());
@@ -45,6 +46,7 @@ fn test_window_manager_creation() {
 
 #[test]
 fn bind_window_callbacks_preserves_editor_callback_names_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let manager = WindowManager::new();
     let mut window = GameWindow::new();
     let window_def = WindowDefinition {
@@ -67,6 +69,7 @@ fn bind_window_callbacks_preserves_editor_callback_names_like_cpp() {
 
 #[test]
 fn bind_none_callback_does_not_overwrite_existing_system_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     use std::cell::Cell;
 
     let manager = WindowManager::new();
@@ -102,6 +105,7 @@ fn bind_none_callback_does_not_overwrite_existing_system_like_cpp() {
 
 #[test]
 fn static_text_script_data_applies_cpp_alignment_defaults() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_widget(WindowWidget::StaticText(StaticText::new(7, 0, 0, 120, 24)));
     let window_def = WindowDefinition {
@@ -128,6 +132,7 @@ fn static_text_script_data_applies_cpp_alignment_defaults() {
 
 #[test]
 fn test_window_creation() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
@@ -143,6 +148,7 @@ fn test_window_creation() {
 
 #[test]
 fn script_child_creation_sends_script_create_input_to_parent_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let seen = Rc::new(RefCell::new(Vec::new()));
@@ -182,6 +188,7 @@ fn script_child_creation_sends_script_create_input_to_parent_like_cpp() {
 
 #[test]
 fn combo_edit_child_draws_from_start_only_when_non_editable_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     for (is_editable, expected_draw_from_start) in [(false, true), (true, false)] {
         let mut manager = WindowManager::new();
         let layout = Rc::new(RefCell::new(WindowLayout::new("test.wnd".to_string())));
@@ -220,6 +227,7 @@ fn combo_edit_child_draws_from_start_only_when_non_editable_like_cpp() {
 
 #[test]
 fn script_tab_control_shows_first_script_pane_in_cpp_fixup_order() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let layout = Rc::new(RefCell::new(WindowLayout::new("test.wnd".to_string())));
     let layout_def = WindowLayoutDefinition::default();
@@ -274,6 +282,7 @@ fn script_tab_control_shows_first_script_pane_in_cpp_fixup_order() {
 
 #[test]
 fn root_window_owner_defaults_to_self_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
@@ -285,6 +294,7 @@ fn root_window_owner_defaults_to_self_like_cpp() {
 
 #[test]
 fn test_window_hierarchy() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
 
     let parent = manager.test_create_window(None, 0, 0, 200, 200).unwrap();
@@ -305,6 +315,7 @@ fn test_window_hierarchy() {
 
 #[test]
 fn child_window_owner_defaults_to_parent_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 200, 200).unwrap();
     let child = manager
@@ -319,6 +330,7 @@ fn child_window_owner_defaults_to_parent_like_cpp() {
 
 #[test]
 fn set_window_owner_none_defaults_to_self_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 200, 200).unwrap();
     let child = manager
@@ -334,6 +346,7 @@ fn set_window_owner_none_defaults_to_self_like_cpp() {
 
 #[test]
 fn set_window_parent_moves_root_to_child_list_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 200, 200).unwrap();
     let window = manager.test_create_window(None, 10, 10, 50, 50).unwrap();
@@ -348,6 +361,7 @@ fn set_window_parent_moves_root_to_child_list_like_cpp() {
 
 #[test]
 fn set_window_parent_moves_child_to_root_list_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 200, 200).unwrap();
     let child = manager
@@ -365,6 +379,7 @@ fn set_window_parent_moves_child_to_root_list_like_cpp() {
 
 #[test]
 fn new_child_windows_insert_at_head_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let first = manager
@@ -381,6 +396,7 @@ fn new_child_windows_insert_at_head_like_cpp() {
 
 #[test]
 fn test_focus_management() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window1 = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let window2 = manager.test_create_window(None, 100, 100, 100, 100).unwrap();
@@ -413,6 +429,7 @@ fn test_focus_management() {
 
 #[test]
 fn test_focus_requires_input_focus_acceptance() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
@@ -423,6 +440,7 @@ fn test_focus_requires_input_focus_acceptance() {
 
 #[test]
 fn set_focus_does_not_send_lost_when_refocusing_same_window_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let focus_messages = Rc::new(RefCell::new(Vec::new()));
@@ -450,6 +468,7 @@ fn set_focus_does_not_send_lost_when_refocusing_same_window_like_cpp() {
 
 #[test]
 fn set_focus_no_focus_window_preserves_existing_focus_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let focused = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let no_focus = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
@@ -481,6 +500,7 @@ fn set_focus_no_focus_window_preserves_existing_focus_like_cpp() {
 
 #[test]
 fn test_focus_acceptance_can_come_from_parent() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
@@ -503,6 +523,7 @@ fn test_focus_acceptance_can_come_from_parent() {
 
 #[test]
 fn process_key_event_passes_key_and_state_to_parent_until_handled() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
@@ -553,6 +574,7 @@ fn process_key_event_passes_key_and_state_to_parent_until_handled() {
 
 #[test]
 fn test_mouse_capture() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
@@ -568,6 +590,7 @@ fn test_mouse_capture() {
 
 #[test]
 fn release_capture_is_idempotent_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let other = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
@@ -585,6 +608,7 @@ fn release_capture_is_idempotent_like_cpp() {
 
 #[test]
 fn mouse_up_does_not_auto_release_capture_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     window
@@ -604,6 +628,7 @@ fn mouse_up_does_not_auto_release_capture_like_cpp() {
 
 #[test]
 fn mouse_up_outside_capture_does_not_auto_release_capture_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
@@ -629,6 +654,7 @@ fn mouse_up_outside_capture_does_not_auto_release_capture_like_cpp() {
 
 #[test]
 fn mouse_pos_does_not_forward_to_focus_window_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let focused = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let hovered = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
@@ -683,6 +709,7 @@ fn mouse_pos_does_not_forward_to_focus_window_like_cpp() {
 
 #[test]
 fn mouse_region_updates_on_button_events_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let first = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let second = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
@@ -732,6 +759,7 @@ fn mouse_region_updates_on_button_events_like_cpp() {
 
 #[test]
 fn capture_region_change_does_not_send_leaving_to_captor_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let captor = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
@@ -780,6 +808,7 @@ fn capture_region_change_does_not_send_leaving_to_captor_like_cpp() {
 
 #[test]
 fn mouse_input_bubbles_to_parent_until_handled_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
@@ -820,6 +849,7 @@ fn mouse_input_bubbles_to_parent_until_handled_like_cpp() {
 
 #[test]
 fn left_down_grabs_parent_that_handles_bubbled_input_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
@@ -844,6 +874,7 @@ fn left_down_grabs_parent_that_handles_bubbled_input_like_cpp() {
 
 #[test]
 fn captured_mouse_input_bubbles_only_to_captor_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let root = manager.test_create_window(None, 0, 0, 200, 200).unwrap();
     let captor = manager.test_create_window(Some(&root), 0, 0, 100, 100).unwrap();
@@ -895,6 +926,7 @@ fn captured_mouse_input_bubbles_only_to_captor_like_cpp() {
 
 #[test]
 fn captured_mouse_input_can_target_no_input_child_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let captor = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
@@ -933,6 +965,7 @@ fn captured_mouse_input_can_target_no_input_child_like_cpp() {
 
 #[test]
 fn mouse_region_enter_reaches_routed_no_input_window_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let captor = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
@@ -965,6 +998,7 @@ fn mouse_region_enter_reaches_routed_no_input_window_like_cpp() {
 
 #[test]
 fn handled_mouse_down_outside_lone_window_closes_it_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let lone = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let outside = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
@@ -998,6 +1032,7 @@ fn handled_mouse_down_outside_lone_window_closes_it_like_cpp() {
 
 #[test]
 fn lone_window_itself_is_not_its_own_child_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let lone = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let close_count = Rc::new(RefCell::new(0));
@@ -1029,6 +1064,7 @@ fn lone_window_itself_is_not_its_own_child_like_cpp() {
 
 #[test]
 fn strict_lone_window_child_keeps_lone_window_open_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let lone = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager.test_create_window(Some(&lone), 10, 10, 40, 40).unwrap();
@@ -1062,6 +1098,7 @@ fn strict_lone_window_child_keeps_lone_window_open_like_cpp() {
 
 #[test]
 fn hide_window_clears_runtime_references_for_window_and_children_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
@@ -1081,6 +1118,7 @@ fn hide_window_clears_runtime_references_for_window_and_children_like_cpp() {
 
 #[test]
 fn hide_window_unsets_modal_head_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let bottom = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let top = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
@@ -1103,6 +1141,7 @@ fn hide_window_unsets_modal_head_like_cpp() {
 
 #[test]
 fn test_modal_windows() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
@@ -1115,6 +1154,7 @@ fn test_modal_windows() {
 
 #[test]
 fn set_modal_rejects_child_windows_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
@@ -1127,6 +1167,7 @@ fn set_modal_rejects_child_windows_like_cpp() {
 
 #[test]
 fn unset_modal_rejects_non_top_windows_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let bottom = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let top = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
@@ -1158,6 +1199,7 @@ fn unset_modal_rejects_non_top_windows_like_cpp() {
 
 #[test]
 fn new_root_windows_insert_behind_modal_roots_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let normal = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let modal = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
@@ -1172,6 +1214,7 @@ fn new_root_windows_insert_behind_modal_roots_like_cpp() {
 
 #[test]
 fn root_sibling_links_follow_window_list_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let first = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let second = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
@@ -1211,6 +1254,7 @@ fn root_sibling_links_follow_window_list_like_cpp() {
 
 #[test]
 fn bring_window_forward_moves_child_to_head_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let first = manager.test_create_window(Some(&parent), 0, 0, 20, 20).unwrap();
@@ -1225,6 +1269,7 @@ fn bring_window_forward_moves_child_to_head_like_cpp() {
 
 #[test]
 fn child_sibling_links_follow_parent_child_list_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let first = manager.test_create_window(Some(&parent), 0, 0, 20, 20).unwrap();
@@ -1271,6 +1316,7 @@ fn child_sibling_links_follow_parent_child_list_like_cpp() {
 
 #[test]
 fn bring_window_forward_moves_root_to_head_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let first = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let second = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
@@ -1283,6 +1329,7 @@ fn bring_window_forward_moves_root_to_head_like_cpp() {
 
 #[test]
 fn bring_window_forward_updates_layout_order_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let layout = Rc::new(RefCell::new(WindowLayout::new("test.wnd".to_string())));
     let first = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
@@ -1301,6 +1348,7 @@ fn bring_window_forward_updates_layout_order_like_cpp() {
 
 #[test]
 fn activate_window_brings_to_top_and_unhides_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let first = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let second = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
@@ -1316,6 +1364,7 @@ fn activate_window_brings_to_top_and_unhides_like_cpp() {
 
 #[test]
 fn left_up_on_grab_window_clears_active_and_grab_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     window.borrow_mut().set_status(WindowStatus::ACTIVE);
@@ -1330,6 +1379,7 @@ fn left_up_on_grab_window_clears_active_and_grab_like_cpp() {
 
 #[test]
 fn left_up_on_grab_window_sends_release_to_grabbed_window_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let grabbed = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let other = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
@@ -1369,6 +1419,7 @@ fn left_up_on_grab_window_sends_release_to_grabbed_window_like_cpp() {
 
 #[test]
 fn left_down_sets_grab_only_when_handled_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let handled = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     handled.borrow_mut().set_input_callback(|_, msg, _, _| {
@@ -1400,6 +1451,7 @@ fn left_down_sets_grab_only_when_handled_like_cpp() {
 
 #[test]
 fn captured_mouse_event_clears_existing_grab_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let captured = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let grabbed = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
@@ -1415,6 +1467,7 @@ fn captured_mouse_event_clears_existing_grab_like_cpp() {
 
 #[test]
 fn left_drag_on_grab_window_routes_to_grabbed_window_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let grabbed = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let other = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
@@ -1453,6 +1506,7 @@ fn left_drag_on_grab_window_routes_to_grabbed_window_like_cpp() {
 
 #[test]
 fn non_drag_mouse_event_on_grab_window_is_consumed_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let grabbed = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let other = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
@@ -1491,6 +1545,7 @@ fn non_drag_mouse_event_on_grab_window_is_consumed_like_cpp() {
 
 #[test]
 fn left_drag_moves_grabbed_draggable_window_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let grabbed = manager.test_create_window(None, 10, 20, 100, 80).unwrap();
     grabbed.borrow_mut().set_status(WindowStatus::DRAGABLE);
@@ -1505,6 +1560,7 @@ fn left_drag_moves_grabbed_draggable_window_like_cpp() {
 
 #[test]
 fn left_drag_clips_grabbed_draggable_window_to_parent_and_screen_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     manager.set_screen_size(300, 200);
     let parent = manager.test_create_window(None, 0, 0, 150, 120).unwrap();
@@ -1528,6 +1584,7 @@ fn left_drag_clips_grabbed_draggable_window_to_parent_and_screen_like_cpp() {
 
 #[test]
 fn bring_layout_forward_moves_roots_to_head_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let background = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let first = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
@@ -1547,6 +1604,7 @@ fn bring_layout_forward_moves_roots_to_head_like_cpp() {
 
 #[test]
 fn bring_layout_forward_moves_children_to_head_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let first = manager.test_create_window(Some(&parent), 0, 0, 20, 20).unwrap();
@@ -1566,6 +1624,7 @@ fn bring_layout_forward_moves_children_to_head_like_cpp() {
 
 #[test]
 fn get_window_by_id_returns_first_traversal_match_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let id = 42;
     let first = manager
@@ -1604,6 +1663,7 @@ fn get_window_by_id_returns_first_traversal_match_like_cpp() {
 
 #[test]
 fn find_window_from_id_continues_through_siblings_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let first = manager
@@ -1620,6 +1680,7 @@ fn find_window_from_id_continues_through_siblings_like_cpp() {
 
 #[test]
 fn range_helpers_mutate_first_lookup_match_per_id_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let first = manager
@@ -1647,6 +1708,7 @@ fn range_helpers_mutate_first_lookup_match_per_id_like_cpp() {
 
 #[test]
 fn get_window_under_cursor_prioritizes_above_normal_below_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let below = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let normal = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
@@ -1673,6 +1735,7 @@ fn get_window_under_cursor_prioritizes_above_normal_below_like_cpp() {
 
 #[test]
 fn get_window_under_cursor_uses_capture_before_roots_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let normal = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let captured = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
@@ -1686,6 +1749,7 @@ fn get_window_under_cursor_uses_capture_before_roots_like_cpp() {
 
 #[test]
 fn get_window_under_cursor_uses_grab_when_not_captured_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let normal = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let grabbed = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
@@ -1699,6 +1763,7 @@ fn get_window_under_cursor_uses_grab_when_not_captured_like_cpp() {
 
 #[test]
 fn get_window_under_cursor_prefers_capture_over_grab_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let captured = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let grabbed = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
@@ -1712,6 +1777,7 @@ fn get_window_under_cursor_prefers_capture_over_grab_like_cpp() {
 
 #[test]
 fn get_window_under_cursor_returns_captured_child_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let captured = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
@@ -1726,6 +1792,7 @@ fn get_window_under_cursor_returns_captured_child_like_cpp() {
 
 #[test]
 fn get_window_under_cursor_returns_modal_when_outside_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let normal = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let modal = manager.test_create_window(None, 200, 0, 100, 100).unwrap();
@@ -1739,6 +1806,7 @@ fn get_window_under_cursor_returns_modal_when_outside_like_cpp() {
 
 #[test]
 fn get_window_under_cursor_discards_disabled_ignore_enabled_hit_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let disabled = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
@@ -1751,6 +1819,7 @@ fn get_window_under_cursor_discards_disabled_ignore_enabled_hit_like_cpp() {
 
 #[test]
 fn no_input_child_blocks_non_combo_parent_mouse_hit_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
@@ -1772,6 +1841,7 @@ fn no_input_child_blocks_non_combo_parent_mouse_hit_like_cpp() {
 
 #[test]
 fn no_input_combo_child_retargets_mouse_hit_to_combo_parent_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let combo = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager.test_create_window(Some(&combo), 10, 10, 40, 40).unwrap();
@@ -1800,6 +1870,7 @@ fn no_input_combo_child_retargets_mouse_hit_to_combo_parent_like_cpp() {
 
 #[test]
 fn create_slider_thumb_child_is_enabled_dragable_not_no_input() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let slider = manager.test_create_window(None, 0, 0, 120, 20).unwrap();
     slider.borrow_mut().instance_data_mut().style |= GWS_HORZ_SLIDER;
@@ -1833,6 +1904,7 @@ fn create_slider_thumb_child_is_enabled_dragable_not_no_input() {
 
 #[test]
 fn get_window_under_cursor_walks_no_input_parent_to_enabled_child() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
@@ -1852,6 +1924,7 @@ fn get_window_under_cursor_walks_no_input_parent_to_enabled_child() {
 
 #[test]
 fn test_window_destruction() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let window_id = window.borrow().get_id();
@@ -1869,6 +1942,7 @@ fn test_window_destruction() {
 #[test]
 #[should_panic(expected = "winDestroy(): edit data should NOT be present!")]
 fn destroy_window_rejects_editor_edit_data_like_cpp_debug_assert() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 
@@ -1882,6 +1956,7 @@ fn destroy_window_rejects_editor_edit_data_like_cpp_debug_assert() {
 
 #[test]
 fn destroy_window_recursively_destroys_children_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
@@ -1912,6 +1987,7 @@ fn destroy_window_recursively_destroys_children_like_cpp() {
 
 #[test]
 fn destroy_window_sends_parent_destroy_before_child_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let parent = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let child = manager
@@ -1948,6 +2024,7 @@ fn destroy_window_sends_parent_destroy_before_child_like_cpp() {
 
 #[test]
 fn destroy_window_clears_runtime_references_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     window
@@ -1978,6 +2055,7 @@ fn destroy_window_clears_runtime_references_like_cpp() {
 
 #[test]
 fn destroy_window_removes_window_from_layout_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let layout = Rc::new(RefCell::new(WindowLayout::new("test.wnd".to_string())));
     let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
@@ -1994,6 +2072,7 @@ fn destroy_window_removes_window_from_layout_like_cpp() {
 
 #[test]
 fn test_layout_hide_toggles_all_layout_windows_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let layout = manager.create_layout("test_layout.wnd".to_string());
 
@@ -2015,6 +2094,7 @@ fn test_layout_hide_toggles_all_layout_windows_like_cpp() {
 
 #[test]
 fn test_tab_navigation() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window1 = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let window2 = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
@@ -2055,6 +2135,7 @@ fn test_tab_navigation() {
 
 #[test]
 fn tab_navigation_is_blocked_by_modal_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window1 = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let window2 = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
@@ -2080,6 +2161,7 @@ fn tab_navigation_is_blocked_by_modal_like_cpp() {
 
 #[test]
 fn tab_navigation_clears_lone_window_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window1 = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let window2 = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
@@ -2119,6 +2201,7 @@ fn tab_navigation_clears_lone_window_like_cpp() {
 
 #[test]
 fn prev_tab_without_tab_focus_wraps_to_last_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let window1 = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
     let window2 = manager.test_create_window(None, 100, 0, 100, 100).unwrap();
@@ -2143,6 +2226,7 @@ fn prev_tab_without_tab_focus_wraps_to_last_like_cpp() {
 
 #[test]
 fn test_window_layout() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let layout = manager.create_layout("test.wnd".to_string());
 
@@ -2164,6 +2248,7 @@ fn test_window_layout() {
 
 #[test]
 fn layout_add_window_pushes_to_head_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let mut layout = WindowLayout::new("test.wnd".to_string());
     let first = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
@@ -2178,6 +2263,7 @@ fn layout_add_window_pushes_to_head_like_cpp() {
 
 #[test]
 fn layout_add_and_remove_updates_neighbor_links_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let mut layout = WindowLayout::new("test.wnd".to_string());
     let first = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
@@ -2223,6 +2309,7 @@ fn layout_add_and_remove_updates_neighbor_links_like_cpp() {
 
 #[test]
 fn layout_add_and_remove_updates_window_back_reference_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let layout = manager.create_layout("test.wnd".to_string());
     let window = manager.test_create_window(None, 0, 0, 100, 100).unwrap();
@@ -2255,6 +2342,7 @@ fn layout_add_and_remove_updates_window_back_reference_like_cpp() {
 
 #[test]
 fn layout_load_adds_only_top_level_windows_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let layout = manager.create_layout("test.wnd".to_string());
     let layout_def = WindowLayoutDefinition::default();

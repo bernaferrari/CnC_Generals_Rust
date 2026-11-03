@@ -3,6 +3,7 @@ use super::*;
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn actual_recorded_file_listing_does_not_publish_over_peer_local_slot_cache() {
+    crate::test_support::ensure_ambient_host();
     const NAME: &str = "actual_recorded_file_listing_does_not_publish_over_peer_local_slot_cache";
     const MARKER: &str = "GENERALS_REPLAY_METADATA_CACHE_CHILD";
     if std::env::var(MARKER).as_deref() != Ok(NAME) {
@@ -89,6 +90,7 @@ fn actual_recorded_file_listing_does_not_publish_over_peer_local_slot_cache() {
 
 #[test]
 fn plain_metadata_projection_retains_map_and_all_menu_slot_fields() {
+    crate::test_support::ensure_ambient_host();
     let options = "US=1;M=00Maps/Listed;MC=A;MS=12;SD=7;C=100;SR=0;SC=10000;O=N;S=HOwner,1020304,8086,TT,3,4,5,3,2:CE,1,2,3,0:CM,2,3,4,1:CH,3,4,5,2:O:X:X:X:;";
     let mut info = ReplayGameInfo::new();
     let policy = fixture_replay_metadata_policy(4, 5);
@@ -131,6 +133,7 @@ fn plain_metadata_projection_retains_map_and_all_menu_slot_fields() {
 
 #[test]
 fn malformed_or_out_of_range_slot_fields_leave_menu_target_unchanged() {
+    crate::test_support::ensure_ambient_host();
     let valid = "US=1;M=00Maps/Listed;MC=A;MS=12;SD=7;C=100;SR=0;SC=10000;O=N;S=HOwner,1020304,8086,TT,3,4,5,3,2:X:X:X:X:X:X:X:;";
     let policy = fixture_replay_metadata_policy(4, 5);
     for (from, to) in [
@@ -167,6 +170,7 @@ fn malformed_or_out_of_range_slot_fields_leave_menu_target_unchanged() {
 
 #[test]
 fn cpp_loaded_counts_nat_range_map_separators_and_required_keys() {
+    crate::test_support::ensure_ambient_host();
     let options = "US=1;M=00Maps/Mixed\\Leaf;MC=A;MS=12;SD=7;C=100;SR=0;SC=10000;O=N;S=HOwner,1020304,8086,TT,39,49,5,3,128:X:X:X:X:X:X:X:;";
     let mut policy = fixture_replay_metadata_policy(40, 50);
     policy.slot_labels[1] = "LocalizedClosed".into();

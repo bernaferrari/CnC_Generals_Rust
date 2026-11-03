@@ -720,6 +720,7 @@ mod tests {
 
     #[test]
     fn generals_bold_measurement_uses_the_same_real_face_as_arial_bold() {
+        crate::test_support::ensure_ambient_host();
         // C++ resolves Generals -> Arial before selecting FW_BOLD.
         let generals = DefaultFontData::new(FontDesc::new("Generals", 20, true));
         let arial = DefaultFontData::new(FontDesc::new("Arial", 20, true));
@@ -748,6 +749,7 @@ mod tests {
 
     #[test]
     fn generals_family_resolution_keeps_authored_identity_and_windows_bold_path() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(resolved_font_family("Generals"), "Arial");
         assert_eq!(resolved_font_family("generals"), "Arial");
         assert_eq!(resolved_font_family("Courier New"), "Courier New");
@@ -773,6 +775,7 @@ mod tests {
 
     #[test]
     fn test_font_desc_creation() {
+        crate::test_support::ensure_ambient_host();
         let desc = FontDesc::new("Arial", 12, false);
         assert_eq!(desc.name, "Arial");
         assert_eq!(desc.size, 12);
@@ -781,6 +784,7 @@ mod tests {
 
     #[test]
     fn test_font_desc_default() {
+        crate::test_support::ensure_ambient_host();
         let desc = FontDesc::default();
         assert_eq!(desc.name, "Arial");
         assert_eq!(desc.size, 12);
@@ -789,6 +793,7 @@ mod tests {
 
     #[test]
     fn test_game_font_creation() {
+        crate::test_support::ensure_ambient_host();
         let desc = FontDesc::new("Times New Roman", 14, true);
         let font = GameFont::new(desc.clone()).unwrap();
         assert_eq!(font.desc, desc);
@@ -800,6 +805,7 @@ mod tests {
 
     #[test]
     fn test_font_library_init() {
+        crate::test_support::ensure_ambient_host();
         let mut library = FontLibrary::new();
         assert!(library.init().is_ok());
         assert!(library.initialized);
@@ -807,6 +813,7 @@ mod tests {
 
     #[test]
     fn test_font_library_get_font_before_init() {
+        crate::test_support::ensure_ambient_host();
         let mut library = FontLibrary::new();
         let desc = FontDesc::new("Arial", 12, false);
         let result = library.get_font(&desc);
@@ -815,6 +822,7 @@ mod tests {
 
     #[test]
     fn test_font_library_get_font_invalid_params() {
+        crate::test_support::ensure_ambient_host();
         let mut library = FontLibrary::new();
         library.init().unwrap();
 
@@ -829,6 +837,7 @@ mod tests {
 
     #[test]
     fn test_font_library_caching() {
+        crate::test_support::ensure_ambient_host();
         let mut library = FontLibrary::new();
         library.init().unwrap();
 
@@ -852,6 +861,7 @@ mod tests {
 
     #[test]
     fn test_font_metrics() {
+        crate::test_support::ensure_ambient_host();
         let desc = FontDesc::new("Arial", 16, false);
         let font = GameFont::new(desc).unwrap();
         let metrics = font.get_metrics();
@@ -864,6 +874,7 @@ mod tests {
 
     #[test]
     fn test_text_measurement() {
+        crate::test_support::ensure_ambient_host();
         let desc = FontDesc::new("Arial", 12, false);
         let font = GameFont::new(desc).unwrap();
 
@@ -876,6 +887,7 @@ mod tests {
 
     #[test]
     fn test_font_library_cleanup() {
+        crate::test_support::ensure_ambient_host();
         let mut library = FontLibrary::new();
         library.init().unwrap();
 
@@ -892,6 +904,7 @@ mod tests {
 
     #[test]
     fn test_font_library_reset() {
+        crate::test_support::ensure_ambient_host();
         let mut library = FontLibrary::new();
         library.init().unwrap();
 
@@ -912,6 +925,7 @@ mod tests {
 
     #[test]
     fn test_global_font_library() {
+        crate::test_support::ensure_ambient_host();
         let mut library = get_font_library();
         assert!(library.init().is_ok());
 

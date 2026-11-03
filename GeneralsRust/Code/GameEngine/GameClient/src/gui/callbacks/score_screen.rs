@@ -2753,6 +2753,7 @@ mod tests {
 
     #[test]
     fn mission_save_description_formats_campaign_and_number_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         // C++ GameState.cpp:616-618 UnicodeString::format(GUI:MissionSave, label, n).
         assert_eq!(
             format_mission_save_description("%s Mission %d", "USA Campaign", 2),
@@ -2771,6 +2772,7 @@ mod tests {
 
     #[test]
     fn final_victory_movie_includes_challenge_campaigns_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let campaign = campaign_with_final_movie(true, "USACampaignVictory");
 
         assert_eq!(
@@ -2781,6 +2783,7 @@ mod tests {
 
     #[test]
     fn final_victory_movie_respects_empty_and_low_res_cases() {
+        crate::test_support::ensure_ambient_host();
         let empty = campaign_with_final_movie(true, "");
         let normal = campaign_with_final_movie(false, "ChinaCampaignVictory");
 
@@ -2790,6 +2793,7 @@ mod tests {
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
 
         assert_eq!(
@@ -2804,6 +2808,7 @@ mod tests {
 
     #[test]
     fn score_screen_system_consumes_destroy_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
 
         let mut emitted_messages = Vec::new();
@@ -2844,6 +2849,7 @@ mod tests {
 
     #[test]
     fn start_next_campaign_game_appends_msg_new_game_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut campaign_manager = CampaignManager::new();
         let campaign = campaign_manager.new_campaign("testcampaign".to_string());
         campaign.first_mission = "m1".to_string();
@@ -2890,6 +2896,7 @@ mod tests {
 
     #[test]
     fn set_text_color_preserves_enabled_border_color_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let window = Rc::new(RefCell::new(GameWindow::new()));
         window
             .borrow_mut()
@@ -2904,11 +2911,13 @@ mod tests {
 
     #[test]
     fn score_screen_music_uses_cpp_fade_stop_sentinel() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(AHSV_STOP_THE_MUSIC_FADE, 0xFFFF_FFF1);
     }
 
     #[test]
     fn next_campaign_leaves_score_screen_with_immediate_pop_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         #[derive(Default)]
         struct TestShellActions {
             events: Vec<&'static str>,
@@ -2933,6 +2942,7 @@ mod tests {
 
     #[test]
     fn skirmish_honor_persist_skip_matches_cpp_sandbox_and_defeat() {
+        crate::test_support::ensure_ambient_host();
         // Sandbox or undecided + still active → skip.
         assert!(should_skip_skirmish_honor_persist(true, false, true, true));
         assert!(should_skip_skirmish_honor_persist(
@@ -2954,6 +2964,7 @@ mod tests {
 
     #[test]
     fn campaign_side_row_skips_neutral_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         use gamelogic::prelude::Relationship;
         assert!(include_in_campaign_side_row(true, Relationship::Allies));
         assert!(!include_in_campaign_side_row(true, Relationship::Enemies));
@@ -2965,6 +2976,7 @@ mod tests {
 
     #[test]
     fn skirmish_blitz_honors_the_bound_completed_frame() {
+        crate::test_support::ensure_ambient_host();
         fn bound(frame: u32) -> Option<Rc<RefCell<GameWindow>>> {
             let mut window = GameWindow::new();
             window.set_user_data(ScoreScreenAcademySnapshot {
@@ -2992,6 +3004,7 @@ mod tests {
 
     #[test]
     fn war_school_academy_advice_is_fed_from_leftover() {
+        crate::test_support::ensure_ambient_host();
         let mut stats = gamelogic::player::AcademyStats::new();
         let mut info = game_engine::common::rts::AcademyAdviceInfo::default();
         assert!(stats.calculate_academy_advice(&mut info));
@@ -3274,6 +3287,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_score_screen_continue_hits_button_then_latches_continue() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         install_named_button(&owner, "ScoreScreen.wnd:ButtonContinue", 10, 10);
         let _ = WindowEventEffects::with_standalone(|effects| simulate_score_screen_set_finish_campaign(false, effects));
@@ -3290,6 +3304,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_score_screen_ok_hits_button_then_latches_ok() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         install_named_button(&owner, "ScoreScreen.wnd:ButtonOk", 10, 40);
         assert!(
@@ -3304,6 +3319,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_score_screen_continue_starts_next_usa_mission_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut campaign_manager = CampaignManager::new();
         campaign_manager.init();
@@ -3372,6 +3388,7 @@ mod owned_academy_snapshot_tests {
 
     #[test]
     fn actual_receiving_layouts_keep_independent_score_advice_and_end_frames() {
+        crate::test_support::ensure_ambient_host();
         let mut wm = crate::gui::window_manager::WindowManager::new();
         let make = |frame: u32, key: &str, wm: &mut crate::gui::window_manager::WindowManager| {
             let parent = Rc::new(RefCell::new(GameWindow::new()));

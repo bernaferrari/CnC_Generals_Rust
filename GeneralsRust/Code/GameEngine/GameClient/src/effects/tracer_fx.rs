@@ -585,6 +585,7 @@ mod tests {
 
     #[test]
     fn fxlist_tracer_nugget_create_tracer_fx_gpu_mesh_after_n_frames_matches_cpp() {
+        crate::test_support::ensure_ambient_host();
         let _guard = lock_tracer_fx_tests();
         clear_tracer_fx();
 
@@ -721,6 +722,7 @@ mod tests {
 
     #[test]
     fn tracer_fx_zero_nugget_speed_uses_primary_speed_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let _guard = lock_tracer_fx_tests();
         clear_tracer_fx();
         let mut nugget = TracerFXNugget::new("GenericTracer".to_string());
@@ -759,6 +761,7 @@ mod tests {
 
     #[test]
     fn spawn_tracer_drawable_like_cpp_applies_w3d_tracer_draw_local_x() {
+        crate::test_support::ensure_ambient_host();
         let _guard = lock_tracer_fx_tests();
         clear_tracer_fx();
         let primary = [10.0_f32, 20.0, 30.0];

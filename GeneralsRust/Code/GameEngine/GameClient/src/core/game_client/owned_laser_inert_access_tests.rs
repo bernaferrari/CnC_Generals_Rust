@@ -142,6 +142,7 @@ impl World {
 
 #[test]
 fn owned_laser_initialization_keeps_dirty_callbacks_outside_receiving_particle_services() {
+    crate::test_support::ensure_ambient_host();
     let mut first = World::new();
     let mut peer = World::new();
     assert_eq!(first.id, peer.id);
@@ -162,6 +163,7 @@ fn owned_laser_initialization_keeps_dirty_callbacks_outside_receiving_particle_s
 
 #[test]
 fn owned_laser_update_observation_is_inert_and_does_not_advance_equal_id_peer() {
+    crate::test_support::ensure_ambient_host();
     let mut first = World::new();
     let mut peer = World::new();
     assert_eq!(first.id, peer.id);
@@ -186,6 +188,7 @@ fn owned_laser_update_observation_is_inert_and_does_not_advance_equal_id_peer() 
 
 #[test]
 fn owned_laser_count_and_binding_preserve_dirty_phase_and_native_payload() {
+    crate::test_support::ensure_ambient_host();
     let mut first = World::new();
     first.initialize();
     let before = first.payload();
@@ -205,6 +208,7 @@ fn owned_laser_count_and_binding_preserve_dirty_phase_and_native_payload() {
 
 #[test]
 fn owned_laser_explicit_destruction_is_inert_and_retires_only_receiving_ids() {
+    crate::test_support::ensure_ambient_host();
     let mut first = World::new();
     let mut peer = World::new();
     assert_eq!(first.id, peer.id);
@@ -237,6 +241,7 @@ fn owned_laser_explicit_destruction_is_inert_and_retires_only_receiving_ids() {
 
 #[test]
 fn owned_laser_draw_flushes_once_and_texture_failure_does_not_consume_cu_dirty_state() {
+    crate::test_support::ensure_ambient_host();
     let mut first = World::new();
     let mut peer = World::new();
     first.initialize();
@@ -281,6 +286,7 @@ fn owned_laser_draw_flushes_once_and_texture_failure_does_not_consume_cu_dirty_s
 
 #[test]
 fn owned_laser_native_cu_restore_keeps_identity_and_future_geometry() {
+    crate::test_support::ensure_ambient_host();
     let mut first = World::new();
     let mut restored = World::new();
     assert_eq!(first.id, restored.id);
@@ -318,6 +324,7 @@ fn owned_laser_native_cu_restore_keeps_identity_and_future_geometry() {
 
 #[test]
 fn map_attempt_clear_retires_owned_laser_without_draw_flush_or_peer_mutation() {
+    crate::test_support::ensure_ambient_host();
     let mut first = World::new();
     let mut peer = World::new();
     assert_eq!(first.id, peer.id);

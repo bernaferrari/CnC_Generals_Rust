@@ -689,6 +689,7 @@ mod tests {
 
     #[test]
     fn test_message_logger() {
+        crate::test_support::ensure_ambient_host();
         let mut logger = MessageLogger::new();
 
         let msg = GameMessage::new(GameMessageType::Invalid);
@@ -704,6 +705,7 @@ mod tests {
 
     #[test]
     fn test_message_logger_max_entries() {
+        crate::test_support::ensure_ambient_host();
         let mut logger = MessageLogger::new();
         logger.set_max_entries(5);
 
@@ -717,6 +719,7 @@ mod tests {
 
     #[test]
     fn test_message_search() {
+        crate::test_support::ensure_ambient_host();
         let mut logger = MessageLogger::new();
 
         let msg1 = GameMessage::with_player(GameMessageType::Invalid, 0);
@@ -734,6 +737,7 @@ mod tests {
 
     #[test]
     fn test_replay_recorder() {
+        crate::test_support::ensure_ambient_host();
         let mut recorder = ReplayRecorder::new("/tmp/test_replay.txt");
 
         assert!(!recorder.is_recording());
@@ -752,6 +756,7 @@ mod tests {
 
     #[test]
     fn test_replay_round_trip_serialized_rows() {
+        crate::test_support::ensure_ambient_host();
         let replay_path = format!(
             "/tmp/test_replay_round_trip_{}.txt",
             SystemTime::now()
@@ -786,6 +791,7 @@ mod tests {
 
     #[test]
     fn test_parse_legacy_replay_line() {
+        crate::test_support::ensure_ambient_host();
         let line = "[Frame 45] [Replay] @123456: DoMoveTo(Coord3D { x: 1.0, y: 2.0, z: 3.0 })";
         let parsed = parse_legacy_replay_entry(line).expect("legacy parse");
         assert_eq!(parsed.frame_number, 45);
@@ -800,6 +806,7 @@ mod tests {
 
     #[test]
     fn test_message_debugger() {
+        crate::test_support::ensure_ambient_host();
         let mut debugger = MessageDebugger::new();
 
         let msg1 = GameMessage::with_player(GameMessageType::Invalid, 0);
@@ -819,6 +826,7 @@ mod tests {
 
     #[test]
     fn test_debug_metrics() {
+        crate::test_support::ensure_ambient_host();
         let mut debugger = MessageDebugger::new();
 
         debugger.update_metrics(100, 1000, 1.0);

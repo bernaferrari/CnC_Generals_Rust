@@ -77,6 +77,7 @@ mod tests {
 
     #[test]
     fn shell_hook_names_match_cpp_script_table() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(THE_SHELL_HOOK_NAMES.len(), SHELL_SCRIPT_HOOK_TOTAL as usize);
         assert_eq!(
             THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_MAIN_MENU_CAMPAIGN_SELECTED as usize],

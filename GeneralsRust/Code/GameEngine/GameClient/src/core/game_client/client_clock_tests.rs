@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn actual_presentation_shell_preserves_the_admitted_client_frame() {
+    crate::test_support::ensure_ambient_host();
     if crate::core::game_client::global_boundary_fixture::run_in_private_child(
         module_path!(),
         "actual_presentation_shell_preserves_the_admitted_client_frame",

@@ -2797,6 +2797,7 @@ mod science_vec_gate_tests {
 
     #[test]
     fn science_vec_restricted_until_host_or_crate_owns() {
+        crate::test_support::ensure_ambient_host();
         // C++ ControlBarCommand.cpp:1219-1261
         let required_ids = [42];
         let required_names = vec!["SCIENCE_StealthFighter".to_string()];
@@ -2822,6 +2823,7 @@ mod science_vec_gate_tests {
 
     #[test]
     fn show_purchase_science_unhides_gen_exp_parent_and_sets_fade() {
+        crate::test_support::ensure_ambient_host();
         // C++ ControlBar.cpp:2918-2933 showPurchaseScience — winHide(FALSE)
         // on GeneralsExpPoints.wnd:GenExpParent + setGroup("GenExpFade").
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
@@ -2854,6 +2856,7 @@ mod science_vec_gate_tests {
 
     #[test]
     fn progress_bar_experience_uses_live_host_skill() {
+        crate::test_support::ensure_ambient_host();
         // C++ ControlBar::updateContextPurchaseScience from live local skill.
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         let mut bar = ControlBar::new();
@@ -2869,6 +2872,7 @@ mod science_vec_gate_tests {
 
     #[test]
     fn generals_button_and_alt_g_toggle_purchase_science_window() {
+        crate::test_support::ensure_ambient_host();
         // C++ ControlBarCallback.cpp:396-399 ButtonGeneral → togglePurchaseScience.
         // Host Alt+G routes through TheControlBar::toggle_purchase_science.
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
@@ -2885,6 +2889,7 @@ mod science_vec_gate_tests {
 
     #[test]
     fn leftover_authored_rect_table_covers_cpp_bound_windows() {
+        crate::test_support::ensure_ambient_host();
         // Retail ControlBar.wnd 800x600 rects for the ControlBar.cpp:1054-1225
         // bind names; bottom-right exclusive per WindowManager parse.
         assert_eq!(
@@ -2904,6 +2909,7 @@ mod science_vec_gate_tests {
 
     #[test]
     fn leftover_ensure_named_window_places_authored_windows_visible() {
+        crate::test_support::ensure_ambient_host();
         // Table hit: authored geometry + SHOWN (audit-1 quick win 3) instead
         // of the blind (0,0,200,200) hidden stub.
         let mut wm = crate::gui::window_manager::WindowManager::new();
@@ -2939,6 +2945,7 @@ mod receiving_script_ending_tests {
     use super::*;
     #[test]
     fn receiving_science_toggle_preserves_hide_and_rejects_only_ending_show() {
+        crate::test_support::ensure_ambient_host();
         let mut wm = crate::gui::window_manager::WindowManager::new();
         let mut owner = ControlBar::new();
         let mut peer = ControlBar::new();

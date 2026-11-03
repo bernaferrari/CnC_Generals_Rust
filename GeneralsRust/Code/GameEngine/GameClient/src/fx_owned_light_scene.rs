@@ -80,6 +80,7 @@ mod tests {
 
     #[test]
     fn light_admission_fade_and_clear_belong_to_the_receiving_scene() {
+        crate::test_support::ensure_ambient_host();
         let pulse = DisplayLightPulse {
             pos: [1.0, 2.0, 3.0],
             color: [1.0, 0.5, 0.25],
@@ -111,6 +112,7 @@ mod tests {
 
     #[test]
     fn cpp_size_cull_admits_no_scene_state() {
+        crate::test_support::ensure_ambient_host();
         let mut scene = DisplayLightScene::default();
         assert!(!scene.create_pulse(DisplayLightPulse {
             pos: [0.0; 3],

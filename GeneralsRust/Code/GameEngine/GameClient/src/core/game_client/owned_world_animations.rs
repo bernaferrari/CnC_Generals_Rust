@@ -404,6 +404,7 @@ mod owned_world_animation_tests {
     }
     #[test]
     fn original_last_frame_zero_and_no_elapsed_catchup() {
+        crate::test_support::ensure_ambient_host();
         let event = event();
         let definition = definition(4, 5, Anim2DMode::Loop);
         let mut state = WorldAnimationPlayback::new(&event);
@@ -418,6 +419,7 @@ mod owned_world_animation_tests {
     }
     #[test]
     fn zero_delay_advances_once_per_call_at_same_paused_frame() {
+        crate::test_support::ensure_ambient_host();
         let event = event();
         let definition = definition(4, 0, Anim2DMode::Loop);
         let mut state = WorldAnimationPlayback::new(&event);
@@ -428,6 +430,7 @@ mod owned_world_animation_tests {
     }
     #[test]
     fn hidden_phase_advances_z_without_advancing_animation() {
+        crate::test_support::ensure_ambient_host();
         let mut owner = owner(4);
         let event = event();
         owner.observe_owner(9, 100, false, &[event.clone()]);
@@ -440,6 +443,7 @@ mod owned_world_animation_tests {
     }
     #[test]
     fn matching_snapshots_do_not_reset_live_position_or_initial_frame() {
+        crate::test_support::ensure_ambient_host();
         let mut owner = owner(4);
         let mut event = event();
         event.initial_frame = 2;
@@ -456,6 +460,7 @@ mod owned_world_animation_tests {
     }
     #[test]
     fn expired_descriptor_is_tombstoned_until_removed_or_epoch_replaced() {
+        crate::test_support::ensure_ambient_host();
         let mut owner = owner(4);
         let event = event();
         owner.observe_owner(9, 100, false, &[event.clone()]);
@@ -470,6 +475,7 @@ mod owned_world_animation_tests {
     }
     #[test]
     fn two_same_id_owners_keep_independent_z_and_playback() {
+        crate::test_support::ensure_ambient_host();
         let mut a = owner(4);
         let mut b = owner(7);
         let event = event();
@@ -487,6 +493,7 @@ mod owned_world_animation_tests {
     }
     #[test]
     fn pause_preserves_z_and_alpha_uses_unsigned_remaining_window() {
+        crate::test_support::ensure_ambient_host();
         let mut owner = owner(4);
         let event = event();
         owner.observe_owner(1, 100, true, &[event.clone()]);
@@ -497,6 +504,7 @@ mod owned_world_animation_tests {
     }
     #[test]
     fn once_backwards_and_pingpong_keep_source_step_order() {
+        crate::test_support::ensure_ambient_host();
         let mut event = event();
         event.initial_frame = 2;
         let mut state = WorldAnimationPlayback::new(&event);
@@ -548,6 +556,7 @@ mod admitted_game_client_animation_tests {
 
     #[test]
     fn actual_clients_admit_same_name_definitions_and_keep_cpu_playback_independent() {
+        crate::test_support::ensure_ambient_host();
         let (templates_a, images_a) = content("OwnerA", 32, 100);
         let (templates_b, images_b) = content("OwnerB", 64, 10000);
         let mut a = GameClient::new().expect("CPU-only GameClient constructor");
@@ -644,6 +653,7 @@ mod admitted_game_client_animation_tests {
 
     #[test]
     fn original_integer_zoom_centering_and_byte_alpha_are_preserved() {
+        crate::test_support::ensure_ambient_host();
         let (rect, alpha) =
             world_animation_draw_geometry(100.0, 80.0, 3, 5, 1.5, 1.0 / 30.0).unwrap();
         assert_eq!(
@@ -660,6 +670,7 @@ mod admitted_game_client_animation_tests {
     }
     #[test]
     fn malformed_pixel_geometry_is_rejected_before_integer_conversion() {
+        crate::test_support::ensure_ambient_host();
         assert!(world_animation_draw_geometry(f32::NAN, 0.0, 3, 3, 1.0, 1.0).is_none());
         assert!(world_animation_draw_geometry(0.0, 0.0, 3, 3, f32::INFINITY, 1.0).is_none());
         assert!(world_animation_draw_geometry(2_147_483_648.0, 0.0, 3, 3, 1.0, 1.0).is_none());
@@ -682,6 +693,7 @@ mod admitted_game_client_animation_tests {
     }
     #[test]
     fn actual_successful_retirement_clears_runtime_and_transport_but_keeps_definitions() {
+        crate::test_support::ensure_ambient_host();
         let (templates, images) = content("Retirement", 32, 100);
         let mut client = GameClient::new().unwrap();
         client.admit_owned_world_animations(&templates, &images);
@@ -722,6 +734,7 @@ mod admitted_game_client_animation_tests {
     }
     #[test]
     fn admitted_animation_clock_does_not_follow_independent_client_frame() {
+        crate::test_support::ensure_ambient_host();
         let (templates, images) = content("Clock", 32, 100);
         let mut client = GameClient::new().unwrap();
         client.admit_owned_world_animations(&templates, &images);

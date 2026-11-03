@@ -349,11 +349,13 @@ mod tests {
 
     #[test]
     fn pack_legacy_mouse_data_matches_low_level_layout() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(pack_legacy_mouse_data(12, 34), (34u32 << 16) | 12u32);
     }
 
     #[test]
     fn raw_mouse_wheel_zero_is_ignored() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             raw_mouse_to_window_message(&GameMessageType::RawMouseWheel(0)),
             None
@@ -362,6 +364,7 @@ mod tests {
 
     #[test]
     fn raw_mouse_drag_uses_end_position_and_delta_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let msg =
             GameMessageType::RawMouseLeftDrag(ICoord2D { x: 10, y: 20 }, ICoord2D { x: 14, y: 17 });
 
@@ -374,6 +377,7 @@ mod tests {
 
     #[test]
     fn locked_mouse_without_scrolling_keeps_left_clicks_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let left_down = GameMessageType::RawMouseLeftButtonDown(ICoord2D { x: 1, y: 2 }, 0, 0);
         let left_up = GameMessageType::RawMouseLeftButtonUp(ICoord2D { x: 1, y: 2 }, 0, 0);
         let position = GameMessageType::RawMousePosition(ICoord2D { x: 1, y: 2 });
@@ -385,6 +389,7 @@ mod tests {
 
     #[test]
     fn locked_mouse_while_scrolling_only_passes_left_clicks_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let left_down = GameMessageType::RawMouseLeftButtonDown(ICoord2D { x: 1, y: 2 }, 0, 0);
         let left_up = GameMessageType::RawMouseLeftButtonUp(ICoord2D { x: 1, y: 2 }, 0, 0);
         let right_down = GameMessageType::RawMouseRightButtonDown(ICoord2D { x: 1, y: 2 }, 0, 0);
@@ -399,6 +404,7 @@ mod tests {
 
     #[test]
     fn locked_os_dispatch_while_scrolling_only_passes_left_clicks_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         // C++ WindowXlat.cpp:147-167 — mouse-locked + isScrolling lets LMB
         // reach winProcessMouseEvent so ControlBar clicks are not issued
         // through the HUD.
@@ -430,6 +436,7 @@ mod tests {
 
     #[test]
     fn live_os_dispatch_uses_window_xlat_mouse_lock_pass_through() {
+        crate::test_support::ensure_ambient_host();
         let dispatch = include_str!("../gui/window_manager/reentry.rs");
         let start = dispatch
             .find("pub fn dispatch_os_mouse_to_window_manager")

@@ -148,6 +148,7 @@ fn value(slider: &Rc<RefCell<GameWindow>>) -> i32 {
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn receiving_options_layout_apply_defaults_and_cancel_keep_equal_id_peer_isolated() {
+    crate::test_support::ensure_ambient_host();
     const NAME: &str =
         "receiving_options_layout_apply_defaults_and_cancel_keep_equal_id_peer_isolated";
     const MARKER: &str = "GENERALS_RECEIVING_CAMERA_OPTIONS_CHILD";
@@ -259,6 +260,7 @@ fn receiving_options_layout_apply_defaults_and_cancel_keep_equal_id_peer_isolate
 
 #[test]
 fn actual_quit_and_no_save_options_buttons_select_borrowed_camera_admission() {
+    crate::test_support::ensure_ambient_host();
     for prefix in ["QuitMenu.wnd", "QuitNoSave.wnd"] {
         let mut manager = WindowManager::new();
         let key = |name: &str| NameKeyGenerator::name_to_key(name) as i32;
@@ -324,6 +326,7 @@ fn actual_quit_and_no_save_options_buttons_select_borrowed_camera_admission() {
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
 fn receiving_replay_checkbox_actual_wnd_commits_only_own_store_before_accept() {
+    crate::test_support::ensure_ambient_host();
     const NAME: &str = "receiving_replay_checkbox_actual_wnd_commits_only_own_store_before_accept";
     const MARKER: &str = "GENERALS_RECEIVING_REPLAY_OPTIONS_CHILD";
     if std::env::var(MARKER).as_deref() != Ok(NAME) {

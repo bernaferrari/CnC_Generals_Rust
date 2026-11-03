@@ -738,6 +738,7 @@ mod tests {
 
     #[test]
     fn flat_patch_sets_only_corners_and_emits_two_triangles() {
+        crate::test_support::ensure_ambient_host();
         let map = TestMap::flat(5, 5, 7);
         let mut background = W3DTerrainBackground::new();
         background.allocate_terrain_buffers(&map, 0, 0, 4);
@@ -757,6 +758,7 @@ mod tests {
 
     #[test]
     fn nonflat_patch_recurses_to_required_subpatch_corners() {
+        crate::test_support::ensure_ambient_host();
         let mut map = TestMap::flat(5, 5, 7);
         map.set(2, 2, 9);
         let mut background = W3DTerrainBackground::new();
@@ -774,6 +776,7 @@ mod tests {
 
     #[test]
     fn vertices_match_cpp_world_position_uv_and_diffuse() {
+        crate::test_support::ensure_ambient_host();
         let mut map = TestMap::flat(5, 5, 10);
         map.border = 1;
         let mut background = W3DTerrainBackground::new();
@@ -794,6 +797,7 @@ mod tests {
 
     #[test]
     fn disjoint_partial_update_keeps_existing_buffers() {
+        crate::test_support::ensure_ambient_host();
         let map = TestMap::flat(5, 5, 3);
         let mut background = W3DTerrainBackground::new();
         background.allocate_terrain_buffers(&map, 0, 0, 4);

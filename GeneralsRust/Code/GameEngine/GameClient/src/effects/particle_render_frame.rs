@@ -188,6 +188,7 @@ mod owned_info_tests {
 
     #[test]
     fn owned_particle_info_load_drives_emission_and_prepared_vertices() {
+        crate::test_support::ensure_ambient_host();
         let mut authored = ParticleSystemTemplate::new("OwnedInfo".into());
         authored.info_mut().particle_type = ParticleType::Particle;
         authored.info_mut().shader_type = ParticleShaderType::Alpha;

@@ -101,6 +101,7 @@ mod tests {
 
     #[test]
     fn motd_create_caches_close_button_key() {
+        crate::test_support::ensure_ambient_host();
         let mut wm = crate::gui::window_manager::WindowManager::new();
         let mut window = GameWindow::new();
         assert_eq!(
@@ -116,6 +117,7 @@ mod tests {
 
     #[test]
     fn motd_selected_close_button_toggles_window_hidden_state() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
             let live_window =
@@ -145,6 +147,7 @@ mod tests {
 
     #[test]
     fn motd_ignores_unknown_messages() {
+        crate::test_support::ensure_ambient_host();
         let mut wm = crate::gui::window_manager::WindowManager::new();
         let mut window = GameWindow::new();
         assert_eq!(

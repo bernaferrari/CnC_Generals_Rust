@@ -67,6 +67,7 @@ mod tests {
 
     #[test]
     fn is_first_cd_present_true_in_debug_or_internal_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         // cargo test is debug; GameClient `--features internal` is _INTERNAL.
         assert!(
             is_first_cd_present(),
@@ -76,6 +77,7 @@ mod tests {
 
     #[test]
     fn retail_cd_check_finds_discovered_genseczh_big() {
+        crate::test_support::ensure_ambient_host();
         assert!(
             are_music_files_on_cd(),
             "areMusicFilesOnCD must find genseczh.big via install/CD discovery"

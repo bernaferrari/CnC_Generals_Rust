@@ -582,6 +582,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_difficulty_select_hits_radio_and_ok_then_latches() {
+        crate::test_support::ensure_ambient_host();
         with_test_effects(|effects| {
             install_named_button("DifficultySelect.wnd:RadioButtonHard", 10, 10, effects);
             install_named_button("DifficultySelect.wnd:ButtonOk", 10, 40, effects);
@@ -600,6 +601,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_difficulty_select_cancel_hits_named_gadget() {
+        crate::test_support::ensure_ambient_host();
         with_test_effects(|effects| {
             install_named_button("DifficultySelect.wnd:ButtonCancel", 10, 70, effects);
             assert!(drive_os_wnd_difficulty_select_cancel_like_cpp(effects));

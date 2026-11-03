@@ -1526,6 +1526,7 @@ mod track_ground_ownership_tests {
 
     #[test]
     fn identical_track_handles_sample_their_own_terrain_without_publication() {
+        crate::test_support::ensure_ambient_host();
         let mut first = terrain(10.0);
         let mut second = terrain(40.0);
         let a = first
@@ -1565,6 +1566,7 @@ mod visual_heightmap_scale_tests {
 
     #[test]
     fn live_world_size_uses_map_xy_factor_not_playable_over_grid() {
+        crate::test_support::ensure_ambient_host();
         // C++ MapObject.h MAP_XY_FACTOR=10; WorldHeightMap.cpp m_borderSize.
         // Alpine-shaped 32 samples + playable 200 would derive 200/31 ≈ 6.45.
         let mut heightmap = HeightMap::new(148, 148, 255.0, 1.0);
@@ -1588,6 +1590,7 @@ mod visual_heightmap_scale_tests {
 
     #[test]
     fn live_world_size_preserves_authored_zero_border() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(32, 32, 255.0, 1.0);
         heightmap.heights.fill(40.0 / 255.0);
         let mut visual = TerrainVisualImpl::new();
@@ -1604,6 +1607,7 @@ mod visual_heightmap_scale_tests {
 
     #[test]
     fn file_world_size_uses_map_xy_factor_not_derived_scale() {
+        crate::test_support::ensure_ambient_host();
         let width: u32 = 32;
         let height: u32 = 32;
         let mut bytes = Vec::with_capacity(8 + (width * height * 2) as usize);
@@ -1678,6 +1682,7 @@ mod frozen_radar_color_tests {
 
     #[test]
     fn frozen_radar_colors_keep_tile_indexing_and_missing_art_explicit() {
+        crate::test_support::ensure_ambient_host();
         let mut heightmap = HeightMap::new(2, 2, 100.0, 10.0);
         heightmap.tile_ndxes = vec![0, 4, 0, 4];
         let frozen = FrozenRadarTerrainColors {

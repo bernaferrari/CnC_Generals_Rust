@@ -2742,12 +2742,14 @@ mod tests {
 
     #[test]
     fn slash_command_ignores_non_slash_text() {
+        crate::test_support::ensure_ambient_host();
         assert!(!handle_slash_command("hello"));
         assert!(!handle_slash_command(""));
     }
 
     #[test]
     fn firewall_behavior_from_int_matches_cpp_bit_values() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(firewall_behavior_from_int(1), FirewallBehaviorType::Simple);
         assert_eq!(
             firewall_behavior_from_int(2),
@@ -2758,6 +2760,7 @@ mod tests {
 
     #[test]
     fn game_setup_esc_is_ignored_because_cpp_esc_block_is_dead() {
+        crate::test_support::ensure_ambient_host();
         let dummy = GameWindow::new();
         assert_eq!(
             wol_game_setup_menu_input(&dummy, WindowMessage::Char, KEY_ESC, KEY_STATE_UP),
@@ -2767,6 +2770,7 @@ mod tests {
 
     #[test]
     fn starting_cash_converts_engine_money_count_to_network_money() {
+        crate::test_support::ensure_ambient_host();
         let engine = game_engine::common::rts::money::Money::new_with_amount(7500);
         let network = Money::new(engine.count_money());
         assert_eq!(network.count_money(), 7500);

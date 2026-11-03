@@ -702,6 +702,7 @@ mod tests {
 
     #[test]
     fn first_edge_only_sets_anchor() {
+        crate::test_support::ensure_ambient_host();
         let terrain = FlatTerrain;
         let mut system = TerrainTracksRenderObjClassSystem::new(config());
         let handle = system.bind_track(4.0, 10.0, "tracks.tga").unwrap();
@@ -713,6 +714,7 @@ mod tests {
 
     #[test]
     fn second_far_edge_adds_transparent_restart_edge() {
+        crate::test_support::ensure_ambient_host();
         let terrain = FlatTerrain;
         let mut system = TerrainTracksRenderObjClassSystem::new(config());
         let handle = system.bind_track(4.0, 10.0, "tracks.tga").unwrap();
@@ -726,6 +728,7 @@ mod tests {
 
     #[test]
     fn cap_near_last_anchor_forces_last_edge_transparent() {
+        crate::test_support::ensure_ambient_host();
         let terrain = FlatTerrain;
         let mut system = TerrainTracksRenderObjClassSystem::new(config());
         let handle = system.bind_track(4.0, 10.0, "tracks.tga").unwrap();
@@ -741,6 +744,7 @@ mod tests {
 
     #[test]
     fn update_fades_and_releases_unbound_tracks() {
+        crate::test_support::ensure_ambient_host();
         let terrain = FlatTerrain;
         let mut system = TerrainTracksRenderObjClassSystem::new(config());
         let handle = system.bind_track(4.0, 10.0, "tracks.tga").unwrap();
@@ -760,6 +764,7 @@ mod tests {
 
     #[test]
     fn flush_builds_vertices_indices_and_resets_counter() {
+        crate::test_support::ensure_ambient_host();
         let terrain = FlatTerrain;
         let mut system = TerrainTracksRenderObjClassSystem::new(config());
         let handle = system.bind_track(4.0, 10.0, "tracks.tga").unwrap();
@@ -779,6 +784,7 @@ mod tests {
 
     #[test]
     fn bridge_layer_adds_cpp_bridge_offset() {
+        crate::test_support::ensure_ambient_host();
         let terrain = FlatTerrain;
         let mut system = TerrainTracksRenderObjClassSystem::new(config());
         let handle = system.bind_track(4.0, 10.0, "tracks.tga").unwrap();

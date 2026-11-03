@@ -430,6 +430,7 @@ mod tests {
 
     #[test]
     fn test_optimizer_creation() {
+        crate::test_support::ensure_ambient_host();
         let optimizer = ParticleOptimizer::new();
         assert_eq!(optimizer.current_quality_scale, 1.0);
         assert_eq!(optimizer.performance_trend, 0.0);
@@ -437,6 +438,7 @@ mod tests {
 
     #[test]
     fn test_lod_calculation() {
+        crate::test_support::ensure_ambient_host();
         let mut optimizer = ParticleOptimizer::new();
         optimizer.update_camera_position(Vec3::ZERO);
 
@@ -462,6 +464,7 @@ mod tests {
 
     #[test]
     fn test_performance_budget() {
+        crate::test_support::ensure_ambient_host();
         let budget = ParticlePerformanceBudget::default();
 
         // Always render should have unlimited budget
@@ -484,6 +487,7 @@ mod tests {
 
     #[test]
     fn test_quality_scaling() {
+        crate::test_support::ensure_ambient_host();
         let mut optimizer = ParticleOptimizer::new();
 
         // Simulate poor performance

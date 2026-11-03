@@ -222,6 +222,7 @@ mod tests {
 
     #[test]
     fn direct_clear_records_the_scene_timestamp_and_skips_the_pass() {
+        crate::test_support::ensure_ambient_host();
         let mut state = DrawableShroudClearState::default();
 
         assert_eq!(
@@ -236,6 +237,7 @@ mod tests {
 
     #[test]
     fn scene_uses_partial_clear_for_exactly_the_two_second_grace_window() {
+        crate::test_support::ensure_ambient_host();
         let mut state = DrawableShroudClearState::default();
         let _ = state.evaluate_scene_direct(10, ObjectShroudStatus::Clear, false, false);
 
@@ -257,6 +259,7 @@ mod tests {
 
     #[test]
     fn dead_drawables_extend_the_scene_grace_to_five_seconds() {
+        crate::test_support::ensure_ambient_host();
         let mut state = DrawableShroudClearState::default();
         let _ = state.evaluate_scene_direct(10, ObjectShroudStatus::Clear, false, false);
 
@@ -278,6 +281,7 @@ mod tests {
 
     #[test]
     fn client_visibility_and_scene_status_are_intentionally_different_during_grace() {
+        crate::test_support::ensure_ambient_host();
         let mut state = DrawableShroudClearState::default();
         let _ = state.evaluate_scene_direct(10, ObjectShroudStatus::Clear, false, false);
 
@@ -299,6 +303,7 @@ mod tests {
 
     #[test]
     fn zero_frame_clear_is_the_source_sentinel_not_a_grace_timestamp() {
+        crate::test_support::ensure_ambient_host();
         let mut state = DrawableShroudClearState::default();
         let _ = state.evaluate_scene_direct(0, ObjectShroudStatus::Clear, false, false);
 
@@ -314,6 +319,7 @@ mod tests {
 
     #[test]
     fn hidden_direct_drawable_cannot_refresh_clear_history() {
+        crate::test_support::ensure_ambient_host();
         let mut state = DrawableShroudClearState::default();
         let _ = state.evaluate_scene_direct(10, ObjectShroudStatus::Clear, false, false);
 
@@ -333,6 +339,7 @@ mod tests {
 
     #[test]
     fn raw_partial_clear_and_invalid_keep_their_source_pass_ordering() {
+        crate::test_support::ensure_ambient_host();
         let mut state = DrawableShroudClearState::default();
 
         assert_eq!(
@@ -360,6 +367,7 @@ mod tests {
 
     #[test]
     fn objectless_anchor_and_ghost_use_their_distinct_scene_branches() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             evaluate_objectless_drawable_scene(Some(ObjectShroudStatus::PartialClear), false),
             SceneShroudDecision::RenderDrawable {
@@ -390,6 +398,7 @@ mod tests {
 
     #[test]
     fn reset_for_lifecycle_replacement_drops_old_clear_history() {
+        crate::test_support::ensure_ambient_host();
         let mut state = DrawableShroudClearState::default();
         let _ = state.evaluate_scene_direct(10, ObjectShroudStatus::Clear, false, false);
         state.reset();

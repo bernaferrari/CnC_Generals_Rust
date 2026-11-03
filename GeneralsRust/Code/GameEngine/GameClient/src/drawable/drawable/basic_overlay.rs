@@ -961,6 +961,7 @@ mod hud_stealth_veterancy_tests {
 
     #[test]
     fn veterancy_image_names_are_scveter() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(BasicDrawable::veterancy_image_name(0), None);
         assert_eq!(BasicDrawable::veterancy_image_name(1), Some("SCVeter1"));
         assert_eq!(BasicDrawable::veterancy_image_name(2), Some("SCVeter2"));
@@ -969,6 +970,7 @@ mod hud_stealth_veterancy_tests {
 
     #[test]
     fn friendly_stealth_look_is_translucent_not_hidden() {
+        crate::test_support::ensure_ambient_host();
         game_engine::common::ini::init_global_data();
         let mut drawable = BasicDrawable::new(DrawableId(42));
         drawable.set_presentation_host_residual(

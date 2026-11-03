@@ -8,6 +8,7 @@ fn zoom() -> ViewFilterState {
 }
 #[test]
 fn nonpan_uses_distinct_logic_frames_and_returns_peak_once_without_mutating_peer() {
+    crate::test_support::ensure_ambient_host();
     let mut a = zoom();
     let peer = zoom();
     assert_eq!(a.post_render(0, Vector2::zero()).motion_blur_count, 0);
@@ -33,6 +34,7 @@ fn nonpan_uses_distinct_logic_frames_and_returns_peak_once_without_mutating_peer
 }
 #[test]
 fn out_setup_and_no_zoom_peak_end_at_original_boundaries() {
+    crate::test_support::ensure_ambient_host();
     let mut out = ViewFilterState::new();
     out.set_mode(FilterMode::MBOutAlpha);
     out.set_filter(FilterType::MotionBlur);
@@ -50,6 +52,7 @@ fn out_setup_and_no_zoom_peak_end_at_original_boundaries() {
 }
 #[test]
 fn pan_and_endpan_preserve_count_and_prior_scroll_without_frame_gate() {
+    crate::test_support::ensure_ambient_host();
     let mut state = ViewFilterState::new();
     state.set_motion_blur_follow(30);
     let scroll = Vector2::new(0.1, 0.);
@@ -71,6 +74,7 @@ fn pan_and_endpan_preserve_count_and_prior_scroll_without_frame_gate() {
 }
 #[test]
 fn fade_zero_start_can_advance_after_resource_admission() {
+    crate::test_support::ensure_ambient_host();
     let mut state = ViewFilterState::new();
     state.set_mode(FilterMode::BWBlackAndWhite);
     state.set_filter(FilterType::BlackAndWhite);
@@ -86,6 +90,7 @@ fn fade_zero_start_can_advance_after_resource_admission() {
 }
 #[test]
 fn serialized_owner_preserves_future_without_render_resources() {
+    crate::test_support::ensure_ambient_host();
     let mut owner = zoom();
     for frame in 1..8 {
         owner.post_render(frame, Vector2::zero());
@@ -104,6 +109,7 @@ fn serialized_owner_preserves_future_without_render_resources() {
 
 #[test]
 fn zero_duration_bw_fade_completes_on_first_admitted_render() {
+    crate::test_support::ensure_ambient_host();
     // ScreenBWFilter::set increments the frame before comparing fadeFrames,
     // so zero (and normalized negative) durations complete on that render.
     for frames in [0, -1] {
@@ -126,6 +132,7 @@ fn zero_duration_bw_fade_completes_on_first_admitted_render() {
 
 #[test]
 fn authored_bw_blur_bw_preserves_inactive_bw_phase_and_full_blur() {
+    crate::test_support::ensure_ambient_host();
     // ScreenBWFilter::set alone advances its fade. ScreenMotionBlurFilter
     // uses its own count and never consumes BW's pending fade clock.
     let mut state = ViewFilterState::new();
@@ -152,6 +159,7 @@ fn authored_bw_blur_bw_preserves_inactive_bw_phase_and_full_blur() {
 
 #[test]
 fn existing_crossfade_adapter_still_consumes_its_active_fade() {
+    crate::test_support::ensure_ambient_host();
     let mut state = ViewFilterState::new();
     state.set_mode(FilterMode::CrossfadeFbMask);
     state.set_filter(FilterType::Crossfade);
@@ -166,6 +174,7 @@ fn existing_crossfade_adapter_still_consumes_its_active_fade() {
 
 #[test]
 fn saved_filter_phase_rejects_completed_fade_but_accepts_last_frame_and_zero_duration() {
+    crate::test_support::ensure_ambient_host();
     for filter in [
         FilterType::BlackAndWhite,
         FilterType::Crossfade,
@@ -194,6 +203,7 @@ fn saved_filter_phase_rejects_completed_fade_but_accepts_last_frame_and_zero_dur
 
 #[test]
 fn saved_filter_phase_separates_nonpan_count_limit_from_retained_pan_limit() {
+    crate::test_support::ensure_ambient_host();
     let mut state = zoom();
     state.pan_factor = i32::MAX;
     for mode in [

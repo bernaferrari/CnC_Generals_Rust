@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn actual_client_xfer_preserves_separate_receiving_clock_and_wire() {
+    crate::test_support::ensure_ambient_host();
     if crate::core::game_client::global_boundary_fixture::run_in_private_child(
         module_path!(),
         "actual_client_xfer_preserves_separate_receiving_clock_and_wire",
@@ -46,6 +47,7 @@ fn actual_client_xfer_preserves_separate_receiving_clock_and_wire() {
 
 #[test]
 fn actual_runtime_common_adapter_forwards_explicit_clock_capability() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::ClientFrameContext;
     let mut runtime = game_engine::XferLoad::new();
     let mut peer = game_engine::XferLoad::new();

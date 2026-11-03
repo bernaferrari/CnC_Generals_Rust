@@ -10,6 +10,7 @@ fn manager() -> ParticleSystemManager {
 
 #[test]
 fn same_id_particle_worlds_use_their_own_terrain_and_storage() {
+    crate::test_support::ensure_ambient_host();
     let mut first = manager();
     let mut peer = manager();
     let nugget = ParticleSystemFXNugget {
@@ -55,6 +56,7 @@ fn same_id_particle_worlds_use_their_own_terrain_and_storage() {
 
 #[test]
 fn supplied_particle_object_attachment_retains_actual_transform_and_delay() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = manager();
     let matrix = Mat3::from_rotation_z(0.5);
     let nugget = ParticleSystemFXNugget {

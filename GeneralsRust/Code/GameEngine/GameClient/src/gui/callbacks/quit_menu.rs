@@ -342,6 +342,7 @@ mod tests {
 
     #[test]
     fn restart_from_save_uses_pristine_map_name_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let old_pristine = {
             let game_state = get_game_state();
             game_state.get_pristine_map_name().to_string()
@@ -1145,6 +1146,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_quit_menu_exit_hits_button_then_latches() {
+        crate::test_support::ensure_ambient_host();
         with_fixture(|effects| {
             install_named_button("QuitMenu.wnd:ButtonExit", 10, 10, effects);
             assert!(
@@ -1161,6 +1163,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_quit_menu_return_and_options_hit_named_gadgets() {
+        crate::test_support::ensure_ambient_host();
         with_fixture(|effects| {
             install_named_button("QuitMenu.wnd:ButtonReturn", 10, 40, effects);
             install_named_button("QuitMenu.wnd:ButtonOptions", 10, 70, effects);
@@ -1179,6 +1182,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_quit_menu_prepare_exit_hits_exit_then_confirms() {
+        crate::test_support::ensure_ambient_host();
         with_fixture(|effects| {
             install_named_button("QuitMenu.wnd:ButtonExit", 10, 100, effects);
             assert!(drive_os_wnd_quit_menu_prepare_exit_like_cpp(effects));
@@ -1192,6 +1196,7 @@ mod os_wnd_tests {
 
     #[test]
     fn retail_quit_save_load_click_creates_initialized_popup_layout() {
+        crate::test_support::ensure_ambient_host();
         with_fixture(|effects| {
             effects.with_manager(|manager, effects| manager.reset(effects));
             assert!(
@@ -1271,6 +1276,7 @@ mod os_wnd_tests {
 
     #[test]
     fn retail_quit_menu_toggle_tracks_live_wnd_visibility() {
+        crate::test_support::ensure_ambient_host();
         with_fixture(|effects| {
             // This is intentionally the production toggle, not the residual
             // `simulate_quit_menu_*` latch.  It parses the retail QuitMenu.wnd,
@@ -1311,6 +1317,7 @@ mod receiving_script_ending_tests {
     use super::*;
     #[test]
     fn receiving_quit_ending_suppresses_before_window_or_pause_changes() {
+        crate::test_support::ensure_ambient_host();
         let mut menus = super::super::menu_callbacks::MenuManager::new();
         let mut messages = Vec::new();
         let mut effects = WindowEventEffects::new(&mut messages);
@@ -1327,6 +1334,7 @@ mod receiving_script_ending_tests {
 
     #[test]
     fn quit_state_and_residuals_are_instance_owned() {
+        crate::test_support::ensure_ambient_host();
         let mut a = super::super::menu_callbacks::MenuManager::new();
         let mut b = super::super::menu_callbacks::MenuManager::new();
         let mut messages_a = Vec::new();

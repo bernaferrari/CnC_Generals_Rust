@@ -557,6 +557,7 @@ mod tests {
 
     #[test]
     fn stop_movie_keeps_entry_and_sets_stop_state() {
+        crate::test_support::ensure_ambient_host();
         let manager = &mut WindowVideoManager::new();
         let window = make_window();
         let mut manager = WindowVideoManager::new();
@@ -576,6 +577,7 @@ mod tests {
 
     #[test]
     fn stop_all_movies_marks_entries_stopped_without_removal() {
+        crate::test_support::ensure_ambient_host();
         let manager = &mut WindowVideoManager::new();
         let window_a = make_window();
         let window_b = make_window();
@@ -604,6 +606,7 @@ mod tests {
 
     #[test]
     fn resume_all_movies_restores_play_state_for_stopped_entries() {
+        crate::test_support::ensure_ambient_host();
         let manager = &mut WindowVideoManager::new();
         let window = make_window();
         let mut manager = WindowVideoManager::new();
@@ -621,6 +624,7 @@ mod tests {
 
     #[test]
     fn update_returns_early_when_pause_all_movies_is_set() {
+        crate::test_support::ensure_ambient_host();
         let manager = &mut WindowVideoManager::new();
         let window = make_window();
         let mut manager = WindowVideoManager::new();
@@ -639,6 +643,7 @@ mod tests {
 
     #[test]
     fn update_does_not_hide_paused_window_when_window_is_hidden() {
+        crate::test_support::ensure_ambient_host();
         let manager = &mut WindowVideoManager::new();
         let window = make_window();
         window
@@ -659,6 +664,7 @@ mod tests {
 
     #[test]
     fn update_resumes_hidden_video_when_window_becomes_visible() {
+        crate::test_support::ensure_ambient_host();
         let manager = &mut WindowVideoManager::new();
         let window = make_window();
 
@@ -854,6 +860,7 @@ pub(crate) mod load_movie_tests {
 
     #[test]
     fn load_movie_single_player_waits_then_skips_without_decoding_after_focus_loss() {
+        crate::test_support::ensure_ambient_host();
         let manager = &mut WindowVideoManager::new();
         let mut manager = WindowVideoManager::new();
         let (ready, trace) = insert(&mut manager, 1, "Campaign");
@@ -887,6 +894,7 @@ pub(crate) mod load_movie_tests {
 
     #[test]
     fn load_movie_challenge_preserves_inactive_decoder_order_and_final_frame_boundary() {
+        crate::test_support::ensure_ambient_host();
         let manager = &mut WindowVideoManager::new();
         let mut manager = WindowVideoManager::new();
         let (_, selected) = insert(&mut manager, 1, "Challenge");
@@ -985,6 +993,7 @@ mod receiving_video_diagnostics_tests {
     use super::*;
     #[test]
     fn peer_diagnostics_and_reset_do_not_change_owner() {
+        crate::test_support::ensure_ambient_host();
         let mut owner = WindowVideoManager::new();
         assert!(simulate_window_video_pause_all(&mut owner));
         {
@@ -1038,6 +1047,7 @@ mod client_video_domain_tests {
     use super::*;
     #[test]
     fn loading_and_challenge_resets_do_not_touch_gameplay_movies() {
+        crate::test_support::ensure_ambient_host();
         let mut videos = ClientWindowVideos::new();
         videos.in_game.pause_all_movies();
         videos.control_bar.stop_all_movies();

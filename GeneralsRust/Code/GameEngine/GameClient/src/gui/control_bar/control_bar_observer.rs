@@ -836,6 +836,7 @@ mod native_observer_label_tests {
 
     #[test]
     fn native_observer_label_replaces_cpp_string_arguments_in_order() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             format_observer_player_label("%s — %s", "Alice", "Team:3"),
             "Alice — Team:3"
@@ -848,6 +849,7 @@ mod native_observer_label_tests {
 
     #[test]
     fn native_observer_list_hides_same_non_observer_windows_as_cpp_fallback() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = crate::gui::window_manager::WindowManager::new();
         let names = [
             "ControlBar.wnd:ObserverPlayerInfoWindow",

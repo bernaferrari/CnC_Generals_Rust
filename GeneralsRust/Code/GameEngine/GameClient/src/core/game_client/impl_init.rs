@@ -1923,6 +1923,7 @@ mod native_world_install_tests {
 
     #[test]
     fn whole_native_world_install_keeps_candidate_ids_order_and_peer() {
+        crate::test_support::ensure_ambient_host();
         let mut receiving = GameClient::new().unwrap();
         let mut peer = GameClient::new().unwrap();
         receiving
@@ -1965,6 +1966,7 @@ mod load_screen_latch_owner_tests {
 
     #[test]
     fn shell_first_load_memory_is_owned_by_the_persistent_client() {
+        crate::test_support::ensure_ambient_host();
         let mut receiving = GameClient::new().unwrap();
         let peer = GameClient::new().unwrap();
 

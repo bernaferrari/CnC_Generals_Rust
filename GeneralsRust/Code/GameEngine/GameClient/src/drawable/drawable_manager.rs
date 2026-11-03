@@ -950,6 +950,7 @@ mod tests {
 
     #[test]
     fn test_drawable_manager_creation() {
+        crate::test_support::ensure_ambient_host();
         let manager = DrawableManager::new();
         assert_eq!(manager.drawables.len(), 0);
         assert_eq!(manager.next_drawable_id, DrawableId(1));
@@ -958,6 +959,7 @@ mod tests {
 
     #[test]
     fn test_create_drawable() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DrawableManager::new();
 
         let id = manager.create_drawable(DrawableType::Model {
@@ -978,6 +980,7 @@ mod tests {
 
     #[test]
     fn test_destroy_drawable() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DrawableManager::new();
 
         let id = manager.create_drawable(DrawableType::Sprite {
@@ -999,6 +1002,7 @@ mod tests {
 
     #[test]
     fn test_drawable_layers() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DrawableManager::new();
 
         let id = manager.create_drawable(DrawableType::UI {
@@ -1016,6 +1020,7 @@ mod tests {
 
     #[test]
     fn test_spatial_queries() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DrawableManager::new();
 
         // Create drawables at different positions
@@ -1057,6 +1062,7 @@ mod tests {
 
     #[test]
     fn test_frustum_culling() {
+        crate::test_support::ensure_ambient_host();
         let frustum = Frustum::from_view_projection(&Matrix4::identity());
 
         // Test points inside and outside frustum
@@ -1066,6 +1072,7 @@ mod tests {
 
     #[test]
     fn test_frustum_extracts_normalized_identity_planes() {
+        crate::test_support::ensure_ambient_host();
         let frustum = Frustum::from_view_projection(&Matrix4::identity());
 
         assert_close(frustum.planes[0].x, 1.0);
@@ -1080,6 +1087,7 @@ mod tests {
 
     #[test]
     fn test_frustum_uses_view_projection_translation() {
+        crate::test_support::ensure_ambient_host();
         let translated = Matrix4::translation(Vector3::new(-10.0, 0.0, 0.0));
         let frustum = Frustum::from_view_projection(&translated);
 
@@ -1089,6 +1097,7 @@ mod tests {
 
     #[test]
     fn test_render_list_sorting() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DrawableManager::new();
 
         // Create drawables at different distances
@@ -1127,6 +1136,7 @@ mod tests {
 
     #[test]
     fn test_performance_stats() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DrawableManager::new();
 
         // Create some drawables
@@ -1171,6 +1181,7 @@ mod logic_clock_tests {
 
     #[test]
     fn receiving_manager_uses_logic_for_expiry_and_keeps_client_progression() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DrawableManager::new();
         let id = expiring_model(&mut manager, 4);
         manager.current_frame = 29;
@@ -1185,6 +1196,7 @@ mod logic_clock_tests {
 
     #[test]
     fn receiving_manager_client_wrap_does_not_replace_logic_deadline() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = DrawableManager::new();
         let id = expiring_model(&mut manager, u32::MAX);
         let permanent = expiring_model(&mut manager, 0);

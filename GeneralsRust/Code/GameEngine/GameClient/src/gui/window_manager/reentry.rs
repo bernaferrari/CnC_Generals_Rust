@@ -1368,6 +1368,7 @@ mod owner_tests {
 
     #[test]
     fn receiving_owner_keeps_same_id_windows_in_distinct_client_trees() {
+        crate::test_support::ensure_ambient_host();
         let first = WindowManagerOwner::new();
         let second = WindowManagerOwner::new();
         let first_window =
@@ -1391,6 +1392,7 @@ mod owner_tests {
 
     #[test]
     fn nested_explicit_owner_borrows_never_select_a_peer() {
+        crate::test_support::ensure_ambient_host();
         let first = WindowManagerOwner::new();
         let second = WindowManagerOwner::new();
         first.with_manager(|manager| {
@@ -1408,6 +1410,7 @@ mod owner_tests {
 
     #[test]
     fn shell_stack_and_late_owner_handle_survive_equal_id_peer_reset() {
+        crate::test_support::ensure_ambient_host();
         if crate::core::game_client::global_boundary_fixture::run_in_private_child(
             module_path!(),
             "shell_stack_and_late_owner_handle_survive_equal_id_peer_reset",
@@ -1505,6 +1508,7 @@ mod owner_tests {
 
     #[test]
     fn shell_residuals_and_deferred_pushes_are_receiving_owner_state() {
+        crate::test_support::ensure_ambient_host();
         use crate::gui::shell::ResidualShellMapAction;
         let first = WindowManagerOwner::new();
         let second = WindowManagerOwner::new();
@@ -1533,6 +1537,7 @@ mod owner_tests {
 
     #[test]
     fn owner_borrow_unwinds_and_keeps_callback_queues_separate() {
+        crate::test_support::ensure_ambient_host();
         use std::cell::RefCell;
         use std::panic::{AssertUnwindSafe, catch_unwind};
         let mut first = crate::core::game_client::GameClient::new().unwrap();

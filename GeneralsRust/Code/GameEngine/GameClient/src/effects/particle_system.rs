@@ -2070,6 +2070,7 @@ mod tests {
 
     #[test]
     fn test_particle_creation() {
+        crate::test_support::ensure_ambient_host();
         let info = ParticleInfo::default();
         let particle = Particle::new(&info, 1, 0);
 
@@ -2082,6 +2083,7 @@ mod tests {
 
     #[test]
     fn particle_new_applies_frame_zero_keyframes() {
+        crate::test_support::ensure_ambient_host();
         let mut info = ParticleInfo::default();
         info.alpha_keys[0] = Keyframe {
             value: 0.25,
@@ -2098,6 +2100,7 @@ mod tests {
 
     #[test]
     fn set_position_writes_local_translation() {
+        crate::test_support::ensure_ambient_host();
         let template = Arc::new(ParticleSystemTemplate::new("Offset".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
         system.set_position(Vec3::new(10.0, 20.0, 30.0));
@@ -2110,6 +2113,7 @@ mod tests {
 
     #[test]
     fn attached_parent_applies_set_position_through_full_rotation() {
+        crate::test_support::ensure_ambient_host();
         // C++ ParticleSys.cpp:1281-1286 + :1919-1924 + :1746-1758
         // setPosition is local Matrix3D translation; update concatenates
         // parent 4x4 * local (including pitch/roll, not yaw-only).
@@ -2134,6 +2138,7 @@ mod tests {
 
     #[test]
     fn skip_parent_xfrm_keeps_local_set_position() {
+        crate::test_support::ensure_ambient_host();
         // C++ ParticleSys.cpp:1912-1915 — skipParentXfrm uses m_localTransform only.
         let template = Arc::new(ParticleSystemTemplate::new("SkipParent".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
@@ -2151,6 +2156,7 @@ mod tests {
 
     #[test]
     fn generate_spreads_burst_along_parent_motion() {
+        crate::test_support::ensure_ambient_host();
         let template = Arc::new(ParticleSystemTemplate::new("Trail".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
         system.set_position(Vec3::ZERO);
@@ -2170,6 +2176,7 @@ mod tests {
 
     #[test]
     fn set_lifetime_range_samples_on_generate() {
+        crate::test_support::ensure_ambient_host();
         let template = Arc::new(ParticleSystemTemplate::new("Weld".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
         system.set_lifetime_range(99.0, 99.0);
@@ -2179,6 +2186,7 @@ mod tests {
 
     #[test]
     fn line_volume_includes_vol_line_start() {
+        crate::test_support::ensure_ambient_host();
         let mut template = ParticleSystemTemplate::new("Beam".to_string());
         {
             let info = template.info_mut();
@@ -2195,6 +2203,7 @@ mod tests {
 
     #[test]
     fn test_particle_xfer_load_applies_particle_info_base() {
+        crate::test_support::ensure_ambient_host();
         use game_engine::common::system::xfer_load::XferLoad;
         use game_engine::common::system::xfer_save::XferSave;
         use std::io::Cursor;
@@ -2282,6 +2291,7 @@ mod tests {
 
     #[test]
     fn test_particle_system_creation() {
+        crate::test_support::ensure_ambient_host();
         let template = Arc::new(ParticleSystemTemplate::new("TestSystem".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
 
@@ -2292,6 +2302,7 @@ mod tests {
 
     #[test]
     fn test_particle_system_xfer_preserves_base_info_and_matrix3d_layout() {
+        crate::test_support::ensure_ambient_host();
         use game_engine::common::system::xfer_load::XferLoad;
         use game_engine::common::system::xfer_save::XferSave;
         use std::io::Cursor;
@@ -2445,6 +2456,7 @@ mod tests {
 
     #[test]
     fn test_emission_volumes() {
+        crate::test_support::ensure_ambient_host();
         // C++ draws all emission randomness from the seeded GameClient stream
         // (ParticleSys.cpp:1351-1648), so the same seed must reproduce
         // identical position/velocity samples. thread_rng broke that.
@@ -2478,6 +2490,7 @@ mod tests {
 
     #[test]
     fn test_slave_system_tracking() {
+        crate::test_support::ensure_ambient_host();
         let template = Arc::new(ParticleSystemTemplate::new("Master".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
 
@@ -2496,6 +2509,7 @@ mod tests {
 
     #[test]
     fn remove_oldest_particles_pops_front_without_touching_newer_particles() {
+        crate::test_support::ensure_ambient_host();
         let template = Arc::new(ParticleSystemTemplate::new("Budgeted".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
 
@@ -2518,6 +2532,7 @@ mod tests {
 
     #[test]
     fn test_destroy_flag() {
+        crate::test_support::ensure_ambient_host();
         let template = Arc::new(ParticleSystemTemplate::new("Test".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
 
@@ -2528,6 +2543,7 @@ mod tests {
 
     #[test]
     fn lifetime_zero_lives_forever_until_invisible() {
+        crate::test_support::ensure_ambient_host();
         let mut info = ParticleInfo::default();
         info.lifetime = 0;
         info.alpha_keys[0] = Keyframe {
@@ -2548,6 +2564,7 @@ mod tests {
 
     #[test]
     fn test_saveable_cascade_flag() {
+        crate::test_support::ensure_ambient_host();
         let template = Arc::new(ParticleSystemTemplate::new("Test".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
 
@@ -2558,6 +2575,7 @@ mod tests {
 
     #[test]
     fn system_lifetime_zero_is_forever() {
+        crate::test_support::ensure_ambient_host();
         let mut template = ParticleSystemTemplate::new("Forever".to_string());
         template.info_mut().system_lifetime = 0;
         let mut system = ParticleSystem::new(Arc::new(template), 1, false);
@@ -2567,6 +2585,7 @@ mod tests {
 
     #[test]
     fn attached_host_object_id_follows_published_pose() {
+        crate::test_support::ensure_ambient_host();
         let template = Arc::new(ParticleSystemTemplate::new("HostAttach".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
         system.attach_to_object(4242);
@@ -2594,6 +2613,7 @@ mod tests {
 
     #[test]
     fn attached_host_object_fogged_sets_shrouded_emit_gate() {
+        crate::test_support::ensure_ambient_host();
         let template = Arc::new(ParticleSystemTemplate::new("HostFog".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
         system.attach_to_object(4243);
@@ -2615,6 +2635,7 @@ mod tests {
 
     #[test]
     fn attached_missing_host_object_still_destroys() {
+        crate::test_support::ensure_ambient_host();
         let template = Arc::new(ParticleSystemTemplate::new("HostMissing".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
         system.attach_to_object(4343);

@@ -127,12 +127,14 @@ mod tests {
 
     #[test]
     fn mesh_builder_rejects_empty_geometry_before_gpu_allocation() {
+        crate::test_support::ensure_ambient_host();
         let builder = W3DMeshBuilder::new();
         assert!(builder.validate().is_err());
     }
 
     #[test]
     fn mesh_builder_rejects_missing_indices_before_gpu_allocation() {
+        crate::test_support::ensure_ambient_host();
         let mut builder = W3DMeshBuilder::new();
         builder.add_vertex(vertex());
         assert!(builder.validate().is_err());
@@ -140,6 +142,7 @@ mod tests {
 
     #[test]
     fn mesh_builder_accepts_triangle_geometry() {
+        crate::test_support::ensure_ambient_host();
         let mut builder = W3DMeshBuilder::new();
         builder.add_vertex(vertex());
         builder.add_vertex(W3DVertex {

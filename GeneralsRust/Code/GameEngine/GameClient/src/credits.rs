@@ -864,6 +864,7 @@ use crate::gui::game_window::WindowEventEffects;
     
     #[test]
     fn os_wnd_credits_roll_prepare_hits_parent_then_latches_lines() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         owner.with_manager(|manager| {
             let parent = manager

@@ -2765,6 +2765,7 @@ mod tests {
 
     #[test]
     fn test_render_settings() {
+        crate::test_support::ensure_ambient_host();
         let settings = W3DRenderSettings {
             width: 1920,
             height: 1080,

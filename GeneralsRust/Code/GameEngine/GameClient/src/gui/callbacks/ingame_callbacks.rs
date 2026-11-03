@@ -441,6 +441,7 @@ mod tests {
 
     #[test]
     fn replay_control_input_is_always_ignored_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut replay = ReplayControlCallbacks::new();
         let mut window = GameWindow::new();
 
@@ -465,6 +466,7 @@ mod tests {
 
     #[test]
     fn idle_worker_popup_publishes_typed_host_request_when_bridge_enabled() {
+        crate::test_support::ensure_ambient_host();
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
         transport_ui.admit_native_control_bar_transport();
@@ -774,6 +776,7 @@ mod os_wnd_tests {
     }
     #[test]
     fn os_wnd_in_game_chat_clear_hits_button_then_latches() {
+        crate::test_support::ensure_ambient_host();
         let mut client = crate::core::game_client::GameClient::new().unwrap();
         install_named_button(&mut client, "InGameChat.wnd:ButtonClear", 10, 10);
         let _ = client.with_window_event_effects(None, |effects| {
@@ -794,6 +797,7 @@ mod os_wnd_tests {
 
     #[test]
     fn os_wnd_in_game_chat_submit_hits_text_entry_then_latches() {
+        crate::test_support::ensure_ambient_host();
         let mut client = crate::core::game_client::GameClient::new().unwrap();
         install_named_button(&mut client, "InGameChat.wnd:ParentInGameChat", 10, 40);
         install_named_button(&mut client, "InGameChat.wnd:StaticTextChatType", 10, 70);
@@ -1067,6 +1071,7 @@ mod replay_control_os_wnd_tests {
     }
     #[test]
     fn os_wnd_replay_control_play_and_pause_hit_named_gadgets() {
+        crate::test_support::ensure_ambient_host();
         let mut client = crate::core::game_client::GameClient::new().unwrap();
         install_named_button(&mut client, "ReplayControls.wnd:ButtonPlay", 10, 10);
         install_named_button(&mut client, "ReplayControls.wnd:ButtonPause", 10, 40);
@@ -1099,6 +1104,7 @@ mod owned_idle_worker_event_tests {
     use gamelogic::helpers::{IdleWorkerEvent, IdleWorkerEvents};
     #[test]
     fn actual_ui_receivers_preserve_opposite_callback_orders_dedup_and_local_filter() {
+        crate::test_support::ensure_ambient_host();
         let mut first = IdleWorkerCallbacks::new();
         let mut peer = IdleWorkerCallbacks::new();
         let add = IdleWorkerEvent::Add {

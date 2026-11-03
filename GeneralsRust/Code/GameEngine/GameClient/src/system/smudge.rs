@@ -430,6 +430,7 @@ mod tests {
 
     #[test]
     fn remove_smudge_set_reuses_without_reset_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = SmudgeManager::new();
         let mut set = manager.add_smudge_set();
         let original = identity(&set);
@@ -444,6 +445,7 @@ mod tests {
 
     #[test]
     fn collect_decal_render_items_skips_empty_and_keeps_used() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = SmudgeManager::new();
         {
             let mut set = manager.add_smudge_set();
@@ -464,6 +466,7 @@ mod tests {
 
     #[test]
     fn reset_clears_used_sets_before_pooling() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = SmudgeManager::new();
         let original = {
             let mut set = manager.add_smudge_set();
@@ -478,6 +481,7 @@ mod tests {
 
     #[test]
     fn free_smudges_follow_cpp_reuse_order_within_one_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = SmudgeManager::new();
         {
             let mut first = manager.add_smudge_set();
@@ -492,6 +496,7 @@ mod tests {
 
     #[test]
     fn removing_a_smudge_keeps_the_remaining_cpp_list_order() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = SmudgeManager::new();
         let mut set = manager.add_smudge_set();
         for size in [1.0, 2.0, 3.0] {
@@ -510,6 +515,7 @@ mod tests {
 
     #[test]
     fn free_smudges_do_not_leak_between_managers() {
+        crate::test_support::ensure_ambient_host();
         let mut first_manager = SmudgeManager::new();
         let mut first = first_manager.add_smudge_set();
         first.add_smudge_to_set().size = 42.0;

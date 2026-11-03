@@ -12,6 +12,7 @@ impl ControlBarViewport for Viewport {
 }
 #[test]
 fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tree() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tree",
@@ -244,6 +245,7 @@ fn actual_owned_command_tooltip_hover_and_delete_use_receiving_bar_and_window_tr
 }
 #[test]
 fn generic_tooltip_callback_replacement_and_clear_remove_owned_role() {
+    crate::test_support::ensure_ambient_host();
     let mut window = GameWindow::new();
     window.set_control_bar_tooltip_callback(|_, _, _, _| {});
     assert!(window.has_owned_control_bar_tooltip());

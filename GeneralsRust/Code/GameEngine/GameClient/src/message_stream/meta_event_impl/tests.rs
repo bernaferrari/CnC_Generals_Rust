@@ -100,6 +100,7 @@ mod tests {
 
     #[test]
     fn test_fast_forward_replay_meta_record_is_kept() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let mut record = alias_record("TOGGLE_FAST_FORWARD_REPLAY");
@@ -112,6 +113,7 @@ mod tests {
 
     #[test]
     fn test_command_map_display_name_is_translated() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         game_engine::common::language::Language::register_localized_string(
             "GUI:Wave5MetaDisplay",
@@ -129,6 +131,7 @@ mod tests {
 
     #[test]
     fn test_keyboard_options_remap_reaches_lookup() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         {
             let mut map = get_meta_map().write().unwrap_or_else(|e| e.into_inner());
@@ -165,6 +168,7 @@ mod tests {
 
     #[test]
     fn test_apply_toggle_lower_details_is_live_callable() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         // Without GlobalData the live helper fail-closes; with it, it toggles.
         let _ = with_receiving_ui(|ui| apply_toggle_lower_details(ui));
@@ -172,6 +176,7 @@ mod tests {
 
     #[test]
     fn test_lookup_meta_message_type_uses_cpp_attack_move_spelling() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(lookup_meta_message_type("TOGGLE_ATTACKMOVE"), None);
         assert_eq!(lookup_meta_message_type("TOGGLE_ATTACK_MOVE"), None);
         assert!(!is_supported_command_map_name("TOGGLE_ATTACKMOVE"));
@@ -190,6 +195,7 @@ mod tests {
 
     #[test]
     fn test_lookup_key_code_covers_cpp_keypad_entries() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(lookup_key_code("KEY_KP0"), Some(0x60));
         assert_eq!(lookup_key_code("KEY_KP9"), Some(0x69));
         assert_eq!(lookup_key_code("KEY_KPDEL"), Some(0x6E));
@@ -203,6 +209,7 @@ mod tests {
 
     #[test]
     fn test_discovered_command_map_names_are_either_mapped_or_intentionally_unresolved() {
+        crate::test_support::ensure_ambient_host();
         let names = active_command_map_names();
         assert!(!names.is_empty());
 
@@ -216,6 +223,7 @@ mod tests {
 
     #[test]
     fn test_alias_command_map_entries_use_runtime_dispatch_paths() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         assert_eq!(
@@ -234,6 +242,7 @@ mod tests {
 
     #[test]
     fn test_unimplemented_cpp_command_entries_are_consumed() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         assert!(!is_unimplemented_cpp_command_name("DEMO_CYCLE_EXTENT_TYPE"));
@@ -241,6 +250,7 @@ mod tests {
 
     #[test]
     fn test_dispatch_handled_cpp_command_entries_are_supported_and_not_unimplemented() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         for alias in [
@@ -310,6 +320,7 @@ mod tests {
 
     #[test]
     fn test_demo_adjust_aliases_toggle_camera_adjust_state() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         with_receiving_ui(|ui| {
@@ -350,6 +361,7 @@ mod tests {
 
     #[test]
     fn test_raw_mouse_position_applies_demo_pitch_and_fov_adjustments() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         with_receiving_ui(|ui| {
@@ -405,6 +417,7 @@ mod tests {
 
     #[test]
     fn test_extent_adjust_aliases_are_consumed_and_adjust_geometry_values() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         for alias in [
@@ -482,6 +495,7 @@ mod tests {
 
     #[test]
     fn test_demo_toggle_no_draw_sets_cpp_equivalent_runtime_value() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
         global_data.write().no_draw = 0;
@@ -495,6 +509,7 @@ mod tests {
 
     #[test]
     fn test_demo_lod_aliases_adjust_texture_reduction_factor_with_cpp_clamp() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
         global_data.write().texture_reduction_factor = 0;
@@ -524,6 +539,7 @@ mod tests {
 
     #[test]
     fn test_deshroud_aliases_follow_cpp_keep_message_semantics() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(dispatch_for_test(&alias_record("CHEAT_DESHROUD")), None);
         assert_eq!(dispatch_for_test(&alias_record("DEMO_DESHROUD")), None);
@@ -532,6 +548,7 @@ mod tests {
 
     #[test]
     fn test_help_alias_is_consumed() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             dispatch_for_test(&alias_record("HELP")),
@@ -541,6 +558,7 @@ mod tests {
 
     #[test]
     fn test_demo_vtune_aliases_toggle_compat_state() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         with_receiving_ui(|ui| {
             set_vtune_enabled(&mut ui.state.meta_demo, false);
@@ -562,6 +580,7 @@ mod tests {
 
     #[test]
     fn test_demo_skate_speed_aliases_keep_message_and_adjust_value() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         with_receiving_ui(|ui| {
             set_skate_distance_override_for_tests(&mut ui.state.meta_demo, 0.0);
@@ -588,6 +607,7 @@ mod tests {
 
     #[test]
     fn test_selection_debug_toggle_aliases_flip_compat_state() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         with_receiving_ui(|ui| {
             set_bool_state_for_tests(&mut ui.state.meta_demo.hand_of_god_mode, false);
@@ -622,6 +642,7 @@ mod tests {
 
     #[test]
     fn test_demo_dump_assets_alias_is_consumed() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         let output_path = PathBuf::from("UsedMapAssets.txt");
         let _ = fs::remove_file(&output_path);
@@ -636,6 +657,7 @@ mod tests {
 
     #[test]
     fn test_demo_toggle_aliases_apply_cpp_global_data_side_effects() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
         {
@@ -730,6 +752,7 @@ mod tests {
 
     #[test]
     fn test_demo_cash_and_science_point_aliases_apply_local_player_effects() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let local_player = Arc::new(RwLock::new(Player::new(0)));
@@ -780,6 +803,7 @@ mod tests {
 
     #[test]
     fn test_demo_build_mode_aliases_toggle_local_player_debug_flags() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let local_player = Arc::new(RwLock::new(Player::new(0)));
@@ -819,6 +843,7 @@ mod tests {
 
     #[test]
     fn test_demo_rank_level_aliases_adjust_local_player_rank() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let local_player = Arc::new(RwLock::new(Player::new(0)));
@@ -861,6 +886,7 @@ mod tests {
 
     #[test]
     fn test_message_text_aliases_toggle_ingame_ui_message_state() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
@@ -885,6 +911,7 @@ mod tests {
 
     #[test]
     fn test_demo_zoom_lock_alias_toggles_view_zoom_limit() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         with_tactical_view(|view| view.set_zoom_limited(false));
@@ -907,6 +934,7 @@ mod tests {
 
     #[test]
     fn test_demo_objective_movie_aliases_update_index_when_in_game() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         if let Ok(mut logic) = get_game_logic().lock() {
@@ -935,6 +963,7 @@ mod tests {
 
     #[test]
     fn test_demo_military_subtitles_and_time_of_day_aliases_are_wired() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
 
@@ -956,6 +985,7 @@ mod tests {
 
     #[test]
     fn test_demo_play_cameo_movie_alias_is_consumed() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         if let Ok(mut logic) = get_game_logic().lock() {
@@ -972,6 +1002,7 @@ mod tests {
 
     #[test]
     fn test_switch_team_aliases_cycle_or_swap_local_player_index() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let player_usa = Arc::new(RwLock::new(Player::new(0)));
@@ -1044,6 +1075,7 @@ mod tests {
 
     #[test]
     fn test_cheat_switch_teams_keeps_message_in_multiplayer() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let player_usa = Arc::new(RwLock::new(Player::new(0)));
@@ -1096,6 +1128,7 @@ mod tests {
 
     #[test]
     fn test_multiplayer_gated_cheat_aliases_keep_message() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let local_player = Arc::new(RwLock::new(Player::new(0)));
@@ -1141,6 +1174,7 @@ mod tests {
 
     #[test]
     fn test_demo_toggle_sound_and_music_aliases_update_audio_flags() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
@@ -1218,6 +1252,7 @@ mod tests {
 
     #[test]
     fn test_demo_debug_display_and_movie_capture_aliases_are_consumed() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         for alias in [
@@ -1236,6 +1271,7 @@ mod tests {
 
     #[test]
     fn test_demo_view_filter_aliases_toggle_expected_filter_modes() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         with_tactical_view(|view| {
@@ -1293,6 +1329,7 @@ mod tests {
 
     #[test]
     fn test_demo_toggle_bw_view_alias_cycles_cpp_compat_state() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         with_receiving_ui(|ui| {
@@ -1334,6 +1371,7 @@ mod tests {
 
     #[test]
     fn test_demo_toggle_network_alias_is_consumed_and_toggles_compat_state() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         assert_eq!(
@@ -1351,6 +1389,7 @@ mod tests {
 
     #[test]
     fn test_demo_cycle_lod_level_alias_matches_cpp_decrement_wrap_order() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         with_receiving_ui(|ui| {
             set_cycle_lod_level_state_for_tests(
@@ -1370,6 +1409,7 @@ mod tests {
 
     #[test]
     fn test_debug_dump_player_object_aliases_are_consumed() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             dispatch_for_test(&alias_record("DEBUG_DUMP_PLAYER_OBJECTS")),
@@ -1383,6 +1423,7 @@ mod tests {
 
     #[test]
     fn test_debug_sleepy_update_performance_alias_keeps_message() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             dispatch_for_test(&alias_record("DEBUG_SLEEPY_UPDATE_PERFORMANCE")),
@@ -1392,6 +1433,7 @@ mod tests {
 
     #[test]
     fn test_debug_id_performance_aliases_keep_message() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             dispatch_for_test(&alias_record("DEBUG_OBJECT_ID_PERFORMANCE")),
@@ -1405,6 +1447,7 @@ mod tests {
 
     #[test]
     fn test_demo_perform_statistical_dump_sets_dump_flag() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
         global_data.write().dump_performance_statistics = false;
@@ -1418,6 +1461,7 @@ mod tests {
 
     #[test]
     fn test_demo_win_alias_sets_local_victory_state() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let local_player = Arc::new(RwLock::new(Player::new(0)));
@@ -1454,6 +1498,7 @@ mod tests {
 
     #[test]
     fn test_runscript_alias_parsing_accepts_cpp_ranges() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(parse_runscript_alias("CHEAT_RUNSCRIPT1"), Some((true, 1)));
         assert_eq!(parse_runscript_alias("CHEAT_RUNSCRIPT9"), Some((true, 9)));
         assert_eq!(parse_runscript_alias("DEMO_RUNSCRIPT2"), Some((false, 2)));
@@ -1464,6 +1509,7 @@ mod tests {
 
     #[test]
     fn test_demo_battle_cry_alias_is_consumed() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             dispatch_for_test(&alias_record("DEMO_BATTLE_CRY")),
@@ -1473,6 +1519,7 @@ mod tests {
 
     #[test]
     fn test_kill_selection_and_runscript_aliases_are_consumed() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let __arc_bind = get_selection_manager();
@@ -1516,6 +1563,7 @@ if let Ok(mut manager) = __arc_bind.write() {
 
     #[test]
     fn test_demo_lock_camera_to_selection_alias_clears_lock_when_no_selection() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let __arc_bind = get_selection_manager();
@@ -1540,6 +1588,7 @@ if let Ok(mut manager) = __arc_bind.write() {
 
     #[test]
     fn test_demo_lock_camera_to_planes_alias_is_consumed() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         with_receiving_ui(|ui| {
             set_last_plane_lock_object_id_for_tests(&mut ui.state.meta_demo, None);

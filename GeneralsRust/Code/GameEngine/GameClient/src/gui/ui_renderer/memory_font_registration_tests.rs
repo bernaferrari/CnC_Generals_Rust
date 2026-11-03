@@ -79,6 +79,7 @@ fn assert_shaped_face_and_size(runtime: &FontRuntime, family: &str) {
 
 #[test]
 fn actual_memory_font_registration_shapes_measures_and_rasterizes() {
+    crate::test_support::ensure_ambient_host();
     let mut runtime = isolated_runtime();
     assert_eq!(runtime.font_system.db().faces().count(), 0);
     runtime
@@ -111,6 +112,7 @@ fn actual_memory_font_registration_shapes_measures_and_rasterizes() {
 
 #[test]
 fn actual_memory_font_replacement_invalidates_faces_and_raster_caches() {
+    crate::test_support::ensure_ambient_host();
     let mut runtime = isolated_runtime();
     runtime.load_font("AuthoredUiFace", INTER).unwrap();
     assert_registered_family(&runtime, "Inter");
@@ -148,6 +150,7 @@ fn actual_memory_font_replacement_invalidates_faces_and_raster_caches() {
 
 #[test]
 fn actual_memory_font_invalid_bytes_are_atomic_and_do_not_reach_other_runtime() {
+    crate::test_support::ensure_ambient_host();
     let mut first = isolated_runtime();
     let second = isolated_runtime();
     first.load_font("Inter", INTER).unwrap();
@@ -175,6 +178,7 @@ fn actual_memory_font_invalid_bytes_are_atomic_and_do_not_reach_other_runtime() 
 
 #[test]
 fn matching_aliases_in_two_populated_runtimes_keep_faces_and_caches_independent() {
+    crate::test_support::ensure_ambient_host();
     let mut first = isolated_runtime();
     let mut second = isolated_runtime();
     let desc = super::super::font::FontDesc::new("SharedAlias", POINT_SIZE, false);
@@ -226,6 +230,7 @@ fn matching_aliases_in_two_populated_runtimes_keep_faces_and_caches_independent(
 
 #[test]
 fn actual_registered_measurement_refreshes_same_descriptor_display_layout() {
+    crate::test_support::ensure_ambient_host();
     use super::super::display_string::DisplayString;
     use super::super::font::FontDesc;
 

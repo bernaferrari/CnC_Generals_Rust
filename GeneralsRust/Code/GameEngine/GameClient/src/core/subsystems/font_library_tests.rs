@@ -6,6 +6,7 @@ use crate::gui::font::{FontDesc, FontError};
 
 #[test]
 fn font_library_subsystem_lifecycle_drives_actual_inner_cache() {
+    crate::test_support::ensure_ambient_host();
     let mut wrapper = FontLibrarySubsystem::new();
     let first_desc = FontDesc::new("Arial", 12, false);
     let second_desc = FontDesc::new("Arial", 13, true);
@@ -62,6 +63,7 @@ fn font_library_subsystem_lifecycle_drives_actual_inner_cache() {
 
 #[test]
 fn font_library_subsystem_instances_keep_cache_reset_and_retained_fonts_independent() {
+    crate::test_support::ensure_ambient_host();
     let mut first = FontLibrarySubsystem::new();
     let mut second = FontLibrarySubsystem::new();
     let desc = FontDesc::new("Arial", 12, false);

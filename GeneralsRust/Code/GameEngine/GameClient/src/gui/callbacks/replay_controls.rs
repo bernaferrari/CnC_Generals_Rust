@@ -125,6 +125,7 @@ mod owned_tests {
 
     #[test]
     fn replay_visibility_uses_receiving_manager_and_explicit_mode() {
+        crate::test_support::ensure_ambient_host();
         let mut owner = WindowManager::new();
         let mut peer = WindowManager::new();
         let id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
@@ -156,6 +157,7 @@ mod owned_tests {
 
     #[test]
     fn missing_replay_control_is_not_created_by_visibility_callbacks() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = WindowManager::new();
         let id = NameKeyGenerator::name_to_key(PARENT_REPLAY_CONTROL) as i32;
         show_replay_controls_owned(&mut manager, true);
@@ -165,6 +167,7 @@ mod owned_tests {
     }
     #[test]
     fn authored_replay_callbacks_are_stateless_on_receiving_windows() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = WindowManager::new();
         let window = manager
             .test_create_window_with_id(None, 0, 0, 100, 40, 91)

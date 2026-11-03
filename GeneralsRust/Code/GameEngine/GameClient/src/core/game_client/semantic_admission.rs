@@ -746,6 +746,7 @@ mod semantic_admission_tests {
     }
     #[test]
     fn map_loading_constructor_needs_no_tod_or_audio_submission() {
+        crate::test_support::ensure_ambient_host();
         use game_engine::common::audio::audio_event_rts::{AC_LOOP, ST_GLOBAL};
         use game_engine::common::audio::{AudioEventInfo, AudioManager};
 
@@ -838,6 +839,7 @@ mod semantic_admission_tests {
     }
     #[test]
     fn semantic_cpu_birth_preserves_same_id_peers_order_and_nonresident_lifetime() {
+        crate::test_support::ensure_ambient_host();
         let (mut catalog, plan) = content(2.0);
         let (mut peer_catalog, peer_plan) = content(7.0);
         let mut client = GameClient::new().unwrap();
@@ -930,6 +932,7 @@ mod semantic_admission_tests {
     }
     #[test]
     fn detached_cpu_owner_admits_without_client_or_gpu_and_rejects_duplicate_binding() {
+        crate::test_support::ensure_ambient_host();
         let (mut catalog, plan) = content(2.0);
         let mut world = NativeDrawableWorld::new();
         let key = world
@@ -970,6 +973,7 @@ mod semantic_admission_tests {
     }
     #[test]
     fn failed_constructor_removes_registered_receiver_without_pruning_peer() {
+        crate::test_support::ensure_ambient_host();
         let (mut catalog, plan) = content(2.0);
         let mut world = NativeDrawableWorld::new();
         let peer = world
@@ -1027,6 +1031,7 @@ mod semantic_admission_tests {
     }
     #[test]
     fn constructor_error_cannot_primitive_unlink_when_retirement_rejects() {
+        crate::test_support::ensure_ambient_host();
         struct Reject;
         impl NativeDrawableRetirement for Reject {
             fn retire(
@@ -1094,6 +1099,7 @@ mod semantic_admission_tests {
     }
     #[test]
     fn native_early_body_flags_precede_audio_and_loading_map_needs_no_audio_receiver() {
+        crate::test_support::ensure_ambient_host();
         use crate::system::TimeOfDay;
         use game_engine::common::audio::AudioSubmissionLocality;
         use gamelogic::common::types::BodyDamageType;
@@ -1212,6 +1218,7 @@ mod semantic_admission_tests {
     }
     #[test]
     fn actual_native_instance_owner_keeps_base_and_same_id_peer_independent() {
+        crate::test_support::ensure_ambient_host();
         let (mut catalog, plan) = content(2.);
         let (mut other_catalog, other_plan) = content(4.);
         let mut world = NativeDrawableWorld::new();

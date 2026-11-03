@@ -1233,11 +1233,13 @@ mod tests {
 
     #[test]
     fn password_mode_defaults_to_none() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(PasswordMode::default(), PasswordMode::None);
     }
 
     #[test]
     fn gadget_selected_payload_is_usize_from_i32_id() {
+        crate::test_support::ensure_ambient_host();
         let button_ok_id: i32 = 7;
         let data: usize = button_ok_id as usize;
         assert_eq!(data, 7);

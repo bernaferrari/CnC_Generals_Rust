@@ -34,6 +34,7 @@ pub use ambient_host::ensure_ambient_host;
 
 #[cfg(test)]
 mod ambient_host {
+    use game_engine::common::common_services::{self, CommonServices};
     use gamelogic::system::engine_stores::{install_active, is_active, new_for_world, EngineStores};
     use std::cell::RefCell;
     use std::sync::Arc;
@@ -47,6 +48,11 @@ mod ambient_host {
     /// Ambient hooks were deleted; the transitional stack lives in
     /// `gamelogic::system::engine_stores`. Prefer
     /// [`gamelogic::system::engine_stores::with_active_stores`] for new tests.
+    ///
+    /// `EngineStores::new_for_world` clones the process UpgradeCenter, whose
+    /// LazyLock init needs an active CommonServices (NameKey lookups). Bootstrap
+    /// a scratch Common bind before constructing the Core, then let
+    /// `install_active` publish the world's Common on top.
     pub fn ensure_ambient_host() {
         DEFAULT_CORE.with(|slot| {
             if let Some(core) = slot.borrow().as_ref() {
@@ -54,9 +60,12 @@ mod ambient_host {
                     return;
                 }
             }
+            let bootstrap = Arc::new(CommonServices::new());
+            let _ = common_services::install_common_services(bootstrap);
             let core = new_for_world();
             install_active(Arc::clone(&core));
             *slot.borrow_mut() = Some(core);
         });
     }
 }
+

@@ -44,6 +44,7 @@ mod tests {
 
     #[test]
     fn ready_strip_flashes_instead_of_static_yellow() {
+        crate::test_support::ensure_ambient_host();
         // Given: C++ flash duration 15 frames, usedFlashColor starts true.
         let mut state = SuperweaponFlashState {
             used_flash_color: true,

@@ -549,6 +549,7 @@ mod tests {
 
     #[test]
     fn mouse_move_recency_matches_cpp_one_second_window() {
+        crate::test_support::ensure_ambient_host();
         let mut translator = LookAtTranslator::new();
         translator.last_mouse_move_frame = 100;
 
@@ -558,6 +559,7 @@ mod tests {
 
     #[test]
     fn mouse_move_recency_resets_when_frame_counter_rewinds() {
+        crate::test_support::ensure_ambient_host();
         let mut translator = LookAtTranslator::new();
         translator.last_mouse_move_frame = 100;
 
@@ -567,6 +569,7 @@ mod tests {
 
     #[test]
     fn reset_modes_clears_scroll_rotate_pitch_fov() {
+        crate::test_support::ensure_ambient_host();
         let mut translator = LookAtTranslator::new();
         translator.is_scrolling = true;
         translator.is_rotating = true;
@@ -601,6 +604,7 @@ mod tests {
 
     #[test]
     fn set_scrolling_locks_mouse_and_stop_restores_prev_cursor() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
         ui.set_scrolling(false);
         ui.set_mouse_cursor(MouseCursor::Waypoint);
@@ -639,12 +643,14 @@ mod tests {
 
     #[test]
     fn mmb_click_thresholds_match_cpp() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(MMB_CLICK_DURATION_FRAMES, 5);
         assert_eq!(MMB_CLICK_PIXEL_OFFSET, 5);
     }
 
     #[test]
     fn wheel_falls_through_to_stop_scrolling() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
         ui.set_mouse_cursor(MouseCursor::Selecting);
         let mut translator = LookAtTranslator::new();
@@ -659,6 +665,7 @@ mod tests {
 
     #[test]
     fn frame_tick_emits_set_replay_camera_for_skirmish_when_save_flag() {
+        crate::test_support::ensure_ambient_host();
         // C++ LookAtXlat.cpp:459-467 appends camera to this source pass only.
         let previous = global_data::read().save_camera_in_replay;
         global_data::write().save_camera_in_replay = true;

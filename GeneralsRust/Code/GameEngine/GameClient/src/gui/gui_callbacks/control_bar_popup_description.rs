@@ -1002,6 +1002,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn host_popup_shows_bound_denials_without_legacy_player() {
+        crate::test_support::ensure_ambient_host();
         let owner = crate::gui::window_manager::WindowManagerOwner::new();
         { // was owner.with_scope
 

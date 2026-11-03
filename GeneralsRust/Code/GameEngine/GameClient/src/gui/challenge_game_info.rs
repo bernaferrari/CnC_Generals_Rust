@@ -200,6 +200,7 @@ pub fn restore_challenge_game_info(
 mod tests {
     #[test]
     fn challenge_game_info_is_owned_by_each_campaign_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut first = crate::gui::campaign_manager::CampaignManager::new();
         let mut second = crate::gui::campaign_manager::CampaignManager::new();
         first.set_challenge_slot0_and_map("maps/first.map".into(), "First".into(), 2);

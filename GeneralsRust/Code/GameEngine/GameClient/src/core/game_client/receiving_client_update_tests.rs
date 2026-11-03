@@ -40,6 +40,7 @@ fn lives(client: &mut GameClient, id: DrawableId) -> Vec<u32> {
 
 #[test]
 fn receiving_client_update_uses_installed_modules_with_empty_core_registry() {
+    crate::test_support::ensure_ambient_host();
     // No foreign Object or Drawable is installed to make the callback appear live.
     let mut first = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
@@ -85,6 +86,7 @@ fn receiving_client_update_uses_installed_modules_with_empty_core_registry() {
 
 #[test]
 fn receiving_client_update_local_manager_kernel_preserves_native_life_semantics() {
+    crate::test_support::ensure_ambient_host();
     use crate::effects::particle_manager::ParticleSystemManager;
     use game_engine::common::system::{Snapshotable, xfer_load::XferLoad, xfer_save::XferSave};
     use std::io::Cursor;
@@ -195,6 +197,7 @@ fn receiving_client_update_local_manager_kernel_preserves_native_life_semantics(
 
 #[test]
 fn native_client_update_and_expiration_follow_cpp_creation_roster() {
+    crate::test_support::ensure_ambient_host();
     use crate::effects::particle_manager::ParticleSystemManager;
     let mut client = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();
@@ -256,6 +259,7 @@ fn native_client_update_and_expiration_follow_cpp_creation_roster() {
 
 #[test]
 fn receiving_drawable_phase_rejects_foreign_client_frame_before_mutation() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     let id = client.create_drawable_from_template(&template()).unwrap();
     client

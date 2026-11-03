@@ -101,6 +101,7 @@ mod tests {
 
     #[test]
     fn normal_campaign_start_mirrors_selected_map_to_both_global_data_residences() {
+        crate::test_support::ensure_ambient_host();
         with_campaign_start_global_data_restored(|| {
             let selected_map = "Maps\\Campaign\\MD_USA01.map";
             let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
@@ -127,6 +128,7 @@ mod tests {
 
     #[test]
     fn challenge_campaign_start_defers_map_publication_and_game_start() {
+        crate::test_support::ensure_ambient_host();
         with_campaign_start_global_data_restored(|| {
             let selected_map = "Maps\\Campaign\\ChallengeExpected.map";
             let ini_global = game_engine::common::ini::ini_game_data::ensure_global_data();
@@ -194,6 +196,7 @@ mod tests {
 
     #[test]
     fn os_wnd_start_usa_gla_china_campaign_hits_single_player_faction_medium() {
+        crate::test_support::ensure_ambient_host();
         let usa = drive_os_wnd_campaign_side(ShowSide::USA);
         if !usa.is_empty() {
             assert!(
@@ -229,6 +232,7 @@ mod tests {
 
     #[test]
     fn os_wnd_start_usa_campaign_hits_single_player_usa_medium() {
+        crate::test_support::ensure_ambient_host();
         with_game_client_window_owner(|client| {
             {
                 let (_, menu, _) = client.campaign_menu_and_host_mut();
@@ -282,6 +286,7 @@ mod tests {
 
     #[test]
     fn dispatch_os_click_named_window_requires_hit_test_for_used() {
+        crate::test_support::ensure_ambient_host();
         with_game_client_window_owner(|client| {
             let owner = client.window_manager_owner();
             reset_os_wnd_widget_tree_nav_for_tests(&owner);
@@ -304,6 +309,7 @@ mod tests {
 
     #[test]
     fn test_main_menu_creation() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = MainMenu::new();
         let state = &menu.state;
 
@@ -323,6 +329,7 @@ mod tests {
 
     #[test]
     fn shutdown_with_immediate_userdata_completes_without_animation_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = MainMenu::new();
         {
             let mut state = &mut menu.state;
@@ -341,6 +348,7 @@ mod tests {
 
     #[test]
     fn test_dropdown_type_conversion() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(DropdownType::from_i32(0), Some(DropdownType::None));
         assert_eq!(DropdownType::from_i32(1), Some(DropdownType::Single));
         assert_eq!(DropdownType::from_i32(2), Some(DropdownType::Multiplayer));
@@ -352,6 +360,7 @@ mod tests {
 
     #[test]
     fn test_show_side_conversion() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(ShowSide::from_i32(0), Some(ShowSide::None));
         assert_eq!(ShowSide::from_i32(1), Some(ShowSide::Training));
         assert_eq!(ShowSide::from_i32(2), Some(ShowSide::USA));
@@ -363,6 +372,7 @@ mod tests {
 
     #[test]
     fn test_display_settings() {
+        crate::test_support::ensure_ambient_host();
         let settings = DisplaySettings::default();
         assert_eq!(settings.x_res, 1024);
         assert_eq!(settings.y_res, 768);
@@ -372,6 +382,7 @@ mod tests {
 
     #[test]
     fn test_resolution_accept() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = MainMenu::new();
 
         {
@@ -391,6 +402,7 @@ mod tests {
 
     #[test]
     fn test_resolution_rollback_state_restores_old_settings() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = MainMenu::new();
 
         {
@@ -425,6 +437,7 @@ mod tests {
 
     #[test]
     fn test_handle_canceled_download() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = MainMenu::new();
 
         {
@@ -452,6 +465,7 @@ mod tests {
 
     #[test]
     fn test_cancel_patch_check_callback_clears_patch_state_and_window() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = MainMenu::new();
 
         {
@@ -480,6 +494,7 @@ mod tests {
 
     #[test]
     fn test_initial_state() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = MainMenu::new();
         let state = &menu.state;
 
@@ -497,6 +512,7 @@ mod tests {
 
     #[test]
     fn test_start_patch_check_sets_patch_state_without_cancelling_menu() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = MainMenu::new();
 
         {
@@ -519,6 +535,7 @@ mod tests {
 
     #[test]
     fn test_input_focus_writeback_sets_keyboard_focus() {
+        crate::test_support::ensure_ambient_host();
         use crate::gui::{
             GameWindow, WindowMessage, WindowMsgPayload, pop_payload, push_payload,
             write_input_focus_response as safe_focus,
@@ -546,6 +563,7 @@ mod tests {
 
     #[test]
     fn test_patch_check_http_think_completes_handoff_after_four_ticks() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = MainMenu::new();
 
         {
@@ -571,6 +589,7 @@ mod tests {
 
     #[test]
     fn test_reveal_hidden_main_menu_sets_cpp_startup_state() {
+        crate::test_support::ensure_ambient_host();
         let mut state = MainMenuState::default();
         with_test_shell_menu_effects(|effects| {
             MainMenu::reveal_hidden_main_menu(&mut state, effects, None);
@@ -583,6 +602,7 @@ mod tests {
 
     #[test]
     fn test_main_menu_init_unhides_startup_controls_like_cpp_layout_hide() {
+        crate::test_support::ensure_ambient_host();
         // MainMenu::init still invokes the Core shell-map helper, which uses shared
         // engine state. This checks the receiving menu/window owner path, not Core
         // shell-map isolation.
@@ -665,6 +685,7 @@ mod tests {
 
     #[test]
     fn test_input_focus_does_not_reveal_hidden_menu() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = MainMenu::new();
         {
             let mut state = &mut menu.state;
@@ -690,6 +711,7 @@ mod tests {
 
     #[test]
     fn test_mouse_hover_queues_cpp_shell_hooks() {
+        crate::test_support::ensure_ambient_host();
         let menu = MainMenu::new();
         let mut state = MainMenuState::default();
         state.window_ids.online_id = 11;
@@ -724,6 +746,7 @@ mod tests {
 
     #[test]
     fn test_mouse_hover_transient_logo_state_matches_cpp() {
+        crate::test_support::ensure_ambient_host();
         let menu = MainMenu::new();
         let mut state = MainMenuState::default();
         state.window_ids = build_window_ids();
@@ -742,6 +765,7 @@ mod tests {
 
     #[test]
     fn test_selected_actions_queue_cpp_selected_hooks() {
+        crate::test_support::ensure_ambient_host();
         let menu = MainMenu::new();
         let ids = build_window_ids();
 
@@ -797,6 +821,7 @@ mod tests {
 
     #[test]
     fn test_exit_selection_defers_button_latch_until_quit_confirmed() {
+        crate::test_support::ensure_ambient_host();
         let menu = MainMenu::new();
         let ids = build_window_ids();
         let mut state = MainMenuState::default();
@@ -816,6 +841,7 @@ mod tests {
 
     #[test]
     fn test_no_cd_retry_keeps_prompt_open_without_starting_campaign() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = MainMenu::new();
 
         let result = with_test_menu_effects(|effects| {
@@ -835,6 +861,7 @@ mod tests {
 
     #[test]
     fn test_selected_ignores_clicks_when_button_pushed() {
+        crate::test_support::ensure_ambient_host();
         let menu = MainMenu::new();
         let ids = build_window_ids();
         let mut state = MainMenuState::default();
@@ -858,6 +885,7 @@ mod tests {
 
     #[test]
     fn test_button_pushed_guard_blocks_non_network_pushes() {
+        crate::test_support::ensure_ambient_host();
         let menu = MainMenu::new();
         let ids = build_window_ids();
 
@@ -887,6 +915,7 @@ mod tests {
 
     #[test]
     fn first_run_char_reveals_dropdown_like_cpp_main_menu_input() {
+        crate::test_support::ensure_ambient_host();
         with_game_client_window_owner(|client| {
             {
                 let (_, menu, _) = client.campaign_menu_and_host_mut();
@@ -907,6 +936,7 @@ mod tests {
 
     #[test]
     fn first_update_hides_overlapping_borders_then_char_reveal_hits_skirmish() {
+        crate::test_support::ensure_ambient_host();
         with_game_client_window_owner(|client| {
             
             // C++ MainMenuInit 525-530 hides every dropdown including MapBorder2
@@ -1009,6 +1039,7 @@ mod tests {
 
     #[test]
     fn first_run_char_reveal_makes_named_gadgets_hittable_at_640x480() {
+        crate::test_support::ensure_ambient_host();
         with_game_client_window_owner(|client| {
             
             client.window_manager_owner().with_manager(|manager| {
@@ -1151,6 +1182,7 @@ mod tests {
 
     #[test]
     fn dont_allow_transitions_clears_when_handler_finished_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         with_game_client_window_owner(|client| {
             client.window_manager_owner().with_manager(|manager| {
                 manager.test_reset();
@@ -1182,6 +1214,7 @@ mod tests {
 
     #[test]
     fn os_mouse_click_button_skirmish_bubbles_gbm_selected_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         with_game_client_window_owner(|client| {
             use crate::gui::WindowMessage;
             use crate::gui::gadgets::PushButton;
@@ -1310,6 +1343,7 @@ mod tests {
 
     #[test]
     fn os_mouse_click_button_single_player_gbm_selected_unhides_map_border() {
+        crate::test_support::ensure_ambient_host();
         with_game_client_window_owner(|client| {
             // C++ MainMenu.cpp:1313-1324 ButtonSinglePlayer GBM_SELECTED:
             // dropDownWindows[DROPDOWN_SINGLE]->winHide(FALSE) (MapBorder)
@@ -1524,6 +1558,7 @@ mod tests {
 
     #[test]
     fn simulate_main_menu_skirmish_button_gadget_selected_latches() {
+        crate::test_support::ensure_ambient_host();
         with_game_client_window_owner(|client| {
             // Fresh residual call should fire ButtonSkirmish GBM_SELECTED latch.
             assert!(
@@ -1544,6 +1579,7 @@ mod tests {
 
     #[test]
     fn cpp_init_hide_pack_hides_overlapping_dropdowns_ruler_and_recent_save() {
+        crate::test_support::ensure_ambient_host();
         with_game_client_window_owner(|client| {
             // C++ MainMenuInit 525-530 winHide(TRUE) dropDownWindows[1..],
             // initialHide, showSelectiveButtons(SHOW_NONE), then 627-629
@@ -1735,6 +1771,7 @@ mod tests {
 
     #[test]
     fn handle_button_selected_remaining_screens_winhide_or_push_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         with_game_client_window_owner(|client| {
             // C++ MainMenu.cpp GBM_SELECTED:
             // MULTIPLAYER 1369-1376 MapBorder1; LOAD 1381-1391 MapBorder3;
@@ -1833,6 +1870,7 @@ mod tests {
 
     #[test]
     fn single_player_menu_transition_drives_every_group_window_to_end_state() {
+        crate::test_support::ensure_ambient_host();
         with_game_client_window_owner(|client| {
             // GameWindowTransitionsStyles.cpp:77-133 group semantics: every window
             // in `MainMenuSinglePlayerMenu` hides at transition start and reaches
@@ -1925,6 +1963,7 @@ mod tests {
 
     #[test]
     fn transition_calls_inside_nested_wm_borrow_survive_the_queue_drain() {
+        crate::test_support::ensure_ambient_host();
         with_game_client_window_owner(|client| {
             
             client.window_manager_owner().with_manager(|manager| {
@@ -1966,6 +2005,7 @@ mod tests {
     }
     #[test]
     fn is_first_cd_present_uses_the_live_cd_check() {
+        crate::test_support::ensure_ambient_host();
         assert!(crate::cd_check::is_first_cd_present());
     }
 }

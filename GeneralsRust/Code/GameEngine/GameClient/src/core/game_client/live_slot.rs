@@ -399,6 +399,7 @@ mod live_slot_tests {
 
     #[test]
     fn live_snapshot_slot_is_same_thread_reentrant_safe_and_publishes_frame() {
+        crate::test_support::ensure_ambient_host();
         let _serial = live_slot_test_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -430,6 +431,7 @@ mod live_slot_tests {
 
     #[test]
     fn explicit_drawable_visual_restore_targets_only_its_client() {
+        crate::test_support::ensure_ambient_host();
         let _serial = live_slot_test_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -466,6 +468,7 @@ mod live_slot_tests {
 
     #[test]
     fn only_live_client_destroys_terrain_visual_after_drawables() {
+        crate::test_support::ensure_ambient_host();
         let _serial = live_slot_test_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -505,6 +508,7 @@ mod live_slot_tests {
 
     #[test]
     fn reset_and_active_drop_clear_effects_without_old_client_interference() {
+        crate::test_support::ensure_ambient_host();
         let _serial = live_slot_test_lock()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -810,6 +814,7 @@ impl GameClient {
 mod receiving_lod_tests {
     #[test]
     fn receiving_lod_callbacks_keep_peers_separate_and_follow_definition_renderer_updates() {
+        crate::test_support::ensure_ambient_host();
         const NAME: &str =
             "receiving_lod_callbacks_keep_peers_separate_and_follow_definition_renderer_updates";
         const MARKER: &str = "GENERALS_RECEIVING_LOD_CHILD";

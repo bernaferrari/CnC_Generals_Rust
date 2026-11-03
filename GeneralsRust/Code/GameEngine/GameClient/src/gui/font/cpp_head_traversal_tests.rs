@@ -5,6 +5,7 @@ use super::*;
 
 #[test]
 fn cpp_font_library_head_first_traversal_tracks_actual_cache_lifetimes() {
+    crate::test_support::ensure_ambient_host();
     let mut library = FontLibrary::new();
     library.init_mut().unwrap();
     let first_desc = FontDesc::new("Arial", 12, false);

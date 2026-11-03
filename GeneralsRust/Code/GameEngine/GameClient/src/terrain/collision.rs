@@ -904,6 +904,7 @@ mod tests {
 
     #[test]
     fn test_material_properties() {
+        crate::test_support::ensure_ambient_host();
         let grass = TerrainMaterial::Grass {
             density: 0.8,
             friction: 0.6,
@@ -920,6 +921,7 @@ mod tests {
 
     #[test]
     fn test_surface_properties_from_material() {
+        crate::test_support::ensure_ambient_host();
         let sand = TerrainMaterial::Sand {
             grain_size: 0.5,
             stability: 0.7,
@@ -933,6 +935,7 @@ mod tests {
 
     #[test]
     fn test_ray_creation() {
+        crate::test_support::ensure_ambient_host();
         let origin = Vec3::new(0.0, 10.0, 0.0);
         let direction = Vec3::new(0.0, -1.0, 0.0);
         let ray = Ray::new(origin, direction, 20.0);
@@ -947,6 +950,7 @@ mod tests {
 
     #[test]
     fn test_collision_triangle() {
+        crate::test_support::ensure_ambient_host();
         let vertices = [
             Vec3::new(0.0, 0.0, 0.0),
             Vec3::new(10.0, 0.0, 0.0),
@@ -969,6 +973,7 @@ mod tests {
 
     #[test]
     fn test_collision_grid() {
+        crate::test_support::ensure_ambient_host();
         let mut grid = CollisionGrid::new(10.0, Vec2::new(0.0, 0.0), (10, 10));
 
         let triangle = CollisionTriangle::new(
@@ -993,6 +998,7 @@ mod tests {
 
     #[test]
     fn test_collision_grid_height_sample_bilinear_fallback() {
+        crate::test_support::ensure_ambient_host();
         let mut grid = CollisionGrid::new(10.0, Vec2::new(0.0, 0.0), (10, 10));
         grid.cells.insert(
             (0, 0),
@@ -1010,6 +1016,7 @@ mod tests {
 
     #[test]
     fn test_terrain_collision_system() {
+        crate::test_support::ensure_ambient_host();
         let config = CollisionConfig::default();
         let mut collision_system = TerrainCollision::new(config);
 

@@ -134,6 +134,7 @@ fn emitter_manager() -> ParticleSystemManager {
 
 #[test]
 fn receiving_native_draw_admits_authored_emitter_before_next_client_bone_update() {
+    crate::test_support::ensure_ambient_host();
     if crate::core::game_client::global_boundary_fixture::run_in_private_child(
         module_path!(),
         "receiving_native_draw_admits_authored_emitter_before_next_client_bone_update",
@@ -322,6 +323,7 @@ fn local_draw_phase(
 
 #[test]
 fn receiving_native_draw_phase_and_retirement_use_equal_id_local_owners() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let peer_assets = static_asset_at([7., 8., 9.]);
     let mut first = GameClient::new().unwrap();
@@ -443,6 +445,7 @@ fn receiving_native_draw_phase_and_retirement_use_equal_id_local_owners() {
 
 #[test]
 fn receiving_native_draw_missing_parent_and_wrap_do_not_select_a_peer() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut client = GameClient::new().unwrap();
     let id = client
@@ -503,6 +506,7 @@ fn receiving_native_draw_missing_parent_and_wrap_do_not_select_a_peer() {
 
 #[test]
 fn receiving_native_frozen_draw_still_advances_particles_on_actual_logic_clock() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut client = GameClient::new().unwrap();
     let id = client
@@ -564,6 +568,7 @@ fn receiving_native_frozen_draw_still_advances_particles_on_actual_logic_clock()
 
 #[test]
 fn receiving_native_initial_client_zero_uses_actual_nonzero_logic_dedup() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut client = GameClient::new().unwrap();
     let id = client
@@ -600,6 +605,7 @@ fn receiving_native_initial_client_zero_uses_actual_nonzero_logic_dedup() {
 
 #[test]
 fn receiving_native_real_factory_failure_stops_before_later_authored_rows() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut state = ModelConditionInfo::new();
     state.model_name = "NativeEmitterModel".into();
@@ -660,6 +666,7 @@ fn receiving_native_real_factory_failure_stops_before_later_authored_rows() {
 
 #[test]
 fn receiving_native_two_drawables_emit_in_cpp_prepend_order() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut client = GameClient::new().unwrap();
     let first = client
@@ -709,6 +716,7 @@ fn receiving_native_two_drawables_emit_in_cpp_prepend_order() {
 
 #[test]
 fn receiving_native_factory_prefix_failure_cannot_duplicate_on_next_draw() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut state = ModelConditionInfo::new();
     state.model_name = "NativeEmitterModel".into();
@@ -784,6 +792,7 @@ fn receiving_native_factory_prefix_failure_cannot_duplicate_on_next_draw() {
 
 #[test]
 fn receiving_native_state_bone_scale_is_applied_once_at_birth_and_update() {
+    crate::test_support::ensure_ambient_host();
     // W3DModelDraw.cpp2592 scales the local bone once; ParticleSys.cpp1862
     // attaches through Drawable.cpp4278's unscaled Thing/Object transform.
     let assets = static_asset();
@@ -820,6 +829,7 @@ mod receiving_native_capability_tests;
 
 #[test]
 fn receiving_expiry_retires_actual_factory_emitters_through_supplied_manager() {
+    crate::test_support::ensure_ambient_host();
     let assets = static_asset();
     let mut client = GameClient::new().unwrap();
     let mut peer = GameClient::new().unwrap();

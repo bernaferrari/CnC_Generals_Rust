@@ -458,6 +458,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn popup_replay_esc_char_is_consumed_before_key_up_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
 
         assert_eq!(
@@ -472,6 +473,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn popup_replay_system_consumes_lifecycle_messages_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
         let mut wm = crate::gui::window_manager::WindowManager::new();
         let mut window = GameWindow::new();
@@ -492,6 +494,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn popup_replay_last_replay_replaces_row_label_without_duplicate() {
+        crate::test_support::ensure_ambient_host();
         let rows = ["00000000", "Custom"]
             .into_iter()
             .map(|entry| replay_display_name_for_popup(entry, "00000000"))
@@ -506,6 +509,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn popup_replay_system_handles_glm_selected_listbox_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let listbox_id = 101;
         let text_entry_id = 102;
 
@@ -574,6 +578,7 @@ use crate::gui::game_window::WindowEventEffects;
 
     #[test]
     fn popup_replay_negative_listbox_row_keeps_text_entry_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let listbox_id = 101;
         let text_entry_id = 102;
 

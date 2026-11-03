@@ -2110,6 +2110,7 @@ mod tests {
 
     #[test]
     fn decal_batches_flush_at_each_original_texture_or_type_boundary() {
+        crate::test_support::ensure_ambient_host();
         let mut groups = Vec::new();
         let vertex = |stamp| DecalVertex {
             position: [stamp, 0.0, 0.0],
@@ -2161,6 +2162,7 @@ mod tests {
 
     #[test]
     fn test_particle_vertex_layout() {
+        crate::test_support::ensure_ambient_host();
         // Test that ParticleVertex is correctly sized and aligned
         assert_eq!(std::mem::size_of::<ParticleVertex>(), 64);
         assert_eq!(std::mem::align_of::<ParticleVertex>(), 4);
@@ -2175,12 +2177,14 @@ mod tests {
 
     #[test]
     fn test_particle_batch() {
+        crate::test_support::ensure_ambient_host();
         let mut batch = ParticleBatch::new(ParticleShaderType::Alpha, "test.tga".to_string());
         assert_eq!(batch.vertices.len(), 0);
         assert!(batch.dirty);
     }
     #[test]
     fn streak_system_emits_polyline_segments_in_creation_order() {
+        crate::test_support::ensure_ambient_host();
         let mut system = test_system(ParticleType::Streak, 0);
         let mut first = ParticleInfo::default();
         first.position = Vec3::new(0.0, 0.0, 2.0);
@@ -2212,6 +2216,7 @@ mod tests {
 
     #[test]
     fn ground_aligned_particles_disable_camera_billboard() {
+        crate::test_support::ensure_ambient_host();
         let mut template = ParticleSystemTemplate::new("ground".to_string());
         template.info_mut().particle_type = ParticleType::Particle;
         template.info_mut().is_ground_aligned = true;
@@ -2227,6 +2232,7 @@ mod tests {
     /// Host is Y-up, so the live collect path must emit world-XZ quads.
     #[test]
     fn collect_system_particles_emits_world_xz_quads_when_ground_aligned() {
+        crate::test_support::ensure_ambient_host();
         let mut template = ParticleSystemTemplate::new("ground".to_string());
         template.info_mut().particle_type = ParticleType::Particle;
         template.info_mut().is_ground_aligned = true;
@@ -2269,6 +2275,7 @@ mod tests {
 
     #[test]
     fn volume_particle_emits_default_depth_layers() {
+        crate::test_support::ensure_ambient_host();
         let system = test_system(ParticleType::VolumeParticle, 0);
         let mut info = ParticleInfo::default();
         info.position = Vec3::new(0.0, 0.0, 3.0);
@@ -2295,6 +2302,7 @@ mod tests {
 
     #[test]
     fn particle_stats_frame_reset_preserves_gpu_memory() {
+        crate::test_support::ensure_ambient_host();
         let mut stats = ParticleRenderStats {
             particles_rendered: 17,
             batches_rendered: 3,
@@ -2330,6 +2338,7 @@ mod tests {
 
     #[test]
     fn particle_type_name_smud_matches_cpp_dword_prefix() {
+        crate::test_support::ensure_ambient_host();
         assert!(particle_type_name_is_smud("SMUD"));
         assert!(particle_type_name_is_smud("SMUDGE RESERVED"));
         assert!(particle_type_name_is_smud("SMUDjetExhaust.tga"));
@@ -2341,6 +2350,7 @@ mod tests {
 
     #[test]
     fn smud_prefix_system_feeds_smudge_manager_not_sprites() {
+        crate::test_support::ensure_ambient_host();
         let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
         begin_particle_heat_smudge_frame();
 
@@ -2382,6 +2392,7 @@ mod tests {
 
     #[test]
     fn heat_effects_off_skips_smudge_insert_and_sprites() {
+        crate::test_support::ensure_ambient_host();
         let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
         let previous = game_engine::common::global_data::read().use_heat_effects;
         game_engine::common::global_data::write().use_heat_effects = false;
@@ -2408,6 +2419,7 @@ mod tests {
 
     #[test]
     fn smudge_type_without_smud_prefix_does_not_take_heat_path() {
+        crate::test_support::ensure_ambient_host();
         let mut system = smudge_named_system("HeatHaze.tga", ParticleType::Smudge);
         system.push_particle(live_particle(4.0, 5.0, 6.0, 2.5, 0.55));
 
@@ -2419,6 +2431,7 @@ mod tests {
 
     #[test]
     fn ordinary_particle_does_not_feed_heat_smudges() {
+        crate::test_support::ensure_ambient_host();
         let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
         begin_particle_heat_smudge_frame();
 
@@ -2442,6 +2455,7 @@ mod tests {
 
     #[test]
     fn multiply_blend_is_dest_times_src_not_subtract_to_black() {
+        crate::test_support::ensure_ambient_host();
         let blend = particle_multiply_color_blend();
         assert_eq!(blend.src_factor, wgpu::BlendFactor::Zero);
         assert_eq!(blend.dst_factor, wgpu::BlendFactor::Src);
@@ -2466,6 +2480,7 @@ mod tests {
     }
     #[test]
     fn prepared_particle_frame_keeps_real_manager_order_culling_and_peer_identity() {
+        crate::test_support::ensure_ambient_host();
         let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
         fn owner(x: f32) -> ParticleSystemManager {
             let mut manager = ParticleSystemManager::new();
@@ -2530,6 +2545,7 @@ mod tests {
     }
     #[test]
     fn prepared_particle_frame_freezes_smud_values_before_another_preparation() {
+        crate::test_support::ensure_ambient_host();
         let _guard = HEAT_SMUDGE_TEST_LOCK.lock();
         let mut system = smudge_named_system("SMUDGE RESERVED", ParticleType::Smudge);
         system.push_particle(live_particle(4.0, 5.0, 6.0, 2.5, 0.55));

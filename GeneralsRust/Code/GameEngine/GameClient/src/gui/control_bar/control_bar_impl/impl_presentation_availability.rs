@@ -274,6 +274,7 @@ mod presentation_availability_tests {
 
     #[test]
     fn need_upgrade_must_be_stopped_evacuate_hack_and_single_use_restrict() {
+        crate::test_support::ensure_ambient_host();
         let mut bar = ControlBar::new();
         let mut need = button(CommandType::DoSpecialPower);
         need.options = CommandOption::NeedUpgrade as u32;
@@ -309,6 +310,7 @@ mod presentation_availability_tests {
 
     #[test]
     fn sell_unsellable_hidden_and_subdued_restricts_sell_evac_exit() {
+        crate::test_support::ensure_ambient_host();
         let mut bar = ControlBar::new();
         bar.presentation_availability.script_unsellable = true;
         assert_eq!(
@@ -335,6 +337,7 @@ mod presentation_availability_tests {
 
     #[test]
     fn strategy_center_stop_option_one_and_railed_transport_restrict() {
+        crate::test_support::ensure_ambient_host();
         let mut bar = ControlBar::new();
         let mut stop = button(CommandType::DoStop);
         stop.options = CommandOption::OptionOne as u32;
@@ -368,6 +371,7 @@ mod presentation_availability_tests {
 
     #[test]
     fn fire_weapon_and_switch_weapons_use_clip_and_slot() {
+        crate::test_support::ensure_ambient_host();
         let residual = PresentationAvailabilityResidual {
             weapon_reload_time: 0.0,
             has_primary_weapon: true,
@@ -431,6 +435,7 @@ mod presentation_availability_tests {
 
     #[test]
     fn presentation_typed_availability_uses_leftover_fire_and_switch() {
+        crate::test_support::ensure_ambient_host();
         let mut bar = ControlBar::new();
         bar.apply_presentation_availability(PresentationAvailabilityResidual {
             weapon_reload_time: 0.0,
@@ -464,6 +469,7 @@ mod presentation_availability_tests {
 
     #[test]
     fn special_power_in_use_battle_plan_and_overcharge_states() {
+        crate::test_support::ensure_ambient_host();
         let mut bar = ControlBar::new();
         bar.portrait_state.special_power_ready = true;
         let mut special = button(CommandType::DoSpecialPower);

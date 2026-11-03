@@ -512,6 +512,7 @@ mod command_map_parity_tests {
 
     #[test]
     fn display_name_and_description_use_parse_and_translate_label() {
+        crate::test_support::ensure_ambient_host();
         // C++ MetaEvent.cpp:337-339 INI::parseAndTranslateLabel.
         let raw = "GUI:CommandMapMissingLabelForTest";
         let translated = translate_command_map_label(raw);
@@ -524,6 +525,7 @@ mod command_map_parity_tests {
 
     #[test]
     fn lookup_command_map_name_sees_options_remaps() {
+        crate::test_support::ensure_ambient_host();
         // C++ MetaEventTranslator walks TheMetaMap after Keyboard Options writes.
         ensure_meta_map_loaded();
         {

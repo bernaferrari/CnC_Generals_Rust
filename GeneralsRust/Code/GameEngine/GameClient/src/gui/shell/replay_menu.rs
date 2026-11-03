@@ -1240,6 +1240,7 @@ mod tests {
 
     #[test]
     fn test_replay_header_creation() {
+        crate::test_support::ensure_ambient_host();
         let header = ReplayHeader::new();
         assert_eq!(header.filename, "");
         assert!(!header.for_playback);
@@ -1249,6 +1250,7 @@ mod tests {
 
     #[test]
     fn test_replay_header_duration() {
+        crate::test_support::ensure_ambient_host();
         let mut header = ReplayHeader::new();
         header.start_time = 1000;
         header.end_time = 1180;
@@ -1259,6 +1261,7 @@ mod tests {
 
     #[test]
     fn test_replay_header_fps() {
+        crate::test_support::ensure_ambient_host();
         let mut header = ReplayHeader::new();
         header.start_time = 0;
         header.end_time = 100;
@@ -1270,6 +1273,7 @@ mod tests {
 
     #[test]
     fn test_replay_header_version_compatibility() {
+        crate::test_support::ensure_ambient_host();
         let mut header = ReplayHeader::new();
         header.version_string = "1.0".to_string();
         header.version_number = 100;
@@ -1283,6 +1287,7 @@ mod tests {
 
     #[test]
     fn test_replay_header_display_color() {
+        crate::test_support::ensure_ambient_host();
         let mut header = ReplayHeader::new();
         header.version_string = "1.0".to_string();
         header.version_number = 100;
@@ -1299,6 +1304,7 @@ mod tests {
 
     #[test]
     fn test_replay_game_info_creation() {
+        crate::test_support::ensure_ambient_host();
         let game_info = ReplayGameInfo::new();
         assert_eq!(game_info.map_name, "");
         assert_eq!(game_info.game_mode, 0);
@@ -1306,6 +1312,7 @@ mod tests {
 
     #[test]
     fn test_replay_game_info_slots() {
+        crate::test_support::ensure_ambient_host();
         let mut game_info = ReplayGameInfo::new();
 
         let slot = game_info.get_slot(0);
@@ -1320,6 +1327,7 @@ mod tests {
 
     #[test]
     fn test_replay_menu_creation() {
+        crate::test_support::ensure_ambient_host();
         let menu = ReplayMenu::new(PathBuf::from("/replays"), ".rep".to_string());
 
         assert_eq!(menu.selected_index, -1);
@@ -1329,6 +1337,7 @@ mod tests {
 
     #[test]
     fn test_replay_menu_flags() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = ReplayMenu::new(PathBuf::from("/replays"), ".rep".to_string());
 
         assert!(!menu.call_delete);
@@ -1343,6 +1352,7 @@ mod tests {
 
     #[test]
     fn test_replay_list_entry_creation() {
+        crate::test_support::ensure_ambient_host();
         let entry = ReplayListEntry::new(
             "Test Replay".to_string(),
             "2024-01-01".to_string(),
@@ -1359,6 +1369,7 @@ mod tests {
 
     #[test]
     fn replay_filename_lookup_uses_stored_filename_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = ReplayMenu::new(PathBuf::from("/replays"), ".rep".to_string());
         menu.replay_list.push(ReplayListEntry::new(
             "HeaderReplayName".to_string(),
@@ -1377,6 +1388,7 @@ mod tests {
 
     #[test]
     fn replay_display_name_is_derived_from_filename_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             ReplayMenu::replay_display_name_from_filename("ActualFileName.rep", ".rep"),
             "ActualFileName"
@@ -1389,6 +1401,7 @@ mod tests {
 
     #[test]
     fn test_system_time_value() {
+        crate::test_support::ensure_ambient_host();
         let time = SystemTimeValue::now();
         let display = time.to_display_string();
         assert!(display.contains(':'));
@@ -1396,6 +1409,7 @@ mod tests {
 
     #[test]
     fn test_color_creation() {
+        crate::test_support::ensure_ambient_host();
         let white = Color::white();
         assert_eq!(white.r, 255);
         assert_eq!(white.g, 255);
@@ -1410,12 +1424,14 @@ mod tests {
 
     #[test]
     fn last_replay_filename_defaults_to_00000000() {
+        crate::test_support::ensure_ambient_host();
         let menu = ReplayMenu::new(PathBuf::from("/replays"), ".rep".to_string());
         assert_eq!(menu.last_replay_filename, "00000000");
     }
 
     #[test]
     fn last_replay_display_and_filename_roundtrip() {
+        crate::test_support::ensure_ambient_host();
         let mut menu = ReplayMenu::new(PathBuf::from("/replays"), ".rep".to_string());
         menu.replay_list.push(ReplayListEntry::new(
             GameText::fetch("GUI:LastReplay"),
@@ -1430,6 +1446,7 @@ mod tests {
 
     #[test]
     fn system_time_to_value_uses_real_local_calendar() {
+        crate::test_support::ensure_ambient_host();
         let now = SystemTime::now();
         let value = system_time_to_value(now);
         assert_ne!(value.year, 2001, "must not freeze the calendar at 2001");
@@ -1440,6 +1457,7 @@ mod tests {
 
     #[test]
     fn replay_menu_version_matches_the_version_and_global_crc() {
+        crate::test_support::ensure_ambient_host();
         let menu = ReplayMenu::new(PathBuf::from("/replays"), ".rep".to_string());
         let version = game_engine::common::version::get_version();
         assert_eq!(menu.current_version, version.get_unicode_version());
@@ -1449,6 +1467,7 @@ mod tests {
 
     #[test]
     fn replay_map_display_name_uses_cache_or_leaf() {
+        crate::test_support::ensure_ambient_host();
         let cache = crate::map_util::MapCache::default();
         assert_eq!(
             ReplayMenu::replay_map_display_name(r"maps\alpine_war\alpine_war.map", &cache),

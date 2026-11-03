@@ -347,6 +347,7 @@ mod tests {
 
     #[test]
     fn scorch_diffuse_uses_cpp_ambient_plus_half_primary_diffuse() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             scorch_diffuse_bgra([0.1, 0.2, 0.3], [0.2, 0.4, 0.6]),
             0xFF33_6699
@@ -383,6 +384,7 @@ mod tests {
 
     #[test]
     fn cell_flip_selects_cpp_scorch_diagonal_and_index_order() {
+        crate::test_support::ensure_ambient_host();
         let mut buffer = TerrainScorchBuffer::new();
         buffer.add_scorch([10.0, 10.0, 0.0], 20.0, 0);
         let unflipped = buffer.update_scorches(&MockHeight { flip: false }, 0xFFFFFFFF);
@@ -400,6 +402,7 @@ mod tests {
 
     #[test]
     fn height_map_reads_cliff_and_blend_flip_bits() {
+        crate::test_support::ensure_ambient_host();
         let mut map = crate::terrain::height_map::HeightMap::new(4, 4, 10.0, 1.0);
         map.cliff_info.push(crate::terrain::height_map::TCliffInfo {
             flip: true,
@@ -420,6 +423,7 @@ mod tests {
 
     #[test]
     fn random_scorch_type_comes_from_seeded_client_stream() {
+        crate::test_support::ensure_ambient_host();
         use game_engine::common::random_value::init_random_with_seed;
 
         // Explicit scorch types pass through untouched.

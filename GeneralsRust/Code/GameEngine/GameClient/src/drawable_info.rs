@@ -141,6 +141,7 @@ mod tests {
 
     #[test]
     fn default_uses_invalid_ids() {
+        crate::test_support::ensure_ambient_host();
         let info = DrawableInfo::new();
         assert_eq!(info.shroud_status_object_id, INVALID_ID);
         assert_eq!(info.drawable_id, INVALID_ID);
@@ -150,6 +151,7 @@ mod tests {
 
     #[test]
     fn stores_typed_ids_not_pointers() {
+        crate::test_support::ensure_ambient_host();
         let mut info = DrawableInfo::for_drawable(42);
         assert_eq!(info.drawable_id, 42);
         info.set_drawable_id(7);
@@ -165,6 +167,7 @@ mod tests {
 
     #[test]
     fn auto_send_sync_from_id_fields_without_unsafe_impl() {
+        crate::test_support::ensure_ambient_host();
         // DrawableInfo is only ObjectID/DrawableID/flags (all Copy integers).
         // This compiles if and only if the type is auto Send/Sync — no
         // `unsafe impl Send/Sync` and no raw pointer fields.

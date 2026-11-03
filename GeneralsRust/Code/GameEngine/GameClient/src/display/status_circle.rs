@@ -318,12 +318,14 @@ mod tests {
 
     #[test]
     fn no_engine_or_none_fade_clears_overlay() {
+        crate::test_support::ensure_ambient_host();
         assert!(camera_fade_from_observation(TFade::None, 0.75).is_none());
         let _standalone = render_camera_fade();
     }
 
     #[test]
     fn packed_fade_maps_cpp_tfade_discriminants() {
+        crate::test_support::ensure_ambient_host();
         // Exercise the same packed conversion that record_camera_fade uses.
         assert!(overlay_from_packed(0, 1.0, 0).is_none());
         for (code, fade) in [(1, TFade::Subtract), (2, TFade::Add), (3, TFade::Saturate)] {
@@ -341,6 +343,7 @@ mod tests {
     #[test]
     #[ignore = "requires a native WGPU adapter; run this explicit GPU ownership acceptance test"]
     fn owned_fade_gpu_reuses_only_receiving_device_and_target_format() {
+        crate::test_support::ensure_ambient_host();
         fn record(
             resources: &mut CameraFadeResources,
             device: &wgpu::Device,

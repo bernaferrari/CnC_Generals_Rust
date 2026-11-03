@@ -115,6 +115,7 @@ fn click(
 }
 #[test]
 fn wnd_large_button_synchronously_changes_only_receiving_bar_before_update() {
+    crate::test_support::ensure_ambient_host();
     let (mut a, parent_a, button_a) = wnd();
     let (mut b, parent_b, button_b) = wnd();
     assert_eq!(button_a.borrow().get_id(), button_b.borrow().get_id());
@@ -161,6 +162,7 @@ fn wnd_large_button_synchronously_changes_only_receiving_bar_before_update() {
 }
 #[test]
 fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, parent, button) = wnd();
     let mut bar = ControlBar::new();
     let mut viewport = Viewport {
@@ -291,6 +293,7 @@ fn wnd_large_button_keyboard_and_ending_replay_guards_use_receiving_context() {
 
 #[test]
 fn wnd_large_button_captures_authored_marker_with_borrowed_offset_parent() {
+    crate::test_support::ensure_ambient_host();
     let schemes = game_engine::common::ini::ensure_control_bar_scheme_manager();
     schemes.write().clear();
     let (mut manager, parent, button) = wnd();
@@ -327,6 +330,7 @@ fn wnd_large_button_captures_authored_marker_with_borrowed_offset_parent() {
 
 #[test]
 fn wnd_restoring_default_applies_receiving_context_visibility_before_parent_borrow() {
+    crate::test_support::ensure_ambient_host();
     let (mut manager, parent, button) = wnd();
     let (mut peer, _, _) = wnd();
     let mut windows = Vec::new();
@@ -372,6 +376,7 @@ fn wnd_restoring_default_applies_receiving_context_visibility_before_parent_borr
 
 #[test]
 fn native_observer_button_and_cancel_admit_only_receiving_roster_target() {
+    crate::test_support::ensure_ambient_host();
     use crate::gui::control_bar::control_bar_observer::{
         NativeObserverPlayer, NativeObserverRoster,
     };

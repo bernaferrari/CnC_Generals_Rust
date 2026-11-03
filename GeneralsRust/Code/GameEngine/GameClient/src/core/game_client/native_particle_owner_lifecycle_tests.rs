@@ -6,6 +6,7 @@ use crate::effects::particle_manager::{
 };
 #[test]
 fn actual_native_client_phase_lends_receiving_object_loss_only_when_particles_are_admitted() {
+    crate::test_support::ensure_ambient_host();
     let mut client = GameClient::new().unwrap();
     client.set_frame(8);
     let mut manager = ParticleSystemManager::new();

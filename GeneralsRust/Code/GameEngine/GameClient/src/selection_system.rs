@@ -581,6 +581,7 @@ mod tests {
 
     #[test]
     fn test_click_select_single() {
+        crate::test_support::ensure_ambient_host();
         let mut mgr = make_manager();
         mgr.click_select(0, 30, 0, false, false);
         let state = mgr.state(0).unwrap();
@@ -589,6 +590,7 @@ mod tests {
 
     #[test]
     fn test_click_select_empty_deselects() {
+        crate::test_support::ensure_ambient_host();
         let mut mgr = make_manager();
         mgr.click_select(0, 30, 0, false, false);
         mgr.click_select(0, 999, 999, false, false);
@@ -597,6 +599,7 @@ mod tests {
 
     #[test]
     fn test_click_select_with_shift_adds() {
+        crate::test_support::ensure_ambient_host();
         let mut mgr = make_manager();
         mgr.click_select(0, 30, 0, false, false);
         mgr.click_select(0, 50, 0, false, true);
@@ -606,6 +609,7 @@ mod tests {
 
     #[test]
     fn test_click_select_with_ctrl_toggles() {
+        crate::test_support::ensure_ambient_host();
         let mut mgr = make_manager();
         mgr.click_select(0, 30, 0, false, false);
         mgr.click_select(0, 30, 0, true, false);
@@ -614,6 +618,7 @@ mod tests {
 
     #[test]
     fn test_box_selection() {
+        crate::test_support::ensure_ambient_host();
         let mut mgr = make_manager();
         mgr.begin_drag(0, 5, 0);
         mgr.update_drag(0, 35, 0, 5);
@@ -625,6 +630,7 @@ mod tests {
 
     #[test]
     fn test_double_click_selects_all_same_kind() {
+        crate::test_support::ensure_ambient_host();
         let mut mgr = make_manager();
         mgr.double_click_select(0, 30, 0);
         let state = mgr.state(0).unwrap();
@@ -633,6 +639,7 @@ mod tests {
 
     #[test]
     fn test_control_group_create_and_recall() {
+        crate::test_support::ensure_ambient_host();
         let mut mgr = make_manager();
         mgr.click_select(0, 30, 0, false, false);
         mgr.click_select(0, 50, 0, false, true);
@@ -648,6 +655,7 @@ mod tests {
 
     #[test]
     fn test_control_group_add() {
+        crate::test_support::ensure_ambient_host();
         let mut mgr = make_manager();
         mgr.click_select(0, 30, 0, false, false);
         mgr.create_group(0, 0);
@@ -658,6 +666,7 @@ mod tests {
 
     #[test]
     fn test_max_selection_size() {
+        crate::test_support::ensure_ambient_host();
         let mut mgr = make_manager();
         mgr.max_selection_size = 3;
         mgr.double_click_select(0, 30, 0);
@@ -667,6 +676,7 @@ mod tests {
 
     #[test]
     fn test_shift_keeps_selection_on_empty_click() {
+        crate::test_support::ensure_ambient_host();
         let mut mgr = make_manager();
         mgr.click_select(0, 30, 0, false, false);
         mgr.click_select(0, 999, 999, false, true); // shift-click empty

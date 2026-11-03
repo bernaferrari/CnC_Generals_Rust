@@ -413,6 +413,7 @@ mod tests {
 
     #[test]
     fn test_device_id_generation() {
+        crate::test_support::ensure_ambient_host();
         let id1 = DeviceId::new();
         let id2 = DeviceId::new();
         assert_ne!(id1, id2);
@@ -422,12 +423,14 @@ mod tests {
 
     #[test]
     fn test_device_status_equality() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(DeviceStatus::Available, DeviceStatus::Available);
         assert_ne!(DeviceStatus::Available, DeviceStatus::InUse);
     }
 
     #[test]
     fn test_display_adapter_info_creation() {
+        crate::test_support::ensure_ambient_host();
         let info = DisplayAdapterInfo {
             name: "Test GPU".to_string(),
             vendor: "Test Vendor".to_string(),

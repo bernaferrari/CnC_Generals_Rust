@@ -956,6 +956,7 @@ mod tests {
     }
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut client = client();
         let mut window = GameWindow::new();
         receiving(&mut client, |effects| {
@@ -983,6 +984,7 @@ mod tests {
     }
     #[test]
     fn general_button_medallions_match_cpp_draw_slots_and_size() {
+        crate::test_support::ensure_ambient_host();
         if isolated("general_button_medallions_match_cpp_draw_slots_and_size") {
             return;
         }
@@ -1031,6 +1033,7 @@ mod tests {
     }
     #[test]
     fn challenge_menu_init_uses_challenge_game_info_not_skirmish() {
+        crate::test_support::ensure_ambient_host();
         if isolated("challenge_menu_init_uses_challenge_game_info_not_skirmish") {
             return;
         }
@@ -1109,6 +1112,7 @@ mod tests {
     }
     #[test]
     fn os_wnd_challenge_start_hits_named_gadgets_then_start_challenge_game() {
+        crate::test_support::ensure_ambient_host();
         let mut client = client();
         receiving(&mut client, |effects| {
             effects.with_manager(|manager, effects| {
@@ -1136,6 +1140,7 @@ mod tests {
     }
     #[test]
     fn general_bio_uses_localized_text_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         if isolated("general_bio_uses_localized_text_like_cpp") {
             return;
         }
@@ -1169,6 +1174,7 @@ mod tests {
     }
     #[test]
     fn dedicated_gadget_hover_messages_match_cpp_hover_handlers() {
+        crate::test_support::ensure_ambient_host();
         assert!(is_general_mouse_entering(
             WindowMessage::GadgetMouseEntering
         ));
@@ -1189,6 +1195,7 @@ mod tests {
     }
     #[test]
     fn selecting_current_general_keeps_checkbox_checked_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut client = client();
         receiving(&mut client, |effects| {
             let selected_id = name_to_id("ChallengeMenu.test:SelectedGeneral");
@@ -1235,6 +1242,7 @@ mod tests {
     }
     #[test]
     fn shutdown_clears_selected_general_before_pop_branch_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut client = client();
         let layout = WindowLayout::new("ChallengeMenu.wnd".to_string());
         for pop_immediate in [false, true] {

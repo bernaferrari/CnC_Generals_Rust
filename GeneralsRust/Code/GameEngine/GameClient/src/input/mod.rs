@@ -406,6 +406,7 @@ mod tests {
 
     #[test]
     fn test_key_binding_creation() {
+        crate::test_support::ensure_ambient_host();
         let binding = KeyBinding::new("test_action", KeyCode::Space)
             .with_secondary(KeyCode::Enter)
             .with_modifiers(KeyModifiers::CTRL);
@@ -419,6 +420,7 @@ mod tests {
 
     #[test]
     fn test_key_binding_matching() {
+        crate::test_support::ensure_ambient_host();
         let binding = KeyBinding::new("test", KeyCode::A).with_modifiers(KeyModifiers::CTRL);
 
         assert!(binding.matches(KeyCode::A, KeyModifiers::CTRL));
@@ -435,6 +437,7 @@ mod tests {
 
     #[test]
     fn test_key_binding_manager() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = KeyBindingManager::new();
 
         let binding = KeyBinding::new("test_action", KeyCode::Space);
@@ -459,6 +462,7 @@ mod tests {
 
     #[test]
     fn test_input_config_defaults() {
+        crate::test_support::ensure_ambient_host();
         let config = InputConfig::default();
 
         assert!(config.keyboard_enabled);
@@ -473,6 +477,7 @@ mod tests {
 
     #[test]
     fn test_input_stats() {
+        crate::test_support::ensure_ambient_host();
         let mut stats = InputStats::default();
         stats.reset();
 

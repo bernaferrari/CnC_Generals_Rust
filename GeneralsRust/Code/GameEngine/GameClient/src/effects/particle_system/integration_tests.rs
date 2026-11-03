@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 #[test]
 fn particle_integration_final_destroyed_particle_skips_system_lifetime_tick() {
+    crate::test_support::ensure_ambient_host();
     let mut template = ParticleSystemTemplate::new("DestroyedLifetimePhase".into());
     template.info_mut().system_lifetime = 9;
     let mut system = ParticleSystem::new_with_random(Arc::new(template), 1, false, &mut |lo, _| lo);
@@ -25,6 +26,7 @@ fn particle_integration_final_destroyed_particle_skips_system_lifetime_tick() {
 
 #[test]
 fn particle_admission_wrap_binds_new_identity_not_repeated_personality() {
+    crate::test_support::ensure_ambient_host();
     use crate::effects::particle_manager::{
         GameClientRandomVariable, ParticlePriorityType, ParticleSystemManager,
     };

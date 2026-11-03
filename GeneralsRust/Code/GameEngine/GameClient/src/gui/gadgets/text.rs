@@ -1530,6 +1530,7 @@ mod tests {
 
     #[test]
     fn test_static_text_creation() {
+        crate::test_support::ensure_ambient_host();
         let text = StaticText::new(1, 10, 20, 200, 30)
             .with_text("Hello World")
             .with_alignment(TextAlignment::Center, VerticalAlignment::Center);
@@ -1542,6 +1543,7 @@ mod tests {
 
     #[test]
     fn static_text_wraps_by_default_like_w3d_cpp() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let text = StaticText::new(1, 0, 0, 42, 80).with_text("Alpha Bravo Charlie");
 
@@ -1556,6 +1558,7 @@ mod tests {
 
     #[test]
     fn static_text_render_commands_cover_background_lines_and_focus() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let mut text = StaticText::new(1, 10, 20, 200, 40)
             .with_text("Alpha\nBeta")
@@ -1608,6 +1611,7 @@ mod tests {
 
     #[test]
     fn test_text_entry_basic() {
+        crate::test_support::ensure_ambient_host();
         let mut entry = TextEntry::new(1, 10, 20, 200, 30)
             .with_max_length(50)
             .with_placeholder("Enter text...");
@@ -1623,6 +1627,7 @@ mod tests {
 
     #[test]
     fn test_text_entry_validation() {
+        crate::test_support::ensure_ambient_host();
         let mut entry =
             TextEntry::new(1, 0, 0, 100, 30).with_validation(ValidationMode::NumericOnly);
 
@@ -1636,6 +1641,7 @@ mod tests {
 
     #[test]
     fn test_text_entry_password() {
+        crate::test_support::ensure_ambient_host();
         let mut entry = TextEntry::new(1, 0, 0, 100, 30).as_password();
 
         entry.set_text("password123");
@@ -1646,6 +1652,7 @@ mod tests {
 
     #[test]
     fn text_entry_render_commands_cover_placeholder_password_cursor_and_selection() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let mut entry = TextEntry::new(1, 10, 20, 200, 30)
             .with_placeholder("Commander")
@@ -1729,6 +1736,7 @@ mod tests {
 
     #[test]
     fn test_cursor_movement() {
+        crate::test_support::ensure_ambient_host();
         let mut entry = TextEntry::new(1, 0, 0, 100, 30);
         entry.set_text("Hello World");
 
@@ -1746,6 +1754,7 @@ mod tests {
 
     #[test]
     fn test_text_editing() {
+        crate::test_support::ensure_ambient_host();
         let mut entry = TextEntry::new(1, 0, 0, 100, 30);
         entry.set_text("Hello World");
         entry.cursor_position = 6; // After "Hello "
@@ -1762,6 +1771,7 @@ mod tests {
 
     #[test]
     fn test_selection_operations() {
+        crate::test_support::ensure_ambient_host();
         let mut entry = TextEntry::new(1, 0, 0, 100, 30);
         entry.set_text("Hello World");
 
@@ -1779,6 +1789,7 @@ mod tests {
 
     #[test]
     fn test_max_length_enforcement() {
+        crate::test_support::ensure_ambient_host();
         let mut entry = TextEntry::new(1, 0, 0, 100, 30).with_max_length(5);
 
         // C++ GEM_SET_TEXT does not truncate programmatic set.
@@ -1800,6 +1811,7 @@ mod tests {
 
     #[test]
     fn test_text_input_emits_value_changed_for_cpp_update_text_parity() {
+        crate::test_support::ensure_ambient_host();
         let mut entry = TextEntry::new(1, 0, 0, 100, 30);
         entry.set_focus(true);
 
@@ -1819,6 +1831,7 @@ mod tests {
 
     #[test]
     fn text_entry_input_appends_and_backspaces_from_end_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut entry = TextEntry::new(1, 0, 0, 100, 30);
         entry.set_text("Hello World");
         entry.cursor_position = 6;
@@ -1854,6 +1867,7 @@ mod tests {
 
     #[test]
     fn text_entry_char_key_appends_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut entry = TextEntry::new(1, 0, 0, 100, 30);
         entry.set_text("AB");
         entry.cursor_position = 1;
@@ -1877,6 +1891,7 @@ mod tests {
 
     #[test]
     fn test_text_input_does_not_emit_value_changed_when_validation_rejects_text() {
+        crate::test_support::ensure_ambient_host();
         let mut entry =
             TextEntry::new(1, 0, 0, 100, 30).with_validation(ValidationMode::NumericOnly);
         entry.set_focus(true);
@@ -1891,6 +1906,7 @@ mod tests {
 
     #[test]
     fn test_focus_event_emits_single_focus_changed_message() {
+        crate::test_support::ensure_ambient_host();
         let mut entry = TextEntry::new(1, 0, 0, 100, 30);
 
         let gained = entry.handle_input(&InputEvent::FocusGained);
@@ -1916,6 +1932,7 @@ mod tests {
 
     #[test]
     fn left_down_sets_keyboard_focus_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut entry = TextEntry::new(1, 0, 0, 100, 30);
         assert!(!entry.has_focus());
 

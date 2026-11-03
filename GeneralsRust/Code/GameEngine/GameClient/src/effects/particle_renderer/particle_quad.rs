@@ -51,6 +51,7 @@ mod tests {
 
     #[test]
     fn source_ground_and_billboard_corners_match_the_submitted_camera() {
+        crate::test_support::ensure_ambient_host();
         use glam::{Vec3, Vec4};
         let eye = Vec3::new(120., 475., -240.);
         let target = Vec3::new(170., 85., 130.);
@@ -99,6 +100,7 @@ mod tests {
 
     #[test]
     fn live_particle_shader_accepts_both_coordinate_domains() {
+        crate::test_support::ensure_ambient_host();
         let source = include_str!("../shaders/particle_vertex.wgsl");
         for shader in [
             source,

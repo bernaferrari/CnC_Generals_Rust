@@ -364,6 +364,7 @@ mod tests {
 
     #[test]
     fn cpp_ray_capacity_rejects_new_beam_without_evicting_existing_drawables() {
+        crate::test_support::ensure_ambient_host();
         // RayEffect.cpp:93-130: first free slot, otherwise no state change.
         // Exercise the production insertion API, including delete/reuse.
         reset_ray_effects();
@@ -388,6 +389,7 @@ mod tests {
 
     #[test]
     fn fxlist_ray_effect_nugget_gpu_mesh_matches_cpp_midpoint_and_offsets() {
+        crate::test_support::ensure_ambient_host();
         reset_ray_effects();
 
         let primary = [10.0_f32, 20.0, 30.0];
@@ -462,6 +464,7 @@ mod tests {
 
     #[test]
     fn fxlist_ray_effect_expires_after_max_intensity_plus_fade() {
+        crate::test_support::ensure_ambient_host();
         reset_ray_effects();
         update_ray_effects(10);
         let ray = create_ray_effect_by_template([0.0, 0.0, 0.0], [10.0, 0.0, 0.0], "GenericLaser")

@@ -1085,6 +1085,7 @@ mod tests {
 
     #[test]
     fn repeat_uses_original_scan_order_then_rearms_remaining_key() {
+        crate::test_support::ensure_ambient_host();
         for keys in [[KeyCode::A, KeyCode::Q], [KeyCode::Q, KeyCode::A]] {
             let mut keyboard = Keyboard::new();
             for key in keys {
@@ -1106,6 +1107,7 @@ mod tests {
 
     #[test]
     fn repeat_delay_survives_input_frame_wraparound() {
+        crate::test_support::ensure_ambient_host();
         let mut keyboard = Keyboard::new();
         keyboard.state.input_frame = u32::MAX - 5;
         keyboard.handle_key_simple(KeyCode::NumPadEnter, true);
@@ -1119,6 +1121,7 @@ mod tests {
 
     #[test]
     fn focus_reset_clears_only_owned_keys_and_preserves_input_clock() {
+        crate::test_support::ensure_ambient_host();
         let mut first = crate::core::subsystems::create_keyboard();
         let mut second = crate::core::subsystems::create_keyboard();
         first.handle_key_simple(KeyCode::LeftCtrl, true);
@@ -1142,6 +1145,7 @@ mod tests {
 
     #[test]
     fn lifecycle_init_starts_clock_and_reset_preserves_owned_state() {
+        crate::test_support::ensure_ambient_host();
         let mut first = crate::core::subsystems::create_keyboard();
         let mut second = crate::core::subsystems::create_keyboard();
         first.handle_key_simple(KeyCode::A, true);
@@ -1172,6 +1176,7 @@ mod tests {
 
     #[test]
     fn test_key_state_transitions() {
+        crate::test_support::ensure_ambient_host();
         let mut state = KeyboardState::new();
         let now = Instant::now();
 
@@ -1202,6 +1207,7 @@ mod tests {
 
     #[test]
     fn test_modifier_tracking() {
+        crate::test_support::ensure_ambient_host();
         let mut state = KeyboardState::new();
         let now = Instant::now();
 
@@ -1228,6 +1234,7 @@ mod tests {
 
     #[test]
     fn test_keyboard_creation() {
+        crate::test_support::ensure_ambient_host();
         let keyboard = Keyboard::new();
         assert!(keyboard.is_enabled());
         assert_eq!(keyboard.state().pressed_keys().len(), 0);
@@ -1235,6 +1242,7 @@ mod tests {
 
     #[test]
     fn test_keyboard_enable_disable() {
+        crate::test_support::ensure_ambient_host();
         let mut keyboard = Keyboard::new();
 
         keyboard.set_enabled(false);
@@ -1246,6 +1254,7 @@ mod tests {
 
     #[test]
     fn test_text_input() {
+        crate::test_support::ensure_ambient_host();
         let mut keyboard = Keyboard::new();
 
         keyboard.handle_text_input("Hello");
@@ -1261,6 +1270,7 @@ mod tests {
 
     #[test]
     fn test_keycode_conversion() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(KeyCode::from(WinitKeyCode::KeyA), KeyCode::A);
         assert_eq!(KeyCode::from(WinitKeyCode::F1), KeyCode::F1);
         assert_eq!(KeyCode::from(WinitKeyCode::Space), KeyCode::Space);
@@ -1269,6 +1279,7 @@ mod tests {
 
     #[test]
     fn test_meta_key_location_mapping() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             map_winit_key_code(WinitKeyCode::Meta, KeyLocation::Left),
             KeyCode::LeftMeta
@@ -1285,6 +1296,7 @@ mod tests {
 
     #[test]
     fn test_get_printable_key_us_letters() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(get_printable_key(KeyCode::A, 0), 'a');
         assert_eq!(get_printable_key(KeyCode::A, 1), 'A');
         assert_eq!(get_printable_key(KeyCode::Z, 0), 'z');
@@ -1293,6 +1305,7 @@ mod tests {
 
     #[test]
     fn test_get_printable_key_us_numbers() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(get_printable_key(KeyCode::Num1, 0), '1');
         assert_eq!(get_printable_key(KeyCode::Num1, 1), '!');
         assert_eq!(get_printable_key(KeyCode::Num0, 0), '0');
@@ -1301,6 +1314,7 @@ mod tests {
 
     #[test]
     fn test_get_printable_key_us_punctuation() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(get_printable_key(KeyCode::Comma, 0), ',');
         assert_eq!(get_printable_key(KeyCode::Comma, 1), '<');
         assert_eq!(get_printable_key(KeyCode::Semicolon, 0), ';');
@@ -1313,6 +1327,7 @@ mod tests {
 
     #[test]
     fn test_get_printable_key_numpad() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(get_printable_key(KeyCode::NumPad5, 0), '5');
         assert_eq!(get_printable_key(KeyCode::NumPadAdd, 0), '+');
         assert_eq!(get_printable_key(KeyCode::NumPadEnter, 0), '\n');
@@ -1320,6 +1335,7 @@ mod tests {
 
     #[test]
     fn test_get_printable_key_special_keys() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(get_printable_key(KeyCode::Space, 0), ' ');
         assert_eq!(get_printable_key(KeyCode::Tab, 0), '\t');
         assert_eq!(get_printable_key(KeyCode::Enter, 0), '\n');
@@ -1327,6 +1343,7 @@ mod tests {
 
     #[test]
     fn test_get_printable_key_non_printable() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(get_printable_key(KeyCode::F1, 0), '\0');
         assert_eq!(get_printable_key(KeyCode::Escape, 0), '\0');
         assert_eq!(get_printable_key(KeyCode::LeftShift, 0), '\0');
@@ -1335,6 +1352,7 @@ mod tests {
 
     #[test]
     fn test_translate_key_no_modifiers() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(translate_key(KeyCode::A, false, false), Some('a'));
         assert_eq!(translate_key(KeyCode::Num1, false, false), Some('1'));
         assert_eq!(translate_key(KeyCode::Space, false, false), Some(' '));
@@ -1342,6 +1360,7 @@ mod tests {
 
     #[test]
     fn test_translate_key_shift() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(translate_key(KeyCode::A, true, false), Some('A'));
         assert_eq!(translate_key(KeyCode::Num1, true, false), Some('!'));
         assert_eq!(translate_key(KeyCode::Comma, true, false), Some('<'));
@@ -1349,12 +1368,14 @@ mod tests {
 
     #[test]
     fn test_translate_key_caps_lock() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(translate_key(KeyCode::A, false, true), Some('A'));
         assert_eq!(translate_key(KeyCode::Num1, false, true), Some('1'));
     }
 
     #[test]
     fn test_translate_key_non_printable() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(translate_key(KeyCode::F1, false, false), None);
         assert_eq!(translate_key(KeyCode::Escape, false, false), None);
         assert_eq!(translate_key(KeyCode::LeftShift, false, false), None);

@@ -884,6 +884,7 @@ mod tests {
 
     #[test]
     fn test_campaign_manager_creation() {
+        crate::test_support::ensure_ambient_host();
         let manager = CampaignManager::new();
         assert!(manager.get_current_campaign().is_none());
         assert_eq!(manager.get_rank_points(), 0);
@@ -892,6 +893,7 @@ mod tests {
 
     #[test]
     fn test_campaign_creation_and_retrieval() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = CampaignManager::new();
 
         manager.new_campaign("TestCampaign".to_string());
@@ -902,6 +904,7 @@ mod tests {
 
     #[test]
     fn test_mission_creation() {
+        crate::test_support::ensure_ambient_host();
         let mut campaign = Campaign::new();
         let mission = campaign.new_mission("Mission1".to_string());
 
@@ -911,6 +914,7 @@ mod tests {
 
     #[test]
     fn test_find_campaign() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = CampaignManager::new();
 
         manager.new_campaign("China".to_string());
@@ -926,6 +930,7 @@ mod tests {
 
     #[test]
     fn test_set_difficulty() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = CampaignManager::new();
 
         assert_eq!(manager.get_game_difficulty(), GameDifficulty::Normal);
@@ -937,6 +942,7 @@ mod tests {
 
     #[test]
     fn get_rank_points_always_returns_zero_for_campaign_start() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = CampaignManager::new();
         manager.set_rank_points(250);
         assert_eq!(manager.get_rank_points(), 0);
@@ -944,6 +950,7 @@ mod tests {
 
     #[test]
     fn test_set_campaign_resets_on_not_found() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = CampaignManager::new();
 
         manager.set_rank_points(100);
@@ -958,6 +965,7 @@ mod tests {
 
     #[test]
     fn test_set_campaign_resets_on_empty() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = CampaignManager::new();
 
         let campaign = manager.new_campaign("Test".to_string());
@@ -978,6 +986,7 @@ mod tests {
 
     #[test]
     fn test_set_campaign_advances_to_first_mission() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = CampaignManager::new();
 
         let campaign = manager.new_campaign("Test".to_string());
@@ -994,6 +1003,7 @@ mod tests {
 
     #[test]
     fn test_set_campaign_and_mission() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = CampaignManager::new();
 
         let campaign = manager.new_campaign("Test".to_string());
@@ -1021,6 +1031,7 @@ mod tests {
 
     #[test]
     fn test_goto_next_mission() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = CampaignManager::new();
 
         let campaign = manager.new_campaign("Test".to_string());
@@ -1051,6 +1062,7 @@ mod tests {
 
     #[test]
     fn test_get_next_mission_without_advancing() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = CampaignManager::new();
 
         let campaign = manager.new_campaign("Test".to_string());
@@ -1072,6 +1084,7 @@ mod tests {
 
     #[test]
     fn test_get_current_mission_number() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = CampaignManager::new();
 
         assert_eq!(manager.get_current_mission_number(), None);
@@ -1099,6 +1112,7 @@ mod tests {
 
     #[test]
     fn test_victory_flag() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = CampaignManager::new();
         assert!(!manager.is_victorious());
 
@@ -1111,6 +1125,7 @@ mod tests {
 
     #[test]
     fn test_challenge_generals_template_num() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = CampaignManager::new();
         assert_eq!(manager.get_xfer_challenge_generals_player_template_num(), 0);
 

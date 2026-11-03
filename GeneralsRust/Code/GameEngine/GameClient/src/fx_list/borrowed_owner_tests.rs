@@ -38,6 +38,7 @@ impl FXNugget for ObjectNugget {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn actual_bridge_uses_borrowed_owner_and_never_relocks_admitted_owner() {
+    crate::test_support::ensure_ambient_host();
     const CHILD_MARKER: &str = "GENERALS_BORROWED_FX_OWNER_CHILD";
     const TEST_NAME: &str = "fx_list::borrowed_owner_tests::actual_bridge_uses_borrowed_owner_and_never_relocks_admitted_owner";
     if std::env::var_os(CHILD_MARKER).is_none() {

@@ -73,6 +73,7 @@ fn cpp_rotate_z(matrix: &mut Matrix4, theta: f32) {
 
 #[test]
 fn physics_visual_gate_matches_drawable_apply_physics_xform() {
+    crate::test_support::ensure_ambient_host();
     let enabled = enabled_input();
     assert!(enabled.permits_application());
 
@@ -137,6 +138,7 @@ fn physics_visual_gate_matches_drawable_apply_physics_xform() {
 
 #[test]
 fn physics_visual_preserves_base_without_calculation_or_when_gated() {
+    crate::test_support::ensure_ambient_host();
     let base = Matrix4::translation(Vector3::new(3.0, -5.0, 7.0)).mul(&Matrix4::rotation_z(0.37));
 
     let no_calculation = PhysicsVisualInput {
@@ -154,6 +156,7 @@ fn physics_visual_preserves_base_without_calculation_or_when_gated() {
 
 #[test]
 fn physics_visual_uses_cpp_postmultiply_order_and_roll_sign() {
+    crate::test_support::ensure_ambient_host();
     let base = Matrix4::translation(Vector3::new(3.0, -5.0, 7.0))
         .mul(&Matrix4::rotation_z(0.37))
         .mul(&Matrix4::rotation_x(-0.22));
@@ -174,6 +177,7 @@ fn physics_visual_uses_cpp_postmultiply_order_and_roll_sign() {
 
 #[test]
 fn physics_visual_applies_cpp_denormal_hotfix_before_transform() {
+    crate::test_support::ensure_ambient_host();
     let base = Matrix4::translation(Vector3::new(3.0, -5.0, 7.0));
     let input = PhysicsVisualInput {
         calculated_xform: Some(PhysicsVisualXform {
@@ -197,12 +201,14 @@ fn physics_visual_applies_cpp_denormal_hotfix_before_transform() {
 
 #[test]
 fn pause_does_not_gate_physics_visuals() {
+    crate::test_support::ensure_ambient_host();
     let enabled = enabled_input();
     assert!(enabled.permits_application());
 }
 
 #[test]
 fn legs_climber_other_return_none() {
+    crate::test_support::ensure_ambient_host();
     let mut loco = PhysicsVisualLocoState::default();
     let params = LocomotorVisualParams::default();
     let body = PhysicsVisualBody::default();
@@ -220,6 +226,7 @@ fn legs_climber_other_return_none() {
 
 #[test]
 fn thrust_wobble_flips_at_max_and_min() {
+    crate::test_support::ensure_ambient_host();
     let mut loco = PhysicsVisualLocoState::default();
     let params = LocomotorVisualParams {
         wobble_rate: 0.1,
@@ -265,6 +272,7 @@ fn thrust_wobble_flips_at_max_and_min() {
 
 #[test]
 fn hover_spring_converges_and_motive_pitches_from_forward_vel() {
+    crate::test_support::ensure_ambient_host();
     let mut loco = PhysicsVisualLocoState {
         pitch: 0.4,
         ..PhysicsVisualLocoState::default()
@@ -315,6 +323,7 @@ fn hover_spring_converges_and_motive_pitches_from_forward_vel() {
 
 #[test]
 fn hover_rudder_elevator_modulators_advance() {
+    crate::test_support::ensure_ambient_host();
     let mut loco = PhysicsVisualLocoState::default();
     let params = LocomotorVisualParams {
         rudder_correction_degree: 0.5,
@@ -341,6 +350,7 @@ fn hover_rudder_elevator_modulators_advance() {
 
 #[test]
 fn treads_overlap_mount_and_z_is_half_pre_integrate() {
+    crate::test_support::ensure_ambient_host();
     let mut loco = PhysicsVisualLocoState::default();
     let params = LocomotorVisualParams::default();
     let body = PhysicsVisualBody {
@@ -376,6 +386,7 @@ fn treads_overlap_mount_and_z_is_half_pre_integrate() {
 
 #[test]
 fn treads_leave_overlap_kicks_pitch_rate() {
+    crate::test_support::ensure_ambient_host();
     let mut loco = PhysicsVisualLocoState {
         overlap_z: 1.0,
         ..PhysicsVisualLocoState::default()
@@ -399,6 +410,7 @@ fn treads_leave_overlap_kicks_pitch_rate() {
 
 #[test]
 fn wheels_airborne_freezes_orientation_and_returns() {
+    crate::test_support::ensure_ambient_host();
     let mut loco = PhysicsVisualLocoState {
         pitch: 0.3,
         roll: 0.2,
@@ -436,6 +448,7 @@ fn wheels_airborne_freezes_orientation_and_returns() {
 
 #[test]
 fn wheels_suspension_smooths_angle_by_ten() {
+    crate::test_support::ensure_ambient_host();
     let mut loco = PhysicsVisualLocoState::default();
     let params = LocomotorVisualParams {
         has_suspension: true,
@@ -463,6 +476,7 @@ fn wheels_suspension_smooths_angle_by_ten() {
 
 #[test]
 fn motorcycle_total_roll_is_always_zero() {
+    crate::test_support::ensure_ambient_host();
     let mut loco = PhysicsVisualLocoState {
         roll: 0.8,
         acceleration_roll: 0.2,
@@ -484,6 +498,7 @@ fn motorcycle_total_roll_is_always_zero() {
 
 #[test]
 fn motorcycle_airborne_does_not_return_and_wipes_z() {
+    crate::test_support::ensure_ambient_host();
     let mut loco = PhysicsVisualLocoState {
         pitch: 0.3,
         ..PhysicsVisualLocoState::default()
@@ -517,6 +532,7 @@ fn motorcycle_airborne_does_not_return_and_wipes_z() {
 
 #[test]
 fn calc_denormal_hotfix_clears_tiny_totals() {
+    crate::test_support::ensure_ambient_host();
     let mut loco = PhysicsVisualLocoState::default();
     let params = LocomotorVisualParams::default();
     let body = PhysicsVisualBody::default();
@@ -534,17 +550,20 @@ fn calc_denormal_hotfix_clears_tiny_totals() {
 
 #[test]
 fn loco_state_default_wobble_is_one() {
+    crate::test_support::ensure_ambient_host();
     assert_eq!(PhysicsVisualLocoState::default().wobble, 1.0);
 }
 
 #[test]
 fn show_client_physics_default_matches_cpp_true() {
+    crate::test_support::ensure_ambient_host();
     let data = game_engine::common::ini::GlobalData::default();
     assert!(data.show_client_physics);
 }
 
 #[test]
 fn wheels_z_divisor_formula_above_pi_over_eight() {
+    crate::test_support::ensure_ambient_host();
     let mut loco = PhysicsVisualLocoState {
         pitch: CPP_PI / 4.0,
         ..PhysicsVisualLocoState::default()

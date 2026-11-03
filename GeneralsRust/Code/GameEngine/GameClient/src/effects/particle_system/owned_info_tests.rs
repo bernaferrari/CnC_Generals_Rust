@@ -3,6 +3,7 @@ use super::*;
 
 #[test]
 fn owned_particle_info_load_drives_actual_field_cull() {
+    crate::test_support::ensure_ambient_host();
     let mut source = ParticleSystemManager::new();
     let mut definition = ParticleSystemTemplate::new("LoadedFieldCull".into());
     definition.info_mut().is_ground_aligned = true;
@@ -60,6 +61,7 @@ fn owned_particle_info_load_drives_actual_field_cull() {
 
 #[test]
 fn particle_system_tint_all_colors_keeps_template_source_unchanged() {
+    crate::test_support::ensure_ambient_host();
     let mut template = ParticleSystemTemplate::new("TintSource".to_string());
     template.info_mut().color_keys[0] = RGBColorKeyframe {
         color: [1.0, 0.5, 0.25],
@@ -92,6 +94,7 @@ fn particle_system_tint_all_colors_keeps_template_source_unchanged() {
 
 #[test]
 fn particle_runtime_tint_retains_admitted_template_identity() {
+    crate::test_support::ensure_ambient_host();
     let template = Arc::new(ParticleSystemTemplate::new("AdmittedIdentity".into()));
     let mut system = ParticleSystem::new_with_random(template.clone(), 1, false, &mut |lo, _| lo);
     system.tint_all_colors([0.25, 0.5, 1.0]);
@@ -106,6 +109,7 @@ fn particle_runtime_tint_retains_admitted_template_identity() {
 
 #[test]
 fn particle_runtime_load_retains_receiving_template_identity() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
@@ -133,6 +137,7 @@ fn particle_runtime_load_retains_receiving_template_identity() {
 
 #[test]
 fn particle_owned_wind_native_save_preserves_future_motion() {
+    crate::test_support::ensure_ambient_host();
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;

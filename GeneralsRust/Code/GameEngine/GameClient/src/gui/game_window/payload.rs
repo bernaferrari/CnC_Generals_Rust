@@ -243,6 +243,7 @@ mod ownership_tests {
 
     #[test]
     fn repeated_payload_reuse_keeps_generation_encodable() {
+        crate::test_support::ensure_ambient_host();
         let mut messages = Vec::new();
         let mut effects = WindowEventEffects::new(&mut messages);
         for value in 0..300 {
@@ -263,6 +264,7 @@ mod ownership_tests {
 
     #[test]
     fn receiving_operations_with_identical_tokens_do_not_share_payloads() {
+        crate::test_support::ensure_ambient_host();
         let mut messages_a = Vec::new();
         let mut messages_b = Vec::new();
         let mut a = WindowEventEffects::new(&mut messages_a);
@@ -285,6 +287,7 @@ mod ownership_tests {
 
     #[test]
     fn nested_manager_borrow_keeps_outer_payload_and_cleans_up_on_panic() {
+        crate::test_support::ensure_ambient_host();
         let mut messages = Vec::new();
         let mut effects = WindowEventEffects::new(&mut messages);
         let mut manager = WindowManager::new();
@@ -323,6 +326,7 @@ mod ownership_tests {
 
     #[test]
     fn nested_focus_response_is_visible_before_the_caller_continues() {
+        crate::test_support::ensure_ambient_host();
         let mut messages = Vec::new();
         let mut effects = WindowEventEffects::new(&mut messages);
         let mut parent = GameWindow::new();

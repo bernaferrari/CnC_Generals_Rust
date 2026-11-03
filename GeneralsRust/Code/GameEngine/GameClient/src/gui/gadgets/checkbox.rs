@@ -591,6 +591,7 @@ mod tests {
 
     #[test]
     fn test_checkbox_creation() {
+        crate::test_support::ensure_ambient_host();
         let checkbox = CheckBox::new(1, 10, 20, 20);
         assert_eq!(checkbox.id(), 1);
         assert!(!checkbox.is_checked());
@@ -599,6 +600,7 @@ mod tests {
 
     #[test]
     fn test_checkbox_toggle() {
+        crate::test_support::ensure_ambient_host();
         let mut checkbox = CheckBox::new(1, 10, 20, 20);
         assert!(!checkbox.is_checked());
 
@@ -611,12 +613,14 @@ mod tests {
 
     #[test]
     fn test_checkbox_with_label() {
+        crate::test_support::ensure_ambient_host();
         let checkbox = CheckBox::new(1, 10, 20, 20).with_label("Test Label");
         assert_eq!(checkbox.label(), "Test Label");
     }
 
     #[test]
     fn test_checkbox_builder() {
+        crate::test_support::ensure_ambient_host();
         let checkbox = CheckBoxBuilder::new(1, 10, 20, 20)
             .label("Builder Test")
             .checked(true)
@@ -630,6 +634,7 @@ mod tests {
 
     #[test]
     fn test_checkbox_input() {
+        crate::test_support::ensure_ambient_host();
         let mut checkbox = CheckBox::new(1, 10, 20, 20);
 
         // Test mouse hover
@@ -654,6 +659,7 @@ mod tests {
 
     #[test]
     fn right_click_clears_checked_without_normal_callback_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let callback_count = Arc::new(AtomicUsize::new(0));
         let callback_count_for_closure = Arc::clone(&callback_count);
         let mut checkbox = CheckBox::new(1, 10, 20, 20)
@@ -678,6 +684,7 @@ mod tests {
 
     #[test]
     fn set_checked_notifies_even_when_state_is_unchanged_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let callback_count = Arc::new(AtomicUsize::new(0));
         let callback_count_for_closure = Arc::clone(&callback_count);
         let mut checkbox = CheckBox::new(1, 10, 20, 20).with_callback(move |_| {
@@ -693,6 +700,7 @@ mod tests {
 
     #[test]
     fn keyboard_arrows_and_tab_request_focus_navigation_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut checkbox = CheckBox::new(1, 10, 20, 20);
         checkbox.set_focus(true);
 
@@ -717,6 +725,7 @@ mod tests {
 
     #[test]
     fn mouse_down_is_handled_without_toggling_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut checkbox = CheckBox::new(1, 10, 20, 20);
 
         let left = checkbox.handle_input(&InputEvent::MouseDown {
@@ -744,6 +753,7 @@ mod tests {
 
     #[test]
     fn checkbox_render_standard_emits_box_mark_and_label_primitives_like_w3d_cpp() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let checkbox = CheckBox::new(1, 16, 20, 48)
             .with_checked(true)
@@ -787,6 +797,7 @@ mod tests {
 
     #[test]
     fn checkbox_render_unchecked_omits_x_mark_like_cpp_undefined_box_color() {
+        crate::test_support::ensure_ambient_host();
         let theme = GadgetTheme::default();
         let checkbox = CheckBox::new(1, 16, 20, 48).with_checked(false);
 

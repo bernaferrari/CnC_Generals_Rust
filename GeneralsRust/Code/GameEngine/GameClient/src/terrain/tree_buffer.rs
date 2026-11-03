@@ -2506,6 +2506,7 @@ mod tests {
 
     #[test]
     fn do_lighting_matches_cpp_w3d_tree_buffer() {
+        crate::test_support::ensure_ambient_host();
         let lights = [TreeObjectLight {
             ambient: [0.2, 0.1, 0.0],
             diffuse: [0.8, 0.4, 0.0],
@@ -2540,6 +2541,7 @@ mod tests {
 
     #[test]
     fn load_trees_vb_calls_do_lighting_every_vertex() {
+        crate::test_support::ensure_ambient_host();
         let mut buffer = W3DTreeBuffer::new();
         buffer.set_bounds(TreeRegion2D::new(Vec2::ZERO, Vec2::new(100.0, 100.0)));
         let type_idx = buffer
@@ -2623,6 +2625,7 @@ mod tests {
 
     #[test]
     fn count_tree_tiles_matches_cpp_world_height_map() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             count_tree_tiles(TreeTgaHeader::truecolor(64, 64)),
             (1, false)
@@ -2667,6 +2670,7 @@ mod tests {
 
     #[test]
     fn update_texture_packs_atlas_like_cpp_w3d_tree_buffer() {
+        crate::test_support::ensure_ambient_host();
         let mut buffer = W3DTreeBuffer::new();
         buffer
             .add_tree_type(
@@ -2757,6 +2761,7 @@ mod tests {
 
     #[test]
     fn tree_atlas_blit_inverts_rows_and_box_mip_matches_tiledata() {
+        crate::test_support::ensure_ambient_host();
         let mut tile = vec![0u8; TREE_TILE_DATA_LEN];
         // Source row 0, col 0 = unique (1,2,3,4); row 63 col 0 = (9,8,7,6)
         tile[0..4].copy_from_slice(&[1, 2, 3, 4]);
@@ -2789,6 +2794,7 @@ mod tests {
 
     #[test]
     fn update_tree_texture_class_uploads_lod_skipped_mips() {
+        crate::test_support::ensure_ambient_host();
         let mut buffer = W3DTreeBuffer::new();
         buffer
             .add_tree_type(
@@ -2824,6 +2830,7 @@ mod tests {
 
     #[test]
     fn update_tree_texture_live_draw_tree_atlas_matches_cpp_blit_mip_lod() {
+        crate::test_support::ensure_ambient_host();
         let mut buffer = W3DTreeBuffer::new();
         buffer
             .add_tree_type(
@@ -2889,6 +2896,7 @@ mod game_fs_tree_tests {
     /// the header probe and tile loader must go through the game FS.
     #[test]
     fn tree_billboard_textures_load_from_terrainzh_big() {
+        crate::test_support::ensure_ambient_host();
         let Some(assets) = assets_root() else {
             eprintln!("skipping: no TerrainZH.big under Main/assets");
             return;

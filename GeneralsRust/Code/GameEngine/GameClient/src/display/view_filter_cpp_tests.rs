@@ -31,6 +31,7 @@ fn original_mode(mode: u32) -> FilterMode {
 
 #[test]
 fn original_cpp_motion_blur_reachable_cpu_rows_match_owned_state() {
+    crate::test_support::ensure_ambient_host();
     let fixture: Fixture =
         serde_json::from_str(include_str!("fixtures/motion_blur_cpp_cpu.json")).unwrap();
     let mut state = ViewFilterState::new();

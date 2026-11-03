@@ -20,6 +20,7 @@ mod integration_tests {
     /// Test complete mouse click → selection flow
     #[test]
     fn test_mouse_click_selection_flow() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Simulate mouse click down
@@ -63,6 +64,7 @@ mod integration_tests {
     /// Test box selection (drag select) flow
     #[test]
     fn test_box_selection_flow() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Mouse down to start selection
@@ -110,6 +112,7 @@ mod integration_tests {
     /// Test double-click selection flow
     #[test]
     fn test_double_click_selection_flow() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
         let pos = (100.0, 100.0);
 
@@ -149,6 +152,7 @@ mod integration_tests {
     /// Test right-click command flow
     #[test]
     fn test_right_click_command_flow() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Right click down
@@ -189,6 +193,7 @@ mod integration_tests {
     /// Test control group creation (Ctrl+1-9)
     #[test]
     fn test_control_group_creation_flow() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Press Ctrl+1
@@ -210,6 +215,7 @@ mod integration_tests {
     /// Test control group selection (1-9)
     #[test]
     fn test_control_group_selection_flow() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Press 2 (without modifiers)
@@ -231,6 +237,7 @@ mod integration_tests {
     /// Test keyboard command shortcuts
     #[test]
     fn test_keyboard_command_shortcuts() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Test S key (stop)
@@ -274,6 +281,7 @@ mod integration_tests {
     /// Test modifier key behavior (Ctrl for force attack)
     #[test]
     fn test_force_attack_mode() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         let ctrl_down = InputEvent::KeyDown {
@@ -306,6 +314,7 @@ mod integration_tests {
     /// Test Alt for waypoint mode
     #[test]
     fn test_waypoint_mode() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         let alt_down = InputEvent::KeyDown {
@@ -338,6 +347,7 @@ mod integration_tests {
     /// Test Shift for prefer-selection mode
     #[test]
     fn test_prefer_selection_mode() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         let shift_down = InputEvent::KeyDown {
@@ -370,6 +380,7 @@ mod integration_tests {
     /// Test focus loss clears all input state
     #[test]
     fn test_focus_loss_integration() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Press mouse button
@@ -404,6 +415,7 @@ mod integration_tests {
     /// Test message pipeline throughput
     #[test]
     fn test_message_pipeline_throughput() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
         let mut total_messages = 0;
 
@@ -429,6 +441,7 @@ mod integration_tests {
     /// Test complete scenario: select units, create group, select group, move
     #[test]
     fn test_complete_gameplay_scenario() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Step 1: Box select some units
@@ -537,6 +550,7 @@ mod integration_tests {
     /// Test concurrent modifier keys
     #[test]
     fn test_concurrent_modifiers() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Press Ctrl
@@ -567,6 +581,7 @@ mod integration_tests {
     /// Test input processor update and statistics
     #[test]
     fn test_processor_update_and_stats() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Process some events
@@ -596,6 +611,7 @@ mod integration_tests {
     /// Test enabling/disabling processor
     #[test]
     fn test_enable_disable_integration() {
+        crate::test_support::ensure_ambient_host();
         let mut processor = InputProcessor::with_default_config();
 
         // Process an event while enabled

@@ -12,6 +12,7 @@ mod tests {
 
     #[test]
     fn test_selection_box() {
+        crate::test_support::ensure_ambient_host();
         let mut box_sel = SelectionBox::new();
         assert!(!box_sel.active);
 
@@ -30,6 +31,7 @@ mod tests {
 
     #[test]
     fn move_hint_expires_after_cpp_elapsed_40_boundary() {
+        crate::test_support::ensure_ambient_host();
         let hint = HintData {
             hint_type: HintType::Move,
             start: Coord3D::new(0.0, 0.0, 0.0),
@@ -46,6 +48,7 @@ mod tests {
 
     #[test]
     fn move_hints_do_not_draw_disabled_cpp_waypoint_line_block() {
+        crate::test_support::ensure_ambient_host();
         let move_hint = HintData {
             hint_type: HintType::Move,
             start: Coord3D::new(0.0, 0.0, 0.0),
@@ -71,6 +74,7 @@ mod tests {
 
     #[test]
     fn test_minimap_conversion() {
+        crate::test_support::ensure_ambient_host();
         let minimap = Minimap::new(Vec2::new(600.0, 400.0), Vec2::new(200.0, 200.0));
 
         let world_pos = Vec2::new(500.0, 500.0);
@@ -83,6 +87,7 @@ mod tests {
 
     #[test]
     fn test_selection_state() {
+        crate::test_support::ensure_ambient_host();
         let mut state = SelectionState::new(10);
 
         state.select(DrawableID(1), false);
@@ -99,6 +104,7 @@ mod tests {
 
     #[test]
     fn test_placement_preview() {
+        crate::test_support::ensure_ambient_host();
         let mut preview = PlacementPreview::new("GLA_SupplyStash".into(), Vec2::new(3.0, 3.0));
 
         preview.update_position(Vec3::new(100.0, 0.0, 100.0), true);
@@ -111,6 +117,7 @@ mod tests {
 
     #[test]
     fn test_resource_display() {
+        crate::test_support::ensure_ambient_host();
         let mut display = ResourceDisplay::new(Vec2::ZERO);
 
         with_receiving_ui(|ui| display.update(10000, 100, 50, ui));
@@ -124,12 +131,14 @@ mod tests {
 
     #[test]
     fn military_caption_delay_uses_global_language_default_delay_ms() {
+        crate::test_support::ensure_ambient_host();
         init_global_language();
         assert_eq!(InGameUI::military_caption_delay_frames(), 22);
     }
 
     #[test]
     fn military_caption_milliseconds_convert_to_logic_frames() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(InGameUI::milliseconds_to_logic_frames(750), 22);
         assert_eq!(InGameUI::milliseconds_to_logic_frames(1000), 30);
         assert_eq!(InGameUI::milliseconds_to_logic_frames(-1), 0);
@@ -137,6 +146,7 @@ mod tests {
 
     #[test]
     fn military_caption_fetches_localized_text() {
+        crate::test_support::ensure_ambient_host();
         Language::clear_localized_strings();
         Language::register_localized_string("SCRIPT:Briefing", "Localized briefing text");
 
@@ -150,6 +160,7 @@ mod tests {
 
     #[test]
     fn mouseover_tooltip_prefers_template_display_name() {
+        crate::test_support::ensure_ambient_host();
         Language::clear_localized_strings();
 
         assert_eq!(
@@ -162,6 +173,7 @@ mod tests {
 
     #[test]
     fn mouseover_tooltip_falls_back_to_thing_template_label() {
+        crate::test_support::ensure_ambient_host();
         Language::clear_localized_strings();
 
         assert_eq!(
@@ -174,6 +186,7 @@ mod tests {
 
     #[test]
     fn supply_warehouse_tooltip_feedback_formats_placeholder_value() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             InGameUI::format_supply_warehouse_tooltip_feedback(" ($%d)", 12, 100),
             " ($1200)"
@@ -182,6 +195,7 @@ mod tests {
 
     #[test]
     fn supply_warehouse_tooltip_feedback_appends_without_placeholder() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             InGameUI::format_supply_warehouse_tooltip_feedback(" supplies: ", 3, 200),
             " supplies: 600"
@@ -190,6 +204,7 @@ mod tests {
 
     #[test]
     fn supply_warehouse_tooltip_feedback_uses_cpp_raw_value_product() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             InGameUI::format_supply_warehouse_tooltip_feedback(" ($%d)", -2, 100),
             " ($-200)"
@@ -247,6 +262,7 @@ mod tests {
 
     #[test]
     fn create_mouseover_hint_sets_cursor_tooltip_for_named_object_under_cursor() {
+        crate::test_support::ensure_ambient_host();
         // Given: a presentation catalog unit with a localized ThingTemplate name
         Language::clear_localized_strings();
         Language::register_localized_string("ThingTemplate:AmericaRanger", "Ranger");
@@ -274,6 +290,7 @@ mod tests {
 
     #[test]
     fn presentation_warehouse_tooltip_appends_dollar_value() {
+        crate::test_support::ensure_ambient_host();
         Language::clear_localized_strings();
         Language::register_localized_string("TOOLTIP:SupplyWarehouse", " ($%d)");
         let mut tip = "Supply Dock".to_string();
@@ -287,6 +304,7 @@ mod tests {
 
     #[test]
     fn mouseover_tooltip_suppresses_props() {
+        crate::test_support::ensure_ambient_host();
         Language::clear_localized_strings();
         Language::register_localized_string("OBJECT:Prop", "Prop");
 
@@ -297,6 +315,7 @@ mod tests {
 
     #[test]
     fn mouseover_tooltip_appends_playable_player_name_only_in_multiplayer_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut player = Player::new(0);
         player.set_display_name("Commander");
 
@@ -318,6 +337,7 @@ mod tests {
 
     #[test]
     fn mouseover_tooltip_only_shows_for_visible_shroud_states() {
+        crate::test_support::ensure_ambient_host();
         assert!(InGameUI::mouseover_tooltip_visible_for_shroud(
             ObjectShroudStatus::Clear
         ));
@@ -340,6 +360,7 @@ mod tests {
 
     #[test]
     fn mouseover_cursor_updates_match_cpp_replay_gate() {
+        crate::test_support::ensure_ambient_host();
         assert!(InGameUI::mouseover_cursor_update_allowed(false, false));
         assert!(InGameUI::mouseover_cursor_update_allowed(false, true));
         assert!(InGameUI::mouseover_cursor_update_allowed(true, true));
@@ -348,6 +369,7 @@ mod tests {
 
     #[test]
     fn mouseover_unresolved_drawable_id_stays_invalid_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         // Dual-world empty catalog → unresolved (Wave 1000). Associated call needs &self.
         // With no live InGameUI fixture, assert the dual-empty fail-closed contract:
         // mouseover_drawable_id_for_lookup returns INVALID when catalog lacks the id.
@@ -367,6 +389,7 @@ mod tests {
 
     #[test]
     fn opaque_window_blocks_world_input_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let window = test_window(
             "Popup.wnd:Dialog",
             WindowStatus::ENABLED | WindowStatus::ACTIVE,
@@ -377,6 +400,7 @@ mod tests {
 
     #[test]
     fn see_through_window_does_not_block_world_input() {
+        crate::test_support::ensure_ambient_host();
         let window = test_window(
             "ControlBar.wnd:Transparent",
             WindowStatus::ENABLED | WindowStatus::ACTIVE | WindowStatus::SEE_THRU,
@@ -387,6 +411,7 @@ mod tests {
 
     #[test]
     fn opaque_parent_blocks_see_through_child() {
+        crate::test_support::ensure_ambient_host();
         let parent = test_window(
             "Popup.wnd:Panel",
             WindowStatus::ENABLED | WindowStatus::ACTIVE,
@@ -402,6 +427,7 @@ mod tests {
 
     #[test]
     fn left_hud_window_keeps_world_input_unblocked() {
+        crate::test_support::ensure_ambient_host();
         let window = test_window(
             "ControlBar.wnd:LeftHUD",
             WindowStatus::ENABLED | WindowStatus::ACTIVE,
@@ -412,6 +438,7 @@ mod tests {
 
     #[test]
     fn command_hint_updates_match_cpp_replay_gate() {
+        crate::test_support::ensure_ambient_host();
         assert!(InGameUI::command_hint_update_allowed(false, false, false));
         assert!(!InGameUI::command_hint_update_allowed(true, false, false));
         assert!(!InGameUI::command_hint_update_allowed(false, true, false));
@@ -420,6 +447,7 @@ mod tests {
 
     #[test]
     fn gui_command_hint_cursor_uses_cpp_valid_invalid_selection() {
+        crate::test_support::ensure_ambient_host();
         let context_pending = PendingCommand {
             command_type: CommandType::DoSpecialPower,
             options: 0,
@@ -478,6 +506,7 @@ mod tests {
 
     #[test]
     fn command_attack_hints_only_downgrade_for_fully_shrouded_targets() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             InGameUI::command_hint_after_shroud_projection(
                 CommandHintType::AttackObject,
@@ -517,6 +546,7 @@ mod tests {
 
     #[test]
     fn double_click_attack_move_guard_hint_uses_cpp_predecrement_semantics() {
+        crate::test_support::ensure_ambient_host();
         let mut timer = 2;
         assert!(crate::test_support::with_receiving_ui(|ui| InGameUI::consume_double_click_attack_move_guard_hint(&mut timer, ui)));
         assert_eq!(timer, 1);
@@ -530,6 +560,7 @@ mod tests {
 
     #[test]
     fn trigger_double_click_attack_move_guard_hint_arms_11_frame_timer() {
+        crate::test_support::ensure_ambient_host();
         // C++ InGameUI::triggerDoubleClickAttackMoveGuardHint (InGameUI.cpp:1314-1318)
         let mut timer = 0;
         let mut stash = Coord3D::new(0.0, 0.0, 0.0);
@@ -548,6 +579,7 @@ mod tests {
 
     #[test]
     fn set_input_enabled_clears_modes_only_on_falling_edge() {
+        crate::test_support::ensure_ambient_host();
         // C++ InGameUI::setInputEnabled (InGameUI.cpp:3382-3409)
         assert!(InGameUI::should_clear_modes_on_input_disable(true, false));
         assert!(!InGameUI::should_clear_modes_on_input_disable(false, false));
@@ -557,6 +589,7 @@ mod tests {
 
     #[test]
     fn default_command_hints_are_blocked_by_nonlocal_selected_source() {
+        crate::test_support::ensure_ambient_host();
         assert!(InGameUI::default_command_hint_blocked_by_source(Some(
             false
         )));
@@ -568,6 +601,7 @@ mod tests {
 
     #[test]
     fn move_to_cursor_matches_cpp_source_and_target_context() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             InGameUI::move_to_cursor_for_context(false, false, false, true),
             MouseCursor::GenericInvalid
@@ -588,6 +622,7 @@ mod tests {
 
     #[test]
     fn language_font_override_extracts_explicit_language_font() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             InGameUI::language_font_override(&FontDesc::new("Localized Caption", 14, true)),
             Some(("Localized Caption".to_string(), 14, true))
@@ -596,11 +631,13 @@ mod tests {
 
     #[test]
     fn language_font_override_ignores_default_language_font_descriptor() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(InGameUI::language_font_override(&FontDesc::default()), None);
     }
 
     #[test]
     fn military_caption_update_respects_initial_delay_then_types() {
+        crate::test_support::ensure_ambient_host();
         let mut subtitle = Some(MilitarySubtitle {
             text: "AB".to_string(),
             index: 0,
@@ -648,6 +685,7 @@ mod tests {
 
     #[test]
     fn military_caption_newline_advances_without_typing_sound() {
+        crate::test_support::ensure_ambient_host();
         let mut subtitle = Some(MilitarySubtitle {
             text: "\nA".to_string(),
             index: 0,
@@ -681,6 +719,7 @@ mod tests {
 
     #[test]
     fn military_caption_update_fades_after_lifetime_before_removal() {
+        crate::test_support::ensure_ambient_host();
         let mut subtitle = Some(MilitarySubtitle {
             text: "A".to_string(),
             index: 1,
@@ -718,6 +757,7 @@ mod tests {
 
     #[test]
     fn military_caption_visible_text_grows_over_frames() {
+        crate::test_support::ensure_ambient_host();
         let mut subtitle = Some(MilitarySubtitle {
             text: "ABC".to_string(),
             index: 0,
@@ -770,6 +810,7 @@ mod tests {
 
     #[test]
     fn military_caption_truncates_after_max_subtitle_lines() {
+        crate::test_support::ensure_ambient_host();
         let mut subtitle = Some(MilitarySubtitle {
             text: "A\nB\nC\nD\nE".to_string(),
             index: 7,
@@ -801,6 +842,7 @@ mod tests {
 
     #[test]
     fn message_fade_subtracts_age_times_one_hundredth() {
+        crate::test_support::ensure_ambient_host();
         let (r, g, b, a) = InGameUI::unpack_argb(0xFFFF_FFFF);
         assert_eq!((r, g, b, a), (255, 255, 255, 255));
         let faded = InGameUI::pack_argb(r, g, b, (a as i32 - (100.0 * 0.01) as i32).max(0) as u8);
@@ -809,6 +851,7 @@ mod tests {
 
     #[test]
     fn named_timer_countdown_formats_m_ss_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             InGameUI::format_named_timer_line("Launch", 90, true),
             "Launch 0:03"
@@ -825,6 +868,7 @@ mod tests {
 
     #[test]
     fn named_timer_remaining_frames_decrease_and_can_draw() {
+        crate::test_support::ensure_ambient_host();
         let (frames, tick_frame) = InGameUI::resolve_named_timer_frames(90, true, 10, 0, None);
         assert_eq!(frames, 89);
         assert_eq!(tick_frame, 10);
@@ -851,6 +895,7 @@ mod tests {
 
     #[test]
     fn floating_text_rises_by_frame_count_times_speed() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(InGameUI::floating_text_screen_offset_y(10, 1.5), 15.0);
         assert!(InGameUI::floating_text_visible_through_shroud(
             ObjectShroudStatus::Clear
@@ -862,6 +907,7 @@ mod tests {
 
     #[test]
     fn message_color_alternates_like_cpp_get_message_color() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(InGameUI::pack_argb(255, 255, 255, 255), 0xFFFF_FFFF);
         assert_eq!(InGameUI::pack_argb(180, 180, 180, 255), 0xFFB4_B4B4);
         let c1 = 0xFFFF_FFFF;
@@ -873,6 +919,7 @@ mod tests {
 
     #[test]
     fn message_timeout_matches_cpp_integer_division() {
+        crate::test_support::ensure_ambient_host();
         // C++: m_messageDelayMS / LOGICFRAMES_PER_SECOND / 1000
         // 5000 / 30 / 1000 == 0, so fade starts the next logic frame.
         assert_eq!(InGameUI::message_timeout_frames(5000), 0);
@@ -881,6 +928,7 @@ mod tests {
 
     #[test]
     fn message_older_than_cpp_fade_is_removed() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(InGameUI::message_alpha_at_age(255, 0, 0), 255);
         assert_eq!(InGameUI::message_alpha_at_age(255, 99, 0), 255);
         assert_eq!(InGameUI::message_alpha_at_age(255, 100, 0), 254);
@@ -889,6 +937,7 @@ mod tests {
 
     #[test]
     fn floating_text_older_than_cpp_timeout_vanishes() {
+        crate::test_support::ensure_ambient_host();
         let timeout = DEFAULT_FLOATING_TEXT_TIMEOUT;
         assert_eq!(
             InGameUI::floating_text_alpha_at_frame(255, timeout, timeout, 0.1),
@@ -905,6 +954,7 @@ mod tests {
     #[test]
 
     fn set_gui_command_skips_playback_and_rejects_non_target() {
+        crate::test_support::ensure_ambient_host();
         assert!(InGameUI::should_skip_gui_command_during_playback(true));
         assert!(!InGameUI::should_skip_gui_command_during_playback(false));
         assert!(InGameUI::command_option_need_target(0x20));
@@ -926,6 +976,7 @@ mod tests {
 
     #[test]
     fn trigger_double_click_arms_eleven_frame_guard_timer() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
         let mut timer = 0;
         InGameUI::arm_double_click_attack_move_guard_timer(&mut timer);
@@ -943,6 +994,7 @@ mod tests {
 
     #[test]
     fn set_input_enabled_clears_modes_only_on_disable_edge() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
         assert!(InGameUI::should_clear_modes_on_input_enable_change(
             true, false
@@ -971,6 +1023,7 @@ mod tests {
 
     #[test]
     fn radar_movie_targets_left_hud_window() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(
             InGameUI::radar_movie_window_name(),
             "ControlBar.wnd:LeftHUD"
@@ -979,6 +1032,7 @@ mod tests {
 
     #[test]
     fn popup_message_appends_diplomacy_briefing_identifier() {
+        crate::test_support::ensure_ambient_host();
         use crate::core::game_client::ClientInputAuthority;
         use crate::gui::callbacks::menu_callbacks::MenuManager;
         use crate::gui::game_window::WindowEventEffects;
@@ -1014,6 +1068,7 @@ mod tests {
 
     #[test]
     fn live_set_pending_command_enters_gui_command_mouse_mode() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
         ui.clear_pending_command();
         ui.set_pending_command_with_visual(
@@ -1032,6 +1087,7 @@ mod tests {
 
     #[test]
     fn disregard_drawable_deselects_like_cpp_deselect_drawable() {
+        crate::test_support::ensure_ambient_host();
         // C++ InGameUI::disregardDrawable (InGameUI.cpp:3415-3420) calls deselectDrawable
         // so a dying drawable leaves the selected list.
         let mut state = SelectionState::new(10);
@@ -1052,6 +1108,7 @@ mod tests {
 
     #[test]
     fn live_military_caption_uses_delay_and_ini_pose() {
+        crate::test_support::ensure_ambient_host();
         init_global_language();
         Language::clear_localized_strings();
         Language::register_localized_string("SCRIPT:Briefing", "Hold the line.");
@@ -1073,6 +1130,7 @@ mod tests {
 
     #[test]
     fn world_anim_fades_in_last_thirty_frames() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(InGameUI::world_anim_expire_frame(0, 4.0), 120);
         assert!((InGameUI::world_anim_z_lift(30, 15.0) - 15.0).abs() < 0.001);
         assert!((InGameUI::world_anim_fade_alpha(30, true) - 1.0).abs() < 0.001);
@@ -1083,6 +1141,7 @@ mod tests {
 
     #[test]
     fn floating_text_vanish_window_keeps_alpha_after_timeout() {
+        crate::test_support::ensure_ambient_host();
         let timeout = DEFAULT_FLOATING_TEXT_TIMEOUT;
         assert_eq!(
             InGameUI::floating_text_alpha_at_frame(255, timeout + 1, timeout, 0.1),

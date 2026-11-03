@@ -660,6 +660,7 @@ mod os_wnd_tests {
     }
     #[test]
     fn os_wnd_ime_prepare_hits_textarea_then_opens_candidate_list() {
+        crate::test_support::ensure_ambient_host();
         let mut client = crate::core::game_client::GameClient::new().unwrap();
         install_named_button(&mut client, "IMECandidateWindow.wnd:TextArea", 10, 10);
         assert!(
@@ -680,6 +681,7 @@ mod os_wnd_tests {
     }
     #[test]
     fn os_wnd_ime_clear_hits_downarrow_then_clears_candidates() {
+        crate::test_support::ensure_ambient_host();
         let mut client = crate::core::game_client::GameClient::new().unwrap();
         install_named_button(&mut client, "IMECandidateWindow.wnd:DownArrow", 10, 40);
         client.with_window_event_effects(None, |effects| {

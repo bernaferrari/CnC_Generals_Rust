@@ -454,6 +454,7 @@ mod tests {
 
     #[test]
     fn test_speech_system_creation() {
+        crate::test_support::ensure_ambient_host();
         let sys = SpeechSystem::new();
         assert!(sys.is_enabled());
         assert!(!sys.is_playing());
@@ -463,6 +464,7 @@ mod tests {
 
     #[test]
     fn test_queue_routing() {
+        crate::test_support::ensure_ambient_host();
         let mut sys = SpeechSystem::new();
 
         // Unit-level speech goes to unit queue.
@@ -483,6 +485,7 @@ mod tests {
 
     #[test]
     fn test_disallow_speech() {
+        crate::test_support::ensure_ambient_host();
         let mut sys = SpeechSystem::new();
         sys.set_disallow_speech(true);
         assert!(sys.disallow_speech());
@@ -498,6 +501,7 @@ mod tests {
 
     #[test]
     fn test_cooldown() {
+        crate::test_support::ensure_ambient_host();
         let mut sys = SpeechSystem::new();
 
         // Simulate playing a line.

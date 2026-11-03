@@ -605,6 +605,7 @@ mod tests {
 
     #[test]
     fn test_general_persona_creation() {
+        crate::test_support::ensure_ambient_host();
         let persona = GeneralPersona::new();
         assert!(!persona.is_starting_enabled());
         assert_eq!(persona.bio_name(), "");
@@ -613,6 +614,7 @@ mod tests {
 
     #[test]
     fn test_general_persona_setters() {
+        crate::test_support::ensure_ambient_host();
         let mut persona = GeneralPersona::new();
         persona.set_bio_name("General Tao".to_string());
         persona.set_campaign("GLA_01".to_string());
@@ -623,6 +625,7 @@ mod tests {
 
     #[test]
     fn test_challenge_generals_creation() {
+        crate::test_support::ensure_ambient_host();
         let generals = ChallengeGenerals::new();
         assert_eq!(generals.positions.len(), NUM_GENERALS);
         assert_eq!(
@@ -633,6 +636,7 @@ mod tests {
 
     #[test]
     fn test_find_general_by_campaign() {
+        crate::test_support::ensure_ambient_host();
         let mut generals = ChallengeGenerals::new();
         generals.positions[0].set_campaign("TEST_CAMPAIGN".to_string());
 
@@ -642,6 +646,7 @@ mod tests {
 
     #[test]
     fn test_find_general_by_name() {
+        crate::test_support::ensure_ambient_host();
         let mut generals = ChallengeGenerals::new();
         generals.positions[0].set_bio_name("General Test".to_string());
 
@@ -651,6 +656,7 @@ mod tests {
 
     #[test]
     fn test_find_general_by_template() {
+        crate::test_support::ensure_ambient_host();
         let mut generals = ChallengeGenerals::new();
         generals.positions[0].set_player_template_name("Template1".to_string());
 
@@ -660,6 +666,7 @@ mod tests {
 
     #[test]
     fn test_difficulty_setting() {
+        crate::test_support::ensure_ambient_host();
         let mut campaign = crate::gui::campaign_manager::CampaignManager::new();
         assert_eq!(residual_challenge_generals_difficulty(&campaign), 1);
         assert!(simulate_challenge_generals_set_difficulty(&mut campaign, 2));
@@ -670,6 +677,7 @@ mod tests {
 
     #[test]
     fn game_client_projection_uses_the_common_locked_general_table() {
+        crate::test_support::ensure_ambient_host();
         let mut generals = ChallengeGenerals::new();
         generals.init();
 
@@ -699,6 +707,7 @@ mod tests {
 
     #[test]
     fn failed_common_persona_projection_rejects_every_template() {
+        crate::test_support::ensure_ambient_host();
         let mut generals = ChallengeGenerals::new();
         generals.persona_data_failed = true;
 

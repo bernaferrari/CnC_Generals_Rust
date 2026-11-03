@@ -665,6 +665,7 @@ mod tests {
 
     #[test]
     fn test_shadow_quality() {
+        crate::test_support::ensure_ambient_host();
         assert_eq!(ShadowQuality::Low.resolution(), ShadowMapResolution::Low);
         assert_eq!(
             ShadowQuality::Ultra.resolution(),
@@ -683,6 +684,7 @@ mod tests {
 
     #[test]
     fn test_shadow_caster_directional() {
+        crate::test_support::ensure_ambient_host();
         let caster = ShadowCaster::directional(Vec3::new(0.0, -1.0, 0.0), 0, 50.0, 0.1, 100.0);
 
         assert!(caster.is_directional);
@@ -692,6 +694,7 @@ mod tests {
 
     #[test]
     fn test_shadow_caster_point() {
+        crate::test_support::ensure_ambient_host();
         let caster = ShadowCaster::point(Vec3::new(0.0, 10.0, 0.0), 1, 50.0);
 
         assert!(!caster.is_directional);
@@ -701,6 +704,7 @@ mod tests {
 
     #[test]
     fn test_shadow_system_creation() {
+        crate::test_support::ensure_ambient_host();
         let system = ShadowSystem::new(ShadowQuality::High, 4);
 
         assert_eq!(system.quality(), ShadowQuality::High);

@@ -717,6 +717,7 @@ mod host_bridge_execution_tests {
 
     #[test]
     fn enabled_host_bridge_intercepts_real_control_bar_execution() {
+        crate::test_support::ensure_ambient_host();
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
         transport_ui.admit_native_control_bar_transport();
@@ -755,6 +756,7 @@ mod host_bridge_execution_tests {
 
     #[test]
     fn parsed_retail_mig_fire_weapon_keeps_max_shots_and_options_without_logic_button() {
+        crate::test_support::ensure_ambient_host();
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
         transport_ui.admit_native_control_bar_transport();
@@ -828,6 +830,7 @@ mod host_bridge_execution_tests {
 
     #[test]
     fn parsed_retail_switch_weapon_slot_reaches_host_direct_command_without_logic_button() {
+        crate::test_support::ensure_ambient_host();
         let mut transport_ui = crate::core::subsystems::InGameUISubsystem::default();
         let _guard = crate::gui::control_bar::acquire_host_control_bar_bridge_test_guard();
         transport_ui.admit_native_control_bar_transport();
@@ -877,6 +880,7 @@ mod host_bridge_execution_tests {
 
     #[test]
     fn parsed_fire_weapon_buttons_keep_distinct_retail_keys() {
+        crate::test_support::ensure_ambient_host();
         // These are two distinct retail CommandButton.ini entries with the
         // same FIRE_WEAPON operation.  Collapsing them to the operation text
         // makes exact host mappings impossible and aliases their UI state.

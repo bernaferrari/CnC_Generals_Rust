@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn receiving_logic_expiry_keeps_client_flash_clock_independent() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(90_101));
     drawable.set_expiration_frame(4);
     drawable.color_flash(Vector3::new(1.0, 0.0, 0.0), 2);
@@ -37,6 +38,7 @@ fn receiving_logic_expiry_keeps_client_flash_clock_independent() {
 
 #[test]
 fn receiving_expiry_preserves_raw_unsigned_deadline_semantics() {
+    crate::test_support::ensure_ambient_host();
     let mut drawable = BasicDrawable::new(DrawableId(90_102));
     drawable.set_expiration_frame(0);
     assert!(!drawable.is_expired(0));

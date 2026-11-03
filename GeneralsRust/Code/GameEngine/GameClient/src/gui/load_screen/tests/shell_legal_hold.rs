@@ -2,6 +2,7 @@
 
 #[test]
 fn shell_game_first_load_matches_cpp_title_and_legal_state() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),
@@ -74,6 +75,7 @@ fn shell_game_first_load_matches_cpp_title_and_legal_state() {
 
 #[test]
 fn shell_game_first_load_skips_legal_intro_when_mem_check_fails_like_cpp() {
+    crate::test_support::ensure_ambient_host();
     if matches!(
         crate::test_process::run_bounded(
             module_path!(),

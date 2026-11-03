@@ -2060,6 +2060,7 @@ mod tests {
 
     #[test]
     fn empty_overlay_diagnostics_do_not_share_a_process_budget() {
+        crate::test_support::ensure_ambient_host();
         let mut first = UiDiagnosticsState::default();
         let mut second = UiDiagnosticsState::default();
         for _ in 0..5 {
@@ -2071,6 +2072,7 @@ mod tests {
 
     #[test]
     fn glyph_pixels_fill_the_uploaded_text_canvas() {
+        crate::test_support::ensure_ambient_host();
         let mut pixel = [0, 0, 0, 0];
         composite_glyph_pixel(&mut pixel, [255, 255, 255, 128]);
         assert_eq!(pixel, [255, 255, 255, 128]);
@@ -2173,6 +2175,7 @@ mod tests {
 
     #[test]
     fn label_raster_preserves_native_baseline_and_bearings() {
+        crate::test_support::ensure_ambient_host();
         // C++ Store_GDI_Char keeps the native top bearing in the CharHeight cell.
         // Compare real shaped glyph coordinates with the actual upload canvas.
         for text in ["ABC", "gy", "ABCgy", "  W  "] {
@@ -2192,6 +2195,7 @@ mod tests {
 
     #[test]
     fn label_alignment_uses_advance_and_cell_height_not_ink() {
+        crate::test_support::ensure_ambient_host();
         let (mut layout, samples, bounds, size) = rasterized_label("  Wgy  ");
         layout.alignment = TextAlignment::Center;
         layout.vertical_alignment = VerticalAlignment::Middle;
@@ -2211,6 +2215,7 @@ mod tests {
 
     #[test]
     fn label_bearings_outside_layout_survive_and_cache_coordinates_stay_relative() {
+        crate::test_support::ensure_ambient_host();
         let (mut layout, samples, bounds, size) = rasterized_label("ABCgy");
         layout.bounds.width = 12.0;
         layout.bounds.height = 9.0;
@@ -2237,6 +2242,7 @@ mod tests {
 
     #[test]
     fn generals_bold_raster_and_measurement_resolve_the_arial_bold_face() {
+        crate::test_support::ensure_ambient_host();
         let label = "fiftill";
         let (layout, samples, bounds, size) = rasterized_label_with_font(label, "Generals", true);
         let generals = prepare_text_canvas(&layout, Wrap::None, samples, bounds, size);
@@ -2276,6 +2282,7 @@ mod tests {
 
     #[test]
     fn ui_draw_and_vertex_budgets_reject_a_flood_at_the_boundary() {
+        crate::test_support::ensure_ambient_host();
         let mut buffers = UIFrameBuffers::default();
         let mut command = queued_command();
         command.vertices.clear();
@@ -2298,6 +2305,7 @@ mod tests {
 
     #[test]
     fn overlay_frame_preserves_presentation_commands_and_resets_render_scratch() {
+        crate::test_support::ensure_ambient_host();
         let mut buffers = UIFrameBuffers::default();
         buffers.draw_commands.push(queued_command());
         buffers.vertex_data.push(UIVertex {
@@ -2323,6 +2331,7 @@ mod tests {
 
     #[test]
     fn overlay_frame_discards_an_abandoned_open_frame() {
+        crate::test_support::ensure_ambient_host();
         let mut buffers = UIFrameBuffers::default();
         buffers.begin_fresh();
         buffers.draw_commands.push(queued_command());
@@ -2338,6 +2347,7 @@ mod tests {
 
     #[test]
     fn frame_end_closes_and_clears_every_buffer() {
+        crate::test_support::ensure_ambient_host();
         let mut buffers = UIFrameBuffers::default();
         buffers.begin_fresh();
         buffers.draw_commands.push(queued_command());

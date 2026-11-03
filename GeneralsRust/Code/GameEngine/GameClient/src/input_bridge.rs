@@ -972,6 +972,7 @@ mod tests {
 
     #[test]
     fn test_right_click_move_to_empty_ground() {
+        crate::test_support::ensure_ambient_host();
         let mut handler =
             GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.selected_objects = vec![1, 2];
@@ -991,6 +992,7 @@ mod tests {
 
     #[test]
     fn test_right_click_attack_object() {
+        crate::test_support::ensure_ambient_host();
         let mut handler = GameInputHandler::with_context(0, Box::new(TestContext::new()));
         handler.selected_objects = vec![1];
 
@@ -1010,6 +1012,7 @@ mod tests {
 
     #[test]
     fn test_ctrl_left_double_click_does_not_select_matching_units() {
+        crate::test_support::ensure_ambient_host();
         let mut handler = GameInputHandler::with_context(0, Box::new(TestContext::new()));
 
         let event = InputEvent::MouseButtonPressed {
@@ -1026,6 +1029,7 @@ mod tests {
 
     #[test]
     fn test_force_attack_left_double_click_does_not_select_matching_units() {
+        crate::test_support::ensure_ambient_host();
         let mut handler = GameInputHandler::with_context(0, Box::new(TestContext::new()));
         handler.cursor_mode = CursorMode::ForceAttack;
 
@@ -1043,6 +1047,7 @@ mod tests {
 
     #[test]
     fn test_ctrl_right_click_force_attack() {
+        crate::test_support::ensure_ambient_host();
         let mut handler =
             GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.selected_objects = vec![1];
@@ -1062,6 +1067,7 @@ mod tests {
 
     #[test]
     fn test_alt_right_click_force_move() {
+        crate::test_support::ensure_ambient_host();
         let mut handler =
             GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.selected_objects = vec![1];
@@ -1081,6 +1087,7 @@ mod tests {
 
     #[test]
     fn test_key_s_stop() {
+        crate::test_support::ensure_ambient_host();
         let mut handler =
             GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.selected_objects = vec![5, 6];
@@ -1098,6 +1105,7 @@ mod tests {
 
     #[test]
     fn test_key_x_scatter() {
+        crate::test_support::ensure_ambient_host();
         let mut handler =
             GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.selected_objects = vec![5];
@@ -1115,6 +1123,7 @@ mod tests {
 
     #[test]
     fn test_ctrl_1_creates_group() {
+        crate::test_support::ensure_ambient_host();
         let mut handler =
             GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.selected_objects = vec![10, 20, 30];
@@ -1133,6 +1142,7 @@ mod tests {
 
     #[test]
     fn test_recall_group() {
+        crate::test_support::ensure_ambient_host();
         let mut handler =
             GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.control_groups[2] = vec![99];
@@ -1151,6 +1161,7 @@ mod tests {
 
     #[test]
     fn test_escape_clears_selection_and_mode() {
+        crate::test_support::ensure_ambient_host();
         let mut handler =
             GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.selected_objects = vec![1, 2, 3];
@@ -1169,6 +1180,7 @@ mod tests {
 
     #[test]
     fn test_no_commands_when_selection_empty_and_right_click() {
+        crate::test_support::ensure_ambient_host();
         let mut handler =
             GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         assert!(handler.selected_objects.is_empty());
@@ -1186,6 +1198,7 @@ mod tests {
 
     #[test]
     fn test_shift_right_click_queues_waypoint() {
+        crate::test_support::ensure_ambient_host();
         let mut handler =
             GameInputHandler::with_context(0, Box::new(TestContext::without_objects()));
         handler.selected_objects = vec![1];

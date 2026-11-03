@@ -469,6 +469,7 @@ mod model_draw_condition_mapping_tests {
 
     #[test]
     fn original_model_bits_map_by_meaning_not_integer_layout() {
+        crate::test_support::ensure_ambient_host();
         let cases = [
             (Model::DAMAGED, Render::DAMAGED),
             (Model::REALLYDAMAGED, Render::REALLY_DAMAGED),
@@ -513,6 +514,7 @@ mod model_draw_condition_mapping_tests {
 
     #[test]
     fn unrelated_model_conditions_never_become_selected_or_damage() {
+        crate::test_support::ensure_ambient_host();
         let input = Model::FRONTCRUSHED
             | Model::BACKCRUSHED
             | Model::WEAPONSET_VETERAN

@@ -181,6 +181,7 @@ mod live_control_bar_click_provenance_tests {
 
     #[test]
     fn deferred_click_snapshots_physical_origin_and_fails_closed_otherwise() {
+        crate::test_support::ensure_ambient_host();
         let unscoped = LiveControlBarClick::from_input(
             10,
             20,
@@ -457,6 +458,7 @@ mod load_screen_hook_tests {
     use std::rc::Rc;
     #[test]
     fn active_load_screen_hides_cursor_like_cpp_start_new_game() {
+        crate::test_support::ensure_ambient_host();
         let mut client = crate::core::game_client::GameClient::new().unwrap();
         client.init_input_subsystems().unwrap();
         set_mouse_cursor_visibility(client.input_mouse_mut().unwrap(), false);
@@ -475,6 +477,7 @@ mod load_screen_hook_tests {
 
     #[test]
     fn ending_active_load_screen_shows_cursor_like_cpp_start_new_game() {
+        crate::test_support::ensure_ambient_host();
         let mut client = crate::core::game_client::GameClient::new().unwrap();
         client.init_input_subsystems().unwrap();
         set_mouse_cursor_visibility(client.input_mouse_mut().unwrap(), false);
@@ -490,6 +493,7 @@ mod load_screen_hook_tests {
 
     #[test]
     fn save_load_completion_skips_fade_transition_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         clear_load_screen_presentation_pump();
         let pump_count = Rc::new(Cell::new(0usize));
         let captured = Rc::clone(&pump_count);
@@ -1374,6 +1378,7 @@ mod in_game_ui_input_and_guard_hint_tests {
 
     #[test]
     fn set_input_enabled_false_clears_force_waypoint_shift_camera_modes() {
+        crate::test_support::ensure_ambient_host();
         // C++ InGameUI::setInputEnabled (InGameUI.cpp:3382-3409)
         let mut ui = crate::core::subsystems::InGameUISubsystem::default();
         ui.set_input_enabled(true);
@@ -1409,6 +1414,7 @@ mod in_game_ui_input_and_guard_hint_tests {
 
     #[test]
     fn trigger_double_click_attack_move_guard_hint_arms_11_frame_timer() {
+        crate::test_support::ensure_ambient_host();
         // C++ InGameUI::triggerDoubleClickAttackMoveGuardHint (InGameUI.cpp:1314-1318)
         let mut ui = crate::core::subsystems::InGameUISubsystem::default();
         ui.arm_double_click_attack_move_guard_hint(12.0, 24.0, 3.0);
@@ -1429,6 +1435,7 @@ mod receiving_control_bar_events_tests {
     use super::*;
     #[test]
     fn actual_ui_events_do_not_cross_peer_reset_or_drop() {
+        crate::test_support::ensure_ambient_host();
         let mut a = crate::core::subsystems::InGameUISubsystem::default();
         let mut b = crate::core::subsystems::InGameUISubsystem::default();
         a.admit_native_control_bar_transport();
@@ -1449,6 +1456,7 @@ mod receiving_control_bar_events_tests {
     }
     #[test]
     fn native_ui_never_consumes_standalone_dirty_or_observer_ingress() {
+        crate::test_support::ensure_ambient_host();
         let mut a = crate::core::subsystems::InGameUISubsystem::default();
         a.admit_native_control_bar_transport();
         with_legacy_core_ingress_mut(|state| {

@@ -351,6 +351,7 @@ mod tests {
 
     #[test]
     fn test_window_creation() {
+        crate::test_support::ensure_ambient_host();
         let mut window_manager = WindowManager::new();
         let window = window_manager.test_create_window(None, 0, 0, 100, 100);
         assert!(window.is_ok());
@@ -362,6 +363,7 @@ mod tests {
 
     #[test]
     fn test_window_hierarchy() {
+        crate::test_support::ensure_ambient_host();
         let mut window_manager = WindowManager::new();
 
         let parent = window_manager.test_create_window(None, 0, 0, 200, 200).unwrap();
@@ -376,6 +378,7 @@ mod tests {
 
     #[test]
     fn test_window_status() {
+        crate::test_support::ensure_ambient_host();
         let mut window_manager = WindowManager::new();
         let window = window_manager.test_create_window(None, 0, 0, 100, 100).unwrap();
 

@@ -1056,6 +1056,7 @@ mod tests {
 
     #[test]
     fn test_audio_affect_bits() {
+        crate::test_support::ensure_ambient_host();
         let all =
             AudioAffect::Music | AudioAffect::Sound | AudioAffect::Sound3D | AudioAffect::Speech;
         assert_eq!(all, AudioAffect::All);
@@ -1065,6 +1066,7 @@ mod tests {
 
     #[test]
     fn test_audio_position_distance() {
+        crate::test_support::ensure_ambient_host();
         let a = AudioPosition::new(0.0, 0.0, 0.0);
         let b = AudioPosition::new(3.0, 4.0, 0.0);
         assert!((a.distance_to(&b) - 5.0).abs() < 0.001);
@@ -1072,6 +1074,7 @@ mod tests {
 
     #[test]
     fn test_event_registry() {
+        crate::test_support::ensure_ambient_host();
         let mut engine = AudioEngine::new().unwrap();
         let info = AudioEventInfo {
             name: "TestSound".to_string(),
@@ -1087,6 +1090,7 @@ mod tests {
 
     #[test]
     fn test_volume_clamping() {
+        crate::test_support::ensure_ambient_host();
         let mut engine = AudioEngine::new().unwrap();
         engine.set_volume(1.5, AudioAffect::Music);
         assert!((engine.get_volume(AudioAffect::Music) - 1.0).abs() < 0.001);

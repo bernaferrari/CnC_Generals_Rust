@@ -13,6 +13,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_particle_lifecycle() {
+        crate::test_support::ensure_ambient_host();
         let template = Arc::new(ParticleSystemTemplate::new("TestSystem".to_string()));
         let system = ParticleSystem::new(template, 1, false);
 
@@ -23,6 +24,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_particle_emission() {
+        crate::test_support::ensure_ambient_host();
         let mut template = ParticleSystemTemplate::new("EmissionTest".to_string());
         let info = template.info_mut();
 
@@ -42,6 +44,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_particle_physics() {
+        crate::test_support::ensure_ambient_host();
         let info = ParticleInfo {
             velocity: Vec3::new(10.0, 0.0, 0.0),
             position: Vec3::ZERO,
@@ -64,6 +67,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_particle_gravity() {
+        crate::test_support::ensure_ambient_host();
         let info = ParticleInfo {
             velocity: Vec3::ZERO,
             position: Vec3::new(0.0, 0.0, 100.0),
@@ -91,6 +95,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_particle_color_animation() {
+        crate::test_support::ensure_ambient_host();
         let mut info = ParticleInfo::default();
 
         // Set up color keyframes
@@ -121,6 +126,7 @@ mod particle_system_tests {
 
     #[test]
     fn test_particle_alpha_animation() {
+        crate::test_support::ensure_ambient_host();
         let mut info = ParticleInfo::default();
 
         // Fade from opaque to transparent
@@ -154,6 +160,7 @@ mod particle_manager_tests {
 
     #[test]
     fn test_manager_creation() {
+        crate::test_support::ensure_ambient_host();
         let manager = ParticleSystemManager::new();
         assert_eq!(manager.system_count(), 0);
         assert_eq!(manager.particle_count(), 0);
@@ -161,6 +168,7 @@ mod particle_manager_tests {
 
     #[test]
     fn test_template_management() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
 
         let template = manager.new_template("TestTemplate".to_string());
@@ -175,6 +183,7 @@ mod particle_manager_tests {
 
     #[test]
     fn test_system_creation_and_destruction() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let template = manager.new_template("Test".to_string());
 
@@ -187,6 +196,7 @@ mod particle_manager_tests {
 
     #[test]
     fn test_attached_system() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let template = manager.new_template("Attached".to_string());
 
@@ -205,6 +215,7 @@ mod particle_manager_tests {
 
     #[test]
     fn test_manager_update() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let template = manager.new_template("UpdateTest".to_string());
 
@@ -223,6 +234,7 @@ mod weather_system_tests {
 
     #[test]
     fn test_rain_system() {
+        crate::test_support::ensure_ambient_host();
         let mut settings = WeatherSettings::default();
         settings.weather_type = WeatherType::Rain;
         settings.intensity = 0.5;
@@ -239,6 +251,7 @@ mod weather_system_tests {
 
     #[test]
     fn test_snow_system() {
+        crate::test_support::ensure_ambient_host();
         let mut settings = WeatherSettings::default();
         settings.weather_type = WeatherType::Snow;
         settings.intensity = 0.7;
@@ -252,6 +265,7 @@ mod weather_system_tests {
 
     #[test]
     fn test_dust_storm_system() {
+        crate::test_support::ensure_ambient_host();
         let mut settings = WeatherSettings::default();
         settings.weather_type = WeatherType::DustStorm;
         settings.intensity = 0.8;
@@ -268,6 +282,7 @@ mod weather_system_tests {
 
     #[test]
     fn test_weather_transition() {
+        crate::test_support::ensure_ambient_host();
         let mut weather = WeatherSystem::new();
 
         weather.set_weather(WeatherType::Rain, 0.5);
@@ -285,6 +300,7 @@ mod weather_system_tests {
 
     #[test]
     fn test_weather_particle_lifecycle() {
+        crate::test_support::ensure_ambient_host();
         let spawn_pos = Vec3::new(0.0, 0.0, 100.0);
         let wind = Vec3::new(10.0, 0.0, 0.0);
 
@@ -305,6 +321,7 @@ mod particle_presets_tests {
 
     #[test]
     fn test_explosion_presets() {
+        crate::test_support::ensure_ambient_host();
         let small = explosions::create_small_explosion();
         assert_eq!(small.name(), "SmallExplosion");
         assert!(small.info().is_one_shot);
@@ -322,6 +339,7 @@ mod particle_presets_tests {
 
     #[test]
     fn test_weapon_presets() {
+        crate::test_support::ensure_ambient_host();
         let muzzle = weapons::create_muzzle_flash();
         assert_eq!(muzzle.name(), "MuzzleFlash");
         assert_eq!(muzzle.info().shader_type, ParticleShaderType::Additive);
@@ -337,6 +355,7 @@ mod particle_presets_tests {
 
     #[test]
     fn test_environment_presets() {
+        crate::test_support::ensure_ambient_host();
         let smoke = environment::create_smoke_plume();
         assert_eq!(smoke.name(), "SmokePlume");
         assert!(!smoke.info().is_one_shot); // Continuous
@@ -352,6 +371,7 @@ mod particle_presets_tests {
 
     #[test]
     fn test_destruction_presets() {
+        crate::test_support::ensure_ambient_host();
         let dust = destruction::create_building_collapse_dust();
         assert_eq!(dust.name(), "BuildingCollapseDust");
 
@@ -362,6 +382,7 @@ mod particle_presets_tests {
 
     #[test]
     fn test_preset_lookup() {
+        crate::test_support::ensure_ambient_host();
         assert!(get_preset_by_name("SmallExplosion").is_some());
         assert!(get_preset_by_name("MuzzleFlash").is_some());
         assert!(get_preset_by_name("SmokePlume").is_some());
@@ -377,6 +398,7 @@ mod fxlist_integration_tests {
 
     #[test]
     fn test_particle_system_fx_nugget() {
+        crate::test_support::ensure_ambient_host();
         let mut nugget = ParticleSystemFXNugget::new("SmallExplosion".to_string());
         nugget.count = 3;
         nugget.radius = GameClientRandomVariable::new(5.0, 10.0);
@@ -387,6 +409,7 @@ mod fxlist_integration_tests {
 
     #[test]
     fn test_fxlist_bridge() {
+        crate::test_support::ensure_ambient_host();
         let mut bridge = FXListParticleBridge::new();
         let nugget = ParticleSystemFXNugget::new("MuzzleFlash".to_string());
 
@@ -403,6 +426,7 @@ mod fxlist_integration_tests {
 
     #[test]
     fn test_explosion_helper() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let position = Vec3::new(100.0, 200.0, 0.0);
 
@@ -421,6 +445,7 @@ mod fxlist_integration_tests {
 
     #[test]
     fn test_weapon_fire_helper() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let muzzle_pos = Vec3::new(10.0, 20.0, 5.0);
         let muzzle_dir = Vec3::new(1.0, 0.0, 0.0);
@@ -433,6 +458,7 @@ mod fxlist_integration_tests {
 
     #[test]
     fn test_building_destruction_helper() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let building_center = Vec3::new(50.0, 50.0, 0.0);
 
@@ -451,6 +477,7 @@ mod performance_tests {
 
     #[test]
     fn test_large_particle_count_performance() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let mut template = ParticleSystemTemplate::new("PerfTest".to_string());
         let info = template.info_mut();
@@ -492,6 +519,7 @@ mod performance_tests {
 
     #[test]
     fn test_system_creation_performance() {
+        crate::test_support::ensure_ambient_host();
         let mut manager = ParticleSystemManager::new();
         let template = manager.new_template("PerfTest".to_string());
 

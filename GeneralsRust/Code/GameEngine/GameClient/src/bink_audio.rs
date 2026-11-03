@@ -641,11 +641,13 @@ mod tests {
 
     #[test]
     fn parser_is_present() {
+        crate::test_support::ensure_ambient_host();
         assert!(has_bink_audio_bitstream_parser());
     }
 
     #[test]
     fn speech_slider_never_hits_zero() {
+        crate::test_support::ensure_ambient_host();
         let silent = apply_speech_slider_volume(0.0);
         assert!(silent > 0.0);
         assert!((apply_speech_slider_volume(1.0) - 0.81).abs() < 0.02);
@@ -653,6 +655,7 @@ mod tests {
 
     #[test]
     fn notify_false_does_not_claim_bound_soundtrack() {
+        crate::test_support::ensure_ambient_host();
         let mut audio = BinkAudioState::default();
         audio.notify_video_player_of_new_provider(false);
         assert!(!audio.soundtrack_is_bound());
@@ -660,6 +663,7 @@ mod tests {
 
     #[test]
     fn layout_skips_audio_headers_before_frame_table() {
+        crate::test_support::ensure_ambient_host();
         let mut bytes = vec![0u8; 44 + 4 + 8 + 8];
         bytes[44..48].copy_from_slice(&128u32.to_le_bytes());
         bytes[48..50].copy_from_slice(&22050u16.to_le_bytes());

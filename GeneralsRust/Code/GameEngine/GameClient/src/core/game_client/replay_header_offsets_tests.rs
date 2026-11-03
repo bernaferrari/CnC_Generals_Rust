@@ -8,6 +8,7 @@ fn write_utf16_field(bytes: &mut Vec<u8>, value: &str) {
 
 #[test]
 fn replay_version_offsets_follow_all_eight_systemtime_words_at_every_hour() {
+    crate::test_support::ensure_ambient_host();
     // C++ Recorder.cpp:558-572: SYSTEMTIME then version/build strings and CRCs.
     // Literal authored headers make this independent of the machine's clock.
     for hour in [0u16, 1, 12, 23] {

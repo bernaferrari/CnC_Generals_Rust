@@ -1845,6 +1845,7 @@ mod command_availability_window_tests {
 
     #[test]
     fn ready_clock_types_match_cpp_special_fire_overcharge_switch() {
+        crate::test_support::ensure_ambient_host();
         assert!(ControlBar::command_uses_ready_clock(&button(
             CommandType::FireWeapon
         )));
@@ -1867,6 +1868,7 @@ mod command_availability_window_tests {
 
     #[test]
     fn queue_upgrade_gui_command_splits_player_and_object() {
+        crate::test_support::ensure_ambient_host();
         let mut object = button(CommandType::QueueUpgrade);
         object.gui_command = "OBJECT_UPGRADE".to_string();
         assert!(leftover_is_object_upgrade_command(
@@ -1883,6 +1885,7 @@ mod command_availability_window_tests {
 
     #[test]
     fn queue_upgrade_uses_each_receiving_catalog_for_upgrade_type() {
+        crate::test_support::ensure_ambient_host();
         let name = "Upgrade_Veterancy_VETERAN";
         let mut object_catalog = gamelogic::upgrade::center::UpgradeCenter::new();
         object_catalog.init();
@@ -1915,6 +1918,7 @@ mod command_availability_window_tests {
 
     #[test]
     fn disabled_exceptions_include_beacon_delete_and_rally() {
+        crate::test_support::ensure_ambient_host();
         assert!(command_evaluable_when_disabled(CommandType::Sell));
         assert!(command_evaluable_when_disabled(CommandType::Evacuate));
         assert!(command_evaluable_when_disabled(CommandType::Exit));
@@ -1932,6 +1936,7 @@ mod command_availability_window_tests {
 
     #[test]
     fn ignores_underpowered_requires_sole_flag() {
+        crate::test_support::ensure_ambient_host();
         use gamelogic::common::types::{DisabledMaskType, DisabledType};
         let opts = CommandOption::IgnoresUnderpowered as u32;
         let mut sole = DisabledMaskType::none();
@@ -1947,6 +1952,7 @@ mod command_availability_window_tests {
 
     #[test]
     fn presentation_can_make_no_money_and_maxed_are_restricted() {
+        crate::test_support::ensure_ambient_host();
         let mut bar = ControlBar::new();
         bar.apply_presentation_can_make(&[
             ("AmericaInfantryRanger".to_string(), 2), // CANMAKE_NO_MONEY
@@ -1968,6 +1974,7 @@ mod command_availability_window_tests {
 
     #[test]
     fn presentation_can_make_matches_construct_command_name() {
+        crate::test_support::ensure_ambient_host();
         let mut bar = ControlBar::new();
         bar.apply_presentation_can_make(&[("AmericaPowerPlant".to_string(), 2)]);
         let mut btn = button(CommandType::DozerConstruct);
@@ -1981,6 +1988,7 @@ mod command_availability_window_tests {
 
     #[test]
     fn presentation_money_fallback_grays_unaffordable_cameo() {
+        crate::test_support::ensure_ambient_host();
         let mut bar = ControlBar::new();
         bar.apply_presentation_money(100);
         let mut btn = button(CommandType::QueueUnitCreate);
@@ -1993,6 +2001,7 @@ mod command_availability_window_tests {
 
     #[test]
     fn presentation_object_upgrade_owned_or_unaffected_is_cant_afford() {
+        crate::test_support::ensure_ambient_host();
         let mut bar = ControlBar::new();
         bar.apply_presentation_availability(PresentationAvailabilityResidual {
             object_applied_upgrades: vec!["Upgrade_AmericaRangerFlashBangGrenade".into()],
@@ -2024,6 +2033,7 @@ mod command_availability_window_tests {
 
     #[test]
     fn presentation_player_upgrade_complete_is_cant_afford() {
+        crate::test_support::ensure_ambient_host();
         let mut bar = ControlBar::new();
         bar.apply_presentation_availability(PresentationAvailabilityResidual {
             player_completed_upgrades: vec!["Upgrade_AmericaSupplyLines".into()],
@@ -2040,6 +2050,7 @@ mod command_availability_window_tests {
 
     #[test]
     fn presentation_script_disabled_and_unmanned_hide_command_set() {
+        crate::test_support::ensure_ambient_host();
         let mut bar = ControlBar::new();
         assert!(!leftover_presentation_command_set_hidden(&bar));
         bar.apply_presentation_availability(PresentationAvailabilityResidual {

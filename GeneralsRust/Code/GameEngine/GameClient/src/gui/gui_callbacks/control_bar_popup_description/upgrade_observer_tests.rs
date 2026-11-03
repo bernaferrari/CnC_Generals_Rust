@@ -5,6 +5,7 @@ use gamelogic::upgrade::UpgradeTemplate;
 use crate::gui::game_window::WindowEventEffects;
 #[test]
 fn receiving_upgrade_tooltip_uses_own_purchased_conflicting_and_cost_observations() {
+    crate::test_support::ensure_ambient_host();
     if let crate::test_process::TestProcess::ParentVerified = crate::test_process::run_bounded(
         module_path!(),
         "receiving_upgrade_tooltip_uses_own_purchased_conflicting_and_cost_observations",

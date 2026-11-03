@@ -476,6 +476,7 @@ mod tests {
 
     #[test]
     fn test_debug_draw_creation() {
+        crate::test_support::ensure_ambient_host();
         let debug_draw = DebugDraw::new();
         assert!(debug_draw.is_enabled());
         assert_eq!(debug_draw.count(), 0);
@@ -483,6 +484,7 @@ mod tests {
 
     #[test]
     fn test_add_commands() {
+        crate::test_support::ensure_ambient_host();
         let mut debug_draw = DebugDraw::new();
 
         debug_draw.line(Vec3::ZERO, Vec3::new(1.0, 0.0, 0.0), colors::RED);
@@ -494,6 +496,7 @@ mod tests {
 
     #[test]
     fn test_command_expiration() {
+        crate::test_support::ensure_ambient_host();
         let mut debug_draw = DebugDraw::new();
 
         debug_draw.line_timed(
@@ -513,6 +516,7 @@ mod tests {
 
     #[test]
     fn test_clear() {
+        crate::test_support::ensure_ambient_host();
         let mut debug_draw = DebugDraw::new();
 
         debug_draw.line(Vec3::ZERO, Vec3::new(1.0, 0.0, 0.0), colors::RED);
@@ -526,6 +530,7 @@ mod tests {
 
     #[test]
     fn test_enable_disable() {
+        crate::test_support::ensure_ambient_host();
         let mut debug_draw = DebugDraw::new();
 
         debug_draw.line(Vec3::ZERO, Vec3::new(1.0, 0.0, 0.0), colors::RED);
@@ -541,6 +546,7 @@ mod tests {
 
     #[test]
     fn test_max_commands() {
+        crate::test_support::ensure_ambient_host();
         let mut debug_draw = DebugDraw::new();
         debug_draw.set_max_commands(3);
 
@@ -557,6 +563,7 @@ mod tests {
 
     #[test]
     fn test_helper_methods() {
+        crate::test_support::ensure_ambient_host();
         let mut debug_draw = DebugDraw::new();
 
         debug_draw.cross(Vec3::ZERO, 1.0, colors::WHITE);

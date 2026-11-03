@@ -475,12 +475,14 @@ mod tests {
 
     #[test]
     fn test_example_image_loading() {
+        crate::test_support::ensure_ambient_host();
         let result = example_image_loading();
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_advanced_image_operations() {
+        crate::test_support::ensure_ambient_host();
         let result = example_advanced_image_operations();
         assert!(result.is_ok());
     }

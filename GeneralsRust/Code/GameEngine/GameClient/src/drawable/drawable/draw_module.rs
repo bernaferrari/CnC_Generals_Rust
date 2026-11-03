@@ -419,6 +419,7 @@ mod current_bone_lookup_tests {
 
     #[test]
     fn exact_zero_and_numbered_indices_have_distinct_original_names() {
+        crate::test_support::ensure_ambient_host();
         let mut bones = BoneData::default();
         add(&mut bones, "Fire", 10.0);
         add(&mut bones, "Fire01", 11.0);
@@ -451,6 +452,7 @@ mod current_bone_lookup_tests {
 
     #[test]
     fn absent_invalid_and_bounded_queries_preserve_untouched_outputs() {
+        crate::test_support::ensure_ambient_host();
         let mut bones = BoneData::default();
         add(&mut bones, "Fire01", 1.0);
         add(&mut bones, "Fire02", 2.0);

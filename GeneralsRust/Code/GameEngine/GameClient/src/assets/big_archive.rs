@@ -607,6 +607,7 @@ mod tests {
 
     #[test]
     fn test_path_normalization() {
+        crate::test_support::ensure_ambient_host();
         let archive = create_test_archive();
         assert_eq!(
             archive.normalize_path("path\\to\\file.txt"),

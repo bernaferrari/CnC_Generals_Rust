@@ -1558,6 +1558,7 @@ mod tests {
 
     #[test]
     fn test_can_select_drawable() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock();
         let drawable = SelectableDrawable {
             id: 1,
@@ -1603,6 +1604,7 @@ mod tests {
 
     #[test]
     fn opaque_window_chain_blocks_selection_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock();
         let opaque = Rc::new(RefCell::new(GameWindow::new()));
         opaque
@@ -1614,6 +1616,7 @@ mod tests {
 
     #[test]
     fn see_thru_window_chain_allows_selection_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock();
         let see_thru = Rc::new(RefCell::new(GameWindow::new()));
         see_thru.borrow_mut().set_status_exact(
@@ -1625,6 +1628,7 @@ mod tests {
 
     #[test]
     fn see_thru_child_with_opaque_parent_blocks_selection_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock();
         let parent = Rc::new(RefCell::new(GameWindow::new()));
         parent
@@ -1641,6 +1645,7 @@ mod tests {
 
     #[test]
     fn test_context_short_circuit_prefers_command_over_enemy_selection() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
 
             let _guard = test_state_lock();
@@ -1691,6 +1696,7 @@ mod tests {
 
     #[test]
     fn test_context_short_circuit_respects_prefer_selection_and_empty_selection() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
 
             let _guard = test_state_lock();
@@ -1729,6 +1735,7 @@ mod tests {
 
     #[test]
     fn test_context_short_circuit_allows_point_click_on_already_selected_local_unit() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
 
             let _guard = test_state_lock();
@@ -1760,6 +1767,7 @@ mod tests {
 
     #[test]
     fn test_context_short_circuit_allows_garrisonable_drag_when_infantry_selected() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
 
             let _guard = test_state_lock();
@@ -1805,6 +1813,7 @@ mod tests {
 
     #[test]
     fn test_selection_translator_creation() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock();
         let translator = SelectionTranslator::new();
         assert!(!translator.left_mouse_button_is_down);
@@ -1814,6 +1823,7 @@ mod tests {
 
     #[test]
     fn test_drag_selection_start() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock();
         let mut translator = SelectionTranslator::new();
 
@@ -1833,6 +1843,7 @@ mod tests {
 
     #[test]
     fn test_raw_left_button_up_forwards_click_when_not_dragging() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock();
         let mut translator = SelectionTranslator::new();
 
@@ -1854,6 +1865,7 @@ mod tests {
 
     #[test]
     fn test_raw_left_button_up_honors_one_click_deselect_prevention_in_alternate_mouse_mode() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
 
             let _guard = test_state_lock();
@@ -1890,6 +1902,7 @@ mod tests {
 
     #[test]
     fn test_double_click_selection_keeps_message_during_force_attack() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
 
             let _guard = test_state_lock();
@@ -1917,6 +1930,7 @@ mod tests {
 
     #[test]
     fn test_control_group_management() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock();
         let mut translator = SelectionTranslator::new();
 
@@ -1943,6 +1957,7 @@ mod tests {
 
     #[test]
     fn create_control_group_evicts_ids_from_other_squads() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock();
         let mut translator = SelectionTranslator::new();
         translator.current_selection.insert(1);
@@ -1960,6 +1975,7 @@ mod tests {
 
     #[test]
     fn test_add_control_group_double_tap_does_not_append_again() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
 
             let _guard = test_state_lock();
@@ -1987,6 +2003,7 @@ mod tests {
 
     #[test]
     fn selection_limit_disabled_allows_more_than_forty_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
 
             let _guard = test_state_lock();
@@ -2010,6 +2027,7 @@ mod tests {
 
     #[test]
     fn selection_limit_positive_caps_control_group_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
 
             let _guard = test_state_lock();
@@ -2033,6 +2051,7 @@ mod tests {
 
     #[test]
     fn test_view_control_group_centers_on_last_group_object_without_selecting() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock();
         let mut translator = SelectionTranslator::new();
         translator.control_groups[2] = vec![10, 11];
@@ -2085,6 +2104,7 @@ mod tests {
 
     #[test]
     fn view_team0_is_silent_noop_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock();
         let mut translator = SelectionTranslator::new();
         translator.control_groups[0] = vec![10];
@@ -2116,6 +2136,7 @@ mod tests {
 
     #[test]
     fn test_is_click_tolerance() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock();
         let translator = SelectionTranslator::new();
 
@@ -2135,6 +2156,7 @@ mod tests {
 
     #[test]
     fn test_build_region() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock();
         let translator = SelectionTranslator::new();
 
@@ -2155,6 +2177,7 @@ mod tests {
 
     #[test]
     fn test_right_click_cancels_pending_command_without_clearing_selection() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
 
             let _guard = test_state_lock();
@@ -2179,6 +2202,7 @@ mod tests {
 
     #[test]
     fn test_right_click_slow_release_does_not_cancel_pending_command() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
 
             let _guard = test_state_lock();
@@ -2206,6 +2230,7 @@ mod tests {
 
     #[test]
     fn test_mouse_left_click_quit_menu_guard() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
 
             let _guard = test_state_lock();
@@ -2231,6 +2256,7 @@ mod tests {
 
     #[test]
     fn test_meta_options_clears_left_selection_feedback_state() {
+        crate::test_support::ensure_ambient_host();
         with_receiving_ui(|ui| {
 
             let _guard = test_state_lock();
@@ -2256,6 +2282,7 @@ mod tests {
     /// C++: `CanSelectDrawable` in SelectionXlat.cpp:104.
     #[test]
     fn catalog_kind_of_flags_uses_ui_local_constants() {
+        crate::test_support::ensure_ambient_host();
         let _guard = test_state_lock();
         // Live KindOf.h: KINDOF_OBSTACLE=0, KINDOF_SELECTABLE=1, …
         // A live-mask mixup would pack Selectable as bit 1 (0x2), not 0x1.

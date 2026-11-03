@@ -123,6 +123,7 @@ fn select(
 }
 #[test]
 fn wnd_confirmation_uses_captured_file_across_two_receiving_managers() {
+    crate::test_support::ensure_ambient_host();
     let (mut a, menu_a, button_a) = confirmation("A.rep");
     let (mut b, menu_b, button_b) = confirmation("B.rep");
     assert_eq!(button_a.borrow().get_id(), button_b.borrow().get_id());
@@ -149,6 +150,7 @@ fn wnd_confirmation_uses_captured_file_across_two_receiving_managers() {
 
 #[test]
 fn wnd_restart_confirmation_delivers_receiving_restart_once() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let key = NameKeyGenerator::name_to_key;
     let parent = manager
@@ -188,6 +190,7 @@ fn wnd_restart_confirmation_delivers_receiving_restart_once() {
 }
 #[test]
 fn wnd_quit_restart_only_opens_confirmation_before_host_changes() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     let key = NameKeyGenerator::name_to_key;
     let parent = manager
@@ -226,6 +229,7 @@ fn wnd_quit_restart_only_opens_confirmation_before_host_changes() {
 
 #[test]
 fn wnd_load_without_selection_preserves_visible_receiving_menu() {
+    crate::test_support::ensure_ambient_host();
     let mut manager = WindowManager::new();
     manager.configure_replay_menu_owned(crate::gui::shell::replay_menu::ReplayMenuInputs {
         replay_directory: std::path::PathBuf::from("explicit-empty-replay-fixture"),

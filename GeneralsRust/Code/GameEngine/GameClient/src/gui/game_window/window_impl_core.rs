@@ -2084,6 +2084,7 @@ mod send_input_gate_tests {
 
     #[test]
     fn send_input_message_rejects_only_destroyed_like_cpp() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
         let seen = Rc::new(RefCell::new(0u32));
         {
@@ -2123,6 +2124,7 @@ mod mutable_callback_borrow_tests {
 
     #[test]
     fn system_callback_can_replace_itself_and_reenter_the_same_window() {
+        crate::test_support::ensure_ambient_host();
         let mut window = GameWindow::new();
         window.set_user_data(Vec::<u32>::new());
         window.set_system_callback(|window, message, _, _| {
