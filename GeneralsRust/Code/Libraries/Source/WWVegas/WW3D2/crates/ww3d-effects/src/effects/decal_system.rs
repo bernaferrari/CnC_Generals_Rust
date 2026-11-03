@@ -992,19 +992,23 @@ impl DecalMesh for SkinDecalMesh {
 
 /// DecalSystem - main system for managing decals globally
 /// C++ Reference: decalsys.h lines 47-85 (DecalSystemClass)
-pub struct DecalSystem {}
+pub struct DecalSystem {
+    id_counter: AtomicU32,
+}
 
 impl DecalSystem {
     /// Constructor
     /// C++ Reference: decalsys.cpp lines 27-29
     pub fn new() -> Self {
-        Self {}
+        Self {
+            id_counter: AtomicU32::new(0),
+        }
     }
 
-    /// Generate a unique decal ID
+    /// Generate a unique decal ID for this system instance.
     /// C++ Reference: decalsys.cpp lines 101-104 (Generate_Unique_Global_Decal_Id)
-    pub fn generate_decal_id() -> DecalId {
-        DECAL_RUNTIME.id_counter.fetch_add(1, Ordering::Relaxed)
+    pub fn generate_decal_id(&self) -> DecalId {
+        self.id_counter.fetch_add(1, Ordering::Relaxed)
     }
 
     /// Create a new decal generator
@@ -1013,7 +1017,7 @@ impl DecalSystem {
         projector: Projector,
         material: DecalMaterial,
     ) -> DecalGenerator {
-        let id = Self::generate_decal_id();
+        let id = self.generate_decal_id();
         DecalGenerator::new(id, projector, material)
     }
 }
@@ -1024,28 +1028,7 @@ impl Default for DecalSystem {
     }
 }
 
-struct DecalRuntime {
-    id_counter: AtomicU32,
-    decal_system: std::sync::Mutex<DecalSystem>,
-}
-static DECAL_RUNTIME: std::sync::LazyLock<DecalRuntime> = std::sync::LazyLock::new(|| DecalRuntime {
-    id_counter: AtomicU32::new(0),
-    decal_system: std::sync::Mutex::new(DecalSystem::new()),
-});
-
-
-/// Run `f` with mutable access to the global decal system.
-pub fn with_decal_system<R>(f: impl FnOnce(&mut DecalSystem) -> R) -> R {
-    { let mut system = DECAL_RUNTIME.decal_system.lock().unwrap_or_else(|p| p.into_inner()); f(&mut system) }
-}
-
-pub fn init_decal_system() {
-    with_decal_system(|_| {});
-}
-
-pub fn shutdown_decal_system() {
-    // System will be dropped automatically
-}
+/// Host owns [`DecalSystem`] and passes `&mut` — no process LazyLock.
 
 //------------------------------------------------------------------------------
 // MULTI FIXED POOL DECAL SYSTEM
@@ -1223,10 +1206,17 @@ mod tests {
 
     #[test]
     fn test_decal_system_init() {
-        init_decal_system();
-        with_decal_system(|_| {
-            // System should be initialized
-        });
+        let system = DecalSystem::new();
+        let _ = system.generate_decal_id();
+    }
+
+    #[test]
+    fn decal_systems_allocate_independent_ids() {
+        let a = DecalSystem::new();
+        let b = DecalSystem::new();
+        assert_eq!(a.generate_decal_id(), 0);
+        assert_eq!(a.generate_decal_id(), 1);
+        assert_eq!(b.generate_decal_id(), 0);
     }
 
     #[test]

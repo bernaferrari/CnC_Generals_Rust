@@ -17,16 +17,49 @@ use ww3d_renderer_3d::render_object_system::RenderObjClass;
 use ww3d_renderer_3d::rendering::shader_system::shader::ShaderClass;
 use ww3d_renderer_3d::texture_system::TextureClass;
 
-struct ParticleEmitterRuntime {
+/// Host-owned particle emitter session (no process singleton).
+#[derive(Debug)]
+pub struct ParticleEmitterSession {
     emitter_id_counter: AtomicU32,
     particle_debug_disable: AtomicBool,
     default_remove_on_complete: AtomicBool,
 }
-static PARTICLE_EMITTER_RUNTIME: ParticleEmitterRuntime = ParticleEmitterRuntime {
-    emitter_id_counter: AtomicU32::new(0),
-    particle_debug_disable: AtomicBool::new(false),
-    default_remove_on_complete: AtomicBool::new(true),
-};
+
+impl Default for ParticleEmitterSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ParticleEmitterSession {
+    pub fn new() -> Self {
+        Self {
+            emitter_id_counter: AtomicU32::new(0),
+            particle_debug_disable: AtomicBool::new(false),
+            default_remove_on_complete: AtomicBool::new(true),
+        }
+    }
+
+    pub fn next_emitter_id(&self) -> u32 {
+        self.emitter_id_counter.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    pub fn set_particle_debug_disable(&self, disable: bool) {
+        self.particle_debug_disable.store(disable, Ordering::Relaxed);
+    }
+
+    pub fn particle_debug_disable(&self) -> bool {
+        self.particle_debug_disable.load(Ordering::Relaxed)
+    }
+
+    pub fn set_default_remove_on_complete(&self, remove: bool) {
+        self.default_remove_on_complete.store(remove, Ordering::Relaxed);
+    }
+
+    pub fn default_remove_on_complete(&self) -> bool {
+        self.default_remove_on_complete.load(Ordering::Relaxed)
+    }
+}
 
 /// Particle property with keyframes
 #[derive(Debug, Clone)]
@@ -332,7 +365,7 @@ impl ParticleEmitterClass {
         frame_mode: ParticleFrameMode,
         line_props: Option<W3dEmitterLinePropertiesStruct>,
     ) -> Self {
-        let emitter_id = PARTICLE_EMITTER_RUNTIME.emitter_id_counter.fetch_add(1, Ordering::Relaxed) + 1;
+        let emitter_id = 0; // host ParticleEmitterSession::next_emitter_id assigns real ids
 
         let emit_rate_ms = if emit_rate > 0.0 {
             (1000.0 / emit_rate) as u32
@@ -785,24 +818,24 @@ impl ParticleBufferClass {
     }
 }
 
-/// Set debug disable
-pub fn set_particle_debug_disable(disable: bool) {
-    PARTICLE_EMITTER_RUNTIME.particle_debug_disable.store(disable, Ordering::Relaxed);
+/// Set debug disable on an owned session.
+pub fn set_particle_debug_disable(session: &ParticleEmitterSession, disable: bool) {
+    session.set_particle_debug_disable(disable);
 }
 
-/// Get debug disable
-pub fn get_particle_debug_disable() -> bool {
-    PARTICLE_EMITTER_RUNTIME.particle_debug_disable.load(Ordering::Relaxed)
+/// Get debug disable from an owned session.
+pub fn get_particle_debug_disable(session: &ParticleEmitterSession) -> bool {
+    session.particle_debug_disable()
 }
 
-/// Set default remove on complete
-pub fn set_default_remove_on_complete(remove: bool) {
-    PARTICLE_EMITTER_RUNTIME.default_remove_on_complete.store(remove, Ordering::Relaxed);
+/// Set default remove-on-complete on an owned session.
+pub fn set_default_remove_on_complete(session: &ParticleEmitterSession, remove: bool) {
+    session.set_default_remove_on_complete(remove);
 }
 
-/// Get default remove on complete
-pub fn get_default_remove_on_complete() -> bool {
-    PARTICLE_EMITTER_RUNTIME.default_remove_on_complete.load(Ordering::Relaxed)
+/// Get default remove-on-complete from an owned session.
+pub fn get_default_remove_on_complete(session: &ParticleEmitterSession) -> bool {
+    session.default_remove_on_complete()
 }
 
 /// Quick particle emitter creation function
@@ -947,5 +980,22 @@ mod tests {
 
         particle.update(1.5, Vec3::ZERO);
         assert!(!particle.active); // Should be dead
+    }
+}
+
+#[cfg(test)]
+mod ownership_tests {
+    use super::*;
+
+    #[test]
+    fn particle_emitter_sessions_are_independent() {
+        let a = ParticleEmitterSession::new();
+        let b = ParticleEmitterSession::new();
+        a.set_particle_debug_disable(true);
+        assert!(a.particle_debug_disable());
+        assert!(!b.particle_debug_disable());
+        assert_eq!(a.next_emitter_id(), 1);
+        assert_eq!(a.next_emitter_id(), 2);
+        assert_eq!(b.next_emitter_id(), 1);
     }
 }

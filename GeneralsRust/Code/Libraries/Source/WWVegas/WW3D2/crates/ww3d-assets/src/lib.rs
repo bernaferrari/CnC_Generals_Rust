@@ -80,7 +80,7 @@ pub use dazzle::{
     BlendFunc, CullMode as DazzleCullMode, DazzleEntry, DazzleInitClass, DazzleLayerClass,
     DazzleLibrary, DazzleRenderObjClass, DazzleTypeClass, DazzleVertex,
     DepthCompare as DazzleDepthCompare, LensflareInitClass, LensflareTypeClass, Matrix3D, Matrix4,
-    ShaderState, Vector3, Vector4, clear_dazzle_types, get_dazzle_type, get_dazzle_type_names,
+    DazzleRuntime, ShaderState, Vector3, Vector4, clear_dazzle_types, get_dazzle_type, get_dazzle_type_names,
     get_lensflare_type, init_dazzle_system, is_dazzle_rendering_enabled, register_dazzle_type,
     register_lensflare_type, set_dazzle_rendering_enabled,
 };
