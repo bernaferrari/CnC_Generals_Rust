@@ -2169,6 +2169,34 @@ mod tests {
     }
 
     #[test]
+    fn dead_keeps_poison_tint_after_duration_elapses() {
+        // C++ PoisonedBehavior.cpp:110-117 — stopPoisonedEffects only when
+        // duration elapsed AND !isEffectivelyDead(); corpses keep the tint.
+        let mut unit = Object::new(ThingTemplate::new("DeadTint"), ObjectId(34), Team::USA);
+        unit.poisoned_behavior = Some(
+            crate::game_logic::host_poisoned_behavior::HostPoisonedBehaviorData::default(),
+        );
+        unit.poisoned_behavior.as_mut().unwrap().start_poisoned_effects(
+            10,
+            5.0,
+            crate::game_logic::host_usa_pilot::HostDeathType::Poisoned,
+        );
+        let stop = unit
+            .poisoned_behavior
+            .as_ref()
+            .unwrap()
+            .poison_overall_stop_frame;
+        assert!(stop > 10);
+        unit.status.effectively_dead = true;
+        unit.health.current = 0.0;
+        let _ = unit.tick_poisoned_behavior(stop);
+        assert!(
+            unit.is_poison_tinted(),
+            "effectively-dead must keep poison tint after duration"
+        );
+    }
+
+    #[test]
     fn last_damage_skips_zero_and_retains_preferred_source_over_projectile() {
         let mut health_events = crate::game_logic::HostHealthEvents::default();
         let mut unit = vehicle("StampTank", 71, 200.0);
