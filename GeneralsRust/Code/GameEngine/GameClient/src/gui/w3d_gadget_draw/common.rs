@@ -1,21 +1,30 @@
 use super::*;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 /// Shipped gadget/HUD draw ops recorded even when no UIRenderer/GPU is bound.
 /// Tests drive the real W3D callbacks and assert this (or UIRenderer) is > 0.
-static SHIPPED_UI_DRAW_COMMANDS: AtomicUsize = AtomicUsize::new(0);
-
 pub fn shipped_ui_draw_command_count() -> usize {
-    SHIPPED_UI_DRAW_COMMANDS.load(Ordering::Relaxed)
+    crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .shipped_ui_draw_commands()
+            .load(std::sync::atomic::Ordering::Relaxed)
+    })
+    .unwrap_or(0)
 }
 
 pub fn reset_shipped_ui_draw_command_count() {
-    SHIPPED_UI_DRAW_COMMANDS.store(0, Ordering::Relaxed);
+    let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .shipped_ui_draw_commands()
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+    });
 }
 
 pub(super) fn note_shipped_ui_draw_commands(count: usize) {
     if count > 0 {
-        SHIPPED_UI_DRAW_COMMANDS.fetch_add(count, Ordering::Relaxed);
+        let _ = crate::core::game_client::with_live_game_client_mut(|client| {
+            client
+                .shipped_ui_draw_commands()
+                .fetch_add(count, std::sync::atomic::Ordering::Relaxed);
+        });
     }
 }
 

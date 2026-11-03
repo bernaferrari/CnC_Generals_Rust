@@ -274,8 +274,8 @@ pub fn w3d_power_draw(
         return;
     }
     if std::env::var_os("GENERALS_RIGHTHUD_PROBE").is_some() {
-        static ONCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        if !ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        static ONCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        if ONCE.set(()).is_ok() {
             eprintln!(
                 "[RHUDPROBE] w3d_power_draw consumption={consumption} production={production} power_range={power_range} needle={needle} center={} slider={}",
                 center_name, "PowerBarSlider",

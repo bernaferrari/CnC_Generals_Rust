@@ -23,7 +23,7 @@ enum Transition {
 }
 
 #[derive(Debug, Clone)]
-struct MetaMapRec {
+pub(crate) struct MetaMapRec {
     name: String,
     meta: Option<GameMessageType>,
     key: u32,
@@ -46,7 +46,7 @@ pub struct CommandMapEntry {
 }
 
 #[derive(Default)]
-struct MetaMap {
+pub(crate) struct MetaMap {
     records: Vec<MetaMapRec>,
 }
 
