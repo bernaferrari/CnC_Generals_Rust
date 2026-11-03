@@ -53,8 +53,7 @@ const CATEGORIES: [(&str, &str); 8] = [
     ("Development", "DEVELOPMENT"),
 ];
 
-#[derive(Default)]
-struct KeyboardOptionsMenuState {
+pub(crate) struct KeyboardOptionsMenuState {
     parent_id: i32,
     button_back_id: i32,
     combo_category_id: i32,
@@ -79,15 +78,71 @@ struct KeyboardOptionsMenuState {
     absolute: bool,
     pending_key: Option<u32>,
     pending_mod_state: u32,
+    residual_action: u8,
+    residual_category: usize,
+    residual_command: i32,
 }
 
+impl Default for KeyboardOptionsMenuState {
+    fn default() -> Self {
+        Self {
+            parent_id: 0,
+            button_back_id: 0,
+            combo_category_id: 0,
+            list_command_id: 0,
+            text_description_id: 0,
+            text_current_hotkey_id: 0,
+            button_reset_all_id: 0,
+            text_assign_hotkey_id: 0,
+            button_assign_id: 0,
+            parent: None,
+            combo_category: None,
+            list_command: None,
+            text_description: None,
+            text_current_hotkey: None,
+            text_assign_hotkey: None,
+            selected_category_index: 0,
+            selected_command_index: None,
+            visible_commands: Vec::new(),
+            shift_down: false,
+            alt_down: false,
+            ctrl_down: false,
+            absolute: false,
+            pending_key: None,
+            pending_mod_state: 0,
+            residual_action: 0,
+            residual_category: 0,
+            residual_command: -1,
+        }
+    }
+}
+
+#[cfg(test)]
 thread_local! {
-    static KEYBOARD_OPTIONS_MENU_STATE: Arc<Mutex<KeyboardOptionsMenuState>> =
+    static TEST_KEYBOARD_OPTIONS: Arc<Mutex<KeyboardOptionsMenuState>> =
         Arc::new(Mutex::new(KeyboardOptionsMenuState::default()));
 }
 
-fn keyboard_options_menu_state() -> Arc<Mutex<KeyboardOptionsMenuState>> {
-    KEYBOARD_OPTIONS_MENU_STATE.with(|state| state.clone())
+fn keyboard_options_menu_state(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Arc<Mutex<KeyboardOptionsMenuState>> {
+    if let Some(owner) = owner {
+        return owner.keyboard_options_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().keyboard_options_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_KEYBOARD_OPTIONS.with(|state| state.clone());
+    }
+    #[cfg(not(test))]
+    {
+        // No live client: ephemeral handle (residuals will not persist).
+        Arc::new(Mutex::new(KeyboardOptionsMenuState::default()))
+    }
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -328,7 +383,7 @@ fn keyboard_text_entry_input(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let state_handle = keyboard_options_menu_state();
+    let state_handle = keyboard_options_menu_state(effects.window_manager_owner);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
@@ -434,7 +489,7 @@ pub fn keyboard_options_menu_init(
     _user_data: Option<&dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_handle = keyboard_options_menu_state();
+    let state_handle = keyboard_options_menu_state(effects.window_manager_owner);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id("KeyboardOptionsMenu.wnd:ParentKeyboardOptionsMenu");
@@ -483,7 +538,7 @@ pub fn keyboard_options_menu_shutdown(
     _user_data: Option<&dyn std::any::Any>,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_handle = keyboard_options_menu_state();
+    let state_handle = keyboard_options_menu_state(effects.window_manager_owner);
     if let Ok(mut state) = state_handle.lock() {
         reset_assign_capture(&mut state);
         state.selected_command_index = None;
@@ -504,7 +559,7 @@ pub fn keyboard_options_menu_input(
     }
 
     if (data2 & KEY_STATE_UP as WindowMsgData) != 0 {
-        let state_handle = keyboard_options_menu_state();
+        let state_handle = keyboard_options_menu_state(effects.window_manager_owner);
         let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(parent) = state.parent.as_ref() {
             let _ = parent.borrow_mut().send_system_message(
@@ -559,7 +614,7 @@ pub fn keyboard_options_menu_system(
     data2: WindowMsgData,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let state_handle = keyboard_options_menu_state();
+    let state_handle = keyboard_options_menu_state(effects.window_manager_owner);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
@@ -651,18 +706,15 @@ pub enum ResidualKeyboardOptionsAction {
     Back = 5,
 }
 
-static RESIDUAL_KB_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_KB_CATEGORY: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-static RESIDUAL_KB_COMMAND: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
-
-fn residual_kb_action_store(action: ResidualKeyboardOptionsAction) {
-    RESIDUAL_KB_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+fn residual_kb_action_store(state: &mut KeyboardOptionsMenuState, action: ResidualKeyboardOptionsAction) {
+    state.residual_action = action as u8;
 }
 
 /// Residual: last KeyboardOptions residual action.
 pub fn residual_keyboard_options_last_action() -> ResidualKeyboardOptionsAction {
-    match RESIDUAL_KB_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+    let state = keyboard_options_menu_state(None);
+    let state = state.lock().unwrap_or_else(|e| e.into_inner());
+    match state.residual_action {
         1 => ResidualKeyboardOptionsAction::SelectCategory,
         2 => ResidualKeyboardOptionsAction::SelectCommand,
         3 => ResidualKeyboardOptionsAction::Assign,
@@ -674,12 +726,14 @@ pub fn residual_keyboard_options_last_action() -> ResidualKeyboardOptionsAction 
 
 /// Residual: last selected category index.
 pub fn residual_keyboard_options_category_index() -> usize {
-    RESIDUAL_KB_CATEGORY.load(std::sync::atomic::Ordering::Relaxed)
+    let state = keyboard_options_menu_state(None);
+    state.lock().unwrap_or_else(|e| e.into_inner()).residual_category
 }
 
 /// Residual: last selected command index (-1 if none).
 pub fn residual_keyboard_options_command_index() -> Option<usize> {
-    let idx = RESIDUAL_KB_COMMAND.load(std::sync::atomic::Ordering::Relaxed);
+    let state = keyboard_options_menu_state(None);
+    let idx = state.lock().unwrap_or_else(|e| e.into_inner()).residual_command;
     if idx < 0 { None } else { Some(idx as usize) }
 }
 
@@ -716,7 +770,7 @@ fn ensure_keyboard_options_control_ids(state: &mut KeyboardOptionsMenuState) {
 
 /// Residual: bind KeyboardOptionsMenu control IDs (no layout load required).
 pub fn simulate_keyboard_options_bind_controls() -> bool {
-    let state_handle = keyboard_options_menu_state();
+    let state_handle = keyboard_options_menu_state(None);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     ensure_keyboard_options_control_ids(&mut state);
     let _ = (
@@ -732,32 +786,32 @@ pub fn simulate_keyboard_options_bind_controls() -> bool {
 
 /// Residual: select category without live combo widget.
 pub fn simulate_keyboard_options_select_category(category_index: usize) -> bool {
-    let state_handle = keyboard_options_menu_state();
+    let state_handle = keyboard_options_menu_state(None);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     ensure_keyboard_options_control_ids(&mut state);
     state.selected_category_index = category_index;
     // Clear command selection when category changes (C++ populate_command_list path).
     state.selected_command_index = None;
-    RESIDUAL_KB_CATEGORY.store(category_index, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_KB_COMMAND.store(-1, std::sync::atomic::Ordering::Relaxed);
-    residual_kb_action_store(ResidualKeyboardOptionsAction::SelectCategory);
+    state.residual_category = category_index;
+    state.residual_command = -1;
+    residual_kb_action_store(&mut state, ResidualKeyboardOptionsAction::SelectCategory);
     residual_keyboard_options_category_index() == category_index
 }
 
 /// Residual: select command list row without live listbox widget.
 pub fn simulate_keyboard_options_select_command(command_index: usize) -> bool {
-    let state_handle = keyboard_options_menu_state();
+    let state_handle = keyboard_options_menu_state(None);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     ensure_keyboard_options_control_ids(&mut state);
     state.selected_command_index = Some(command_index);
-    RESIDUAL_KB_COMMAND.store(command_index as i32, std::sync::atomic::Ordering::Relaxed);
-    residual_kb_action_store(ResidualKeyboardOptionsAction::SelectCommand);
+    state.residual_command = command_index as i32;
+    residual_kb_action_store(&mut state, ResidualKeyboardOptionsAction::SelectCommand);
     residual_keyboard_options_command_index() == Some(command_index)
 }
 
 /// Residual: fire ButtonAssign without mutating the real command map.
 pub fn simulate_keyboard_options_assign_button_gadget_selected() -> bool {
-    let state_handle = keyboard_options_menu_state();
+    let state_handle = keyboard_options_menu_state(None);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     ensure_keyboard_options_control_ids(&mut state);
     if residual_keyboard_options_command_index().is_none() && state.selected_command_index.is_none()
@@ -765,29 +819,29 @@ pub fn simulate_keyboard_options_assign_button_gadget_selected() -> bool {
         // C++ ignores Assign with no selection.
         return false;
     }
-    residual_kb_action_store(ResidualKeyboardOptionsAction::Assign);
+    residual_kb_action_store(&mut state, ResidualKeyboardOptionsAction::Assign);
     true
 }
 
 /// Residual: fire ButtonResetAll without rewriting command map entries.
 pub fn simulate_keyboard_options_reset_all_button_gadget_selected() -> bool {
-    let state_handle = keyboard_options_menu_state();
+    let state_handle = keyboard_options_menu_state(None);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     ensure_keyboard_options_control_ids(&mut state);
     state.selected_category_index = 0;
     state.selected_command_index = None;
-    RESIDUAL_KB_CATEGORY.store(0, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_KB_COMMAND.store(-1, std::sync::atomic::Ordering::Relaxed);
-    residual_kb_action_store(ResidualKeyboardOptionsAction::ResetAll);
+    state.residual_category = 0;
+    state.residual_command = -1;
+    residual_kb_action_store(&mut state, ResidualKeyboardOptionsAction::ResetAll);
     true
 }
 
 /// Residual: fire ButtonBack (shell pop residual latch).
 pub fn simulate_keyboard_options_back_button_gadget_selected() -> bool {
-    let state_handle = keyboard_options_menu_state();
+    let state_handle = keyboard_options_menu_state(None);
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     ensure_keyboard_options_control_ids(&mut state);
-    residual_kb_action_store(ResidualKeyboardOptionsAction::Back);
+    residual_kb_action_store(&mut state, ResidualKeyboardOptionsAction::Back);
     true
 }
 

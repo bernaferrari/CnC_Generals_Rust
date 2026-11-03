@@ -52,6 +52,10 @@ struct WindowManagerOwnerState {
     widget_tree_navigation_observed: Cell<bool>,
     /// LAN / Skirmish shell transition flags (C++ file-statics on those menus).
     menu_shell_flags: super::menu_shell_flags::MenuShellFlags,
+    /// Keyboard options menu + residual peels (was process TLS/atomics).
+    keyboard_options: std::sync::Arc<
+        std::sync::Mutex<crate::gui::callbacks::keyboard_options_menu::KeyboardOptionsMenuState>,
+    >,
     /// Offline network stub queues / facade (not(feature = "network")).
     #[cfg(not(feature = "network"))]
     network_compat: crate::game_network_compat::NetworkCompatState,
@@ -118,6 +122,9 @@ impl WindowManagerOwner {
                 last_widget_tree_click_used: Cell::new(false),
                 widget_tree_navigation_observed: Cell::new(false),
                 menu_shell_flags: super::menu_shell_flags::MenuShellFlags::new(),
+                keyboard_options: std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::gui::callbacks::keyboard_options_menu::KeyboardOptionsMenuState::default(),
+                )),
                 #[cfg(not(feature = "network"))]
                 network_compat: crate::game_network_compat::NetworkCompatState::new(),
             }),
@@ -134,6 +141,14 @@ impl WindowManagerOwner {
     /// LAN/Skirmish shell transition flags for this client.
     pub fn menu_shell_flags(&self) -> &super::menu_shell_flags::MenuShellFlags {
         &self.state.menu_shell_flags
+    }
+
+    pub(crate) fn keyboard_options_handle(
+        &self,
+    ) -> std::sync::Arc<
+        std::sync::Mutex<crate::gui::callbacks::keyboard_options_menu::KeyboardOptionsMenuState>,
+    > {
+        self.state.keyboard_options.clone()
     }
 
     /// Offline network stub state for this client (`not(feature = "network")`).
