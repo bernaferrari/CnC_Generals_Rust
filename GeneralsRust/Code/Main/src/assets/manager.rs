@@ -2432,14 +2432,6 @@ impl AssetSearchResults {
 }
 
 /// Global asset manager instance
-// THREAD: process-wide asset owner; handed out as `Arc<Mutex<_>>` to the
-// render, audio and GUI callers that each hold it for one call.
-struct AssetManagerSlot(OnceLock<Arc<Mutex<AssetManager>>>);
-impl std::ops::Deref for AssetManagerSlot {
-    type Target = OnceLock<Arc<Mutex<AssetManager>>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static ASSET_MANAGER: AssetManagerSlot = AssetManagerSlot(OnceLock::new());
 
 /// Initialize the global asset manager
 pub async fn init_asset_manager(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
@@ -2477,9 +2469,17 @@ pub(crate) async fn init_asset_manager_with_sources<T>(
     let sources = capture(&mut manager)?;
 
     let application_assets = Arc::new(Mutex::new(manager));
-    ASSET_MANAGER
-        .set(Arc::clone(&application_assets))
-        .map_err(|_| anyhow!("Asset manager already initialized"))?;
+    {
+        let services = crate::main_services::main_services();
+        let mut slot = services
+            .asset_manager
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if slot.is_some() {
+            return Err(anyhow!("Asset manager already initialized"));
+        }
+        *slot = Some(Arc::clone(&application_assets));
+    }
 
     begin_background_music_startup(Arc::clone(&application_assets));
 
@@ -2502,7 +2502,11 @@ fn begin_background_music_startup(manager_arc: Arc<Mutex<AssetManager>>) {
 
 /// Get reference to global asset manager
 pub fn get_asset_manager() -> Option<Arc<Mutex<AssetManager>>> {
-    ASSET_MANAGER.get().cloned()
+    crate::main_services::main_services()
+        .asset_manager
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
 
 /// Resolve the source-authored W3D model key for a frozen presentation object.

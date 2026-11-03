@@ -53,6 +53,7 @@ pub mod resource;
 pub mod ui;
 pub mod util;
 pub mod win_main;
+pub mod main_services;
 // pub mod ui_demo; // Temporarily disabled due to import issues
 pub mod ai;
 pub mod ai_decisions;
