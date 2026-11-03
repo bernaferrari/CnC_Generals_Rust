@@ -92,7 +92,7 @@ fn parsed_slow_death_owner() -> (GameLogic, ObjectId, u32) {
             .begin_slow_death_from_ini(
                 frame,
                 &ini,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
             )
     );
     world.mark_object_for_destruction(id, Some(Team::GLA));
@@ -591,14 +591,14 @@ End
             object.begin_structure_topple(
                 0,
                 None,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
             ),
             topple
         );
         assert_eq!(
             object.begin_structure_collapse(
                 0,
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
             ),
             collapse
         );

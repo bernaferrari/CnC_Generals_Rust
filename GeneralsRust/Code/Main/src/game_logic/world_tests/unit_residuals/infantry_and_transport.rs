@@ -1495,7 +1495,7 @@ fn structure_topple_crush_sweep_kills_nearby_infantry() {
         assert!(b.begin_structure_topple(
             0,
             Some((-10.0, 0.0)),
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ));
         if let Some(st) = b.structure_topple_data.as_mut() {
             st.state = HostStructureToppleState::Toppling;
@@ -1571,7 +1571,7 @@ fn structure_topple_height_from_geometry_not_maxhp() {
         assert!(b.begin_structure_topple(
             0,
             Some((-10.0, 0.0)),
-            &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
         ));
         let st = b.structure_topple_data.as_ref().unwrap();
         assert!(
@@ -2299,7 +2299,7 @@ fn slow_death_defers_infantry_destruction() {
             o.begin_slow_death_from_ini(
                 logic.frame,
                 &HostSlowDeathIni::infantry_retail(),
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new())
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new())
             ),
             "SlowDeathBehavior residual must start from authored INI"
         );

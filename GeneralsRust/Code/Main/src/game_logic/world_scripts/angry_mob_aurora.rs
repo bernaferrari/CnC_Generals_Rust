@@ -2723,7 +2723,7 @@ mod spawn_behavior_parity {
             n.set_destination(
                 glam::Vec3::new(80.0, 0.0, 0.0),
                 &mut logic.movement_events.writer(logic.frame),
-                &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
             );
         }
         assert_eq!(

@@ -503,7 +503,7 @@ fn do_weapon_uses_the_real_tertiary_slot_without_secondary_aliasing() {
         logic.frame,
         &mut logic.combat_system,
         &mut logic.attack_events,
-        &mut crate::game_logic::ObjectAudio::queue(&mut Vec::new()),
+        &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
     ));
     assert_eq!(unit.last_fire_slot, 2);
     assert!((unit.last_fire_damage - 73.0).abs() < f32::EPSILON);
