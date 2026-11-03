@@ -750,6 +750,10 @@ impl GameLogic {
     /// Leftover `OBJECT_REGISTRY` is empty on the live path. Script actions
     /// queue named SW / priority-build requests for host AIPlayer.
     pub fn apply_host_skirmish_script_requests(&mut self) {
+        self.with_own_services_mut(|this| this.apply_host_skirmish_script_requests_bound())
+    }
+
+    fn apply_host_skirmish_script_requests_bound(&mut self) {
         let fires = gamelogic::scripting::take_host_skirmish_fire_special_requests();
         let builds = gamelogic::scripting::take_host_skirmish_build_requests();
         let supply_centers =

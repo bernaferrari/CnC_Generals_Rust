@@ -312,11 +312,11 @@ impl GameLogic {
         }
     }
 
-    pub(crate) fn try_claim_dock(
-        &mut self,
-        dock_id: ObjectId,
-        docker_id: ObjectId,
-    ) -> gamelogic::GameLogicResult<bool> {
+    pub(crate) fn try_claim_dock(&mut self, dock_id: ObjectId, docker_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
+        self.with_own_services_mut(|this| this.try_claim_dock_bound(dock_id, docker_id))
+    }
+
+    fn try_claim_dock_bound(&mut self, dock_id: ObjectId, docker_id: ObjectId) -> gamelogic::GameLogicResult<bool> {
         self.reconcile_host_dock_cancellations_for_dock(dock_id);
         let (
             current,
@@ -696,6 +696,10 @@ impl GameLogic {
 
     /// Pristine `DockWaiting01..NN` in host world space.
     fn load_dock_waiting_bones_world(&self, dock_id: ObjectId, max: usize) -> Vec<glam::Vec3> {
+        self.with_own_services(|| self.load_dock_waiting_bones_world_bound(dock_id, max))
+    }
+
+    fn load_dock_waiting_bones_world_bound(&self, dock_id: ObjectId, max: usize) -> Vec<glam::Vec3> {
         let Some(dock) = self.objects.get(&dock_id) else {
             return Vec::new();
         };
