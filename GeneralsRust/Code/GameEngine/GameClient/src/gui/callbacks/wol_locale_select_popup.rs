@@ -18,7 +18,7 @@ use game_network::gamespy::persistent_storage_thread::{
 };
 
 #[derive(Default)]
-struct WolLocaleSelectState {
+pub(crate) struct WolLocaleSelectState {
     parent_id: i32,
     button_ok_id: i32,
     listbox_locale_id: i32,
@@ -27,12 +27,38 @@ struct WolLocaleSelectState {
     listbox_locale: Option<Rc<RefCell<GameWindow>>>,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_LOCALE_SELECT_STATE: Rc<RefCell<WolLocaleSelectState>> = Rc::new(RefCell::new(WolLocaleSelectState::default()));
+    static TEST_WOL_LOCALE_SELECT_STATE: std::cell::OnceCell<Rc<RefCell<WolLocaleSelectState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn wol_locale_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolLocaleSelectState>> {
+    if let Some(owner) = owner {
+        return owner.wol_locale_select_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_locale_select_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_LOCALE_SELECT_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolLocaleSelectState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolLocaleSelectState::default()))
+    }
 }
 
 fn wol_locale_state() -> Rc<RefCell<WolLocaleSelectState>> {
-    WOL_LOCALE_SELECT_STATE.with(Rc::clone)
+    wol_locale_state_on_owner(None)
 }
 
 pub fn wol_locale_select_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {

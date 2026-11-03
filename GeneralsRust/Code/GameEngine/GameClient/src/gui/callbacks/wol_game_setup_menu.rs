@@ -66,7 +66,7 @@ fn slot_state_from_int(value: i32) -> SlotState {
 }
 
 #[derive(Default)]
-struct WolGameSetupState {
+pub(crate) struct WolGameSetupState {
     parent_id: i32,
     button_back_id: i32,
     button_start_id: i32,
@@ -117,12 +117,38 @@ struct WolGameSetupState {
     slotlist_updates_enabled: bool,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_GAME_SETUP_STATE: Rc<RefCell<WolGameSetupState>> = Rc::new(RefCell::new(WolGameSetupState::default()));
+    static TEST_WOL_GAME_SETUP_STATE: std::cell::OnceCell<Rc<RefCell<WolGameSetupState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn game_setup_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolGameSetupState>> {
+    if let Some(owner) = owner {
+        return owner.wol_game_setup_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_game_setup_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_GAME_SETUP_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolGameSetupState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolGameSetupState::default()))
+    }
 }
 
 fn game_setup_state() -> Rc<RefCell<WolGameSetupState>> {
-    WOL_GAME_SETUP_STATE.with(Rc::clone)
+    game_setup_state_on_owner(None)
 }
 
 fn name_to_id(name: &str) -> i32 {

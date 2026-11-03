@@ -133,6 +133,24 @@ struct WindowManagerOwnerState {
     /// WolCustomScoreState (was process TLS).
     #[cfg(feature = "online_ui")]
     wol_custom_score_state: Rc<RefCell<crate::gui::callbacks::wol_custom_score_screen::WolCustomScoreState>>,
+    /// WolLocaleSelectState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_locale_select_state: Rc<RefCell<crate::gui::callbacks::wol_locale_select_popup::WolLocaleSelectState>>,
+    /// WolMapSelectState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_map_select_state: Rc<RefCell<crate::gui::callbacks::wol_map_select_menu::WolMapSelectState>>,
+    /// WolLobbyState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_lobby_menu_state: Rc<RefCell<crate::gui::callbacks::wol_lobby_menu::WolLobbyState>>,
+    /// WolGameSetupState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_game_setup_state: Rc<RefCell<crate::gui::callbacks::wol_game_setup_menu::WolGameSetupState>>,
+    /// WolQuickMatchState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_quick_match_state: Rc<RefCell<crate::gui::callbacks::wol_quick_match_menu::WolQuickMatchState>>,
+    /// NetworkDirectConnectState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    network_direct_connect_state: Rc<RefCell<crate::gui::callbacks::network_direct_connect::NetworkDirectConnectState>>,
 }
 
 /// Persistent owner for one native client's WND tree and its re-entry queues.
@@ -276,6 +294,30 @@ impl WindowManagerOwner {
                 wol_custom_score_state: Rc::new(RefCell::new(
                     crate::gui::callbacks::wol_custom_score_screen::WolCustomScoreState::default(),
                 )),
+                #[cfg(feature = "online_ui")]
+                wol_locale_select_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_locale_select_popup::WolLocaleSelectState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_map_select_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_map_select_menu::WolMapSelectState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_lobby_menu_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_lobby_menu::WolLobbyState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_game_setup_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_game_setup_menu::WolGameSetupState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_quick_match_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_quick_match_menu::WolQuickMatchState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                network_direct_connect_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::network_direct_connect::NetworkDirectConnectState::default(),
+                )),
             }),
         }
     }
@@ -372,6 +414,48 @@ impl WindowManagerOwner {
         &self,
     ) -> Rc<RefCell<crate::gui::callbacks::wol_custom_score_screen::WolCustomScoreState>> {
         Rc::clone(&self.state.wol_custom_score_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_locale_select_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_locale_select_popup::WolLocaleSelectState>> {
+        Rc::clone(&self.state.wol_locale_select_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_map_select_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_map_select_menu::WolMapSelectState>> {
+        Rc::clone(&self.state.wol_map_select_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_lobby_menu_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_lobby_menu::WolLobbyState>> {
+        Rc::clone(&self.state.wol_lobby_menu_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_game_setup_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_game_setup_menu::WolGameSetupState>> {
+        Rc::clone(&self.state.wol_game_setup_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_quick_match_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_quick_match_menu::WolQuickMatchState>> {
+        Rc::clone(&self.state.wol_quick_match_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn network_direct_connect_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::network_direct_connect::NetworkDirectConnectState>> {
+        Rc::clone(&self.state.network_direct_connect_state)
     }
 
     pub(crate) fn keyboard_options_handle(
