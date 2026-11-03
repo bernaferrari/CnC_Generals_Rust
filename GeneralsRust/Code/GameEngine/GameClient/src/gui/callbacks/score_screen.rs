@@ -211,7 +211,7 @@ fn score_screen_local_slot_template_index(manager: Option<&CampaignManager>) -> 
         game.get_slot(slot_num as usize)
             .map(|slot| slot.get_player_template())
     };
-    if let Some(index) = from_info(get_skirmish_setup().game_info().game_info()) {
+    if let Some(index) = from_info(get_skirmish_setup().lock().unwrap_or_else(|e| e.into_inner()).game_info().game_info()) {
         return index;
     }
     manager
@@ -1742,7 +1742,10 @@ fn update_skirmish_battle_honors<S: SkirmishScoreMetrics>(
         }
     }
 
-    let setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+
+
+    let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let game = setup.game_info().game_info();
     let mut num_easy = 0;
     let mut num_medium = 0;
@@ -1786,7 +1789,9 @@ fn update_skirmish_battle_honors<S: SkirmishScoreMetrics>(
 }
 
 fn update_challenge_medals(medals: &mut i32) {
-    let setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+
+    let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let game = setup.game_info().game_info();
     if !game.is_skirmish() {
         return;
@@ -2124,7 +2129,9 @@ fn populate_player_info(
     }
 
     if state.screen_type == ScoreScreenType::Skirmish && player.is_local_player() {
-        let setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         let sandbox = setup.game_info().game_info().is_sandbox();
         let victory = TheVictoryConditions::is_local_allied_victory();
         let defeat = is_local_allied_defeat_like_cpp(player);

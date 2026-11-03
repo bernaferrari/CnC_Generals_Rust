@@ -453,7 +453,9 @@ impl CnCGameEngine {
         }
         #[cfg(feature = "game_client")]
         {
-            let setup = game_client::gui::get_skirmish_setup();
+            let setup_handle = game_client::gui::get_skirmish_setup();
+
+            let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             let selected = setup.selected_map().trim().to_string();
             if !Self::map_name_is_shell_residual(&selected) {
                 return selected;

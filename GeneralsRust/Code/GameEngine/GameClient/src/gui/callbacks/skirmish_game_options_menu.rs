@@ -298,7 +298,9 @@ fn update_map_start_spots(
         return;
     };
     let max_players = meta.num_players.max(0);
-    let setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+
+    let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let info = setup.game_info().game_info();
     for i in 0..MAX_SLOTS {
         let Some(slot) = info.get_slot(i) else {
@@ -368,7 +370,9 @@ fn update_map_preview(
 }
 
 fn ensure_default_slots() {
-    let mut setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+
+    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let info = setup.game_info_mut().game_info_mut();
     let has_human = info
         .get_slot(0)
@@ -584,7 +588,9 @@ fn update_slot_selection(
     index: usize,
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) {
-    let setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+
+    let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let Some(slot) = setup.game_info().game_info().get_slot(index) else {
         return;
     };
@@ -656,7 +662,9 @@ fn populate_global_controls(
                     format!("${}", amount),
                 ));
             }
-            let setup = get_skirmish_setup();
+            let setup_handle = get_skirmish_setup();
+
+            let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             let selected = setup
                 .game_info()
                 .game_info()
@@ -674,7 +682,9 @@ fn populate_global_controls(
     {
         let mut guard = window.borrow_mut();
         let enabled = {
-            let setup = get_skirmish_setup();
+            let setup_handle = get_skirmish_setup();
+
+            let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup.game_info().game_info().get_superweapon_restriction() != 0
         };
         effects.with_receiving_manager(receiving_manager, |effects| {
@@ -686,7 +696,9 @@ fn populate_global_controls(
 fn sync_map_metadata(map_name: &str) {
     let cache = get_map_cache_manager();
     let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
-    let mut setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+
+    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let info = setup.game_info_mut().game_info_mut();
     if let Some(meta) = cache_guard.find_map(map_name) {
         info.set_map_crc(meta.crc);
@@ -700,7 +712,9 @@ fn sync_map_metadata(map_name: &str) {
 fn sync_map_to_game_info(state: &SkirmishGameOptionsState) {
     if let Some(map) = state.selected_map.as_ref() {
         {
-            let mut setup = get_skirmish_setup();
+            let setup_handle = get_skirmish_setup();
+
+            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             let info = setup.game_info_mut().game_info_mut();
             info.set_map(map.clone());
             info.reset_start_spots();
@@ -776,7 +790,9 @@ pub(crate) fn refresh_skirmish_game_options_from_setup(
 ) {
     with_state(|state| {
         let (selected_map, game_info_map) = {
-            let setup = get_skirmish_setup();
+            let setup_handle = get_skirmish_setup();
+
+            let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             (
                 setup.selected_map().to_string(),
                 setup.game_info().game_info().get_map().to_string(),
@@ -860,7 +876,9 @@ fn update_skirmish_game_options(
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
     let map_name = state.selected_map.clone().unwrap_or_else(|| {
-        let setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         setup.game_info().game_info().get_map().to_string()
     });
     let cache = get_map_cache_manager();
@@ -901,7 +919,11 @@ fn update_skirmish_game_options(
         set_per_player_visible("ComboBoxColor", false, receiving_manager);
         set_per_player_visible("ComboBoxPlayerTemplate", false, receiving_manager);
 
-        let mut setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup();
+
+
+
+        let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         let info = setup.game_info_mut().game_info_mut();
         for i in 1..MAX_SLOTS {
             if let Some(slot) = info.get_slot_mut(i) {
@@ -924,7 +946,9 @@ fn skirmish_update_slot_list(
     }
 
     if let Some(text_entry) = state.text_entry_player_name.as_ref() {
-        let setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(slot) = setup.game_info().game_info().get_slot(0) {
             let mut guard = text_entry.borrow_mut();
             if let Some(entry) = guard.text_entry_mut() {
@@ -933,7 +957,10 @@ fn skirmish_update_slot_list(
         }
     }
 
-    let setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+
+
+    let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let info = setup.game_info().game_info();
     let map_name = info.get_map().to_string();
     let cache = get_map_cache_manager();
@@ -974,7 +1001,9 @@ fn handle_combo_selection(
                 return true;
             }
             if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
-                let mut setup = get_skirmish_setup();
+                let setup_handle = get_skirmish_setup();
+
+                let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(slot) = setup.game_info_mut().game_info_mut().get_slot_mut(index) {
                     let state_value = match selected {
                         x if x == SlotState::Open as u32 => SlotState::Open,
@@ -998,7 +1027,9 @@ fn handle_combo_selection(
         }
         if control_id == state.combo_box_color_ids[index] {
             if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
-                let mut setup = get_skirmish_setup();
+                let setup_handle = get_skirmish_setup();
+
+                let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 let color = if selected == u32::MAX {
                     -1
                 } else {
@@ -1021,7 +1052,9 @@ fn handle_combo_selection(
         }
         if control_id == state.combo_box_template_ids[index] {
             if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
-                let mut setup = get_skirmish_setup();
+                let setup_handle = get_skirmish_setup();
+
+                let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(slot) = setup.game_info_mut().game_info_mut().get_slot_mut(index) {
                     let template = if selected == u32::MAX {
                         -1
@@ -1035,7 +1068,9 @@ fn handle_combo_selection(
         }
         if control_id == state.combo_box_team_ids[index] {
             if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
-                let mut setup = get_skirmish_setup();
+                let setup_handle = get_skirmish_setup();
+
+                let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(slot) = setup.game_info_mut().game_info_mut().get_slot_mut(index) {
                     let team = if selected == 0 {
                         -1
@@ -1051,7 +1086,9 @@ fn handle_combo_selection(
 
     if control_id == state.combo_box_starting_cash_id {
         if let Some(selected) = combo_selected_id(control_id, receiving_manager) {
-            let mut setup = get_skirmish_setup();
+            let setup_handle = get_skirmish_setup();
+
+            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup
                 .game_info_mut()
                 .game_info_mut()
@@ -1061,7 +1098,9 @@ fn handle_combo_selection(
     }
     if control_id == state.checkbox_limit_superweapons_id {
         if let Some(checked) = checkbox_is_checked(control_id, receiving_manager) {
-            let mut setup = get_skirmish_setup();
+            let setup_handle = get_skirmish_setup();
+
+            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup
                 .game_info_mut()
                 .game_info_mut()
@@ -1107,7 +1146,9 @@ fn set_start_position(info: &mut game_network::GameInfo, index: usize, position:
 fn handle_start_position_click(state: &mut SkirmishGameOptionsState, control_id: i32) -> bool {
     for (index, button_id) in state.start_position_ids.iter().enumerate() {
         if control_id == *button_id {
-            let mut setup = get_skirmish_setup();
+            let setup_handle = get_skirmish_setup();
+
+            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             let info = setup.game_info_mut().game_info_mut();
             let mut player_in_pos: Option<usize> = None;
             for slot_index in 0..MAX_SLOTS {
@@ -1157,7 +1198,9 @@ fn handle_start_position_right_click(
 ) -> bool {
     for (index, button_id) in state.start_position_ids.iter().enumerate() {
         if control_id == *button_id {
-            let mut setup = get_skirmish_setup();
+            let setup_handle = get_skirmish_setup();
+
+            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             let info = setup.game_info_mut().game_info_mut();
             let mut player_in_pos: Option<usize> = None;
             for slot_index in 0..MAX_SLOTS {
@@ -1204,7 +1247,9 @@ fn choose_default_map(state: &mut SkirmishGameOptionsState) {
     candidates.sort_by(|a, b| a.0.cmp(&b.0));
     if let Some((name, _)) = candidates.first() {
         state.selected_map = Some(name.clone());
-        let mut setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup();
+
+        let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         setup.set_selected_map(name.clone());
     }
 }
@@ -1219,7 +1264,9 @@ fn apply_skirmish_preferences(state: &mut SkirmishGameOptionsState) {
     let preferred_color = prefs.get_preferred_color();
     let preferred_faction = prefs.get_preferred_faction();
     {
-        let mut setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup();
+
+        let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         {
             let info = setup.game_info_mut().game_info_mut();
 
@@ -1278,7 +1325,9 @@ fn write_skirmish_preferences(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
 ) {
     let mut prefs = SkirmishPreferences::new();
-    let setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+
+    let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let info = setup.game_info().game_info();
 
     if let Some(slot) = info.get_slot(0) {
@@ -1427,7 +1476,9 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut Windo
     // Wave 837/840: prefer options/map-select residual over a stale shell/default map.
     // ShellMapMD must never beat a non-shell control/setup selection.
     let mut map_name = {
-        let mut setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup();
+
+        let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         let is_shellish = |m: &str| {
             let t = m.trim();
             if t.is_empty() {
@@ -1465,7 +1516,9 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut Windo
     };
     if map_name.is_empty() {
         choose_default_map(state);
-        let setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         map_name = setup.selected_map().to_string();
         if map_name.is_empty() {
             map_name = setup.game_info().game_info().get_map().to_string();
@@ -1510,7 +1563,9 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut Windo
     };
 
     let player_count = {
-        let setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         setup.game_info().game_info().get_num_players()
     };
     if player_count > meta.num_players.max(0) as usize {
@@ -1564,7 +1619,9 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut Windo
     }
 
     {
-        let mut setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup();
+
+        let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         setup.game_info_mut().game_info_mut().start_game(0);
     }
     // The retained seed travels with this exact NewGame. Native admission runs
@@ -1574,7 +1631,9 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState, effects: &mut Windo
     });
 
     let (local_slot, old_factions_only) = {
-        let setup = get_skirmish_setup();
+        let setup_handle = get_skirmish_setup();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         let info = setup.game_info().game_info();
         (info.get_local_slot_num(), info.old_factions_only())
     };
@@ -1720,7 +1779,7 @@ pub fn skirmish_game_options_menu_init(
         // slot 0's name. The Rust skirmish_update_slot_list gate skips its copy
         // while initing, so without this the authored WND literal "Entry" stays.
         if let Some(text_entry) = state.text_entry_player_name.as_ref() {
-            let slot_name = get_skirmish_setup()
+            let slot_name = get_skirmish_setup().lock().unwrap_or_else(|e| e.into_inner())
                 .game_info()
                 .game_info()
                 .get_slot(0)
@@ -1849,7 +1908,9 @@ pub fn skirmish_game_options_menu_update(
         }
 
         let setup_map = {
-            let setup = get_skirmish_setup();
+            let setup_handle = get_skirmish_setup();
+
+            let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup.selected_map().to_string()
         };
         if !setup_map.is_empty() && state.selected_map.as_deref() != Some(setup_map.as_str()) {
@@ -1917,7 +1978,9 @@ pub fn set_skirmish_menu_selected_map(map: impl Into<String>) {
     with_state(|state| {
         state.selected_map = Some(map.clone());
     });
-    let mut setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+
+    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     setup.set_selected_map(map.clone());
     setup.game_info_mut().game_info_mut().set_map(map);
     drop(setup);
@@ -2064,7 +2127,9 @@ pub fn simulate_skirmish_configure_slot_ai(
         return false;
     }
     ensure_default_slots();
-    let mut setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+
+    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let info = setup.game_info_mut().game_info_mut();
     let Some(slot) = info.get_slot_mut(slot_index) else {
         return false;
@@ -2088,7 +2153,9 @@ pub fn simulate_skirmish_configure_slot_ai(
 /// Residual: C++ init default — human slot 0 + Medium AI slot 1.
 pub fn simulate_skirmish_default_human_and_medium_ai() -> bool {
     ensure_default_slots();
-    let mut setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+
+    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let info = setup.game_info_mut().game_info_mut();
     // Slot 0 human residual.
     if let Some(slot) = info.get_slot_mut(0) {
@@ -2140,7 +2207,9 @@ pub fn simulate_skirmish_set_starting_cash(amount: u32) -> bool {
     if !SKIRMISH_STARTING_CASH_AMOUNTS.contains(&amount) {
         return false;
     }
-    let mut setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+
+    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     setup
         .game_info_mut()
         .game_info_mut()
@@ -2155,7 +2224,9 @@ pub fn simulate_skirmish_set_starting_cash(amount: u32) -> bool {
 
 /// Residual: set superweapon restriction checkbox (0 = unlimited, 1 = limited).
 pub fn simulate_skirmish_set_limit_superweapons(limit: bool) -> bool {
-    let mut setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+
+    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let restriction = if limit { 1 } else { 0 };
     setup
         .game_info_mut()
@@ -2181,7 +2252,9 @@ pub fn simulate_skirmish_set_game_speed_fps(fps: i32) -> Option<i32> {
 /// Defaults: $10000 cash, SW unlimited, 30 FPS (C++ common mid slider).
 /// Single setup lock to avoid re-entrant mutex stalls under residual peels.
 pub fn simulate_skirmish_apply_default_rules() -> bool {
-    let mut setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+
+    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let info = setup.game_info_mut().game_info_mut();
     info.set_starting_cash(Money::new(SKIRMISH_DEFAULT_STARTING_CASH));
     info.set_superweapon_restriction(0);
@@ -2239,7 +2312,9 @@ pub fn skirmish_game_options_menu_system(
                 });
                 queue_shell_pop(effects);
                 {
-                    let mut setup = get_skirmish_setup();
+                    let setup_handle = get_skirmish_setup();
+
+                    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                     *setup = Default::default();
                 }
                 handled = true;
@@ -2303,7 +2378,9 @@ pub fn skirmish_game_options_menu_system(
             if control_id == state.text_entry_player_name_id {
                 if let Some(text_entry) = state.text_entry_player_name.as_ref() {
                     if let Some(widget) = text_entry.borrow_mut().text_entry_mut() {
-                        let mut setup = get_skirmish_setup();
+                        let setup_handle = get_skirmish_setup();
+
+                        let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                         if let Some(slot) = setup.game_info_mut().game_info_mut().get_slot_mut(0) {
                             slot.set_name(widget.text().to_string());
                         }
@@ -2317,7 +2394,9 @@ pub fn skirmish_game_options_menu_system(
             if control_id == state.text_entry_player_name_id {
                 if let Some(text_entry) = state.text_entry_player_name.as_ref() {
                     if let Some(widget) = text_entry.borrow_mut().text_entry_mut() {
-                        let mut setup = get_skirmish_setup();
+                        let setup_handle = get_skirmish_setup();
+
+                        let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                         if let Some(slot) = setup.game_info_mut().game_info_mut().get_slot_mut(0) {
                             slot.set_name(widget.text().to_string());
                         }

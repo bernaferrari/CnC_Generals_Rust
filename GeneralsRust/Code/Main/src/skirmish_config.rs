@@ -1107,7 +1107,9 @@ pub(crate) fn config_from_client_skirmish_setup_with_definitions(
     definitions: Option<&game_engine::common::rts::player_template::PlayerTemplateStore>,
 ) -> Option<SkirmishMatchConfig> {
     let (map, local_slot, old_factions_only) = {
-        let setup = game_client::gui::get_skirmish_setup();
+        let setup_handle = game_client::gui::get_skirmish_setup();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         let info = setup.game_info().game_info();
         let map = map_override
             .map(str::trim)
@@ -1925,7 +1927,9 @@ mod tests {
             .expect("retail Air Force General template") as i32;
 
         {
-            let mut setup = get_skirmish_setup();
+            let setup_handle = get_skirmish_setup();
+
+            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup.set_selected_map(String::new());
             let info = setup.game_info_mut().game_info_mut();
             info.reset();
@@ -1986,7 +1990,9 @@ mod tests {
         use game_client::{Money, SlotState};
 
         {
-            let mut setup = get_skirmish_setup();
+            let setup_handle = get_skirmish_setup();
+
+            let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
             setup.set_selected_map("Maps/Lone Eagle/Lone Eagle.map".into());
             let info = setup.game_info_mut().game_info_mut();
             info.reset();

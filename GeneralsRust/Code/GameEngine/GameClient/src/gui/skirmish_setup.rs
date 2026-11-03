@@ -2,7 +2,7 @@
 
 use game_engine::System::{CHALLENGE_MAX_SLOTS, ChallengeGameInfoXfer, ChallengeSlotXfer};
 use game_network::{GameSlot, Money, SkirmishGameInfo, SlotState};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Default)]
 pub struct SkirmishSetup {
@@ -37,18 +37,47 @@ impl SkirmishSetup {
     }
 }
 
-static SKIRMISH_SETUP: OnceLock<Mutex<SkirmishSetup>> = OnceLock::new();
+#[cfg(test)]
+thread_local! {
+    static TEST_SKIRMISH_SETUP: std::cell::RefCell<Option<Arc<Mutex<SkirmishSetup>>>> =
+        const { std::cell::RefCell::new(None) };
+}
 
-pub fn get_skirmish_setup() -> std::sync::MutexGuard<'static, SkirmishSetup> {
-    SKIRMISH_SETUP
-        .get_or_init(|| Mutex::new(SkirmishSetup::default()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
+fn skirmish_setup_handle() -> Arc<Mutex<SkirmishSetup>> {
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.ensure_skirmish_setup()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_SKIRMISH_SETUP.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| Arc::new(Mutex::new(SkirmishSetup::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Arc::new(Mutex::new(SkirmishSetup::default()))
+    }
+}
+
+/// Handle to the skirmish setup for this client (or test/ephemeral fallback).
+pub fn get_skirmish_setup() -> Arc<Mutex<SkirmishSetup>> {
+    skirmish_setup_handle()
+}
+
+pub fn with_skirmish_setup<R>(f: impl FnOnce(&mut SkirmishSetup) -> R) -> R {
+    let handle = skirmish_setup_handle();
+    let mut guard = handle.lock().unwrap_or_else(|e| e.into_inner());
+    f(&mut guard)
 }
 
 /// Live lobby → C++ `SkirmishGameInfo::xfer` v4 fields (GameInfo.cpp:1488).
 pub fn snapshot_skirmish_lobby() -> ChallengeGameInfoXfer {
-    let setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+    let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     let gi = setup.game_info().game_info();
     let mut slots = std::array::from_fn(|_| ChallengeSlotXfer::default());
     for i in 0..CHALLENGE_MAX_SLOTS {
@@ -95,7 +124,8 @@ pub fn snapshot_skirmish_lobby() -> ChallengeGameInfoXfer {
 
 /// C++ GameStateMap.cpp:406 `xferSnapshot(TheSkirmishGameInfo)` restore.
 pub fn restore_skirmish_lobby(payload: Option<Vec<u8>>) {
-    let mut setup = get_skirmish_setup();
+    let setup_handle = get_skirmish_setup();
+    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(bytes) = payload {
         let Some(snapshot) = ChallengeGameInfoXfer::decode_xfer_bytes(&bytes) else {
             return;

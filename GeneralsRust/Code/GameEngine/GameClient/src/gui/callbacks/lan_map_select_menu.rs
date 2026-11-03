@@ -264,7 +264,9 @@ pub fn lan_map_select_menu_init(
     });
 
     {
-        let setup = get_lan_setup();
+        let setup_handle = get_lan_setup();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         if !setup.selected_map().is_empty() {
             state.selected_map = Some(setup.selected_map().to_string());
         }
@@ -278,7 +280,9 @@ pub fn lan_map_select_menu_init(
             }
         };
     } else {
-        let setup = get_lan_setup();
+        let setup_handle = get_lan_setup();
+
+        let setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
         state.use_system_maps = setup.use_system_maps();
     }
 
@@ -363,7 +367,9 @@ pub fn lan_map_select_menu_system(
             let control_id = data1 as i32;
             if control_id == state.button_ok_id {
                 if let Some(map_name) = state.selected_map.clone() {
-                    let mut setup = get_lan_setup();
+                    let setup_handle = get_lan_setup();
+
+                    let mut setup = setup_handle.lock().unwrap_or_else(|e| e.into_inner());
                     setup.set_selected_map(map_name);
                     setup.set_use_system_maps(state.use_system_maps);
                     setup.game_info_mut().reset_start_spots();

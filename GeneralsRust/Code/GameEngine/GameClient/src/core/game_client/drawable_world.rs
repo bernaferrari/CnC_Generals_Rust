@@ -468,6 +468,30 @@ impl GameClient {
             .clone()
     }
 
+    pub fn ensure_lan_setup(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::gui::lan_setup::LanSetup>> {
+        self.lan_setup
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::gui::lan_setup::LanSetup::default(),
+                ))
+            })
+            .clone()
+    }
+
+    pub fn ensure_skirmish_setup(
+        &mut self,
+    ) -> std::sync::Arc<std::sync::Mutex<crate::gui::skirmish_setup::SkirmishSetup>> {
+        self.skirmish_setup
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(
+                    crate::gui::skirmish_setup::SkirmishSetup::default(),
+                ))
+            })
+            .clone()
+    }
+
     pub fn next_fx_id(&self) -> u64 {
         self.fx_next_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
