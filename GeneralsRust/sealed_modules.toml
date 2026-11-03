@@ -312,3 +312,13 @@ path = "Code/GameEngine/GameClient/src/fx_list.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/FXList.cpp"
 note = "FXListStore catalog on GameClient; removed process OnceLock RwLock; peels use live-client loan / cfg(test) TLS fallback."
 
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/callbacks/replay_menu.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/ReplayMenu.cpp"
+note = "ReplayMenu residual peels on WindowManagerOwner; removed process residual atomics."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_print_positions.rs"
+cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar.cpp"
+note = "ControlBar print-positions residual peels on WindowManagerOwner; removed process residual atomics."
+

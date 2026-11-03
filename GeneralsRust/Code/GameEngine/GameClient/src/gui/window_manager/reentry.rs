@@ -62,6 +62,14 @@ struct WindowManagerOwnerState {
     generals_exp_residual: std::cell::Cell<
         crate::gui::callbacks::generals_exp_points::GeneralsExpResidualState,
     >,
+    /// ReplayMenu residual peels (was process atomics).
+    replay_menu_residual: std::cell::Cell<
+        crate::gui::callbacks::replay_menu::ReplayMenuResidualState,
+    >,
+    /// ControlBar print-positions residual peels (was process atomics).
+    control_bar_print_residual: std::cell::Cell<
+        crate::gui::control_bar::control_bar_print_positions::ControlBarPrintPositionsResidualState,
+    >,
     /// Offline network stub queues / facade (not(feature = "network")).
     #[cfg(not(feature = "network"))]
     network_compat: crate::game_network_compat::NetworkCompatState,
@@ -137,6 +145,12 @@ impl WindowManagerOwner {
                 generals_exp_residual: std::cell::Cell::new(
                     crate::gui::callbacks::generals_exp_points::GeneralsExpResidualState::default(),
                 ),
+                replay_menu_residual: std::cell::Cell::new(
+                    crate::gui::callbacks::replay_menu::ReplayMenuResidualState::default(),
+                ),
+                control_bar_print_residual: std::cell::Cell::new(
+                    crate::gui::control_bar::control_bar_print_positions::ControlBarPrintPositionsResidualState::default(),
+                ),
                 #[cfg(not(feature = "network"))]
                 network_compat: crate::game_network_compat::NetworkCompatState::new(),
             }),
@@ -179,6 +193,28 @@ impl WindowManagerOwner {
         let mut state = self.state.generals_exp_residual.get();
         let out = f(&mut state);
         self.state.generals_exp_residual.set(state);
+        out
+    }
+
+    pub(crate) fn with_replay_menu_residual_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::gui::callbacks::replay_menu::ReplayMenuResidualState) -> R,
+    ) -> R {
+        let mut state = self.state.replay_menu_residual.get();
+        let out = f(&mut state);
+        self.state.replay_menu_residual.set(state);
+        out
+    }
+
+    pub(crate) fn with_control_bar_print_residual_mut<R>(
+        &self,
+        f: impl FnOnce(
+            &mut crate::gui::control_bar::control_bar_print_positions::ControlBarPrintPositionsResidualState,
+        ) -> R,
+    ) -> R {
+        let mut state = self.state.control_bar_print_residual.get();
+        let out = f(&mut state);
+        self.state.control_bar_print_residual.set(state);
         out
     }
 

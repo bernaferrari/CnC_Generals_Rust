@@ -620,29 +620,77 @@ pub enum ResidualReplayMenuAction {
     Back = 5,
 }
 
-static RESIDUAL_REPLAY_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_REPLAY_SLOT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ReplayMenuResidualState {
+    action: u8,
+    slot: i32,
+}
+
+impl Default for ReplayMenuResidualState {
+    fn default() -> Self {
+        Self { action: 0, slot: -1 }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_REPLAY_RESIDUAL: std::cell::Cell<ReplayMenuResidualState> =
+        std::cell::Cell::new(ReplayMenuResidualState { action: 0, slot: -1 });
+}
+
+fn with_replay_residual_mut<R>(
+    f: impl FnOnce(&mut ReplayMenuResidualState) -> R,
+) -> R {
+    let mut f = Some(f);
+    if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client
+            .window_manager_owner_ref()
+            .with_replay_menu_residual_mut(|state| f.take().expect("replay")(state))
+    }) {
+        return result;
+    }
+    #[cfg(test)]
+    {
+        return TEST_REPLAY_RESIDUAL.with(|slot| {
+            let mut state = slot.get();
+            let out = f.take().expect("replay")(&mut state);
+            slot.set(state);
+            out
+        });
+    }
+    #[cfg(not(test))]
+    {
+        f.take().expect("replay")(&mut ReplayMenuResidualState::default())
+    }
+}
 
 fn residual_replay_action_store(action: ResidualReplayMenuAction) {
-    RESIDUAL_REPLAY_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
+    with_replay_residual_mut(|state| {
+        state.action = action as u8;
+    });
 }
 
 /// Residual: last ReplayMenu residual action.
 pub fn residual_replay_menu_last_action() -> ResidualReplayMenuAction {
-    match RESIDUAL_REPLAY_ACTION.load(std::sync::atomic::Ordering::Relaxed) {
+    with_replay_residual_mut(|state| match state.action {
         1 => ResidualReplayMenuAction::SelectSlot,
         2 => ResidualReplayMenuAction::Load,
         3 => ResidualReplayMenuAction::Delete,
         4 => ResidualReplayMenuAction::Copy,
         5 => ResidualReplayMenuAction::Back,
         _ => ResidualReplayMenuAction::None,
-    }
+    })
 }
 
 /// Residual: last selected replay list slot (-1 if none).
 pub fn residual_replay_menu_selected_slot() -> Option<i32> {
-    let slot = RESIDUAL_REPLAY_SLOT.load(std::sync::atomic::Ordering::Relaxed);
-    if slot < 0 { None } else { Some(slot) }
+    with_replay_residual_mut(|state| {
+        if state.slot < 0 {
+            None
+        } else {
+            Some(state.slot)
+        }
+    })
 }
 
 fn ensure_replay_control_ids(state: &mut ReplayMenuState) {
@@ -696,7 +744,7 @@ pub fn simulate_replay_menu_select_slot(
     ensure_replay_control_ids(&mut state);
     // Best-effort list selection when list is populated; residual slot is authoritative.
     state.menu.set_selected_index(slot_index);
-    RESIDUAL_REPLAY_SLOT.store(slot_index, std::sync::atomic::Ordering::Relaxed);
+    with_replay_residual_mut(|state| { state.slot = slot_index; });
     residual_replay_action_store(ResidualReplayMenuAction::SelectSlot);
     residual_replay_menu_selected_slot() == Some(slot_index)
 }
@@ -752,7 +800,7 @@ pub fn simulate_replay_menu_back_button_gadget_selected(
     let mut state = state_handle.borrow_mut();
     ensure_replay_control_ids(&mut state);
     residual_replay_action_store(ResidualReplayMenuAction::Back);
-    RESIDUAL_REPLAY_SLOT.store(-1, std::sync::atomic::Ordering::Relaxed);
+    with_replay_residual_mut(|state| { state.slot = -1; });
     state.menu.set_selected_index(-1);
     true
 }
