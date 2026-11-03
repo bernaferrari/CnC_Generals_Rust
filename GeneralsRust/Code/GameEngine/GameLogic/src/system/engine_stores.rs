@@ -488,7 +488,7 @@ impl EngineStores {
     fn engine_defaults() -> Self {
         Self {
             upgrade_center: common_upgrade::process_lifetime_upgrade_center(),
-            services: Arc::clone(&PROCESS_SERVICES),
+            services: Arc::new(WorldServices::engine_defaults()),
             ai: Arc::new(RwLock::new(AI::new())),
             ai_data: ini_ai_data::process_lifetime_ai_data_store(),
             core_game_logic: OnceLock::new(),
@@ -539,10 +539,9 @@ impl EngineStores {
         self.services.client_visuals()
     }
 }
-static PROCESS_SERVICES: LazyLock<Arc<WorldServices>> =
-    LazyLock::new(|| Arc::new(WorldServices::engine_defaults()));
 // Only standalone Core access constructs this runtime. Main service snapshots
 // must never touch it, including indirectly through content/shroud helpers.
+// Not an ambient fallback: active()/active_services() panic when unpublished.
 static PROCESS_LIFETIME: LazyLock<Arc<EngineStores>> =
     LazyLock::new(|| Arc::new(EngineStores::engine_defaults()));
 #[derive(Clone)]
@@ -1170,6 +1169,20 @@ mod tests {
 
         assert!(uninstall_active_if_current(&a));
         assert_eq!(active_stack_depth(), 0);
+    }
+
+    #[test]
+    fn unscoped_active_services_panics_without_process_bag() {
+        let _serial = crate::test_sync::lock();
+        assert_eq!(active_stack_depth(), 0);
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| active_services())).is_err(),
+            "unscoped active_services must not mint a process bag"
+        );
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| active())).is_err(),
+            "unscoped active must not mint a process bag"
+        );
     }
 
     #[test]
