@@ -186,6 +186,14 @@ impl GameLogic {
                 Vec::new()
             }
         };
+        log::info!(
+            "Fast legacy runtime sync bridges parsed for '{}' in {:.2}s (stage={:.2}s, bridges={})",
+            map_path.display(),
+            sync_started.elapsed().as_secs_f32(),
+            stage_started.elapsed().as_secs_f32(),
+            bridges.len()
+        );
+        stage_started = Instant::now();
         report_progress(
             &mut self.session_view.audio_random,
             self.queued_audio_events.policy(),
@@ -259,6 +267,14 @@ impl GameLogic {
                 .unwrap_or_else(|error| error.into_inner());
             super::script_loader::install_runtime_polygon_triggers(&mut terrain, &polygon_triggers);
         } // Release before progress can dispatch authored load-screen callbacks.
+        log::info!(
+            "Fast legacy runtime sync polygons installed for '{}' in {:.2}s (stage={:.2}s, triggers={})",
+            map_path.display(),
+            sync_started.elapsed().as_secs_f32(),
+            stage_started.elapsed().as_secs_f32(),
+            polygon_triggers.len()
+        );
+        stage_started = Instant::now();
 
         report_progress(
             &mut self.session_view.audio_random,
@@ -280,6 +296,14 @@ impl GameLogic {
                 Vec::new()
             }
         };
+        log::info!(
+            "Fast legacy runtime sync roads parsed for '{}' in {:.2}s (stage={:.2}s, roads={})",
+            map_path.display(),
+            sync_started.elapsed().as_secs_f32(),
+            stage_started.elapsed().as_secs_f32(),
+            self.runtime_road_segments.len()
+        );
+        stage_started = Instant::now();
         self.runtime_terrain_texture_classes.clear();
         report_progress(
             &mut self.session_view.audio_random,
