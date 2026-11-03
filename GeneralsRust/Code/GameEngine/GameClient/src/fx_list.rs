@@ -1160,7 +1160,8 @@ impl FXNugget for TracerFXNugget {
         } else {
             self.speed
         };
-        let current_frame = gamelogic::helpers::TheGameLogic::get_frame();
+        let current_frame = crate::core::game_client::live_game_client_frame()
+            .unwrap_or_else(|| gamelogic::helpers::TheGameLogic::get_frame());
         let _ = spawn_tracer_drawable_like_cpp(
             &self.tracer_name,
             [primary.x, primary.y, primary.z],

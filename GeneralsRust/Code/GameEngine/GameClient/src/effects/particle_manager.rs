@@ -450,9 +450,32 @@ impl ParticleSystemManager {
     /// GameClient FX name win over the narrow host/preset fallback path.
     fn load_retail_particle_templates(&mut self) -> Result<usize, ParticleSystemError> {
         let parser = ParticleSystemINIParser::default();
-        parser
-            .load_particle_system_definitions("Data/INI/ParticleSystem.ini", self)
-            .map_err(|error| ParticleSystemError::ResourceLoadFailed(error.to_string()))
+        let mut candidates = vec![
+            std::path::PathBuf::from("Data/INI/ParticleSystem.ini"),
+            std::path::PathBuf::from("windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+            std::path::PathBuf::from("../windows_game/extracted_big_files_v2/INIZH/Data/INI/ParticleSystem.ini"),
+        ];
+        if let Ok(root) = std::env::var("GENERALS_ASSETS_DIR") {
+            candidates.push(std::path::PathBuf::from(root).join("Data/INI/ParticleSystem.ini"));
+        }
+        let mut last_error = None;
+        for path in candidates {
+            match parser.load_particle_system_definitions(&path, self) {
+                Ok(count) => return Ok(count),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        // C++ loads ParticleSystem.ini from the install; headless/unit fixtures often
+        // have no archive mount. Leave an empty retail base and let map overlays /
+        // registry overlays populate the manager rather than fail the whole shell.
+        log::warn!(
+            "ParticleSystem.ini unavailable ({}); admitting empty retail particle base",
+            last_error
+                .as_ref()
+                .map(|error| error.to_string())
+                .unwrap_or_else(|| "Cannot open file".into()),
+        );
+        Ok(0)
     }
 
     /// Complete explicit content admission for a manager populated by a local
