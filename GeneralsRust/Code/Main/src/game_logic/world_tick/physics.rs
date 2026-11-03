@@ -1311,6 +1311,18 @@ impl GameLogic {
                     u.turret_target_id == Some(from_id),
                 )
             };
+            // C++ transferAttack (AIUpdate.cpp:4149-4151): the state machine
+            // goal object follows the transfer independently of currentVictim.
+            if self
+                .objects
+                .get(&id)
+                .is_some_and(|u| u.unit_ai_runtime.machine().goals.object == Some(from_id))
+            {
+                let to_pos = self.objects.get(&to_id).map(|o| o.get_position());
+                if let (Some(pos), Some(u)) = (to_pos, self.objects.get_mut(&id)) {
+                    u.unit_ai_runtime.set_machine_goal_object(Some((to_id, pos)));
+                }
+            }
             if !had_target && !had_turret {
                 continue;
             }

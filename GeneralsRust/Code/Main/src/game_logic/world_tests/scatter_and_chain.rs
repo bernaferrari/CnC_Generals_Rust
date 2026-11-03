@@ -3616,3 +3616,65 @@ fn comanche_at_scatter_misses_infantry_residual() {
         .unwrap_or(0.0);
     assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
 }
+
+/// C++ AIAttackFireWeaponState::update (AIStates.cpp:5225-5233) relies on
+/// AIUpdateInterface::transferAttack (AIUpdate.cpp:4149-4151) also moving the
+/// state-machine goal object when a killed victim hands off (CreateObjectDie).
+#[test]
+fn fire_callback_transfer_attack_updates_machine_goal_same_frame() {
+    use crate::game_logic::host_create_object_die::HostCreateObjectDieData;
+    let mut logic = GameLogic::new();
+    for (name, structure) in [("XferAtk", false), ("XferBldg", true), ("XferHole", true)] {
+        let mut t = ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Attackable).set_health(100.0);
+        if structure {
+            t.add_kind_of(KindOf::Structure);
+        } else {
+            t.add_kind_of(KindOf::Vehicle);
+        }
+        logic.templates.insert(name.into(), t);
+    }
+    let atk = logic
+        .create_object("XferAtk", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("atk");
+    let bldg = logic
+        .create_object("XferBldg", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
+        .expect("bldg");
+    if let Some(o) = logic.objects.get_mut(&atk) {
+        o.weapon = Some(Weapon {
+            damage: 999.0,
+            range: 100.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ..Weapon::default()
+        });
+    }
+    if let Some(o) = logic.objects.get_mut(&bldg) {
+        o.create_object_die = Some(HostCreateObjectDieData {
+            ocl_name: "OCL_XferHole".into(),
+            spawn_templates: vec!["XferHole".into()],
+            transfer_previous_health: true,
+            fired: false,
+        });
+    }
+    assert!(logic.unit_command_attack(atk, bldg).unwrap());
+    for _ in 0..120 {
+        logic.tick_logic_frame(1.0 / 30.0, None, Some(1));
+        if logic.objects.get(&bldg).is_none_or(|v| !v.is_alive()) {
+            break;
+        }
+    }
+    let hole = logic
+        .objects
+        .registered_values()
+        .find(|o| o.template_name == "XferHole")
+        .map(|o| o.id)
+        .expect("CreateObjectDie hole spawned");
+    let a = &logic.objects[&atk];
+    assert_eq!(a.target, Some(hole), "transferAttack retargets host");
+    assert_eq!(
+        a.unit_ai_runtime.machine().goals.object,
+        Some(hole),
+        "attack machine goal must follow the transferred victim"
+    );
+}
