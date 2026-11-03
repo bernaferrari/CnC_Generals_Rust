@@ -648,10 +648,12 @@ impl OptionsMenu {
     fn find_window(
         id: i32,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<Rc<RefCell<GameWindow>>> {
-        (|manager: &mut crate::gui::window_manager::WindowManager| manager.get_window_by_id(id))(
-            receiving_manager,
-        )
+        // Input dispatch keeps the clicked gadget lent; walk the tree through
+        // that loan so Accept/close lookups do not RefCell-panic on siblings.
+        let lent: Vec<&GameWindow> = effects.lent_windows.iter().map(|window| &**window).collect();
+        receiving_manager.win_get_window_from_id_with_lent(None, id, None, &lent)
     }
 
     fn set_checkbox(
@@ -660,7 +662,7 @@ impl OptionsMenu {
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        if let Some(window) = Self::find_window(id, receiving_manager) {
+        if let Some(window) = Self::find_window(id, receiving_manager, effects) {
             let _ = window
                 .borrow_mut()
                 .gadget_check_box_set_checked(value, effects);
@@ -670,8 +672,9 @@ impl OptionsMenu {
     fn checkbox_value(
         id: i32,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) -> bool {
-        Self::find_window(id, receiving_manager)
+        Self::find_window(id, receiving_manager, effects)
             .and_then(|window| {
                 let guard = window.borrow();
                 match guard.widget() {
@@ -686,8 +689,9 @@ impl OptionsMenu {
         id: i32,
         value: i32,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        if let Some(window) = Self::find_window(id, receiving_manager) {
+        if let Some(window) = Self::find_window(id, receiving_manager, effects) {
             if let Some(slider) = window.borrow_mut().horizontal_slider_mut() {
                 slider.set_value(value);
             }
@@ -700,8 +704,9 @@ impl OptionsMenu {
         max_value: i32,
         value: i32,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        if let Some(window) = Self::find_window(id, receiving_manager) {
+        if let Some(window) = Self::find_window(id, receiving_manager, effects) {
             if let Some(slider) = window.borrow_mut().horizontal_slider_mut() {
                 slider.set_range(min_value, max_value);
                 slider.set_value(value);
@@ -712,16 +717,18 @@ impl OptionsMenu {
     fn slider_value(
         id: i32,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) -> i32 {
-        Self::slider_value_opt(id, receiving_manager).unwrap_or(0)
+        Self::slider_value_opt(id, receiving_manager, effects).unwrap_or(0)
     }
 
     /// C++ `GadgetSliderGetPosition` — `None` matches retail `-1` (missing gadget).
     fn slider_value_opt(
         id: i32,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<i32> {
-        Self::find_window(id, receiving_manager).and_then(|window| {
+        Self::find_window(id, receiving_manager, effects).and_then(|window| {
             let guard = window.borrow();
             match guard.widget() {
                 Some(WindowWidget::HorizontalSlider(slider)) => Some(slider.value()),
@@ -740,7 +747,7 @@ impl OptionsMenu {
         if items.is_empty() {
             return;
         }
-        if let Some(window) = Self::find_window(id, receiving_manager) {
+        if let Some(window) = Self::find_window(id, receiving_manager, effects) {
             let mut guard = window.borrow_mut();
             let Some(combo_box) = guard.combo_box_mut() else {
                 return;
@@ -756,8 +763,9 @@ impl OptionsMenu {
     fn combo_selected_index(
         id: i32,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) -> Option<usize> {
-        Self::find_window(id, receiving_manager).and_then(|window| {
+        Self::find_window(id, receiving_manager, effects).and_then(|window| {
             let guard = window.borrow();
             match guard.widget() {
                 Some(WindowWidget::ComboBox(combo_box)) => combo_box.selected_index(),
@@ -772,7 +780,7 @@ impl OptionsMenu {
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
         effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        if let Some(window) = Self::find_window(id, receiving_manager) {
+        if let Some(window) = Self::find_window(id, receiving_manager, effects) {
             window
                 .borrow_mut()
                 .set_combo_box_selected(index, true, effects);
@@ -794,8 +802,9 @@ impl OptionsMenu {
         id: i32,
         hidden: bool,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        if let Some(window) = Self::find_window(id, receiving_manager) {
+        if let Some(window) = Self::find_window(id, receiving_manager, effects) {
             let _ = window.borrow_mut().hide(hidden, receiving_manager);
         }
     }
@@ -804,8 +813,9 @@ impl OptionsMenu {
         id: i32,
         enabled: bool,
         receiving_manager: &mut crate::gui::window_manager::WindowManager,
+        effects: &crate::gui::game_window::WindowEventEffects<'_>,
     ) {
-        if let Some(window) = Self::find_window(id, receiving_manager) {
+        if let Some(window) = Self::find_window(id, receiving_manager, effects) {
             let _ = window.borrow_mut().enable(enabled);
         }
     }
@@ -1288,6 +1298,7 @@ impl OptionsMenu {
                 100,
                 scroll_speed,
                 receiving_manager,
+                effects,
             );
         }
         Self::set_slider_range_and_value(
@@ -1296,6 +1307,7 @@ impl OptionsMenu {
             100,
             music_volume,
             receiving_manager,
+                effects,
         );
         Self::set_slider_range_and_value(
             self.slider_sfx_volume_id,
@@ -1303,6 +1315,7 @@ impl OptionsMenu {
             100,
             sfx_volume,
             receiving_manager,
+                effects,
         );
         Self::set_slider_range_and_value(
             self.slider_voice_volume_id,
@@ -1310,14 +1323,16 @@ impl OptionsMenu {
             100,
             voice_volume,
             receiving_manager,
+                effects,
         );
-        Self::set_slider_range_and_value(self.slider_gamma_id, 0, 100, gamma, receiving_manager);
+        Self::set_slider_range_and_value(self.slider_gamma_id, 0, 100, gamma, receiving_manager, effects);
         Self::set_slider_range_and_value(
             self.slider_texture_resolution_id,
             0,
             2,
             texture_resolution,
             receiving_manager,
+                effects,
         );
         Self::set_slider_range_and_value(
             self.slider_particle_cap_id,
@@ -1325,9 +1340,10 @@ impl OptionsMenu {
             10000,
             particle_cap,
             receiving_manager,
+                effects,
         );
 
-        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager);
+        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager, effects);
     }
 
     fn apply_default_controls(
@@ -1378,14 +1394,15 @@ impl OptionsMenu {
                 self.slider_scroll_speed_id,
                 default_scroll,
                 receiving_manager,
+                effects,
             );
         }
-        Self::set_slider_value(self.slider_music_volume_id, 60, receiving_manager);
-        Self::set_slider_value(self.slider_sfx_volume_id, 55, receiving_manager);
-        Self::set_slider_value(self.slider_voice_volume_id, 70, receiving_manager);
-        Self::set_slider_value(self.slider_gamma_id, 50, receiving_manager);
-        Self::set_slider_value(self.slider_texture_resolution_id, 2, receiving_manager);
-        Self::set_slider_value(self.slider_particle_cap_id, 5000, receiving_manager);
+        Self::set_slider_value(self.slider_music_volume_id, 60, receiving_manager, effects);
+        Self::set_slider_value(self.slider_sfx_volume_id, 55, receiving_manager, effects);
+        Self::set_slider_value(self.slider_voice_volume_id, 70, receiving_manager, effects);
+        Self::set_slider_value(self.slider_gamma_id, 50, receiving_manager, effects);
+        Self::set_slider_value(self.slider_texture_resolution_id, 2, receiving_manager, effects);
+        Self::set_slider_value(self.slider_particle_cap_id, 5000, receiving_manager, effects);
 
         Self::set_checkbox(self.check_3d_shadows_id, true, receiving_manager, effects);
         Self::set_checkbox(self.check_2d_shadows_id, true, receiving_manager, effects);
@@ -1440,7 +1457,7 @@ impl OptionsMenu {
                 effects,
             );
         }
-        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager);
+        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager, effects);
     }
 
     fn apply_options(&mut self, effects: &mut WindowEventEffects<'_>) -> bool {
@@ -1484,7 +1501,7 @@ impl OptionsMenu {
             .map(|h| h.detail_index)
             .or_else(|| {
                 effects.with_manager(|receiving_manager, effects| {
-                    Self::combo_selected_index(self.combo_detail_id, receiving_manager)
+                    Self::combo_selected_index(self.combo_detail_id, receiving_manager, effects)
                 })
             })
             .unwrap_or(1);
@@ -1494,7 +1511,7 @@ impl OptionsMenu {
             .or_else(|| {
                 effects
                     .with_manager(|receiving_manager, effects| {
-                        Self::combo_selected_index(self.combo_anti_aliasing_id, receiving_manager)
+                        Self::combo_selected_index(self.combo_anti_aliasing_id, receiving_manager, effects)
                     })
                     .map(|i| i as i32)
             })
@@ -1510,6 +1527,7 @@ impl OptionsMenu {
                                 Self::combo_selected_index(
                                     self.combo_resolution_id,
                                     receiving_manager,
+                                    effects,
                                 )
                             })
                             .unwrap_or(0),
@@ -1523,12 +1541,12 @@ impl OptionsMenu {
 
         let alternate_mouse = host.as_ref().map(|h| h.alternate_mouse).unwrap_or_else(|| {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_alternate_mouse_id, receiving_manager)
+                Self::checkbox_value(self.check_alternate_mouse_id, receiving_manager, effects)
             })
         });
         let retaliation = host.as_ref().map(|h| h.retaliation).unwrap_or_else(|| {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_retaliation_id, receiving_manager)
+                Self::checkbox_value(self.check_retaliation_id, receiving_manager, effects)
             })
         });
         let double_click_attack_move = host
@@ -1536,23 +1554,23 @@ impl OptionsMenu {
             .map(|h| h.double_click_attack_move)
             .unwrap_or_else(|| {
                 effects.with_manager(|receiving_manager, effects| {
-                    Self::checkbox_value(self.check_double_click_attack_move_id, receiving_manager)
+                    Self::checkbox_value(self.check_double_click_attack_move_id, receiving_manager, effects)
                 })
             });
         let language_filter = host.as_ref().map(|h| h.language_filter).unwrap_or_else(|| {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_language_filter_id, receiving_manager)
+                Self::checkbox_value(self.check_language_filter_id, receiving_manager, effects)
             })
         });
         let send_delay = effects.with_manager(|receiving_manager, effects| {
-            Self::checkbox_value(self.check_send_delay_id, receiving_manager)
+            Self::checkbox_value(self.check_send_delay_id, receiving_manager, effects)
         });
         let save_camera = host.as_ref().map(|h| h.save_camera).unwrap_or_else(|| {
             if owns_camera_preferences {
                 pref.save_camera_in_replays()
             } else {
                 effects.with_manager(|receiving_manager, effects| {
-                    Self::checkbox_value(self.check_save_camera_id, receiving_manager)
+                    Self::checkbox_value(self.check_save_camera_id, receiving_manager, effects)
                 })
             }
         });
@@ -1561,18 +1579,18 @@ impl OptionsMenu {
                 pref.use_camera_in_replays()
             } else {
                 effects.with_manager(|receiving_manager, effects| {
-                    Self::checkbox_value(self.check_use_camera_id, receiving_manager)
+                    Self::checkbox_value(self.check_use_camera_id, receiving_manager, effects)
                 })
             }
         });
         let draw_anchor = host.as_ref().map(|h| h.draw_anchor).unwrap_or_else(|| {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_draw_anchor_id, receiving_manager)
+                Self::checkbox_value(self.check_draw_anchor_id, receiving_manager, effects)
             })
         });
         let move_anchor = host.as_ref().map(|h| h.move_anchor).unwrap_or_else(|| {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_move_anchor_id, receiving_manager)
+                Self::checkbox_value(self.check_move_anchor_id, receiving_manager, effects)
             })
         });
         // Host Accept has no WND layout; C++ saveOptions reads checkboxes that
@@ -1583,35 +1601,35 @@ impl OptionsMenu {
             pref.get_bool_or("UseShadowVolumes", current.writable.use_shadow_volumes)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_3d_shadows_id, receiving_manager)
+                Self::checkbox_value(self.check_3d_shadows_id, receiving_manager, effects)
             })
         };
         let use_shadow_decals = if host_apply {
             pref.get_bool_or("UseShadowDecals", current.writable.use_shadow_decals)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_2d_shadows_id, receiving_manager)
+                Self::checkbox_value(self.check_2d_shadows_id, receiving_manager, effects)
             })
         };
         let use_cloud_map = if host_apply {
             pref.get_bool_or("UseCloudMap", current.use_cloud_map)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_cloud_shadows_id, receiving_manager)
+                Self::checkbox_value(self.check_cloud_shadows_id, receiving_manager, effects)
             })
         };
         let use_light_map = if host_apply {
             pref.get_bool_or("UseLightMap", current.use_light_map)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_ground_lighting_id, receiving_manager)
+                Self::checkbox_value(self.check_ground_lighting_id, receiving_manager, effects)
             })
         };
         let show_soft_water_edge = if host_apply {
             pref.get_bool_or("ShowSoftWaterEdge", current.show_soft_water_edge)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_smooth_water_id, receiving_manager)
+                Self::checkbox_value(self.check_smooth_water_id, receiving_manager, effects)
             })
         };
         let extra_animations = if host_apply {
@@ -1619,7 +1637,7 @@ impl OptionsMenu {
                 .unwrap_or(!current.use_draw_module_lod)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_extra_animations_id, receiving_manager)
+                Self::checkbox_value(self.check_extra_animations_id, receiving_manager, effects)
             })
         };
         let no_dynamic_lod = if host_apply {
@@ -1628,7 +1646,7 @@ impl OptionsMenu {
                 .unwrap_or(current.writable.enable_dynamic_lod)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_no_dynamic_lod_id, receiving_manager)
+                Self::checkbox_value(self.check_no_dynamic_lod_id, receiving_manager, effects)
             })
         };
         let unlock_fps = if host_apply {
@@ -1637,28 +1655,28 @@ impl OptionsMenu {
                 .unwrap_or(current.writable.use_fps_limit)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_unlock_fps_id, receiving_manager)
+                Self::checkbox_value(self.check_unlock_fps_id, receiving_manager, effects)
             })
         };
         let heat_effects = if host_apply {
             pref.get_bool_or("HeatEffects", current.use_heat_effects)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_heat_effects_id, receiving_manager)
+                Self::checkbox_value(self.check_heat_effects_id, receiving_manager, effects)
             })
         };
         let building_occlusion = if host_apply {
             pref.get_bool_or("BuildingOcclusion", current.enable_behind_building_markers)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_building_occlusion_id, receiving_manager)
+                Self::checkbox_value(self.check_building_occlusion_id, receiving_manager, effects)
             })
         };
         let show_props = if host_apply {
             pref.get_bool_or("ShowTrees", current.use_trees)
         } else {
             effects.with_manager(|receiving_manager, effects| {
-                Self::checkbox_value(self.check_props_id, receiving_manager)
+                Self::checkbox_value(self.check_props_id, receiving_manager, effects)
             })
         };
         drop(current);
@@ -1668,7 +1686,7 @@ impl OptionsMenu {
             Some(value) => value,
             None => effects
                 .with_manager(|receiving_manager, effects| {
-                    Self::slider_value_opt(self.slider_scroll_speed_id, receiving_manager)
+                    Self::slider_value_opt(self.slider_scroll_speed_id, receiving_manager, effects)
                 })
                 .or_else(|| host.as_ref().map(|h| h.scroll_speed))
                 .or_else(|| pref.get_int("ScrollFactor"))
@@ -1677,21 +1695,21 @@ impl OptionsMenu {
         };
         let music_volume = effects
             .with_manager(|receiving_manager, effects| {
-                Self::slider_value_opt(self.slider_music_volume_id, receiving_manager)
+                Self::slider_value_opt(self.slider_music_volume_id, receiving_manager, effects)
             })
             .or_else(|| host.as_ref().map(|h| h.music_volume))
             .unwrap_or_else(|| pref.get_int_or("MusicVolume", default_music))
             .clamp(0, 100);
         let sfx_volume = effects
             .with_manager(|receiving_manager, effects| {
-                Self::slider_value_opt(self.slider_sfx_volume_id, receiving_manager)
+                Self::slider_value_opt(self.slider_sfx_volume_id, receiving_manager, effects)
             })
             .or_else(|| host.as_ref().map(|h| h.sfx_volume))
             .unwrap_or_else(|| pref.get_int_or("SFXVolume", default_sfx))
             .clamp(0, 100);
         let voice_volume = effects
             .with_manager(|receiving_manager, effects| {
-                Self::slider_value_opt(self.slider_voice_volume_id, receiving_manager)
+                Self::slider_value_opt(self.slider_voice_volume_id, receiving_manager, effects)
             })
             .or_else(|| host.as_ref().map(|h| h.voice_volume))
             .unwrap_or_else(|| pref.get_int_or("VoiceVolume", default_voice))
@@ -1700,7 +1718,7 @@ impl OptionsMenu {
             Self::split_sfx_volume_for_relative(sfx_volume, Self::current_relative_2d_volume());
         let gamma_slider = effects
             .with_manager(|receiving_manager, effects| {
-                Self::slider_value_opt(self.slider_gamma_id, receiving_manager)
+                Self::slider_value_opt(self.slider_gamma_id, receiving_manager, effects)
             })
             .or_else(|| host.as_ref().map(|h| h.gamma_slider))
             .unwrap_or_else(|| pref.get_int_or("Gamma", 50))
@@ -1714,7 +1732,7 @@ impl OptionsMenu {
         } else {
             effects
                 .with_manager(|receiving_manager, effects| {
-                    Self::slider_value_opt(self.slider_texture_resolution_id, receiving_manager)
+                    Self::slider_value_opt(self.slider_texture_resolution_id, receiving_manager, effects)
                 })
                 .unwrap_or(2)
                 .clamp(0, 2)
@@ -1726,7 +1744,7 @@ impl OptionsMenu {
         } else {
             effects
                 .with_manager(|receiving_manager, effects| {
-                    Self::slider_value_opt(self.slider_particle_cap_id, receiving_manager)
+                    Self::slider_value_opt(self.slider_particle_cap_id, receiving_manager, effects)
                 })
                 .unwrap_or(5000)
                 .max(100)
@@ -1963,8 +1981,12 @@ impl OptionsMenu {
                 let _ = manager.unset_modal(parent);
             });
         }
-        effects.with_manager(|receiving_manager, effects| {
-            Self::set_window_hidden(self.advanced_window_id, true, receiving_manager)
+        // Parent OptionsMenuSystem still holds the layout root RefMut while the
+        // clicked Accept child is lent; defer the advanced-window hide until
+        // those loans end so tree lookup does not RefCell-panic on the root.
+        let advanced_window_id = self.advanced_window_id;
+        effects.queue_window_operation(move |receiving_manager, effects| {
+            Self::set_window_hidden(advanced_window_id, true, receiving_manager, effects);
         });
         TheScriptEngine::signal_ui_interact("ShellOptionsClosed");
         if options_overlay_open {
@@ -2034,22 +2056,22 @@ impl OptionsMenu {
             TheGameLogic::is_in_game() && TheGameLogic::get_game_mode() != GAME_SHELL;
         if in_game_locked || options_overlay_is_open() {
             effects.with_manager(|receiving_manager, effects| {
-                Self::set_window_enabled(self.combo_lan_ip_id, false, receiving_manager)
+                Self::set_window_enabled(self.combo_lan_ip_id, false, receiving_manager, effects)
             });
             effects.with_manager(|receiving_manager, effects| {
-                Self::set_window_enabled(self.combo_online_ip_id, false, receiving_manager)
+                Self::set_window_enabled(self.combo_online_ip_id, false, receiving_manager, effects)
             });
             effects.with_manager(|receiving_manager, effects| {
-                Self::set_window_enabled(self.combo_detail_id, false, receiving_manager)
+                Self::set_window_enabled(self.combo_detail_id, false, receiving_manager, effects)
             });
             effects.with_manager(|receiving_manager, effects| {
-                Self::set_window_enabled(self.combo_resolution_id, false, receiving_manager)
+                Self::set_window_enabled(self.combo_resolution_id, false, receiving_manager, effects)
             });
             effects.with_manager(|receiving_manager, effects| {
-                Self::set_window_enabled(self.check_send_delay_id, false, receiving_manager)
+                Self::set_window_enabled(self.check_send_delay_id, false, receiving_manager, effects)
             });
             effects.with_manager(|receiving_manager, effects| {
-                Self::set_window_enabled(self.button_firewall_refresh_id, false, receiving_manager)
+                Self::set_window_enabled(self.button_firewall_refresh_id, false, receiving_manager, effects)
             });
         }
         layout.hide_receiving(false, effects);
@@ -2156,7 +2178,7 @@ impl MenuCallbacks for OptionsMenu {
             });
         }
         effects.with_manager(|receiving_manager, effects| {
-            Self::set_window_hidden(self.advanced_window_id, true, receiving_manager)
+            Self::set_window_hidden(self.advanced_window_id, true, receiving_manager, effects)
         });
         layout.hide_receiving(true, effects);
         self.initialized = false;
@@ -2180,11 +2202,11 @@ impl MenuCallbacks for OptionsMenu {
                 }
                 if data1 as i32 == self.combo_detail_id
                     && effects.with_manager(|receiving_manager, effects| {
-                        Self::combo_selected_index(self.combo_detail_id, receiving_manager)
+                        Self::combo_selected_index(self.combo_detail_id, receiving_manager, effects)
                     }) == Some(3)
                 {
                     effects.with_manager(|receiving_manager, effects| {
-                        Self::set_window_hidden(self.advanced_window_id, false, receiving_manager)
+                        Self::set_window_hidden(self.advanced_window_id, false, receiving_manager, effects)
                     });
                 }
                 WindowMsgHandled::Handled
@@ -2210,7 +2232,7 @@ impl MenuCallbacks for OptionsMenu {
                     }
                 } else if control_id == self.button_advanced_accept_id {
                     effects.with_manager(|receiving_manager, effects| {
-                        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager)
+                        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager, effects)
                     });
                 } else if control_id == self.button_advanced_back_id {
                     effects.with_manager(|receiving_manager, effects| {
@@ -2222,23 +2244,23 @@ impl MenuCallbacks for OptionsMenu {
                         )
                     });
                     effects.with_manager(|receiving_manager, effects| {
-                        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager)
+                        Self::set_window_hidden(self.advanced_window_id, true, receiving_manager, effects)
                     });
                 } else if control_id == self.button_keyboard_options_id {
                     queue_shell_push(effects, "Menus/KeyboardOptionsMenu.wnd", false);
                 } else if control_id == self.combo_detail_id
                     && effects.with_manager(|receiving_manager, effects| {
-                        Self::combo_selected_index(self.combo_detail_id, receiving_manager)
+                        Self::combo_selected_index(self.combo_detail_id, receiving_manager, effects)
                     }) == Some(3)
                 {
                     effects.with_manager(|receiving_manager, effects| {
-                        Self::set_window_hidden(self.advanced_window_id, false, receiving_manager)
+                        Self::set_window_hidden(self.advanced_window_id, false, receiving_manager, effects)
                     });
                 } else {
                     self.apply_immediate_checkbox_effect(
                         control_id,
                         effects.with_manager(|receiving_manager, effects| {
-                            Self::checkbox_value(control_id, receiving_manager)
+                            Self::checkbox_value(control_id, receiving_manager, effects)
                         }),
                         effects,
                     );

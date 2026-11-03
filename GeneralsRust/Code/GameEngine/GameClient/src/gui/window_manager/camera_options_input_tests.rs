@@ -95,17 +95,31 @@ fn click_options(
         writes: Vec::new(),
     };
     let mut emitted_messages = Vec::new();
+    // Accept/Defaults/Back complete through OptionsMenu + queued WND ops; park the
+    // layout manager in a receiving owner and loan menus+ui for that boundary.
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_manager(|owned| std::mem::swap(owned, manager));
+    let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+    let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+    let mut ime = crate::gui::ime_manager::ImeManager::new();
+    let mut menu_host = crate::gui::campaign_launch_host_bridge::MenuHostMailbox::default();
+    let mut script_display =
+        crate::core::script_action_handler::ScriptDisplayReceiver::default();
+    let mut main_menu = crate::gui::shell::main_menu::MainMenu::new();
     let mut context = ControlBarInputContext {
-            control_bar_observation:None,
-            diplomacy_world: None,
-            menu_audio: None,
-            input_provenance: crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
-            menus: None,
-            ime:None,
-            in_game_movies: None,
-            script_display: None,
-            window_videos: None,
-            upgrade_tooltip: crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
+        control_bar_observation: None,
+        diplomacy_world: None,
+        menu_audio: None,
+        input_provenance: crate::gui::control_bar::HostControlBarInputProvenance::InjectedOrUnknown,
+        menus: Some(
+            menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+        ),
+        ime: Some(&mut ime),
+        in_game_movies: None,
+        script_display: Some(&mut script_display),
+        window_videos: None,
+        upgrade_tooltip:
+            crate::gui::gui_callbacks::control_bar_popup_description::UpgradeTooltipSource::Standalone,
         replay_version: None,
         replay_menu: None,
         observer_roster: None,
@@ -117,34 +131,74 @@ fn click_options(
         tooltips_disabled: false,
         cursor_mouse: None,
         emitted_messages: Some(&mut emitted_messages),
-            campaign_manager: None,
-            window_manager_owner: None,
-
-                    client_frame: None,
-            logic_frame: None,
-            ui: None,
-            menu_world: None,
-            menu_host: None,
-            main_menu: None,
+        campaign_manager: None,
+        window_manager_owner: Some(&owner),
+        client_frame: None,
+        logic_frame: None,
+        ui: Some(&mut ui),
+        menu_world: Some(crate::gui::campaign_launch_host_bridge::MenuWorldFacts::default()),
+        menu_host: Some(&mut menu_host),
+        main_menu: Some(&mut main_menu),
     };
-    for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
-        assert_eq!(
-            manager.process_mouse_event_with_control_bar(message, x, y, data, &mut context),
-            WindowInputReturnCode::Used,
-            "{message:?} for control {} at ({x}, {y}), hidden={}, enabled={}",
-            button.borrow().get_id(),
-            button.borrow().is_hidden(),
-            button.borrow().is_enabled()
-        );
-        // Same completion boundary as the actual OS dispatch, after manager/widget loans end.
-        context.complete_options_accept(manager);
+    // Fresh MenuManager still needs Options IDs + ignore_selected cleared so
+    // Accept/Defaults apply against the live WND tree (init ran on a prior loan).
+    {
+        let mut messages = Vec::new();
+        let mut bind = crate::gui::game_window::WindowEventEffects::new(&mut messages);
+        bind.menus = context.menus.as_mut().map(|menus| menus.reborrow());
+        crate::gui::callbacks::menu_callbacks::simulate_options_menu_bind_controls(&mut bind);
     }
+    for message in [WindowMessage::LeftDown, WindowMessage::LeftUp] {
+        owner.with_manager(|manager| {
+            assert_eq!(
+                manager.process_mouse_event_with_control_bar(message, x, y, data, &mut context),
+                WindowInputReturnCode::Used,
+                "{message:?} for control {} at ({x}, {y}), hidden={}, enabled={}",
+                button.borrow().get_id(),
+                button.borrow().is_hidden(),
+                button.borrow().is_enabled()
+            );
+            // Same completion boundary as the actual OS dispatch, after manager/widget loans end.
+            context.complete_options_accept(manager);
+        });
+    }
+    {
+        let mut messages = Vec::new();
+        let mut drain = crate::gui::game_window::WindowEventEffects::new(&mut messages);
+        drain.window_manager_owner = Some(&owner);
+        owner.complete_event_callbacks(&mut drain);
+    }
+    owner.with_manager(|owned| std::mem::swap(owned, manager));
 }
 fn value(slider: &Rc<RefCell<GameWindow>>) -> i32 {
     match slider.borrow().widget() {
         Some(WindowWidget::HorizontalSlider(slider)) => slider.value(),
         _ => panic!("real authored slider missing"),
     }
+}
+
+fn run_options_init(
+    manager: &mut WindowManager,
+    layout: &WindowLayout,
+    observation: &OptionsCameraInputObservation,
+) {
+    // OptionsMenuInit only binds init_callback_with_effects; bare run_init is a
+    // no-op. Init queues focus through the receiving owner, so temporarily park
+    // the layout's WindowManager inside a WindowManagerOwner for the call.
+    let owner = crate::gui::window_manager::WindowManagerOwner::new();
+    owner.with_manager(|owned| std::mem::swap(owned, manager));
+    let mut menus = crate::gui::callbacks::menu_callbacks::MenuManager::new();
+    let mut messages = Vec::new();
+    let mut ui = crate::core::subsystems::InGameUISubsystem::default();
+    let mut effects = crate::gui::game_window::WindowEventEffects::new(&mut messages);
+    effects.window_manager_owner = Some(&owner);
+    effects.menus = Some(
+        menus.receiving_menus(crate::core::game_client::ClientInputAuthority::NativeHosted),
+    );
+    effects.ui = Some(&mut ui);
+    layout.run_init_with_effects(Some(observation as &dyn std::any::Any), &mut effects);
+    owner.complete_event_callbacks(&mut effects);
+    owner.with_manager(|owned| std::mem::swap(owned, manager));
 }
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
@@ -189,7 +243,7 @@ fn receiving_options_layout_apply_defaults_and_cancel_keep_equal_id_peer_isolate
     let _ = prefs_a.load(path_a.to_str().unwrap());
     let _ = prefs_b.load(path_b.to_str().unwrap());
     let (mut a, layout_a, accept_a, defaults_a, back_a, slider_a) = options_wnd();
-    let (_b, layout_b, _accept_b, _defaults_b, _back_b, slider_b) = options_wnd();
+    let (mut b, layout_b, _accept_b, _defaults_b, _back_b, slider_b) = options_wnd();
     assert_eq!(slider_a.borrow().get_id(), slider_b.borrow().get_id());
     let rules = CameraInputRules {
         keyboard_default_scroll_factor: 0.675,
@@ -201,11 +255,11 @@ fn receiving_options_layout_apply_defaults_and_cancel_keep_equal_id_peer_isolate
         global.keyboard_default_scroll_factor = 0.01;
     }
     let observation = OptionsCameraInputObservation::observe(rules, &prefs_a);
-    layout_a.run_init(Some(&observation));
+    run_options_init(&mut a, &layout_a, &observation);
     assert_eq!(value(&slider_a), 67);
     assert_eq!(rules.keyboard_scroll_factor(&prefs_a), 0.675);
     let peer = OptionsCameraInputObservation::observe(rules, &prefs_b);
-    layout_b.run_init(Some(&peer));
+    run_options_init(&mut b, &layout_b, &peer);
     assert_eq!(value(&slider_b), 25);
     assert_eq!(value(&slider_a), 67);
     slider_a
@@ -232,7 +286,7 @@ fn receiving_options_layout_apply_defaults_and_cancel_keep_equal_id_peer_isolate
         ..rules
     };
     let reopened = OptionsCameraInputObservation::observe(new_default, &prefs_a);
-    layout_a.run_init(Some(&reopened));
+    run_options_init(&mut a, &layout_a, &reopened);
     click_options(&mut a, &defaults_a, &mut prefs_a, new_default);
     assert_eq!(value(&slider_a), 37);
     assert_eq!(prefs_a.get_int("ScrollFactor"), Some(80));
@@ -395,7 +449,7 @@ fn receiving_replay_checkbox_actual_wnd_commits_only_own_store_before_accept() {
     layout.add_window(checkbox.clone());
     let rules = CameraInputRules::default();
     let observation = OptionsCameraInputObservation::observe(rules, &owner);
-    layout.run_init(Some(&observation));
+    run_options_init(&mut manager, &layout, &observation);
     assert!(checkbox.borrow_mut().check_box_mut().unwrap().is_checked());
     game_engine::common::global_data::write().use_camera_in_replay = true;
     click_options(&mut manager, &checkbox, &mut owner, rules);
