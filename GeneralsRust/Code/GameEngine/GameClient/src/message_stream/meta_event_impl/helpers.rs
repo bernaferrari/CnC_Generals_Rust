@@ -563,6 +563,22 @@ pub(crate) fn execute_ui_input_action(
     }
 }
 
+pub(crate) fn try_dispatch_ui_input(
+    action: game_engine::common::message_stream::UiInputAction,
+    dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
+    ui: &mut crate::message_stream::ReceivingUi<'_>,
+) -> bool {
+    match ui.dispatch(
+        dispatch,
+        game_engine::common::message_stream::WindowInputDispatch::Ui(action),
+    ) {
+        Some(game_engine::common::message_stream::WindowInputDispatchResult::Ui(handled)) => {
+            handled
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn dispatch_ui_input(
     action: game_engine::common::message_stream::UiInputAction,
     dispatch: &mut game_engine::common::message_stream::WindowInputDispatchFn<'_>,
