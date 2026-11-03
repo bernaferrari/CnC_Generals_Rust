@@ -560,6 +560,10 @@ impl LocalizationManager {
 
     /// Validate format string syntax
     fn validate_format_string(&self, text: &str) -> Result<(), String> {
+        // Bare "{}" is never a valid named GameText placeholder.
+        if text.contains("{}") {
+            return Err("Empty parameter name".to_string());
+        }
         for captures in self.format_regex.captures_iter(text) {
             let param_name = captures.get(1).unwrap().as_str();
             if param_name.is_empty() {

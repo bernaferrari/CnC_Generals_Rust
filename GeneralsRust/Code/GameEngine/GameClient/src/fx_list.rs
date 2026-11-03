@@ -2355,12 +2355,39 @@ if let Ok(mut players) = __arc_bind.write() {
             y: 16.0,
             z: 1.0,
         };
+        // Public doFXPos stays fail-closed without CELLSHROUD_CLEAR.
         list.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
         assert!(
             fx.drain_display_light_pulses().is_empty(),
             "FXList::doFXPos must skip LightPulse nuggets when the cell is not CELLSHROUD_CLEAR"
         );
-        nugget.do_fx_pos(Some(&pos), None, 0.0, None, 0.0);
+        // Receiving FxClientState owns TheDisplay light scene (no process TLS).
+        {
+            let mut add_scorch = |_, _, _| {};
+            let mut shake = |_: &Coord3D, _| {};
+            let mut find_list = |_: &str| None;
+            let mut bones = |_, _: &str, _, _| Vec::new();
+            let mut visible = |_: Option<&Coord3D>| true;
+            let mut create_light_pulse =
+                |pulse: DisplayLightPulse| fx.create_display_light_pulse(pulse);
+            let mut play_fx_audio = |_: &str, _: Option<MessageCoord3D>| false;
+            nugget.do_fx_pos_with_view(
+                Some(&pos),
+                None,
+                0.0,
+                None,
+                0.0,
+                &mut FxViewServices {
+                    add_scorch: &mut add_scorch,
+                    shake: &mut shake,
+                    find_list: &mut find_list,
+                    bone_transforms: &mut bones,
+                    position_visible: &mut visible,
+                    create_light_pulse: &mut create_light_pulse,
+                    play_fx_audio: &mut play_fx_audio,
+                },
+            );
+        }
         let pulses = fx.drain_display_light_pulses();
         assert_eq!(pulses.len(), 1);
         assert_eq!(pulses[0].outer_radius, 40.0);
@@ -2551,7 +2578,29 @@ if let Ok(mut players) = __arc_bind.write() {
             bounding_circle_radius: 25.0,
             is_shrouded: false,
         };
-        nugget.do_fx_obj_host(&pose, None);
+        {
+            let mut add_scorch = |_, _, _| {};
+            let mut shake = |_: &Coord3D, _| {};
+            let mut find_list = |_: &str| None;
+            let mut bones = |_, _: &str, _, _| Vec::new();
+            let mut visible = |_: Option<&Coord3D>| true;
+            let mut create_light_pulse =
+                |pulse: DisplayLightPulse| fx.create_display_light_pulse(pulse);
+            let mut play_fx_audio = |_: &str, _: Option<MessageCoord3D>| false;
+            nugget.do_fx_obj_host_with_view(
+                &pose,
+                None,
+                &mut FxViewServices {
+                    add_scorch: &mut add_scorch,
+                    shake: &mut shake,
+                    find_list: &mut find_list,
+                    bone_transforms: &mut bones,
+                    position_visible: &mut visible,
+                    create_light_pulse: &mut create_light_pulse,
+                    play_fx_audio: &mut play_fx_audio,
+                },
+            );
+        }
         let pulses = fx.drain_display_light_pulses();
         assert_eq!(pulses.len(), 1);
         assert!((pulses[0].outer_radius - 50.0).abs() < 0.01);
