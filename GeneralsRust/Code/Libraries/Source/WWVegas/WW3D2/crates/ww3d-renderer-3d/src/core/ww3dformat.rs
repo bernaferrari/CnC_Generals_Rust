@@ -210,7 +210,7 @@ pub struct FormatManager {
 impl FormatManager {
     pub fn from_device(device: &wgpu::Device) -> Self {
         let features = device.features();
-        let cfg = config::get();
+        let cfg = crate::config::RendererConfig::default();
         let compression_supported = features.contains(wgpu::Features::TEXTURE_COMPRESSION_BC);
         let supported_formats = Self::probe_supported_formats(device);
         Self {
@@ -223,7 +223,7 @@ impl FormatManager {
     }
 
     pub fn default_cpu() -> Self {
-        let cfg = config::get();
+        let cfg = crate::config::RendererConfig::default();
         let mut supported_formats = HashSet::new();
         supported_formats.insert(WW3DFormat::A8R8G8B8);
         supported_formats.insert(WW3DFormat::R8G8B8A8);

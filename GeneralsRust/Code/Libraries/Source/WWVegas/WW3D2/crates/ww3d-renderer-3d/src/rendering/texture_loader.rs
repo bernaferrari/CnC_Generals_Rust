@@ -565,7 +565,9 @@ impl TextureLoaderClass {
 
         let allow_reduction = request.map_or(true, |req| req.allow_reduction);
         if allow_reduction {
+            let r3d = crate::process_state::Renderer3dRuntime::new();
             let mut reduction = texture_quality::compute_effective_reduction(
+                &r3d,
                 data.width,
                 data.height,
                 data.mip_levels,

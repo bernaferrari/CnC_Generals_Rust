@@ -55,7 +55,7 @@ pub mod math_utilities {
 // DX8 re-exports removed; WGPU is the renderer path
 pub mod config;
 pub mod process_state;
-pub use process_state::{Renderer3dRuntime, renderer_3d, with_renderer_3d, install_renderer_3d};
+pub use process_state::Renderer3dRuntime;
 pub mod lod_system;
 pub mod material_system;
 pub mod render_object_system;
@@ -259,6 +259,8 @@ pub struct Renderer {
     animation_coordinator: animation_synchronization::AnimationFrameCoordinator,
     /// Session WW3D context (owned by display/WgpuMainRenderer).
     ww3d: Option<std::sync::Arc<Ww3dContext>>,
+    /// Session renderer-3d runtime (config/sort/texture/id state).
+    renderer_3d: Option<std::sync::Arc<crate::process_state::Renderer3dRuntime>>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -277,6 +279,19 @@ unsafe impl Sync for Renderer {}
 impl Renderer {
     pub fn set_ww3d(&mut self, ww3d: std::sync::Arc<Ww3dContext>) {
         self.ww3d = Some(ww3d);
+    }
+
+    pub fn set_renderer_3d(
+        &mut self,
+        r3d: std::sync::Arc<crate::process_state::Renderer3dRuntime>,
+    ) {
+        self.frame_graph.renderer_3d = Some(std::sync::Arc::clone(&r3d));
+        self.mesh_render_manager.renderer_3d = Some(std::sync::Arc::clone(&r3d));
+        self.renderer_3d = Some(r3d);
+    }
+
+    pub fn renderer_3d(&self) -> Option<&crate::process_state::Renderer3dRuntime> {
+        self.renderer_3d.as_deref()
     }
 
     pub fn ww3d(&self) -> Option<&Ww3dContext> {
@@ -316,6 +331,7 @@ impl Renderer {
             pending_shadow_caster_submissions: Vec::new(),
             animation_coordinator: animation_synchronization::AnimationFrameCoordinator::new(),
             ww3d: None,
+            renderer_3d: None,
         }
     }
 
@@ -576,7 +592,7 @@ impl Renderer {
         let node = self.frame_graph.node_mut(FrameGraphPass::Main);
         let context = FrameGraphPassContext::from_render_info(FrameGraphPass::Main, info);
         node.set_context(context);
-        let _static_flush_guard = rendering::mesh_system::StaticSortManager::begin_flush();
+        let _static_flush_guard = self.renderer_3d.as_ref().map(|r| rendering::mesh_system::StaticSortManager::begin_flush(std::sync::Arc::clone(r)));
         let mut non_mesh_static = node.ingest_static_sort_entries();
         let prepared = node.prepare(camera_pos);
         self.pending_shadow_caster_submissions =
@@ -718,7 +734,7 @@ impl Renderer {
         for render_obj in non_mesh_static.drain(..) {
             render_obj.render(info)?;
         }
-        rendering::mesh_system::StaticSortManager::flush_static_sort_list();
+        if let Some(r3d) = self.renderer_3d.as_ref() { rendering::mesh_system::StaticSortManager::flush_static_sort_list(r3d); }
         Ok(())
     }
 
@@ -764,10 +780,14 @@ impl Renderer {
         }
 
         self.mesh_render_manager.ensure_model(&mesh_model)?;
-        let sorting = rendering::mesh_system::DX8FVFCategoryContainer::sorting_for_mesh(
-            mesh_model.flags,
-            mesh_model.sort_level,
-        );
+        let sorting = match self.renderer_3d.as_ref() {
+            Some(r3d) => rendering::mesh_system::DX8FVFCategoryContainer::sorting_for_mesh(
+                r3d,
+                mesh_model.flags,
+                mesh_model.sort_level,
+            ),
+            None => false,
+        };
         self.mesh_render_manager.ensure_sorting_container(sorting);
         self.registered_mesh_models.insert(key, mesh_model);
 

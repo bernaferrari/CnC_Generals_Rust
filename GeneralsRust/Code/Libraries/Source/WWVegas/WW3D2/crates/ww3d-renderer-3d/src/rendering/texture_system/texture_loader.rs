@@ -292,7 +292,9 @@ impl TextureLoader {
                         if matches!(data.kind, TextureDataKind::Texture2D)
                             && request.allow_reduction
                         {
+                            let r3d = crate::process_state::Renderer3dRuntime::new();
                             let mut reduction = texture_quality::compute_effective_reduction(
+                                &r3d,
                                 data.width,
                                 data.height,
                                 data.mip_levels,

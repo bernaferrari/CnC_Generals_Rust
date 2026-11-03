@@ -164,6 +164,8 @@ pub struct SystemStores {
     pub runtime_fx_next_id: std::sync::atomic::AtomicU64,
     /// Live GameClient snapshot bridge (same-thread exclusive borrow).
     pub live_game_client: Mutex<LiveGameClientBridge>,
+    /// Type-erased `Arc<Renderer3dRuntime>` (set by Main; GameClient downcasts).
+    pub renderer_3d_any: Mutex<Option<std::sync::Arc<dyn std::any::Any + Send + Sync>>>,
     /// SaveGame post-load partition / world-dict hooks.
     pub post_load_hooks: Arc<Mutex<PostLoadHooks>>,
     /// C++ ThePlayerList academy peer counters (advice #31/#32).
@@ -248,6 +250,7 @@ impl SystemStores {
             effects_next_handle: std::sync::atomic::AtomicU32::new(10000),
             runtime_fx_next_id: std::sync::atomic::AtomicU64::new(1),
             live_game_client: Mutex::new(LiveGameClientBridge::default()),
+            renderer_3d_any: Mutex::new(None),
             post_load_hooks: Arc::new(Mutex::new(PostLoadHooks::default())),
             academy_local_player_mines: AtomicU32::new(0),
             academy_neutral_vehicles_sniped: AtomicU32::new(0),

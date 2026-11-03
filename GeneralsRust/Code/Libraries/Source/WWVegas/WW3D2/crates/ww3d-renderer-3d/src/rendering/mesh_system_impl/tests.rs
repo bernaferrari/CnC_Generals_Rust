@@ -695,7 +695,7 @@ fn dest_blend_sets_sort_flag_without_using_header_attrs_as_sort_level() {
     assert_eq!(model.sort_level, SORT_LEVEL_NONE);
     assert_eq!(model.w3d_attributes, 0xFFFF);
     assert!(model.get_flag(MeshGeometryClass::SORT));
-    assert!(DX8FVFCategoryContainer::sorting_for_mesh(
+    assert!(DX8FVFCategoryContainer::sorting_for_mesh(&crate::process_state::Renderer3dRuntime::new(), 
         model.flags,
         model.sort_level
     ));

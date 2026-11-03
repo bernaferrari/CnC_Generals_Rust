@@ -1778,10 +1778,12 @@ mod receiving_terrain_lod_tests {
                 MouseButton::Left,
                 Some(&mut |value| {
                     assert_eq!(definitions.read().texture_reduction_factor, value);
-                    assert_eq!(
-                        ww3d_renderer_3d::rendering::texture_quality::texture_reduction(),
-                        value as u32
-                    );
+                    if let Some(r3d) = game_client::core::game_client::live_renderer_3d() {
+                        assert_eq!(
+                            ww3d_renderer_3d::rendering::texture_quality::texture_reduction(&r3d),
+                            value as u32
+                        );
+                    }
                     observed_a.push(value);
                 }),
                 Some(effects),

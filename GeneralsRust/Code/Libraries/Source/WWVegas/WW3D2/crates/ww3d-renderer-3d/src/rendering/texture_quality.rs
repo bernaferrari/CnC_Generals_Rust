@@ -5,7 +5,6 @@
 //! the same semantics so higher level code can toggle them in the same way as
 //! before.
 
-use std::cell::Cell;
 
 /// Texture quality knobs shared across the renderer.
 #[derive(Clone, Copy, Debug)]
@@ -27,63 +26,72 @@ impl Default for TextureQualitySettings {
 
 
 /// Fetch a snapshot of the current texture quality settings.
-pub fn settings() -> TextureQualitySettings {
-    crate::process_state::renderer_3d().texture_quality.lock().unwrap_or_else(|p| p.into_inner()).clone()
+pub fn settings(r3d: &crate::process_state::Renderer3dRuntime) -> TextureQualitySettings {
+    r3d.texture_quality.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 /// Replace the active texture quality settings.
-pub fn set(settings: TextureQualitySettings) {
+pub fn set(r3d: &crate::process_state::Renderer3dRuntime, settings: TextureQualitySettings) {
     let mut cfg = settings;
     cfg.min_dimension = cfg.min_dimension.max(1);
-    let r3d = crate::process_state::renderer_3d();
     *r3d.texture_quality.lock().unwrap_or_else(|p| p.into_inner()) = cfg;
 }
 
 /// Set the global reduction and minimum dimension as per the legacy `WW3D::Set_Texture_Reduction`.
-pub fn set_texture_reduction(reduction: u32, min_dimension: u32) {
-    { let __r3d = crate::process_state::renderer_3d();
-    let mut cell = __r3d.texture_quality.lock().unwrap_or_else(|p| p.into_inner()); 
-        let extra = cell.clone().large_texture_extra_reduction;
-        *cell = TextureQualitySettings {
-            reduction,
-            min_dimension: min_dimension.max(1),
-            large_texture_extra_reduction: extra,
-        };
-     }
+pub fn set_texture_reduction(
+    r3d: &crate::process_state::Renderer3dRuntime,
+    reduction: u32,
+    min_dimension: u32,
+) {
+    let mut cell = r3d.texture_quality.lock().unwrap_or_else(|p| p.into_inner());
+    let extra = cell.large_texture_extra_reduction;
+    *cell = TextureQualitySettings {
+        reduction,
+        min_dimension: min_dimension.max(1),
+        large_texture_extra_reduction: extra,
+    };
 }
 
 /// Retrieve the currently requested global reduction level.
-pub fn texture_reduction() -> u32 {
-    settings().reduction
+pub fn texture_reduction(r3d: &crate::process_state::Renderer3dRuntime) -> u32 {
+    settings(r3d).reduction
 }
 
 /// Retrieve the minimum dimension clamp used when applying reductions.
-pub fn texture_min_dimension() -> u32 {
-    settings().min_dimension
+pub fn texture_min_dimension(r3d: &crate::process_state::Renderer3dRuntime) -> u32 {
+    settings(r3d).min_dimension
 }
 
 /// Toggle the "large texture extra reduction" flag from the legacy renderer.
-pub fn enable_large_texture_extra_reduction(enabled: bool) {
-    { let __r3d = crate::process_state::renderer_3d();
-    let mut cell = __r3d.texture_quality.lock().unwrap_or_else(|p| p.into_inner()); 
-        let mut cfg = cell.clone();
-        cfg.large_texture_extra_reduction = enabled;
-        *cell = cfg;
-     }
+pub fn enable_large_texture_extra_reduction(
+    r3d: &crate::process_state::Renderer3dRuntime,
+    enabled: bool,
+) {
+    let mut cell = r3d.texture_quality.lock().unwrap_or_else(|p| p.into_inner());
+    let mut cfg = *cell;
+    cfg.large_texture_extra_reduction = enabled;
+    *cell = cfg;
 }
 
 /// Query whether the extra large texture reduction is active.
-pub fn is_large_texture_extra_reduction_enabled() -> bool {
-    settings().large_texture_extra_reduction
+pub fn is_large_texture_extra_reduction_enabled(
+    r3d: &crate::process_state::Renderer3dRuntime,
+) -> bool {
+    settings(r3d).large_texture_extra_reduction
 }
 
 /// Compute how many mip levels should be skipped for the given texture.
-pub fn compute_effective_reduction(width: u32, height: u32, mip_levels: u32) -> u32 {
+pub fn compute_effective_reduction(
+    r3d: &crate::process_state::Renderer3dRuntime,
+    width: u32,
+    height: u32,
+    mip_levels: u32,
+) -> u32 {
     if mip_levels <= 1 || width <= 32 || height <= 32 {
         return 0;
     }
 
-    let settings = settings();
+    let settings = settings(r3d);
     let mut desired = settings.reduction;
 
     if settings.large_texture_extra_reduction && (width > 256 || height > 256) {
@@ -114,29 +122,34 @@ pub fn compute_effective_reduction(width: u32, height: u32, mip_levels: u32) -> 
 mod tests {
     #[allow(unused_imports)]
     use super::*;
-    fn test_lock() {}
+    fn test_lock() {
+        let r3d = crate::process_state::Renderer3dRuntime::new();}
 
     #[test]
     fn respects_min_dimension() {
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        let r3d = crate::process_state::Renderer3dRuntime::new();
         set(TextureQualitySettings::default());
         set_texture_reduction(3, 64);
-        assert_eq!(compute_effective_reduction(128, 128, 5), 2);
-        assert_eq!(compute_effective_reduction(32, 64, 5), 0);
+        assert_eq!(compute_effective_reduction(&r3d, 128, 128, 5), 2);
+        assert_eq!(compute_effective_reduction(&r3d, 32, 64, 5), 0);
     }
 
     #[test]
     fn honours_large_texture_extra_reduction() {
+        let r3d = crate::process_state::Renderer3dRuntime::new();
         set(TextureQualitySettings::default());
         set_texture_reduction(1, 1);
         enable_large_texture_extra_reduction(true);
-        assert_eq!(compute_effective_reduction(512, 512, 6), 2);
+        assert_eq!(compute_effective_reduction(&r3d, 512, 512, 6), 2);
         enable_large_texture_extra_reduction(false);
     }
 
     #[test]
     fn never_drops_all_mips() {
+        let r3d = crate::process_state::Renderer3dRuntime::new();
         set(TextureQualitySettings::default());
         set_texture_reduction(10, 1);
-        assert_eq!(compute_effective_reduction(1024, 1024, 3), 2);
+        assert_eq!(compute_effective_reduction(&r3d, 1024, 1024, 3), 2);
     }
 }

@@ -894,7 +894,11 @@ use crate::message_stream::game_message::GameMessageType;
         if let Ok(mut runtime_global) = runtime_global_data::write_safe() {
             runtime_global.texture_reduction_factor = 0;
         }
+        let r3d = std::sync::Arc::new(ww3d_renderer_3d::Renderer3dRuntime::new());
+        // Attach session so apply_lod updates the same runtime the assert reads.
+        crate::core::game_client::set_live_renderer_3d(std::sync::Arc::clone(&r3d));
         ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(
+            &r3d,
             0,
             WW3D_TEXTURE_REDUCTION_MIN_DIMENSION,
         );
@@ -903,7 +907,7 @@ use crate::message_stream::game_message::GameMessageType;
         assert_eq!(global_data.read().texture_reduction_factor, 4);
         assert_eq!(runtime_global_data::read().texture_reduction_factor, 4);
         assert_eq!(
-            ww3d_renderer_3d::rendering::texture_quality::texture_reduction(),
+            ww3d_renderer_3d::rendering::texture_quality::texture_reduction(&r3d),
             4
         );
     }
@@ -914,7 +918,10 @@ use crate::message_stream::game_message::GameMessageType;
         init_global_data();
         let global_data = get_global_data().expect("global data should be available for LOD test");
         global_data.write().texture_reduction_factor = 0;
+        let r3d = std::sync::Arc::new(ww3d_renderer_3d::Renderer3dRuntime::new());
+        crate::core::game_client::set_live_renderer_3d(std::sync::Arc::clone(&r3d));
         ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(
+            &r3d,
             0,
             WW3D_TEXTURE_REDUCTION_MIN_DIMENSION,
         );

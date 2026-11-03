@@ -2,7 +2,6 @@
 
 use crate::texture_system::TextureClass;
 use glam::{Mat4, Vec3};
-use std::cell::Cell;
 
 /// C++ `LightEnvironmentClass::MAX_LIGHTS`.
 pub const MAX_LIGHTS: usize = 4;
@@ -13,18 +12,17 @@ const WWMATH_EPSILON: f32 = 1.0e-5;
 
 
 /// C++ `Set_Lighting_LOD_Cutoff`.
-pub fn set_lighting_lod_cutoff(cutoff: f32) {
-    { let __r3d = crate::process_state::renderer_3d();
-    let mut cell = __r3d.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()); *cell = cutoff };
+pub fn set_lighting_lod_cutoff(r3d: &crate::process_state::Renderer3dRuntime, cutoff: f32) {
+    *r3d.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()) = cutoff;
 }
 
 /// C++ `Get_Lighting_LOD_Cutoff` (default 0.5, cutoff² = 0.25).
-pub fn get_lighting_lod_cutoff() -> f32 {
-    crate::process_state::renderer_3d().lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner()).clone()
+pub fn get_lighting_lod_cutoff(r3d: &crate::process_state::Renderer3dRuntime) -> f32 {
+    *r3d.lighting_lod_cutoff.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-fn lighting_lod_cutoff2() -> f32 {
-    let c = get_lighting_lod_cutoff();
+fn lighting_lod_cutoff2(r3d: &crate::process_state::Renderer3dRuntime) -> f32 {
+    let c = get_lighting_lod_cutoff(r3d);
     c * c
 }
 
@@ -94,16 +92,16 @@ impl LightEnvironmentClass {
     }
 
     /// Rebuild from previously added sources (scene Customized_Render).
-    pub fn rebuild(&mut self, object_center: Vec3, scene_ambient: Vec3) {
+    pub fn rebuild(&mut self, r3d: &crate::process_state::Renderer3dRuntime, object_center: Vec3, scene_ambient: Vec3) {
         let sources = self.sources.clone();
         self.reset(object_center, scene_ambient);
         for source in sources {
-            self.add_light(source);
+            self.add_light(r3d, source);
         }
     }
 
     /// Add a light to the environment — C++ `Add_Light`.
-    pub fn add_light(&mut self, light: LightClass) {
+    pub fn add_light(&mut self, r3d: &crate::process_state::Renderer3dRuntime, light: LightClass) {
         self.sources.push(light.clone());
         if !light.enabled {
             return;
@@ -113,7 +111,7 @@ impl LightEnvironmentClass {
             return;
         }
 
-        let mut new_light = init_input_light(&light, self.object_center);
+        let mut new_light = init_input_light(r3d, &light, self.object_center);
         if self.fill_intensity != 0.0 {
             new_light.diffuse *= light.intensity;
         }
@@ -310,9 +308,9 @@ impl LightEnvironmentClass {
     }
 }
 
-fn init_input_light(light: &LightClass, object_center: Vec3) -> InputLight {
+fn init_input_light(r3d: &crate::process_state::Renderer3dRuntime, light: &LightClass, object_center: Vec3) -> InputLight {
     match light.light_type {
-        LightType::Point | LightType::Spot => init_from_point_or_spot(light, object_center),
+        LightType::Point | LightType::Spot => init_from_point_or_spot(r3d, light, object_center),
         LightType::Directional => init_from_directional(light),
     }
 }
@@ -333,7 +331,7 @@ fn far_attenuation(light: &LightClass, dist: f32) -> f32 {
     (1.0 - (dist - start) / (end - start)).clamp(0.0, 1.0)
 }
 
-fn init_from_point_or_spot(light: &LightClass, object_center: Vec3) -> InputLight {
+fn init_from_point_or_spot(r3d: &crate::process_state::Renderer3dRuntime, light: &LightClass, object_center: Vec3) -> InputLight {
     let mut direction = light.position - object_center;
     let dist = direction.length();
     if dist > 0.0 {
@@ -365,7 +363,7 @@ fn init_from_point_or_spot(light: &LightClass, object_center: Vec3) -> InputLigh
         light.range
     };
 
-    let rejected = diffuse.length_squared() <= lighting_lod_cutoff2();
+    let rejected = diffuse.length_squared() <= lighting_lod_cutoff2(r3d);
     if !rejected {
         ambient *= atten;
         diffuse *= atten;
@@ -800,8 +798,8 @@ impl LightingManager {
     }
 
     /// Add a light to the scene
-    pub fn add_light(&mut self, light: LightClass) {
-        self.light_environment.add_light(light);
+    pub fn add_light(&mut self, r3d: &crate::process_state::Renderer3dRuntime, light: LightClass) {
+        self.light_environment.add_light(r3d, light);
     }
 
     /// Calculate lighting contribution for a point

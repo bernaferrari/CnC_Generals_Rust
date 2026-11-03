@@ -111,8 +111,11 @@ pub const MASK_POSTDETAILALPHAFUNC: u32 = ((1 << 2) - 1) << SHIFT_POSTDETAILALPH
 use crate::process_state::ShaderGlobalState;
 
 /// Run `f` with mutable access to the session shader state.
-fn with_shader_state<R>(f: impl FnOnce(&mut ShaderGlobalState) -> R) -> R {
-    f(&mut crate::process_state::renderer_3d()
+fn with_shader_state<R>(
+    r3d: &crate::process_state::Renderer3dRuntime,
+    f: impl FnOnce(&mut ShaderGlobalState) -> R,
+) -> R {
+    f(&mut r3d
         .shader_state
         .lock()
         .unwrap_or_else(|p| p.into_inner()))
@@ -1725,8 +1728,8 @@ impl ShaderClass {
 
     /// Check if shader cache is dirty (needs full state update)
     /// Matches C++ ShaderClass::ShaderDirty (shader.cpp line 50)
-    pub fn shader_dirty() -> bool {
-        with_shader_state(|state| state.dirty)
+    pub fn shader_dirty(r3d: &crate::process_state::Renderer3dRuntime) -> bool {
+        with_shader_state(r3d, |state| state.dirty)
     }
 
     /// Invalidate shader cache - forces full state application on next apply
@@ -1735,8 +1738,8 @@ impl ShaderClass {
     /// - Switching render targets
     /// - After device reset
     /// - When external render state changes occur
-    pub fn invalidate() {
-        with_shader_state(|state| state.dirty = true);
+    pub fn invalidate(r3d: &crate::process_state::Renderer3dRuntime) {
+        with_shader_state(r3d, |state| state.dirty = true);
     }
 
     /// Calculate differential state mask
@@ -1749,8 +1752,8 @@ impl ShaderClass {
     ///     diff = CurrentShader ^ ShaderBits;  // Apply only changes
     /// }
     /// ```
-    pub fn calculate_diff(&self) -> u32 {
-        with_shader_state(|state| {
+    pub fn calculate_diff(&self, r3d: &crate::process_state::Renderer3dRuntime) -> u32 {
+        with_shader_state(r3d, |state| {
             if state.dirty {
                 0xffffffff // Apply all states when dirty
             } else {
@@ -1765,8 +1768,8 @@ impl ShaderClass {
     ///
     /// This matches the C++ ShaderClass::Apply() optimization (shader.cpp lines 409-1044)
     /// Performance benefit: Reduces redundant GPU state changes by 60-90% in typical scenes
-    pub fn apply_differential(&self) -> bool {
-        let mut diff = self.calculate_diff();
+    pub fn apply_differential(&self, r3d: &crate::process_state::Renderer3dRuntime) -> bool {
+        let mut diff = self.calculate_diff(r3d);
 
         // Early exit if nothing changed
         if diff == 0 {
@@ -1775,7 +1778,7 @@ impl ShaderClass {
 
         // Update global state
         {
-            with_shader_state(|state| {
+            with_shader_state(r3d, |state| {
                 state.current_shader = self.bits;
                 state.dirty = false;
             });
@@ -1786,7 +1789,7 @@ impl ShaderClass {
 
         // Blend state (color mask, src/dst blend, alpha test)
         if diff & (MASK_COLORMASK | MASK_SRCBLEND | MASK_DSTBLEND | MASK_ALPHATEST) != 0 {
-            self.apply_blend_state();
+            self.apply_blend_state(r3d);
             diff &= !(MASK_COLORMASK | MASK_SRCBLEND | MASK_DSTBLEND | MASK_ALPHATEST);
             if diff == 0 {
                 return true;
@@ -1795,7 +1798,7 @@ impl ShaderClass {
 
         // Fog state
         if diff & MASK_FOG != 0 {
-            self.apply_fog_state();
+            self.apply_fog_state(r3d);
             diff &= !MASK_FOG;
             if diff == 0 {
                 return true;
@@ -1810,7 +1813,7 @@ impl ShaderClass {
                 | MASK_POSTDETAILALPHAFUNC)
             != 0
         {
-            self.apply_texture_stage_state();
+            self.apply_texture_stage_state(r3d);
             diff &= !(MASK_PRIGRADIENT
                 | MASK_TEXTURING
                 | MASK_POSTDETAILCOLORFUNC
@@ -1822,7 +1825,7 @@ impl ShaderClass {
 
         // Depth state (compare, mask)
         if diff & (MASK_DEPTHCOMPARE | MASK_DEPTHMASK) != 0 {
-            self.apply_depth_state();
+            self.apply_depth_state(r3d);
             diff &= !(MASK_DEPTHCOMPARE | MASK_DEPTHMASK);
             if diff == 0 {
                 return true;
@@ -1831,7 +1834,7 @@ impl ShaderClass {
 
         // Cull mode
         if diff & MASK_CULLMODE != 0 {
-            self.apply_cull_state();
+            self.apply_cull_state(r3d);
             diff &= !MASK_CULLMODE;
             if diff == 0 {
                 return true;
@@ -1840,7 +1843,7 @@ impl ShaderClass {
 
         // NPatch/skinned-geometry bit.
         if diff & MASK_NPATCHENABLE != 0 {
-            self.apply_npatch_state();
+            self.apply_npatch_state(r3d);
             diff &= !MASK_NPATCHENABLE;
             if diff == 0 {
                 return true;
@@ -1849,30 +1852,30 @@ impl ShaderClass {
 
         // Secondary gradient (specular)
         if diff & MASK_SECGRADIENT != 0 {
-            self.apply_secondary_gradient();
+            self.apply_secondary_gradient(r3d);
         }
 
         true
     }
 
     /// Apply blend state category
-    fn apply_blend_state(&self) {
-        with_shader_state(|state| {
+    fn apply_blend_state(&self, r3d: &crate::process_state::Renderer3dRuntime) {
+        with_shader_state(r3d, |state| {
             state.applied_blend_bits =
                 self.bits & (MASK_COLORMASK | MASK_SRCBLEND | MASK_DSTBLEND | MASK_ALPHATEST);
         });
     }
 
     /// Apply fog state category
-    fn apply_fog_state(&self) {
-        with_shader_state(|state| {
+    fn apply_fog_state(&self, r3d: &crate::process_state::Renderer3dRuntime) {
+        with_shader_state(r3d, |state| {
             state.applied_fog_bits = self.bits & MASK_FOG;
         });
     }
 
     /// Apply texture stage state category
-    fn apply_texture_stage_state(&self) {
-        with_shader_state(|state| {
+    fn apply_texture_stage_state(&self, r3d: &crate::process_state::Renderer3dRuntime) {
+        with_shader_state(r3d, |state| {
             state.applied_texture_stage_bits = self.bits
                 & (MASK_PRIGRADIENT
                     | MASK_TEXTURING
@@ -1882,35 +1885,35 @@ impl ShaderClass {
     }
 
     /// Apply depth state category
-    fn apply_depth_state(&self) {
-        with_shader_state(|state| {
+    fn apply_depth_state(&self, r3d: &crate::process_state::Renderer3dRuntime) {
+        with_shader_state(r3d, |state| {
             state.applied_depth_bits = self.bits & (MASK_DEPTHCOMPARE | MASK_DEPTHMASK);
         });
     }
 
     /// Apply cull state category
-    fn apply_cull_state(&self) {
-        with_shader_state(|state| {
+    fn apply_cull_state(&self, r3d: &crate::process_state::Renderer3dRuntime) {
+        with_shader_state(r3d, |state| {
             state.applied_cull_bits = self.bits & MASK_CULLMODE;
         });
     }
 
-    fn apply_npatch_state(&self) {
-        with_shader_state(|state| {
+    fn apply_npatch_state(&self, r3d: &crate::process_state::Renderer3dRuntime) {
+        with_shader_state(r3d, |state| {
             state.applied_npatch_bits = self.bits & MASK_NPATCHENABLE;
         });
     }
 
     /// Apply secondary gradient (specular) state
-    fn apply_secondary_gradient(&self) {
-        with_shader_state(|state| {
+    fn apply_secondary_gradient(&self, r3d: &crate::process_state::Renderer3dRuntime) {
+        with_shader_state(r3d, |state| {
             state.applied_sec_gradient_bits = self.bits & MASK_SECGRADIENT;
         });
     }
 
     #[cfg(test)]
-    fn debug_applied_state_snapshot() -> (u32, u32, u32, u32, u32, u32, u32) {
-        with_shader_state(|state| {
+    fn debug_applied_state_snapshot(r3d: &crate::process_state::Renderer3dRuntime) -> (u32, u32, u32, u32, u32, u32, u32) {
+        with_shader_state(r3d, |state| {
             (
                 state.applied_blend_bits,
                 state.applied_fog_bits,
@@ -2210,27 +2213,27 @@ mod tests {
     #[test]
     fn test_shader_invalidate() {
         // Reset state for clean test
-        ShaderClass::invalidate();
+        ShaderClass::invalidate(r3d);
 
         // After invalidation, shader should be dirty
-        assert!(ShaderClass::shader_dirty());
+        assert!(ShaderClass::shader_dirty(r3d));
 
         // Create and apply a shader
         let shader = ShaderClass::get_opaque_shader();
         shader.apply_differential();
 
         // After apply, should no longer be dirty
-        assert!(!ShaderClass::shader_dirty());
+        assert!(!ShaderClass::shader_dirty(r3d));
 
         // Invalidate again
-        ShaderClass::invalidate();
-        assert!(ShaderClass::shader_dirty());
+        ShaderClass::invalidate(r3d);
+        assert!(ShaderClass::shader_dirty(r3d));
     }
 
     #[test]
     fn test_differential_same_shader() {
         // Reset state
-        ShaderClass::invalidate();
+        ShaderClass::invalidate(r3d);
 
         let shader = ShaderClass::get_opaque_shader();
 
@@ -2247,7 +2250,7 @@ mod tests {
     #[test]
     fn test_differential_different_shaders() {
         // Reset state
-        ShaderClass::invalidate();
+        ShaderClass::invalidate(r3d);
 
         let opaque = ShaderClass::get_opaque_shader();
         let alpha = ShaderClass::get_alpha_shader();
@@ -2265,7 +2268,7 @@ mod tests {
     #[test]
     fn test_calculate_diff_when_dirty() {
         // Reset and set dirty
-        ShaderClass::invalidate();
+        ShaderClass::invalidate(r3d);
 
         let shader = ShaderClass::get_opaque_shader();
 
@@ -2277,7 +2280,7 @@ mod tests {
     #[test]
     fn test_calculate_diff_no_change() {
         // Reset state
-        ShaderClass::invalidate();
+        ShaderClass::invalidate(r3d);
 
         let shader = ShaderClass::get_opaque_shader();
 
@@ -2292,7 +2295,7 @@ mod tests {
     #[test]
     fn test_calculate_diff_blend_change() {
         // Reset state
-        ShaderClass::invalidate();
+        ShaderClass::invalidate(r3d);
 
         let shader1 = ShaderClass::get_opaque_shader();
         let bits1 = shader1.get_bits();
@@ -2322,7 +2325,7 @@ mod tests {
     #[test]
     fn test_calculate_diff_depth_change() {
         // Reset state
-        ShaderClass::invalidate();
+        ShaderClass::invalidate(r3d);
 
         let shader1 = ShaderClass::get_opaque_shader();
         shader1.apply_differential();
@@ -2340,7 +2343,7 @@ mod tests {
     #[test]
     fn test_calculate_diff_multiple_changes() {
         // Reset state
-        ShaderClass::invalidate();
+        ShaderClass::invalidate(r3d);
 
         let shader1 = ShaderClass::get_opaque_shader();
         shader1.apply_differential();
@@ -2393,7 +2396,7 @@ mod tests {
     fn test_early_exit_optimization() {
         // This test verifies the early exit optimization works
         // Reset state
-        ShaderClass::invalidate();
+        ShaderClass::invalidate(r3d);
 
         let shader = ShaderClass::get_opaque_shader();
 
@@ -2409,7 +2412,7 @@ mod tests {
     #[test]
     fn test_state_persistence_across_applications() {
         // Test that state persists correctly across multiple shader applications
-        ShaderClass::invalidate();
+        ShaderClass::invalidate(r3d);
 
         let opaque = ShaderClass::get_opaque_shader();
         let alpha = ShaderClass::get_alpha_shader();
@@ -2434,7 +2437,7 @@ mod tests {
         assert_eq!(bits1 ^ bits2, expected_diff);
 
         // Apply to real shader scenario
-        ShaderClass::invalidate();
+        ShaderClass::invalidate(r3d);
 
         let shader1 = ShaderClass::get_opaque_shader();
         shader1.apply_differential();
@@ -2451,7 +2454,7 @@ mod tests {
     fn test_performance_skip_unchanged_categories() {
         // This test demonstrates the performance optimization
         // When only one category changes, we should skip processing other categories
-        ShaderClass::invalidate();
+        ShaderClass::invalidate(r3d);
 
         let shader1 = ShaderClass::get_opaque_shader();
         shader1.apply_differential();
@@ -2473,13 +2476,13 @@ mod tests {
     #[test]
     fn test_concurrent_invalidation() {
         // Test that invalidation works correctly even with interleaved operations
-        ShaderClass::invalidate();
+        ShaderClass::invalidate(r3d);
 
         let shader = ShaderClass::get_opaque_shader();
         assert!(shader.apply_differential());
 
         // Invalidate
-        ShaderClass::invalidate();
+        ShaderClass::invalidate(r3d);
 
         // Next apply should be full (dirty)
         let diff = shader.calculate_diff();
@@ -2516,7 +2519,7 @@ mod tests {
 
     #[test]
     fn test_apply_differential_tracks_applied_category_masks() {
-        ShaderClass::invalidate();
+        ShaderClass::invalidate(r3d);
 
         let mut shader = ShaderClass::new();
         shader.set_src_blend_func(SrcBlendFuncType::SrcAlpha);

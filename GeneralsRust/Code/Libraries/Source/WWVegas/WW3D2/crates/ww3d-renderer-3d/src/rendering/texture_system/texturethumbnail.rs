@@ -367,31 +367,29 @@ impl Clone for ThumbnailManagerClass {
 
 /// Initialise the global thumbnail manager. Subsequent calls refresh the internal state instead of
 /// allocating an additional singleton, keeping legacy entry points working with safe Rust semantics.
-pub fn init_global_thumbnail_manager() {
-    { let __r3d = crate::process_state::renderer_3d();
-    let mut manager = __r3d.thumbnail_manager.lock().unwrap_or_else(|p| p.into_inner()); 
-        let mut manager = manager;
-        // Refresh rather than replace so cached thumbnails survive re-init.
-        let refreshed = ThumbnailManagerClass {
-            thumbnails: manager.thumbnails.clone(),
-            create_thumbnail_if_not_found: manager.create_thumbnail_if_not_found,
-        };
-        *manager = refreshed;
-     };
+pub fn init_global_thumbnail_manager(r3d: &crate::process_state::Renderer3dRuntime) {
+    let mut manager = r3d.thumbnail_manager.lock().unwrap_or_else(|p| p.into_inner());
+    let refreshed = ThumbnailManagerClass {
+        thumbnails: manager.thumbnails.clone(),
+        create_thumbnail_if_not_found: manager.create_thumbnail_if_not_found,
+    };
+    *manager = refreshed;
 }
 
 /// Run `f` with mutable access to the global thumbnail manager.
-pub fn with_global_thumbnail_manager<R>(f: impl FnOnce(&mut ThumbnailManagerClass) -> R) -> R {
-    { let __r3d = crate::process_state::renderer_3d();
-    let mut manager = __r3d.thumbnail_manager.lock().unwrap_or_else(|p| p.into_inner()); f(&mut manager) }
+pub fn with_global_thumbnail_manager<R>(
+    r3d: &crate::process_state::Renderer3dRuntime,
+    f: impl FnOnce(&mut ThumbnailManagerClass) -> R,
+) -> R {
+    let mut manager = r3d.thumbnail_manager.lock().unwrap_or_else(|p| p.into_inner());
+    f(&mut manager)
 }
 
 /// Clear the global thumbnail manager’s contents without tearing down the singleton. This avoids
 /// `static mut` lifetime issues while still providing the semantic “shutdown” hook expected by the
 /// legacy API.
-pub fn shutdown_global_thumbnail_manager() {
-    { let __r3d = crate::process_state::renderer_3d();
-    let mut manager = __r3d.thumbnail_manager.lock().unwrap_or_else(|p| p.into_inner()); manager.clear() };
+pub fn shutdown_global_thumbnail_manager(r3d: &crate::process_state::Renderer3dRuntime) {
+    r3d.thumbnail_manager.lock().unwrap_or_else(|p| p.into_inner()).clear();
 }
 
 /// Create hash name from thumbnail name

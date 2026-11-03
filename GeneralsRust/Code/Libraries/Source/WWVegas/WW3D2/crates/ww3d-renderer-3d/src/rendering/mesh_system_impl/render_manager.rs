@@ -276,6 +276,7 @@ impl RenderPassResources {
 
 pub struct MeshRenderManager {
     gpu_device: Arc<GpuDevice>,
+    pub renderer_3d: Option<Arc<crate::process_state::Renderer3dRuntime>>,
     preparedmodels: HashMap<usize, Arc<PreparedMeshModel>>,
     /// Lazily uploaded GPU views for pass textures that carry CPU-only
     /// pixels. C++ parity: WW3DAssetManager::Get_Texture creates the D3D
@@ -352,6 +353,7 @@ impl MeshRenderManager {
             crate::rendering::shadow_system::live_cascade_shadow::LiveCascadeShadowMap::new(device);
 
         Self {
+            renderer_3d: None,
             gpu_device,
             preparedmodels: HashMap::new(),
             gpu_texture_views: HashMap::new(),
@@ -1305,7 +1307,9 @@ impl MeshRenderManager {
         }
 
         let sorting = mesh.model.as_ref().is_some_and(|model| {
-            DX8FVFCategoryContainer::sorting_for_mesh(model.flags, model.sort_level)
+            self.renderer_3d.as_ref().map(|r3d| {
+                DX8FVFCategoryContainer::sorting_for_mesh(r3d, model.flags, model.sort_level)
+            }).unwrap_or(false)
         });
         if sorting {
             let origin = mesh.transform.w_axis.truncate();
@@ -1822,7 +1826,7 @@ impl MeshRenderManager {
         arena: &mut FrameUniformArena,
         resources: &mut RenderPassResources,
     ) -> W3dResult<()> {
-        if let Some((entries, sort_levels)) = StaticSortManager::snapshot_static_sort_list() {
+        if let Some((entries, sort_levels)) = self.renderer_3d.as_ref().and_then(|r| StaticSortManager::snapshot_static_sort_list(r)) {
             let mut buckets: BTreeMap<u32, Vec<StaticSortEntry>> = BTreeMap::new();
             for (entry, sort_level) in entries.into_iter().zip(sort_levels) {
                 buckets.entry(sort_level).or_default().push(entry);
@@ -1851,7 +1855,7 @@ impl MeshRenderManager {
     ) -> W3dResult<()> {
         let mut resources = RenderPassResources::default();
         self.render_delayed_passes(render_info, render_pass, arena, &mut resources)?;
-        StaticSortManager::flush_static_sort_list();
+        if let Some(r3d) = self.renderer_3d.as_ref() { StaticSortManager::flush_static_sort_list(r3d); }
         Ok(())
     }
 
@@ -2294,7 +2298,8 @@ mod per_mesh_lighting_tests {
         let camera = Arc::new(CameraClass::new());
         let mut info = RenderInfoClass::new(camera);
         let mut environment = LightEnvironmentClass::new();
-        environment.add_light(crate::rendering::lighting_system::LightClass::directional(
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        environment.add_light(&r3d, crate::rendering::lighting_system::LightClass::directional(
             glam::Vec3::new(0.2, -1.0, 0.1),
             glam::Vec3::ONE,
             1.0,

@@ -6,7 +6,6 @@
 //! format decisions taken whenever a texture is ingested.
 
 use crate::core::ww3dformat::{FormatDecision, WW3DFormat};
-use std::cell::RefCell;
 
 /// Recorded texture format decision.
 #[cfg_attr(
@@ -25,7 +24,12 @@ pub struct TextureDecisionRecord {
 
 
 /// Record a texture format decision for later analysis.
-pub fn record_decision(name: impl Into<String>, decision: &FormatDecision, mip_levels: u32) {
+pub fn record_decision(
+    r3d: &crate::process_state::Renderer3dRuntime,
+    name: impl Into<String>,
+    decision: &FormatDecision,
+    mip_levels: u32,
+) {
     let record = TextureDecisionRecord {
         name: name.into(),
         source_format: decision.source_format,
@@ -35,17 +39,17 @@ pub fn record_decision(name: impl Into<String>, decision: &FormatDecision, mip_l
         mip_levels,
     };
 
-    crate::process_state::renderer_3d().texture_decisions.lock().unwrap_or_else(|p| p.into_inner()).push(record);
+    r3d.texture_decisions.lock().unwrap_or_else(|p| p.into_inner()).push(record);
 }
 
 /// Snapshot the recorded decisions and clear the buffer.
-pub fn drain_decisions() -> Vec<TextureDecisionRecord> {
-    std::mem::take(&mut *crate::process_state::renderer_3d().texture_decisions.lock().unwrap_or_else(|p| p.into_inner()))
+pub fn drain_decisions(r3d: &crate::process_state::Renderer3dRuntime) -> Vec<TextureDecisionRecord> {
+    std::mem::take(&mut *r3d.texture_decisions.lock().unwrap_or_else(|p| p.into_inner()))
 }
 
 /// Borrow a copy of the current decision log without clearing it.
-pub fn snapshot_decisions() -> Vec<TextureDecisionRecord> {
-    crate::process_state::renderer_3d().texture_decisions.lock().unwrap_or_else(|p| p.into_inner()).clone()
+pub fn snapshot_decisions(r3d: &crate::process_state::Renderer3dRuntime) -> Vec<TextureDecisionRecord> {
+    r3d.texture_decisions.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 /// Summary information derived from recorded decisions.
@@ -62,10 +66,9 @@ pub struct TextureMetricsSummary {
 }
 
 /// Build a summary of the current decision log without clearing it.
-pub fn summarize() -> TextureMetricsSummary {
+pub fn summarize(r3d: &crate::process_state::Renderer3dRuntime) -> TextureMetricsSummary {
     let empty = Vec::new();
-    let __r3d = crate::process_state::renderer_3d();
-    let guard = __r3d.texture_decisions.lock().unwrap_or_else(|p| p.into_inner()).clone();
+    let guard = r3d.texture_decisions.lock().unwrap_or_else(|p| p.into_inner()).clone();
     let guard: &Vec<TextureDecisionRecord> = if guard.is_empty() { &empty } else { &guard };
 
     if guard.is_empty() {

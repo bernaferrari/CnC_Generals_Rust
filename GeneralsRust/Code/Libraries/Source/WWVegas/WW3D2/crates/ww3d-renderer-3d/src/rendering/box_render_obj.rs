@@ -113,31 +113,31 @@ impl BoxRenderObjClass {
 
     /// Initialize the box render object system
     /// C++ Reference: boxrobj.cpp lines 347-366
-    pub fn init() {
-        crate::process_state::renderer_3d().box_is_initted.store(true, Ordering::Relaxed);
-        crate::process_state::renderer_3d().box_display_mask.store(0, Ordering::Relaxed);
+    pub fn init(r3d: &crate::process_state::Renderer3dRuntime) {
+        r3d.box_is_initted.store(true, Ordering::Relaxed);
+        r3d.box_display_mask.store(0, Ordering::Relaxed);
         // In C++, this also initializes materials and shaders
         // In Rust WGPU renderer, materials are managed separately
     }
 
     /// Shutdown the box render object system
     /// C++ Reference: boxrobj.cpp lines 384-390
-    pub fn shutdown() {
-        crate::process_state::renderer_3d().box_is_initted.store(false, Ordering::Relaxed);
+    pub fn shutdown(r3d: &crate::process_state::Renderer3dRuntime) {
+        r3d.box_is_initted.store(false, Ordering::Relaxed);
         // In C++, this releases materials
         // In Rust, RAII handles cleanup automatically
     }
 
     /// Set the display mask (controls which boxes render)
     /// Thread-safe mask update for collision box visualization control
-    pub fn set_box_display_mask(mask: i32) {
-        crate::process_state::renderer_3d().box_display_mask.store(mask, Ordering::Relaxed);
+    pub fn set_box_display_mask(r3d: &crate::process_state::Renderer3dRuntime, mask: i32) {
+        r3d.box_display_mask.store(mask, Ordering::Relaxed);
     }
 
     /// Get the display mask
     /// Thread-safe read of collision box visualization mask
-    pub fn get_box_display_mask() -> i32 {
-        crate::process_state::renderer_3d().box_display_mask.load(Ordering::Relaxed)
+    pub fn get_box_display_mask(r3d: &crate::process_state::Renderer3dRuntime) -> i32 {
+        r3d.box_display_mask.load(Ordering::Relaxed)
     }
 
     /// Get the name
@@ -213,8 +213,8 @@ impl BoxRenderObjClass {
     }
 
     /// Check if box should be rendered based on display mask
-    pub fn should_render(&self) -> bool {
-        let display_mask = Self::get_box_display_mask();
+    pub fn should_render(&self, r3d: &crate::process_state::Renderer3dRuntime) -> bool {
+        let display_mask = Self::get_box_display_mask(r3d);
         (display_mask & self.collision_bits) != 0
     }
 
@@ -223,14 +223,20 @@ impl BoxRenderObjClass {
     ///
     /// This computes render-ready triangle geometry that can be consumed by the
     /// active renderer backend.
-    pub fn render_box(&self, _rinfo: &RenderInfoClass, center: Vec3, extent: Vec3) {
+    pub fn render_box(
+        &self,
+        r3d: &crate::process_state::Renderer3dRuntime,
+        _rinfo: &RenderInfoClass,
+        center: Vec3,
+        extent: Vec3,
+    ) {
         // Early exit if not initialized
-        if !crate::process_state::renderer_3d().box_is_initted.load(Ordering::Relaxed) {
+        if !r3d.box_is_initted.load(Ordering::Relaxed) {
             return;
         }
 
         // Check display mask (C++ boxrobj.cpp line 447)
-        if !self.should_render() {
+        if !self.should_render(r3d) {
             return;
         }
 
@@ -256,8 +262,14 @@ impl BoxRenderObjClass {
     ///
     /// Renders the box with a special VIS-ID for picking/selection.
     /// This is used by the editor and debugging tools.
-    pub fn vis_render_box(&self, _rinfo: &SpecialRenderInfoClass, center: Vec3, extent: Vec3) {
-        if !crate::process_state::renderer_3d().box_is_initted.load(Ordering::Relaxed) {
+    pub fn vis_render_box(
+        &self,
+        r3d: &crate::process_state::Renderer3dRuntime,
+        _rinfo: &SpecialRenderInfoClass,
+        center: Vec3,
+        extent: Vec3,
+    ) {
+        if !r3d.box_is_initted.load(Ordering::Relaxed) {
             return;
         }
 
@@ -605,15 +617,16 @@ mod tests {
 
     #[test]
     fn test_display_mask() {
-        BoxRenderObjClass::set_box_display_mask(0xFF);
-        assert_eq!(BoxRenderObjClass::get_box_display_mask(), 0xFF);
+        let r3d = crate::process_state::Renderer3dRuntime::new();
+        BoxRenderObjClass::set_box_display_mask(&r3d, 0xFF);
+        assert_eq!(BoxRenderObjClass::get_box_display_mask(&r3d), 0xFF);
 
         let mut box_obj = BoxRenderObjClass::new();
         box_obj.set_collision_bits(0x01);
-        assert!(box_obj.should_render());
+        assert!(box_obj.should_render(&r3d));
 
         box_obj.set_collision_bits(0x00);
-        assert!(!box_obj.should_render());
+        assert!(!box_obj.should_render(&r3d));
     }
 
     #[test]

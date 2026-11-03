@@ -41,7 +41,7 @@ use wgpu::{Device, Queue, Surface, SurfaceConfiguration, TextureFormat};
 use ww3d_assets::AssetManager;
 use ww3d_core::errors::{W3DError, W3DResult};
 use ww3d_core::ww3d::{FrameStats, RendererBackend, Ww3dContext};
-use crate::process_state::{install_renderer_3d, Renderer3dRuntime};
+use crate::process_state::Renderer3dRuntime;
 use ww3d_engine::{self, EngineError, SharedEngine};
 use ww3d_gpu::device::GpuDevice;
 
@@ -236,14 +236,15 @@ impl WgpuMainRenderer {
         let ready_flag = Arc::new(AtomicBool::new(true));
         let ww3d = Arc::new(Ww3dContext::new());
         let renderer_3d = Arc::new(Renderer3dRuntime::new());
-        install_renderer_3d(Arc::clone(&renderer_3d));
         if let Ok(mut guard) = renderer.lock() {
             guard.set_ww3d(Arc::clone(&ww3d));
+            guard.set_renderer_3d(Arc::clone(&renderer_3d));
         }
         let mut registered_with_ww3d = ww3d.register_renderer(WgpuCoreBridge::new(
             frame_stats_bridge.clone(),
             ready_flag.clone(),
             Arc::clone(&renderer),
+            Arc::clone(&renderer_3d),
         ));
         if !registered_with_ww3d {
             ww3d.unregister_renderer();
@@ -251,6 +252,7 @@ impl WgpuMainRenderer {
                 frame_stats_bridge.clone(),
                 ready_flag.clone(),
                 Arc::clone(&renderer),
+                Arc::clone(&renderer_3d),
             ));
         }
 
@@ -320,14 +322,15 @@ impl WgpuMainRenderer {
         let ready_flag = Arc::new(AtomicBool::new(true));
         let ww3d = Arc::new(Ww3dContext::new());
         let renderer_3d = Arc::new(Renderer3dRuntime::new());
-        install_renderer_3d(Arc::clone(&renderer_3d));
         if let Ok(mut guard) = renderer.lock() {
             guard.set_ww3d(Arc::clone(&ww3d));
+            guard.set_renderer_3d(Arc::clone(&renderer_3d));
         }
         let mut registered_with_ww3d = ww3d.register_renderer(WgpuCoreBridge::new(
             frame_stats_bridge.clone(),
             ready_flag.clone(),
             Arc::clone(&renderer),
+            Arc::clone(&renderer_3d),
         ));
         if !registered_with_ww3d {
             ww3d.unregister_renderer();
@@ -335,6 +338,7 @@ impl WgpuMainRenderer {
                 frame_stats_bridge.clone(),
                 ready_flag.clone(),
                 Arc::clone(&renderer),
+                Arc::clone(&renderer_3d),
             ));
         }
 
@@ -930,6 +934,7 @@ pub(crate) struct WgpuCoreBridge {
     /// the host frame pump reaches the renderer through the registered backend
     /// via this handle, so game thread and host meet here.
     _renderer: SharedRendererHandle,
+    renderer_3d: Arc<Renderer3dRuntime>,
 }
 
 impl WgpuCoreBridge {
@@ -937,6 +942,7 @@ impl WgpuCoreBridge {
         stats: Arc<Mutex<FrameStats>>,
         ready: Arc<AtomicBool>,
         renderer: SharedRendererHandle,
+        renderer_3d: Arc<Renderer3dRuntime>,
     ) -> Self {
         Self {
             stats,
@@ -945,6 +951,7 @@ impl WgpuCoreBridge {
             static_sort_enabled: true,
             decals_enabled: true,
             _renderer: renderer,
+            renderer_3d,
         }
     }
 
@@ -973,7 +980,7 @@ impl RendererBackend for WgpuCoreBridge {
 
     fn set_sorting_enabled(&mut self, enabled: bool) -> W3DResult<()> {
         self.sorting_enabled = enabled;
-        mesh_system::StaticSortManager::set_sorting_enabled(enabled);
+        mesh_system::StaticSortManager::set_sorting_enabled(&self.renderer_3d, enabled);
         Ok(())
     }
 
@@ -983,7 +990,7 @@ impl RendererBackend for WgpuCoreBridge {
 
     fn set_static_sort_lists_enabled(&mut self, enabled: bool) -> W3DResult<()> {
         self.static_sort_enabled = enabled;
-        mesh_system::StaticSortManager::set_static_sort_lists_enabled(enabled);
+        mesh_system::StaticSortManager::set_static_sort_lists_enabled(&self.renderer_3d, enabled);
         Ok(())
     }
 
@@ -993,7 +1000,7 @@ impl RendererBackend for WgpuCoreBridge {
 
     fn set_decals_enabled(&mut self, enabled: bool) -> W3DResult<()> {
         self.decals_enabled = enabled;
-        mesh_system::StaticSortManager::set_decals_enabled(enabled);
+        mesh_system::StaticSortManager::set_decals_enabled(&self.renderer_3d, enabled);
         Ok(())
     }
 
@@ -1016,13 +1023,14 @@ impl RendererBackend for WgpuCoreBridge {
     ) -> W3DResult<()> {
         match object.downcast::<StaticSortRenderObject>() {
             Ok(handle) => {
-                mesh_system::StaticSortManager::add_to_static_sort_list(handle, sort_level);
+                mesh_system::StaticSortManager::add_to_static_sort_list(&self.renderer_3d, handle, sort_level);
                 Ok(())
             }
             Err(object) => match object.downcast::<MeshClass>() {
                 Ok(mesh) => {
                     let handle = StaticSortRenderObject::from_arc(Arc::clone(&mesh));
                     mesh_system::StaticSortManager::add_to_static_sort_list_with_mesh(
+                        &self.renderer_3d,
                         handle,
                         sort_level,
                         Some(mesh),
@@ -1037,8 +1045,8 @@ impl RendererBackend for WgpuCoreBridge {
     }
 
     fn flush_static_sort_lists(&mut self) -> W3DResult<()> {
-        let _guard = mesh_system::StaticSortManager::begin_flush();
-        mesh_system::StaticSortManager::flush_static_sort_list();
+        let _guard = mesh_system::StaticSortManager::begin_flush(Arc::clone(&self.renderer_3d));
+        mesh_system::StaticSortManager::flush_static_sort_list(&self.renderer_3d);
         Ok(())
     }
 }

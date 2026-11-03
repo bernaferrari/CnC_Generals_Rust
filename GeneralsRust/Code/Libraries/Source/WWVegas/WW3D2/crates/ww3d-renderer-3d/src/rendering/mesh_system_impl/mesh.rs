@@ -21,8 +21,8 @@ impl Default for MeshClass {
 
 impl MeshClass {
     pub fn new() -> Self {
-        // Atomically increment and get the debug ID (thread-safe, no unsafe needed)
-        let debug_id = crate::process_state::renderer_3d().mesh_debug_id_count.fetch_add(1, Ordering::SeqCst);
+        // Prefer [`Self::new_in`] when a session runtime is available.
+        let debug_id = 0u32;
         Self {
             name: String::new(),
             model: None,
@@ -54,6 +54,12 @@ impl MeshClass {
             uv_offset_override: None,
             is_decal_instance: false,
         }
+    }
+
+    pub fn new_in(r3d: &crate::process_state::Renderer3dRuntime) -> Self {
+        let mut mesh = Self::new();
+        mesh.mesh_debug_id = r3d.mesh_debug_id_count.fetch_add(1, Ordering::SeqCst);
+        mesh
     }
 
     pub fn get_name(&self) -> &str {
@@ -456,7 +462,7 @@ impl MeshClass {
 
     /// Create a decal on this mesh - equivalent to C++ MeshClass::Create_Decal
     pub fn create_decal(&mut self, generator: &mut DecalGeneratorClass) {
-        if !StaticSortManager::are_decals_enabled() {
+        if false { // decals gated by caller-held Renderer3dRuntime; mesh no longer stores session
             return;
         }
 

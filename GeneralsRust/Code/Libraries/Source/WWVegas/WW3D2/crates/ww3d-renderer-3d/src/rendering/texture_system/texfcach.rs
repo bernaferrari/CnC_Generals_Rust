@@ -1350,22 +1350,25 @@ fn file_time_seconds(path: &Path) -> Option<u64> {
 
 
 /// Run `f` with mutable access to the global texture file cache, if initialised.
-pub fn with_global_texture_cache<R>(f: impl FnOnce(&mut TextureFileCache) -> R) -> Option<R> {
-    { let __r3d = crate::process_state::renderer_3d();
-    let mut cache = __r3d.texture_cache.lock().unwrap_or_else(|p| p.into_inner()); 
-        let cache = cache.as_mut()?;
-        Some(f(cache))
-     }
+pub fn with_global_texture_cache<R>(
+    r3d: &crate::process_state::Renderer3dRuntime,
+    f: impl FnOnce(&mut TextureFileCache) -> R,
+) -> Option<R> {
+    let mut cache = r3d.texture_cache.lock().unwrap_or_else(|p| p.into_inner());
+    let cache = cache.as_mut()?;
+    Some(f(cache))
 }
 
 /// Initialise the global texture cache.
-pub fn init_global_texture_cache(file_prefix: &str) {
-    { let __r3d = crate::process_state::renderer_3d();
-    let mut slot = __r3d.texture_cache.lock().unwrap_or_else(|p| p.into_inner()); *slot = Some(TextureFileCache::new(file_prefix)) };
+pub fn init_global_texture_cache(
+    r3d: &crate::process_state::Renderer3dRuntime,
+    file_prefix: &str,
+) {
+    *r3d.texture_cache.lock().unwrap_or_else(|p| p.into_inner()) =
+        Some(TextureFileCache::new(file_prefix));
 }
 
 /// Tear down the global cache.
-pub fn shutdown_global_texture_cache() {
-    { let __r3d = crate::process_state::renderer_3d();
-    let mut slot = __r3d.texture_cache.lock().unwrap_or_else(|p| p.into_inner()); *slot = None };
+pub fn shutdown_global_texture_cache(r3d: &crate::process_state::Renderer3dRuntime) {
+    *r3d.texture_cache.lock().unwrap_or_else(|p| p.into_inner()) = None;
 }

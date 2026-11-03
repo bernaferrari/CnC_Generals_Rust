@@ -137,6 +137,11 @@ impl ForwardPass {
         };
         let renderer = WgpuMainRenderer::from_engine(engine.clone(), renderer_config)
             .map_err(|e| anyhow::anyhow!("Failed to initialize WW3D renderer: {e:?}"))?;
+        // Publish session runtime so GameClient LOD / texture quality hit the same bag.
+        game_client::core::game_client::set_live_renderer_3d(std::sync::Arc::clone(
+            &renderer.renderer_3d,
+        ));
+
 
         // Get engine device and queue - these are Arc clones of the global engine resources
         let device = engine.lock().device();
@@ -596,7 +601,7 @@ impl ForwardPass {
             .projected_shroud_uploader
             .renderer_binding(projected_shroud);
         self.ghost_lighting_environment =
-            Self::build_always_fogged_light_environment(lighting).map(Arc::new);
+            Self::build_always_fogged_light_environment(lighting, &self.renderer.renderer_3d).map(Arc::new);
 
         // An occluded window must not fail the frame or present into a drawable
         // the compositor will not take.
@@ -692,7 +697,7 @@ impl ForwardPass {
             let (viewport_min, viewport_max) = self.tactical_viewport.normalized_bounds();
             self.camera.set_viewport(viewport_min, viewport_max);
             renderer.set_camera(self.camera.clone());
-            renderer.set_light_environment(Self::build_light_environment(lighting));
+            renderer.set_light_environment(Self::build_light_environment(lighting, &self.renderer.renderer_3d));
             renderer.set_projected_shroud(projected_shroud_binding);
             Self::log_visibility_probe(
                 render_items,
@@ -871,6 +876,7 @@ impl ForwardPass {
 
     pub(super) fn build_light_environment(
         lighting: Option<&CachedLighting>,
+        r3d: &ww3d_renderer_3d::Renderer3dRuntime,
     ) -> Option<LightEnvironmentClass> {
         let mut env = LightEnvironmentClass::new();
         let have_metadata = lighting
@@ -902,7 +908,7 @@ impl ForwardPass {
         let direction = Vec3::from_array(direction).normalize_or_zero();
         let mut light = LightClass::directional(direction, Vec3::from_array(color), 1.0);
         light.enabled = true;
-        env.add_light(light);
+        env.add_light(r3d, light);
 
         #[cfg(feature = "game_client")]
         {
@@ -920,7 +926,7 @@ impl ForwardPass {
                 let intensity = pulse_color.max_element().max(0.01);
                 let mut point = LightClass::point(position, pulse_color, intensity, range);
                 point.enabled = true;
-                env.add_light(point);
+                env.add_light(r3d, point);
             }
         }
 
@@ -938,8 +944,9 @@ impl ForwardPass {
     /// GameLogic query is permitted here.
     pub(super) fn build_always_fogged_light_environment(
         lighting: Option<&CachedLighting>,
+        r3d: &ww3d_renderer_3d::Renderer3dRuntime,
     ) -> Option<LightEnvironmentClass> {
-        let mut env = Self::build_light_environment(lighting)?;
+        let mut env = Self::build_light_environment(lighting, r3d)?;
         let fraction = lighting
             .and_then(|value| value.fogged_light_fraction)
             .unwrap_or(0.5)
@@ -1506,9 +1513,9 @@ mod tests {
             fogged_light_fraction: Some(0.25),
         };
 
-        let ordinary = ForwardPass::build_light_environment(Some(&lighting))
+        let ordinary = ForwardPass::build_light_environment(Some(&lighting), &ww3d_renderer_3d::Renderer3dRuntime::new())
             .expect("frozen lighting metadata builds an ordinary environment");
-        let fogged = ForwardPass::build_always_fogged_light_environment(Some(&lighting))
+        let fogged = ForwardPass::build_always_fogged_light_environment(Some(&lighting), &ww3d_renderer_3d::Renderer3dRuntime::new())
             .expect("the same frozen metadata builds the dedicated ghost environment");
 
         assert_eq!(fogged.ambient, ordinary.ambient * 0.25);

@@ -334,6 +334,25 @@ pub fn recoil_glam_for_object(object_id: u32) -> Option<glam::Mat4> {
 /// C++ reference:
 /// - `W3DGameClient.cpp` `W3DGameClient::adjustLOD` (clamp [0,4], `WW3D::Set_Texture_Reduction`,
 ///   `TheTerrainRenderObject->setTextureLOD`)
+pub fn live_renderer_3d() -> Option<std::sync::Arc<ww3d_renderer_3d::Renderer3dRuntime>> {
+    let services = try_common_services()?;
+    let guard = services.system.renderer_3d_any.lock().ok()?;
+    let any = guard.as_ref()?;
+    std::sync::Arc::clone(any)
+        .downcast::<ww3d_renderer_3d::Renderer3dRuntime>()
+        .ok()
+}
+
+/// Publish the session [`Renderer3dRuntime`] for GameClient LOD / texture quality.
+pub fn set_live_renderer_3d(r3d: std::sync::Arc<ww3d_renderer_3d::Renderer3dRuntime>) {
+    if let Some(services) = try_common_services() {
+        if let Ok(mut guard) = services.system.renderer_3d_any.lock() {
+            *guard = Some(r3d);
+        }
+    }
+}
+
+
 pub fn apply_lod_texture_reduction(target_factor: i32) -> Option<i32> {
     apply_lod_texture_reduction_to(target_factor, &mut |clamped| {
         if let Ok(mut terrain_guard) = crate::terrain::terrain_visual::get_terrain_visual() {
@@ -347,6 +366,17 @@ pub fn apply_lod_texture_reduction(target_factor: i32) -> Option<i32> {
 /// Synchronous native operation: the caller lends its actual installed terrain.
 /// Definition and renderer changes precede terrain invalidation, then shadows.
 pub fn apply_lod_texture_reduction_to(
+    target_factor: i32,
+    terrain: &mut dyn FnMut(i32),
+) -> Option<i32> {
+    let owned = live_renderer_3d().unwrap_or_else(|| {
+        std::sync::Arc::new(ww3d_renderer_3d::Renderer3dRuntime::new())
+    });
+    apply_lod_texture_reduction_to_session(&owned, target_factor, terrain)
+}
+
+pub fn apply_lod_texture_reduction_to_session(
+    r3d: &ww3d_renderer_3d::Renderer3dRuntime,
     target_factor: i32,
     terrain: &mut dyn FnMut(i32),
 ) -> Option<i32> {
@@ -366,9 +396,10 @@ pub fn apply_lod_texture_reduction_to(
         runtime_global.texture_reduction_factor = clamped;
     }
 
-    let renderer_previous = ww3d_renderer_3d::rendering::texture_quality::texture_reduction();
+    let renderer_previous = ww3d_renderer_3d::rendering::texture_quality::texture_reduction(r3d);
     if renderer_previous != clamped as u32 {
         ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(
+            r3d,
             clamped as u32,
             WW3D_TEXTURE_REDUCTION_MIN_DIMENSION,
         );
@@ -846,7 +877,8 @@ mod receiving_lod_tests {
         }
         let definitions = game_engine::common::ini::ini_game_data::ensure_global_data();
         definitions.write().texture_reduction_factor = 0;
-        ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(0, 32);
+        let __r3d = ww3d_renderer_3d::Renderer3dRuntime::new();
+        ww3d_renderer_3d::rendering::texture_quality::set_texture_reduction(&__r3d, 0, 32);
         // A real foreign native holder remains unavailable throughout. The
         // receiving operation must not rediscover or try to borrow that slot.
         let _foreign = crate::terrain::terrain_visual::get_terrain_visual().unwrap();
@@ -859,7 +891,9 @@ mod receiving_lod_tests {
                 value
             );
             assert_eq!(
-                ww3d_renderer_3d::rendering::texture_quality::texture_reduction(),
+                ww3d_renderer_3d::rendering::texture_quality::texture_reduction(
+                    live_renderer_3d().as_deref().unwrap_or(&__r3d),
+                ),
                 value as u32
             );
         };

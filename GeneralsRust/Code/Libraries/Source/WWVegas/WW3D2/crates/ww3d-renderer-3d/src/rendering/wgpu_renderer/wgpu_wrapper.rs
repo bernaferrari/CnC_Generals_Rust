@@ -7,7 +7,7 @@ use crate::rendering::shader_system::shader::{ShaderApplyResources, ShaderClass}
 use crate::rendering::texture_system::texture_base::TextureBaseClass;
 use glam::{Mat4, Vec3, Vec4};
 use pollster::block_on;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use ww3d_engine::{FrameSubmitHandle, FrameSubmitState, new_frame_submit_handle};
 use wgpu::{
     Adapter, Device, Instance, Queue, Surface, SurfaceConfiguration, SurfaceTexture,
@@ -1231,22 +1231,15 @@ impl WgpuWrapper {
     }
 
     /// Query adapter support for BC compression formats.
-    pub fn adapter_supports_bc() -> bool {
-        WGPU_WRAPPER_INSTANCE
-            .get()
-            .and_then(|wrapper| wrapper.lock().ok())
-            .map(|instance| {
-                instance
-                    .device
-                    .features()
-                    .contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
-            })
-            .unwrap_or(false)
+    pub fn adapter_supports_bc(&self) -> bool {
+        self.device
+            .features()
+            .contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
     }
 
     /// Query whether we should prefer 16-bit textures.
-    pub fn prefer_16bit_textures() -> bool {
-        crate::config::get().prefer_16bit_textures
+    pub fn prefer_16bit_textures(r3d: &crate::process_state::Renderer3dRuntime) -> bool {
+        crate::config::get(r3d).prefer_16bit_textures
     }
 
     /// Set the ambient color for the scene.
@@ -1585,56 +1578,50 @@ unsafe impl Send for WgpuWrapper {}
 // uncontended by construction.
 unsafe impl Sync for WgpuWrapper {}
 
-/// Global wrapper instance mirroring the DX8 global singleton.
-struct WgpuWrapperInstanceRuntime(OnceLock<Mutex<WgpuWrapper>>);
-impl std::ops::Deref for WgpuWrapperInstanceRuntime {
-    type Target = OnceLock<Mutex<WgpuWrapper>>;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static WGPU_WRAPPER_INSTANCE: WgpuWrapperInstanceRuntime = WgpuWrapperInstanceRuntime(OnceLock::new());
 
 /// Retrieve the global wrapper instance. Panic if it has not been initialised.
-pub fn get_wgpu_wrapper() -> std::sync::MutexGuard<'static, WgpuWrapper> {
-    WGPU_WRAPPER_INSTANCE
-        .get()
-        .expect("WgpuWrapper not initialised")
+pub fn get_wgpu_wrapper(
+    r3d: &crate::process_state::Renderer3dRuntime,
+) -> std::sync::MutexGuard<'_, Option<WgpuWrapper>> {
+    r3d.wgpu_wrapper.lock().expect("WgpuWrapper mutex poisoned")
+}
+
+/// True if `init_wgpu_wrapper*` has installed a wrapper on this runtime.
+pub fn has_wgpu_wrapper(r3d: &crate::process_state::Renderer3dRuntime) -> bool {
+    r3d.wgpu_wrapper
         .lock()
         .expect("WgpuWrapper mutex poisoned")
-}
-/// Wrapper if `init_wgpu_wrapper*` has run. `None` when rendering is not up.
-pub fn try_get_wgpu_wrapper() -> Option<std::sync::MutexGuard<'static, WgpuWrapper>> {
-    let slot = WGPU_WRAPPER_INSTANCE.get()?;
-    Some(slot.lock().expect("WgpuWrapper mutex poisoned"))
+        .is_some()
 }
 
-
-fn set_global_wrapper(wrapper: WgpuWrapper) -> Result<()> {
-    if let Some(slot) = WGPU_WRAPPER_INSTANCE.get() {
-        *slot.lock().expect("WgpuWrapper mutex poisoned") = wrapper;
-        Ok(())
-    } else {
-        WGPU_WRAPPER_INSTANCE
-            .set(Mutex::new(wrapper))
-            .map_err(|_| Error::InvalidOperation("WgpuWrapper already initialised".into()))
-    }
+fn set_runtime_wrapper(
+    r3d: &crate::process_state::Renderer3dRuntime,
+    wrapper: WgpuWrapper,
+) -> Result<()> {
+    *r3d.wgpu_wrapper.lock().expect("WgpuWrapper mutex poisoned") = Some(wrapper);
+    Ok(())
 }
 
 /// Initialise the global wrapper from pre-constructed device parts. This is primarily useful for
 /// integration tests or embedding scenarios.
 pub fn init_wgpu_wrapper(
+    r3d: &crate::process_state::Renderer3dRuntime,
+
     device: Arc<Device>,
     queue: Arc<Queue>,
     surface: Option<Arc<Surface<'static>>>,
     config: SurfaceConfiguration,
 ) -> Result<()> {
     let wrapper = WgpuWrapper::from_parts(device, queue, surface, config, None, None)?;
-    set_global_wrapper(wrapper)
+    set_runtime_wrapper(r3d, wrapper)
 }
 
 /// Initialise the global wrapper in headless mode.
-pub fn init_wgpu_wrapper_headless(size: (u32, u32), format: wgpu::TextureFormat) -> Result<()> {
+pub fn init_wgpu_wrapper_headless(
+    r3d: &crate::process_state::Renderer3dRuntime,
+size: (u32, u32), format: wgpu::TextureFormat) -> Result<()> {
     let wrapper = WgpuWrapper::new_headless(size, format)?;
-    set_global_wrapper(wrapper)
+    set_runtime_wrapper(r3d, wrapper)
 }
 
 /// Initialise the global wrapper from a window and surface configuration.
@@ -1644,6 +1631,8 @@ pub fn init_wgpu_wrapper_headless(size: (u32, u32), format: wgpu::TextureFormat)
 /// The window is moved into the surface, ensuring safe lifetime management.
 /// The SurfaceTarget owns the window handle, preventing use-after-free.
 pub fn init_wgpu_wrapper_with_surface<W>(
+    r3d: &crate::process_state::Renderer3dRuntime,
+
     window: W,
     size: (u32, u32),
     present_mode: wgpu::PresentMode,
@@ -1652,5 +1641,5 @@ where
     W: Into<wgpu::SurfaceTarget<'static>>,
 {
     let wrapper = WgpuWrapper::new_with_surface(window, size, present_mode)?;
-    set_global_wrapper(wrapper)
+    set_runtime_wrapper(r3d, wrapper)
 }
