@@ -361,3 +361,8 @@ note = "ButtonAudioHook on WindowManagerOwner; removed process TLS BUTTON_AUDIO;
 path = "Code/GameEngine/GameClient/src/gui/control_bar/control_bar_observer.rs"
 cpp = "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarObserver.cpp"
 note = "Observer look-at + gen arrow on InGameUISubsystem; removed process Atomic/Mutex; peels use live-client loan / cfg(test) TLS fallback."
+
+[[module]]
+path = "Code/GameEngine/GameClient/src/gui/display_string.rs"
+cpp = "GeneralsMD/Code/GameEngineDevice/Source/GameEngine/Source/GameClient/DisplayStringManager.cpp"
+note = "DisplayStringManager on WindowManagerOwner; removed process TLS; peels use live-client loan / cfg(test) TLS fallback."

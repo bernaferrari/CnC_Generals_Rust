@@ -93,6 +93,8 @@ struct WindowManagerOwnerState {
     network_compat: crate::game_network_compat::NetworkCompatState,
     /// Push-button audio hook (was process TLS BUTTON_AUDIO).
     button_audio: RefCell<Option<crate::gui::gadgets::ButtonAudioHook>>,
+    /// DisplayStringManager (was process TLS DISPLAY_STRING_MANAGER).
+    display_string_manager: RefCell<crate::gui::display_string::DisplayStringManager>,
 }
 
 /// Persistent owner for one native client's WND tree and its re-entry queues.
@@ -190,6 +192,7 @@ impl WindowManagerOwner {
                 #[cfg(not(feature = "network"))]
                 network_compat: crate::game_network_compat::NetworkCompatState::new(),
                 button_audio: RefCell::new(None),
+                display_string_manager: RefCell::new(crate::gui::display_string::DisplayStringManager::new()),
             }),
         }
     }
@@ -223,6 +226,13 @@ impl WindowManagerOwner {
     ) -> Option<R> {
         let mut slot = self.state.button_audio.borrow_mut();
         slot.as_mut().map(f)
+    }
+
+    pub(crate) fn with_display_string_manager_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::gui::display_string::DisplayStringManager) -> R,
+    ) -> R {
+        f(&mut self.state.display_string_manager.borrow_mut())
     }
 
     pub(crate) fn keyboard_options_handle(
