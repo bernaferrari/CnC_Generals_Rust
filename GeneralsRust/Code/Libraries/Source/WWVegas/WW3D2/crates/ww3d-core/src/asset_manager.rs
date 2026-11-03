@@ -459,22 +459,45 @@ impl CacheStats {
     }
 }
 
-struct GlobalAssetManagerBag {
-    global_asset_manager: std::sync::Mutex<AssetManager>,
+/// Process bridge to the owning Ww3dContext asset manager (C++ TheWW3DAssetManager).
+/// Starts as a standalone arc; [`install_asset_manager`] swaps in the context-owned one.
+static ASSET_MANAGER_BRIDGE: std::sync::LazyLock<std::sync::Mutex<std::sync::Arc<std::sync::Mutex<AssetManager>>>> =
+    std::sync::LazyLock::new(|| {
+        std::sync::Mutex::new(std::sync::Arc::new(std::sync::Mutex::new(AssetManager::new())))
+    });
+
+fn active_asset_manager() -> std::sync::Arc<std::sync::Mutex<AssetManager>> {
+    ASSET_MANAGER_BRIDGE
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
 }
-static GLOBAL_ASSET_MANAGER_TLS_BAG: std::sync::LazyLock<GlobalAssetManagerBag> = std::sync::LazyLock::new(|| GlobalAssetManagerBag {
-        global_asset_manager: std::sync::Mutex::new(AssetManager::new()),
-});
 
+/// Install a context-owned asset manager for free-function bridges.
+pub fn install_asset_manager(manager: std::sync::Arc<std::sync::Mutex<AssetManager>>) {
+    *ASSET_MANAGER_BRIDGE.lock().unwrap_or_else(|p| p.into_inner()) = manager;
+}
 
-/// Run `f` with mutable access to the global asset manager.
+/// Restore standalone manager when `manager` is the installed owner.
+pub fn uninstall_asset_manager(manager: &std::sync::Arc<std::sync::Mutex<AssetManager>>) {
+    let mut slot = ASSET_MANAGER_BRIDGE.lock().unwrap_or_else(|p| p.into_inner());
+    if std::sync::Arc::ptr_eq(&*slot, manager) {
+        *slot = std::sync::Arc::new(std::sync::Mutex::new(AssetManager::new()));
+    }
+}
+
+/// Run `f` with mutable access to the active (context-owned or standalone) asset manager.
 pub fn with_global_asset_manager<R>(f: impl FnOnce(&mut AssetManager) -> R) -> R {
-    { let mut mgr = GLOBAL_ASSET_MANAGER_TLS_BAG.global_asset_manager.lock().unwrap_or_else(|p| p.into_inner()); f(&mut mgr) }
+    let arc = active_asset_manager();
+    let mut mgr = arc.lock().unwrap_or_else(|p| p.into_inner());
+    f(&mut mgr)
 }
 
-/// Run `f` with shared access to the global asset manager.
+/// Run `f` with shared access to the active asset manager.
 pub fn with_global_asset_manager_ref<R>(f: impl FnOnce(&AssetManager) -> R) -> R {
-    { let mut mgr = GLOBAL_ASSET_MANAGER_TLS_BAG.global_asset_manager.lock().unwrap_or_else(|p| p.into_inner()); f(&mgr) }
+    let arc = active_asset_manager();
+    let mgr = arc.lock().unwrap_or_else(|p| p.into_inner());
+    f(&mgr)
 }
 
 #[cfg(test)]

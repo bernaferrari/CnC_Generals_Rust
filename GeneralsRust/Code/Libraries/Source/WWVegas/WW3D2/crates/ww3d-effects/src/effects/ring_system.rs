@@ -35,12 +35,6 @@ use ww3d_renderer_3d::{
 
 type Result<T> = std::result::Result<T, W3DError>;
 
-struct RingIdCounterSlot(AtomicU32);
-impl std::ops::Deref for RingIdCounterSlot {
-    type Target = AtomicU32;
-    fn deref(&self) -> &Self::Target { &self.0 }
-}
-static RING_ID_COUNTER: RingIdCounterSlot = RingIdCounterSlot(AtomicU32::new(0));
 
 fn renderer_error_to_w3d(err: RendererError) -> W3DError {
     W3DError::UnknownWithMessage(err.to_string())
@@ -261,7 +255,7 @@ pub struct RingRenderObjClass {
 impl RingRenderObjClass {
     /// Create new ring render object
     pub fn new(definition: RingDefinition) -> Self {
-        let ring_id = RING_ID_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
+        let ring_id = RING_RUNTIME.id_counter.fetch_add(1, Ordering::Relaxed) + 1;
 
         Self {
             definition,
@@ -547,7 +541,7 @@ impl RingRenderObjClass {
 
     /// Clone ring
     pub fn clone(&self) -> Self {
-        let ring_id = RING_ID_COUNTER.fetch_add(1, Ordering::Relaxed) + 1;
+        let ring_id = RING_RUNTIME.id_counter.fetch_add(1, Ordering::Relaxed) + 1;
 
         Self {
             definition: self.definition.clone(),
@@ -1031,11 +1025,13 @@ impl RingManager {
     }
 }
 
-struct RingManagerSlotBag {
+struct RingRuntime {
+    id_counter: AtomicU32,
     ring_manager_slot: std::sync::Mutex<Option<RingManager>>,
 }
-static RING_MANAGER_SLOT_TLS_BAG: std::sync::LazyLock<RingManagerSlotBag> = std::sync::LazyLock::new(|| RingManagerSlotBag {
-        ring_manager_slot: std::sync::Mutex::new(None),
+static RING_RUNTIME: std::sync::LazyLock<RingRuntime> = std::sync::LazyLock::new(|| RingRuntime {
+    id_counter: AtomicU32::new(0),
+    ring_manager_slot: std::sync::Mutex::new(None),
 });
 
 
@@ -1043,7 +1039,7 @@ fn with_ring_manager_mut<R, F>(f: F) -> Option<R>
 where
     F: FnOnce(&mut RingManager) -> R,
 {
-    { let mut slot = RING_MANAGER_SLOT_TLS_BAG.ring_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); 
+    { let mut slot = RING_RUNTIME.ring_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); 
         let manager = slot.as_mut()?;
         Some(f(manager))
      }
@@ -1051,7 +1047,7 @@ where
 
 /// Initialize global ring manager
 pub fn init_global_ring_manager(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
-    { let mut slot = RING_MANAGER_SLOT_TLS_BAG.ring_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); *slot = Some(RingManager::new(device, queue)) };
+    { let mut slot = RING_RUNTIME.ring_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); *slot = Some(RingManager::new(device, queue)) };
     RingManager::init_ring_render_system()?;
     Ok(())
 }
@@ -1067,7 +1063,7 @@ where
 /// Shutdown global ring manager
 pub fn shutdown_global_ring_manager() {
     RingManager::shutdown_ring_render_system();
-    { let mut slot = RING_MANAGER_SLOT_TLS_BAG.ring_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); *slot = None };
+    { let mut slot = RING_RUNTIME.ring_manager_slot.lock().unwrap_or_else(|p| p.into_inner()); *slot = None };
 }
 
 /// Quick ring functions

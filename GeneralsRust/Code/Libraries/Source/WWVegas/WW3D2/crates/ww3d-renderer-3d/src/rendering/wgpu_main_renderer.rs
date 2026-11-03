@@ -229,6 +229,7 @@ impl WgpuMainRenderer {
         let frame_stats_bridge = Arc::new(Mutex::new(FrameStats::default()));
         let ready_flag = Arc::new(AtomicBool::new(true));
         let ww3d = Arc::new(Ww3dContext::new());
+        ww3d.install_asset_manager_bridge();
         if let Ok(mut guard) = renderer.lock() {
             guard.set_ww3d(Arc::clone(&ww3d));
         }
@@ -311,6 +312,7 @@ impl WgpuMainRenderer {
         let frame_stats_bridge = Arc::new(Mutex::new(FrameStats::default()));
         let ready_flag = Arc::new(AtomicBool::new(true));
         let ww3d = Arc::new(Ww3dContext::new());
+        ww3d.install_asset_manager_bridge();
         if let Ok(mut guard) = renderer.lock() {
             guard.set_ww3d(Arc::clone(&ww3d));
         }
