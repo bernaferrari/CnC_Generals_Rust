@@ -478,8 +478,15 @@ mod tests {
                 tooltips_disabled: false,
                 cursor_mouse: None,
                 emitted_messages: None,
+            campaign_manager: None,
+            window_manager_owner: None,
 
-                main_menu: None,
+                client_frame: None,
+            logic_frame: None,
+            ui: None,
+            menu_world: None,
+            menu_host: None,
+            main_menu: None,
             };
             assert_eq!(
                 manager.process_mouse_event_with_control_bar(

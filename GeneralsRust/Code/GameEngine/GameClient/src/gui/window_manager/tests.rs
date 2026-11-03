@@ -2286,7 +2286,7 @@ fn layout_load_adds_only_top_level_windows_like_cpp() {
         "C++ scriptInfo.windows is roots only"
     );
     assert_eq!(layout.borrow().windows.len(), 1);
-    layout.borrow().hide(false);
+    layout.borrow().hide(&mut manager, false);
     let child_win = manager
         .find_window_by_name("ChildHidden")
         .expect("child exists");

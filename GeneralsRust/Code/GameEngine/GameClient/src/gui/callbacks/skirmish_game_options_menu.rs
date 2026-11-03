@@ -2403,7 +2403,7 @@ mod tests {
 
         assert_eq!(
             crate::gui::game_window::WindowEventEffects::with_standalone(|effects| skirmish_game_options_menu_input(
-                &window,
+                &mut window,
                 WindowMessage::Char,
                 KEY_ESC as WindowMsgData,
                 0,
@@ -2412,7 +2412,7 @@ mod tests {
         );
         assert_eq!(
             crate::gui::game_window::WindowEventEffects::with_standalone(|effects| skirmish_game_options_menu_input(
-                &window,
+                &mut window,
                 WindowMessage::Char,
                 b'A' as WindowMsgData,
                 0,

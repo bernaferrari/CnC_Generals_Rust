@@ -169,7 +169,7 @@ mod owned_tests {
         let window = manager
             .test_create_window_with_id(None, 0, 0, 100, 40, 91)
             .unwrap();
-        let window = window.borrow();
+        let mut window = window.borrow_mut();
         assert_eq!(
             replay_control_input(&mut window, WindowMessage::GadgetSelected, 0, 0),
             WindowMsgHandled::Ignored

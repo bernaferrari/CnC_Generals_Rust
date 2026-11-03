@@ -731,7 +731,7 @@ fn w3d_main_menu_four_and_metal_bar_queue_commands_without_art() {
     let window = test_window(0, 80, 800, 40);
     super::w3d_main_menu_four_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
     super::w3d_metal_bar_menu_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
-    super::w3d_main_menu_map_border(&window, window.instance_data());
+    { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); super::w3d_main_menu_map_border(&window, window.instance_data(), &mut __dc); }
     super::w3d_thin_border_draw(&window, window.instance_data(), &mut crate::gui::window_draw_context::WindowDrawContext::default());
     assert!(
         super::shipped_ui_draw_command_count() > 0,
@@ -804,7 +804,7 @@ fn w3d_push_button_image_one_never_falls_back_to_authored_red_color() {
     let mut window = test_window(20, 60, 64, 64);
     window.set_status(WindowStatus::ENABLED | WindowStatus::IMAGE);
     window.instance_data_mut().enabled_draw_data[0].color = 0xFFFF_0000;
-    super::draw_push_button_image_one(&window, window.instance_data());
+    { let mut __dc = crate::gui::window_draw_context::WindowDrawContext::new(None, Default::default()); super::draw_push_button_image_one(&window, window.instance_data(), &mut __dc); }
     assert_eq!(super::shipped_ui_draw_command_count(), 0);
 }
 
