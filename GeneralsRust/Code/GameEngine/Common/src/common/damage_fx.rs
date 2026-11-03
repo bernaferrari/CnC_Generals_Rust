@@ -250,32 +250,38 @@ impl DamageFXStore {
     }
 }
 
-// Global damage FX store instance
-// THREAD: C++ plain static; driven only by the single game/client thread.
-struct DamageFxStoreBag {
-    value: std::sync::Mutex<DamageFXStore>,
-}
-static DAMAGE_FX_STORE: std::sync::LazyLock<DamageFxStoreBag> = std::sync::LazyLock::new(|| DamageFxStoreBag {
-    value: std::sync::Mutex::new(DamageFXStore::new()),
-});
-
-
-/// Initialize the global damage FX store
+/// Initialize the damage FX store on the published CommonServices.
 pub fn initialize_damage_fx_store() {
-    *DAMAGE_FX_STORE.value.lock().unwrap_or_else(|p| p.into_inner()) = DamageFXStore::new();
+    let services = crate::common::common_services::common_services();
+    *services
+        .damage_fx_store
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()) = DamageFXStore::new();
 }
 
 pub fn with_damage_fx_store<R>(f: impl FnOnce(&DamageFXStore) -> R) -> R {
-    f(&DAMAGE_FX_STORE.value.lock().unwrap_or_else(|p| p.into_inner()))
+    let services = crate::common::common_services::common_services();
+    f(&services
+        .damage_fx_store
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()))
 }
 
 pub fn with_damage_fx_store_mut<R>(f: impl FnOnce(&mut DamageFXStore) -> R) -> R {
-    f(&mut DAMAGE_FX_STORE.value.lock().unwrap_or_else(|p| p.into_inner()))
+    let services = crate::common::common_services::common_services();
+    f(&mut services
+        .damage_fx_store
+        .lock()
+        .unwrap_or_else(|p| p.into_inner()))
 }
 
 /// Legacy handle API — prefer [`with_damage_fx_store`].
 pub fn get_damage_fx_store() -> std::sync::MutexGuard<'static, DamageFXStore> {
-    let guard = DAMAGE_FX_STORE.value.lock().unwrap_or_else(|p| p.into_inner());
+    let services = crate::common::common_services::common_services();
+    let guard = services
+        .damage_fx_store
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     unsafe { std::mem::transmute(guard) }
 }
 
