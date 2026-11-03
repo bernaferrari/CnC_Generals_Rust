@@ -118,6 +118,21 @@ struct WindowManagerOwnerState {
     /// PopupPlayerInfo state (was process TLS).
     #[cfg(feature = "online_ui")]
     popup_player_info_state: Rc<RefCell<crate::gui::callbacks::popup_player_info::PopupPlayerInfoState>>,
+    /// PopupLadderSelectState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    popup_ladder_select_state: Rc<RefCell<crate::gui::callbacks::popup_ladder_select::PopupLadderSelectState>>,
+    /// WolStatusState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_status_state: Rc<RefCell<crate::gui::callbacks::wol_status_menu::WolStatusState>>,
+    /// WolMessageWindowState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_message_window_state: Rc<RefCell<crate::gui::callbacks::wol_message_window::WolMessageWindowState>>,
+    /// WolQmScoreState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_qm_score_state: Rc<RefCell<crate::gui::callbacks::wolqm_score_screen::WolQmScoreState>>,
+    /// WolCustomScoreState (was process TLS).
+    #[cfg(feature = "online_ui")]
+    wol_custom_score_state: Rc<RefCell<crate::gui::callbacks::wol_custom_score_screen::WolCustomScoreState>>,
 }
 
 /// Persistent owner for one native client's WND tree and its re-entry queues.
@@ -241,6 +256,26 @@ impl WindowManagerOwner {
                 popup_player_info_state: Rc::new(RefCell::new(
                     crate::gui::callbacks::popup_player_info::PopupPlayerInfoState::default(),
                 )),
+                #[cfg(feature = "online_ui")]
+                popup_ladder_select_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::popup_ladder_select::PopupLadderSelectState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_status_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_status_menu::WolStatusState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_message_window_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_message_window::WolMessageWindowState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_qm_score_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wolqm_score_screen::WolQmScoreState::default(),
+                )),
+                #[cfg(feature = "online_ui")]
+                wol_custom_score_state: Rc::new(RefCell::new(
+                    crate::gui::callbacks::wol_custom_score_screen::WolCustomScoreState::default(),
+                )),
             }),
         }
     }
@@ -302,6 +337,41 @@ impl WindowManagerOwner {
         &self,
     ) -> Rc<RefCell<crate::gui::callbacks::popup_player_info::PopupPlayerInfoState>> {
         Rc::clone(&self.state.popup_player_info_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn popup_ladder_select_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::popup_ladder_select::PopupLadderSelectState>> {
+        Rc::clone(&self.state.popup_ladder_select_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_status_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_status_menu::WolStatusState>> {
+        Rc::clone(&self.state.wol_status_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_message_window_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_message_window::WolMessageWindowState>> {
+        Rc::clone(&self.state.wol_message_window_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_qm_score_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wolqm_score_screen::WolQmScoreState>> {
+        Rc::clone(&self.state.wol_qm_score_state)
+    }
+
+    #[cfg(feature = "online_ui")]
+    pub(crate) fn wol_custom_score_state_handle(
+        &self,
+    ) -> Rc<RefCell<crate::gui::callbacks::wol_custom_score_screen::WolCustomScoreState>> {
+        Rc::clone(&self.state.wol_custom_score_state)
     }
 
     pub(crate) fn keyboard_options_handle(

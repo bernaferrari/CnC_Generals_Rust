@@ -14,7 +14,7 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct WolQmScoreState {
+pub(crate) struct WolQmScoreState {
     parent_id: i32,
     button_disconnect_id: i32,
     button_quickmatch_id: i32,
@@ -23,12 +23,38 @@ struct WolQmScoreState {
     button_quickmatch: Option<Rc<RefCell<GameWindow>>>,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_QM_SCORE_STATE: Rc<RefCell<WolQmScoreState>> = Rc::new(RefCell::new(WolQmScoreState::default()));
+    static TEST_WOL_QM_SCORE_STATE: std::cell::OnceCell<Rc<RefCell<WolQmScoreState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn wol_qm_score_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolQmScoreState>> {
+    if let Some(owner) = owner {
+        return owner.wol_qm_score_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_qm_score_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_QM_SCORE_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolQmScoreState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolQmScoreState::default()))
+    }
 }
 
 fn wol_qm_score_state() -> Rc<RefCell<WolQmScoreState>> {
-    WOL_QM_SCORE_STATE.with(Rc::clone)
+    wol_qm_score_state_on_owner(None)
 }
 
 fn name_to_id(name: &str) -> i32 {

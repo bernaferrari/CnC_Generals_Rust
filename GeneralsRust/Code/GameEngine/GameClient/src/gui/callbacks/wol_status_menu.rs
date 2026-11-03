@@ -14,7 +14,7 @@ const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
-struct WolStatusState {
+pub(crate) struct WolStatusState {
     parent_id: i32,
     button_disconnect_id: i32,
     progress_text_id: i32,
@@ -23,12 +23,38 @@ struct WolStatusState {
     progress_text: Option<Rc<RefCell<GameWindow>>>,
 }
 
+#[cfg(test)]
 thread_local! {
-    static WOL_STATUS_STATE: Rc<RefCell<WolStatusState>> = Rc::new(RefCell::new(WolStatusState::default()));
+    static TEST_WOL_STATUS_STATE: std::cell::OnceCell<Rc<RefCell<WolStatusState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn wol_status_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<WolStatusState>> {
+    if let Some(owner) = owner {
+        return owner.wol_status_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().wol_status_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_WOL_STATUS_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(WolStatusState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(WolStatusState::default()))
+    }
 }
 
 fn wol_status_state() -> Rc<RefCell<WolStatusState>> {
-    WOL_STATUS_STATE.with(Rc::clone)
+    wol_status_state_on_owner(None)
 }
 
 fn name_to_id(name: &str) -> i32 {

@@ -40,7 +40,7 @@ enum PasswordMode {
 }
 
 #[derive(Default)]
-struct PopupLadderSelectState {
+pub(crate) struct PopupLadderSelectState {
     parent_id: i32,
     listbox_ladder_select_id: i32,
     listbox_ladder_details_id: i32,
@@ -66,12 +66,38 @@ struct PopupLadderSelectState {
     ladder_index: i32,
 }
 
+#[cfg(test)]
 thread_local! {
-    static POPUP_STATE: Rc<RefCell<PopupLadderSelectState>> = Rc::new(RefCell::new(PopupLadderSelectState::default()));
+    static TEST_POPUP_STATE: std::cell::OnceCell<Rc<RefCell<PopupLadderSelectState>>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn popup_state_on_owner(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+) -> Rc<RefCell<PopupLadderSelectState>> {
+    if let Some(owner) = owner {
+        return owner.popup_ladder_select_state_handle();
+    }
+    if let Some(handle) = crate::core::game_client::with_live_game_client_mut(|client| {
+        client.window_manager_owner_ref().popup_ladder_select_state_handle()
+    }) {
+        return handle;
+    }
+    #[cfg(test)]
+    {
+        return TEST_POPUP_STATE.with(|cell| {
+            cell.get_or_init(|| Rc::new(RefCell::new(PopupLadderSelectState::default())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        Rc::new(RefCell::new(PopupLadderSelectState::default()))
+    }
 }
 
 fn popup_state() -> Rc<RefCell<PopupLadderSelectState>> {
-    POPUP_STATE.with(Rc::clone)
+    popup_state_on_owner(None)
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -880,7 +906,7 @@ pub fn popup_ladder_select_init(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) {
-    let state_slot = popup_state();
+    let state_slot = popup_state_on_owner(effects.window_manager_owner);
     let mut state = state_slot.borrow_mut();
 
     state.parent_id = name_to_id("PopupLadderSelect.wnd:Parent");
@@ -956,7 +982,7 @@ pub fn popup_ladder_select_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state_slot = popup_state();
+    let state_slot = popup_state_on_owner(effects.window_manager_owner);
     let mut state = state_slot.borrow_mut();
     match state.password_mode {
         PasswordMode::None => {
@@ -987,7 +1013,7 @@ pub fn popup_ladder_select_system(
     receiving_manager: &mut crate::gui::window_manager::WindowManager,
     effects: &mut crate::gui::game_window::WindowEventEffects<'_>,
 ) -> WindowMsgHandled {
-    let state_slot = popup_state();
+    let state_slot = popup_state_on_owner(effects.window_manager_owner);
     let mut state = state_slot.borrow_mut();
 
     match msg {
