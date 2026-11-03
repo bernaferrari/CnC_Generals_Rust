@@ -1559,7 +1559,7 @@ fn attack_move_sets_max_shots_and_path_flag() {
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
         assert!(
-            exec.execute_attack_move(&[id], Vec3::new(200.0, 0.0, 0.0), 5) == CommandResult::Success);
+            exec.execute_attack_move(&[id], Vec3::new(200.0, 0.0, 0.0), 5).is_ok_and(|r| r == CommandResult::Success));
     }
     let u = logic.host_object(id).unwrap();
     assert_eq!(u.ai_state(), AIState::AttackMoving);

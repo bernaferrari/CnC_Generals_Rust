@@ -174,7 +174,7 @@ fn location_command_distinguishes_owner_hidden_fogged_and_visible() {
             );
             with_foreign_held(|| {
                 assert!(
-                    click(&mut hidden, caster, target, SpecialPowerType::Airstrike).is_ok_and(|r| r == CommandResult::InvalidLocation));
+                    click(&mut hidden, caster, target, SpecialPowerType::Airstrike) == CommandResult::InvalidLocation);
                 assert!(hidden.is_special_power_ready_for(caster, &SpecialPowerType::Airstrike));
                 assert!(click(
                         &mut fogged,
@@ -191,7 +191,7 @@ fn location_command_distinguishes_owner_hidden_fogged_and_visible() {
                         visible_target,
                         SpecialPowerType::Airstrike
                     ) == CommandResult::Success);
-                assert!(click(&mut hidden, caster, target, SpecialPowerType::Airstrike).is_ok_and(|r| r == CommandResult::InvalidLocation), "other owners cannot reveal this map");
+                assert!(click(&mut hidden, caster, target, SpecialPowerType::Airstrike) == CommandResult::InvalidLocation, "other owners cannot reveal this map");
                 assert!(hidden.is_special_power_ready_for(caster, &SpecialPowerType::Airstrike));
             });
         },
@@ -218,7 +218,7 @@ fn location_paradrop_reads_driving_water_before_shroud() {
             }
             with_foreign_held(|| {
                 assert!(
-                    click(&mut wet, caster, target, SpecialPowerType::Paradrop).is_ok_and(|r| r == CommandResult::InvalidLocation));
+                    click(&mut wet, caster, target, SpecialPowerType::Paradrop) == CommandResult::InvalidLocation);
                 assert!(wet.is_special_power_ready_for(caster, &SpecialPowerType::Paradrop));
                 assert!(click(
                         &mut dry,
@@ -227,7 +227,7 @@ fn location_paradrop_reads_driving_water_before_shroud() {
                         SpecialPowerType::Paradrop
                     ) == CommandResult::Success);
                 assert!(!dry.is_special_power_ready_for(other_caster, &SpecialPowerType::Paradrop));
-                assert!(click(&mut wet, caster, target, SpecialPowerType::Paradrop).is_ok_and(|r| r == CommandResult::InvalidLocation));
+                assert!(click(&mut wet, caster, target, SpecialPowerType::Paradrop) == CommandResult::InvalidLocation);
                 assert!(wet.is_special_power_ready_for(caster, &SpecialPowerType::Paradrop));
             });
         },
@@ -245,7 +245,7 @@ fn informational_location_gate_uses_driving_extent_and_inclusive_edges() {
             assert_eq!((caster, target), (other_caster, other_target));
             with_foreign_held(|| {
                 assert!(
-                    click(&mut small, caster, target, SpecialPowerType::SpySatellite).is_ok_and(|r| r == CommandResult::InvalidLocation));
+                    click(&mut small, caster, target, SpecialPowerType::SpySatellite) == CommandResult::InvalidLocation);
                 assert!(small.is_special_power_ready_for(caster, &SpecialPowerType::SpySatellite));
                 for position in [Vec3::ZERO, Vec3::new(40.0, 99.0, 40.0)] {
                     assert!(

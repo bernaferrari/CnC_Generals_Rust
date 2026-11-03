@@ -260,7 +260,7 @@ fn place_beacon_spawns_world_object_and_respects_cap() {
             vec![],
         ))
         .expect("exec");
-    assert!(overflow.is_ok_and(|r| r == CommandResult::InvalidCommand));
+    assert_eq!(overflow, CommandResult::InvalidCommand);
 }
 
 #[test]

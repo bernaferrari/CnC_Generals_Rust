@@ -392,7 +392,7 @@ fn stamped_formation_move_does_not_tighten() {
             exec.should_tighten_group_move(&[a, b], dest),
             "click is inside the bbox; tighten would fire without the formation gate"
         );
-        assert!(exec.execute_move(&[a, b], dest) == CommandResult::Success);
+        assert!(exec.execute_move(&[a, b], dest).is_ok_and(|r| r == CommandResult::Success));
     }
     let fa = logic.host_object(a).unwrap();
     let fb = logic.host_object(b).unwrap();
