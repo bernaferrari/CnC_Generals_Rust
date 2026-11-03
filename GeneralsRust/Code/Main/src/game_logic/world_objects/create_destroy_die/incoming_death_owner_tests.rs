@@ -303,3 +303,56 @@ fn retained_mark_adapter_does_not_fabricate_current_input_from_body_history() {
     assert_eq!(object.last_damage_info_type, Some(DamageType::Flame));
     assert_eq!(object.last_damage_source, Some(preferred));
 }
+
+#[test]
+fn authored_highlander_body_binds_from_module_not_template_name() {
+    // C++ HighlanderBody.cpp:33-34 is selected by the authored Body module,
+    // not by the template name. Unresistable still kills (unlike Immortal).
+    let mut owner = GameLogic::new();
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "incoming-highlander-owner.ini".to_string(),
+        format!(
+            "{}\n{}",
+            authored("PlainHighlanderWitness", "HighlanderBody", "INERT", ""),
+            authored("Tree01ActiveWitness", "ActiveBody", "INERT", "")
+        ),
+    )])
+    .unwrap();
+    owner.admit_receiving_module_content(content).unwrap();
+    let highlander = owner
+        .create_object("PlainHighlanderWitness", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
+    let tree = owner
+        .create_object(
+            "Tree01ActiveWitness",
+            Team::USA,
+            glam::Vec3::new(200.0, 0.0, 0.0),
+        )
+        .unwrap();
+    assert!(!hit(
+        &mut owner,
+        highlander,
+        None,
+        500.0,
+        DamageType::Explosive,
+        HostDeathType::Normal
+    ));
+    assert_eq!(owner.host_object(highlander).unwrap().health.current, 1.0);
+    assert!(hit(
+        &mut owner,
+        highlander,
+        None,
+        500.0,
+        DamageType::Unresistable,
+        HostDeathType::Normal
+    ));
+    // Authored ActiveBody with a highlander-ish name must not clamp.
+    assert!(hit(
+        &mut owner,
+        tree,
+        None,
+        500.0,
+        DamageType::Explosive,
+        HostDeathType::Normal
+    ));
+}
