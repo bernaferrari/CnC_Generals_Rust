@@ -1549,6 +1549,16 @@ mod tests {
     use crate::test_support::with_receiving_ui;
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
+    /// Drive selection translation with a receiving UI. The GameMessageTranslator
+    /// no-context entry point intentionally keeps messages (must use with_context).
+    fn translate_for_test(
+        translator: &mut SelectionTranslator,
+        msg: &GameMessage,
+        ui: &mut crate::message_stream::ReceivingUi<'_>,
+    ) -> GameMessageDisposition {
+        translator.translate_with_window_query(msg, &mut |_x, _y, _ui| false, ui)
+    }
+
     fn test_state_lock() -> MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
@@ -1881,8 +1891,11 @@ mod tests {
             let mut translator = SelectionTranslator::new();
             translator.current_selection.insert(777);
 
-            let messages =
-                with_receiving_ui(|ui| translator.handle_left_button_up(ICoord2D { x: 16, y: 24 }, KeyModifiers::empty(), ui));
+            let messages = translator.handle_left_button_up(
+                ICoord2D { x: 16, y: 24 },
+                KeyModifiers::empty(),
+                ui,
+            );
 
             assert!(messages.is_empty());
             assert_eq!(translator.current_selection.len(), 1);
@@ -1910,8 +1923,9 @@ mod tests {
             translator.current_selection.insert(44);
             ui.set_force_attack_mode(true);
 
-            let disposition = translator.translate_game_message(&GameMessage::new(
-                GameMessageType::MouseLeftDoubleClick(
+            let disposition = translate_for_test(
+                &mut translator,
+                &GameMessage::new(GameMessageType::MouseLeftDoubleClick(
                     IRegion2D {
                         x: 20,
                         y: 30,
@@ -1919,8 +1933,9 @@ mod tests {
                         height: 0,
                     },
                     0,
-                ),
-            ));
+                )),
+                ui,
+            );
 
             assert_eq!(disposition, GameMessageDisposition::KeepMessage);
             assert!(translator.current_selection.contains(&44));
@@ -2012,7 +2027,9 @@ mod tests {
 
             let mut translator = SelectionTranslator::new();
             translator.control_groups[1] = (1..=45).collect();
-            let messages = with_receiving_ui(|ui| translator.handle_select_control_group(1, ui));
+            // Same receiving UI owns the max-select count (nested with_receiving_ui
+            // would allocate a fresh subsystem and drop the limit).
+            let messages = translator.handle_select_control_group(1, ui);
 
             assert_eq!(translator.current_selection.len(), 45);
             assert!(!translator.displayed_max_warning);
@@ -2036,7 +2053,7 @@ mod tests {
 
             let mut translator = SelectionTranslator::new();
             translator.control_groups[1] = (1..=45).collect();
-            let messages = with_receiving_ui(|ui| translator.handle_select_control_group(1, ui));
+            let messages = translator.handle_select_control_group(1, ui);
 
             assert_eq!(translator.current_selection.len(), 40);
             assert!(translator.displayed_max_warning);
@@ -2091,14 +2108,21 @@ mod tests {
             view.set_position(&Point3::new(0.0, 0.0, 0.0));
         });
 
-        let disposition =
-            translator.translate_game_message(&GameMessage::new(GameMessageType::MetaViewTeam(2)));
+        let disposition = with_receiving_ui(|ui| {
+            translate_for_test(
+                &mut translator,
+                &GameMessage::new(GameMessageType::MetaViewTeam(2)),
+                ui,
+            )
+        });
 
         assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
         assert_eq!(translator.current_selection, HashSet::from([99]));
+        // C++ looks at the last live squad member's drawable position (300,420),
+        // not the centroid of the group.
         with_tactical_view_ref(|view| {
-            assert_eq!(view.position().x, 250.0);
-            assert_eq!(view.position().y, 380.0);
+            assert_eq!(view.position().x, 300.0);
+            assert_eq!(view.position().y, 420.0);
         });
         }
 
@@ -2125,8 +2149,13 @@ mod tests {
         with_tactical_view(|view| {
             view.set_position(&Point3::new(0.0, 0.0, 0.0));
         });
-        let disposition =
-            translator.translate_game_message(&GameMessage::new(GameMessageType::MetaViewTeam(0)));
+        let disposition = with_receiving_ui(|ui| {
+            translate_for_test(
+                &mut translator,
+                &GameMessage::new(GameMessageType::MetaViewTeam(0)),
+                ui,
+            )
+        });
         assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
         with_tactical_view_ref(|view| {
             assert_eq!(view.position().x, 0.0);
@@ -2190,8 +2219,12 @@ mod tests {
             ui.set_scrolling(true);
 
             translator.handle_right_button_down(ICoord2D { x: 50, y: 60 }, 0, Coord3D::default());
-            let messages =
-                with_receiving_ui(|ui| translator.handle_right_button_up(ICoord2D { x: 50, y: 60 }, 0, Coord3D::default(), ui));
+            let messages = translator.handle_right_button_up(
+                ICoord2D { x: 50, y: 60 },
+                0,
+                Coord3D::default(),
+                ui,
+            );
 
             assert!(messages.is_empty());
             assert_eq!(translator.current_selection.len(), 1);
@@ -2239,7 +2272,7 @@ mod tests {
             ui.set_quit_menu_visible(true);
 
             let disposition =
-                translator.translate_game_message(&GameMessage::new(GameMessageType::MouseLeftClick(
+                translate_for_test(&mut translator, &GameMessage::new(GameMessageType::MouseLeftClick(
                     IRegion2D {
                         x: 20,
                         y: 30,
@@ -2247,7 +2280,7 @@ mod tests {
                         height: 0,
                     },
                     0,
-                )));
+                )), ui);
 
             assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
             ui.set_quit_menu_visible(false);
@@ -2267,7 +2300,7 @@ mod tests {
             ui.set_selecting(true);
 
             let disposition =
-                translator.translate_game_message(&GameMessage::new(GameMessageType::MetaOptions));
+                translate_for_test(&mut translator, &GameMessage::new(GameMessageType::MetaOptions), ui);
 
             assert_eq!(disposition, GameMessageDisposition::KeepMessage);
             assert!(!translator.left_mouse_button_is_down);
