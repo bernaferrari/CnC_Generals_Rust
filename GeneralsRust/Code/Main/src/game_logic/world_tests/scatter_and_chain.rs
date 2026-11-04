@@ -3898,3 +3898,63 @@ fn neutron_scud_residual_impact_spawns_no_muzzle_hq_2qedt_87_5() {
         "impact residuals spawned a muzzle (C++ FireFX is fire-time only): {failures:?}"
     );
 }
+
+/// hq-2qedt.125: base-defense residual fire captures a pending visual
+/// dispatch and records the accepted discharge (shared FireFX owner,
+/// Weapon.cpp:923-939). C++ plays FireFX exactly once per accepted shot, so
+/// the residual must not add a second muzzle on top of the shared owner.
+#[test]
+fn base_defense_fire_time_exactly_one_muzzle_per_shot_hq_2qedt_125() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut logic = GameLogic::new();
+    let mut pat_tpl = crate::game_logic::ThingTemplate::new("Lazr_AmericaPatriotBattery");
+    pat_tpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(1000.0);
+    logic
+        .templates
+        .insert("Lazr_AmericaPatriotBattery".to_string(), pat_tpl);
+    ensure_test_tank_template(&mut logic);
+    let pat = logic
+        .create_object("Lazr_AmericaPatriotBattery", Team::USA, glam::Vec3::ZERO)
+        .expect("patriot");
+    if let Some(p) = logic.host_object_mut(pat) {
+        p.set_status_under_construction(false);
+        p.construction_percent = 100.0;
+        if let Some(w) = p.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+        }
+    }
+    let _enemy = logic
+        .create_object("TestTank", Team::GLA, glam::Vec3::new(100.0, 0.0, 0.0))
+        .expect("enemy");
+    let muzzles = |l: &GameLogic| {
+        l.combat_particles()
+            .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+            .iter()
+            .filter(|e| e.source_object == Some(pat))
+            .count()
+    };
+    logic.frame = 30;
+    let mut fired = false;
+    for _ in 0..30 {
+        let before_fires = logic.base_defense_residual_fires();
+        let before = muzzles(&logic);
+        logic.try_base_defense_residual_fire(pat);
+        if logic.base_defense_residual_fires() > before_fires {
+            let after = muzzles(&logic);
+            eprintln!("hq-2qedt.125 muzzles per accepted shot = {}", after - before);
+            assert_eq!(after - before, 1, "exactly one fire-time muzzle per accepted shot");
+            fired = true;
+            break;
+        }
+        logic.frame = logic.frame.saturating_add(1);
+    }
+    assert!(fired, "base defense must fire");
+}
