@@ -247,7 +247,7 @@ fn main_power_factors_follow_configured_bounds_and_cpp_order() {
 // Actual definition worker -> Main PlayerTemplate identity -> charged queue ->
 // completion -> Object creation. Process isolation protects the existing
 // immutable Common store without a new fixture mutex or namespace publication.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 thread_local! {
     static WORKER_DEFINITIONS: std::cell::RefCell<
         Option<game_engine::common::rts::player_template::PlayerTemplateStore>,
