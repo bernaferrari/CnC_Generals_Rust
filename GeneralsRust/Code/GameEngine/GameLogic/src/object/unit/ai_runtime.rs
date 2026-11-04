@@ -624,6 +624,20 @@ impl UnitAiRuntime {
             && command.cmd != crate::ai::AiCommandType::MoveToPositionEvenIfSleeping)
     }
 
+    /// Owned-world form of `is_allowed_to_respond_to_ai_commands`: the
+    /// controller comes from the supplied world (AIUpdate.cpp:2580-2584).
+    pub(crate) fn is_allowed_to_respond_to_ai_commands_with_world(
+        &self,
+        command: &crate::ai::AiCommandParams,
+        world: &dyn crate::modules::ai_world::AiWorld,
+    ) -> bool {
+        use crate::ai::mood_matrix_parameters::{CONTROLLER_AI, MOOD_SLEEP};
+        let mood = self.get_mood_matrix_value_with_world(true, world);
+        !((mood & CONTROLLER_AI) != 0
+            && (mood & MOOD_SLEEP) != 0
+            && command.cmd != crate::ai::AiCommandType::MoveToPositionEvenIfSleeping)
+    }
+
     pub(super) fn get_mood_matrix_value(&self, parent_exists: bool) -> u32 {
         if !parent_exists {
             return 0;

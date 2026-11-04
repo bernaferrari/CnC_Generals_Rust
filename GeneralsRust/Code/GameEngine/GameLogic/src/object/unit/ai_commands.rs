@@ -211,6 +211,12 @@ impl UnitAIUpdate {
         {
             return Ok(()); // CPP AIUpdate::isAllowedToRespondToAiCommands.
         }
+        if !self
+            .runtime
+            .is_allowed_to_respond_to_ai_commands_with_world(command, world)
+        {
+            return Ok(()); // CPP AIUpdate.cpp:2572-2590.
+        }
         self.validate_owned_command_impl(command, world, dozer_action)?;
         if world.pathfinder().is_none() {
             return Err("admitted pathfinder disappeared".into());
