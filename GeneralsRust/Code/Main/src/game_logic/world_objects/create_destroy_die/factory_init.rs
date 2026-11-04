@@ -124,25 +124,11 @@ impl GameLogic {
             reset_continuous_fire_state(object);
         }
 
-        // Host residual: China Gattling Cannon structure dual ground/AA + continuous-fire ramp.
-        // Fail-closed: not full CONTINUOUS_FIRE_* model-condition animation matrix.
+        // China Gattling Cannon structure PRIMARY/SECONDARY bind from the
+        // authored WeaponSet (C++ WeaponSet::updateWeaponSet), not a
+        // template-name host table (hq-2qedt.160). Continuous-fire ramp state
+        // still resets at create; chain-guns refresh stays upgrade-time.
         if crate::game_logic::host_base_defense::is_gattling_cannon_structure(template_name) {
-            use crate::game_logic::host_base_defense::{
-                gattling_building_air_weapon, gattling_building_ground_weapon,
-                gattling_building_has_chain_guns,
-            };
-            use crate::game_logic::host_gattling_tank::GattlingFireLevel;
-            let chain = gattling_building_has_chain_guns(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
-            object.weapon = Some(gattling_building_ground_weapon(
-                GattlingFireLevel::Base,
-                chain,
-            ));
-            object.secondary_weapon =
-                Some(gattling_building_air_weapon(GattlingFireLevel::Base, chain));
             reset_continuous_fire_state(object);
         }
 
