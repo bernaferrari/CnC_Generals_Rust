@@ -1072,7 +1072,10 @@ fn lazr_patriot_residual_laser_dual_slot() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .add_kind_of(KindOf::FSBaseDefense)
-        .set_health(1000.0);
+        .set_health(1000.0)
+        .set_primary_weapon_name(crate::game_logic::host_base_defense::LAZR_PATRIOT_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(crate::game_logic::host_base_defense::LAZR_PATRIOT_ASSIST_WEAPON)
+        .set_tertiary_weapon_name(crate::game_logic::host_base_defense::LAZR_PATRIOT_SECONDARY_WEAPON);
     game_logic
         .templates
         .insert("Lazr_AmericaPatriotBattery".to_string(), pat_tpl);

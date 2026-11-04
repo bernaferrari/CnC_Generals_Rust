@@ -2565,7 +2565,8 @@ fn patriot_residual_aa_secondary_auto_fires() {
         .add_kind_of(KindOf::FSBaseDefense)
         .set_health(600.0)
         .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+        .set_secondary_weapon_name(crate::game_logic::host_base_defense::PATRIOT_ASSIST_WEAPON)
+        .set_tertiary_weapon_name(PATRIOT_SECONDARY_WEAPON);
     game_logic
         .templates
         .insert("USA_Patriot".to_string(), patriot_tpl);

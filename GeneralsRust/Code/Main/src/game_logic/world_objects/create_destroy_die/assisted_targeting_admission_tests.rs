@@ -116,8 +116,9 @@ fn patriot_runtime_slots_match_retail_weapon_set() {
     use crate::game_logic::host_base_defense::{
         PATRIOT_AIR_DAMAGE, PATRIOT_AIR_RANGE, PATRIOT_ASSIST_DAMAGE, PATRIOT_ASSIST_RANGE,
     };
+    crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
     let mut w = world(&patriot(
-        "Behavior = AssistedTargetingUpdate AssistTag\n AssistingClipSize = 4\n AssistingWeaponSlot = SECONDARY\nEnd\n",
+        "WeaponSet\n Conditions = None\n Weapon = PRIMARY PatriotMissileWeapon\n Weapon = SECONDARY PatriotMissileAssistWeapon\n Weapon = TERTIARY PatriotMissileWeaponAir\nEnd\nBehavior = AssistedTargetingUpdate AssistTag\n AssistingClipSize = 4\n AssistingWeaponSlot = SECONDARY\nEnd\n",
     ));
     let id = w.create_object_for_player("AmericaPatriotBattery", 0, Vec3::ZERO).unwrap();
     let p = w.host_object(id).unwrap();
@@ -164,4 +165,33 @@ fn pending_assist_issues_attack_even_when_victim_beyond_assist_weapon_range() {
     assert_eq!(o.weapon_lock_slot, 1);
     assert_eq!(o.max_shots_to_fire, 4);
     assert_eq!(o.target, Some(victim));
+}
+
+/// hq-2qedt.136: C++ binds PRIMARY/SECONDARY/TERTIARY from the template
+/// WeaponSet at create (WeaponSet::updateWeaponSet), not a template-name host
+/// table. A Patriot-named template authoring different weapons keeps them.
+#[test]
+fn patriot_create_weapons_come_from_authored_weapon_set() {
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_AIR_DAMAGE, PATRIOT_ASSIST_DAMAGE,
+    };
+    crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    let mut w = world(&patriot(
+        "WeaponSet\n Conditions = None\n Weapon = PRIMARY HumveeGun\n Weapon = SECONDARY HumveeGun\n Weapon = TERTIARY HumveeGun\nEnd\nBehavior = AssistedTargetingUpdate AssistTag\n AssistingClipSize = 4\n AssistingWeaponSlot = SECONDARY\nEnd\n",
+    ));
+    let id = w.create_object_for_player("AmericaPatriotBattery", 0, Vec3::ZERO).unwrap();
+    let p = w.host_object(id).unwrap();
+    let prim = p.weapon_slot(0).expect("authored PRIMARY").clone();
+    let sec = p.weapon_slot(1).expect("authored SECONDARY").clone();
+    let ter = p.weapon_slot(2).expect("authored TERTIARY").clone();
+    assert!(
+        (sec.damage - PATRIOT_ASSIST_DAMAGE).abs() > 0.01,
+        "authored SECONDARY overwritten by patriot_assist_weapon_for_template peel: {sec:?}"
+    );
+    assert!(
+        (ter.damage - PATRIOT_AIR_DAMAGE).abs() > 0.01,
+        "authored TERTIARY overwritten by patriot_air_weapon_for_template peel: {ter:?}"
+    );
+    assert_eq!(prim.damage, sec.damage, "PRIMARY/SECONDARY both authored HumveeGun");
+    assert_eq!(prim.damage, ter.damage, "PRIMARY/TERTIARY both authored HumveeGun");
 }

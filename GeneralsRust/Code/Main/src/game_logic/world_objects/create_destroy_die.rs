@@ -3028,18 +3028,10 @@ impl GameLogic {
                 );
             }
 
-            // Retail FactionBuilding.ini Patriot WeaponSet: PRIMARY PatriotMissileWeapon,
-            // SECONDARY PatriotMissileAssistWeapon (AssistingWeaponSlot), TERTIARY
-            // PatriotMissileWeaponAir. Lazr/SupW families use their own damage residuals.
-            if crate::game_logic::host_base_defense::is_patriot_battery_structure(template_name) {
-                use crate::game_logic::host_base_defense::{
-                    patriot_air_weapon_for_template, patriot_assist_weapon_for_template,
-                    patriot_ground_weapon_for_template,
-                };
-                object.weapon = Some(patriot_ground_weapon_for_template(template_name));
-                object.secondary_weapon = Some(patriot_assist_weapon_for_template(template_name));
-                object.tertiary_weapon = Some(patriot_air_weapon_for_template(template_name));
-            }
+            // Patriot PRIMARY/SECONDARY(assist)/TERTIARY(air) bind from the
+            // authored WeaponSet above (C++ WeaponSet::updateWeaponSet;
+            // FactionBuilding.ini AmericaPatriotBattery), not a template-name
+            // host table (hq-2qedt.136).
 
             // Host residual: USA Crusader / Paladin PRIMARY tank gun
             // (Laser General Lazr_* → Lazr_CrusaderTankGun / Lazr_PaladinTankGun).
