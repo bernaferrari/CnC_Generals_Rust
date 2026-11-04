@@ -1239,6 +1239,19 @@ pub(super) fn seed_known_host_weapons() -> usize {
             t.minimum_attack_range = 100.0;
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
         }
+        // Retail MiG Napalm / Black Napalm / Nuke missile MinimumAttackRange 80 /
+        // PrimaryDamageRadius 5 / AntiAirborneVehicle (host_mig MIG_MIN_RANGE /
+        // MIG_PRIMARY_RADIUS / mig_weapon can_target_air; authored
+        // source for MiG PRIMARY at create, hq-2qedt.156).
+        if seed.name == NAPALM_MISSILE_WEAPON
+            || seed.name == BLACK_NAPALM_MISSILE_WEAPON
+            || seed.name == NUKE_MIG_MISSILE_WEAPON
+            || seed.name == NUKE_NUKE_MISSILE_WEAPON
+        {
+            t.primary_damage_radius = 5.0;
+            t.minimum_attack_range = 80.0;
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+        }
         if seed.name == DRAGON_TANK_FLAME_WEAPON || seed.name == DRAGON_TANK_FLAME_WEAPON_UPGRADED {
             t.primary_damage_radius = 5.0;
             t.secondary_damage = if seed.name == DRAGON_TANK_FLAME_WEAPON_UPGRADED {

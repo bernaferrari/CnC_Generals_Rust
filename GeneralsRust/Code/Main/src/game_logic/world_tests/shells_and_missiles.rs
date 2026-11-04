@@ -2442,6 +2442,34 @@ fn stealth_fighter_residual_missiles_and_splash() {
     );
 }
 
+/// hq-2qedt.156: C++ binds PRIMARY from the template WeaponSet at create
+/// (WeaponSet::updateWeaponSet), not a template-name host table. A
+/// MiG-named template authoring a different PRIMARY must keep it.
+#[test]
+fn mig_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::host_mig::{MigLoadout, mig_primary_damage};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaJetMIG");
+    tpl.add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("ChinaJetMIG".to_string(), tpl);
+    let id = game_logic
+        .create_object("ChinaJetMIG", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("mig");
+    let obj = game_logic.host_object(id).expect("mig");
+    let prim = obj.weapon.clone().expect("authored primary");
+    assert!(
+        (prim.damage - mig_primary_damage(MigLoadout::Standard)).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by mig_weapon() name peel: {prim:?}"
+    );
+}
+
 /// hq-2qedt.155: C++ binds PRIMARY from the template WeaponSet at create
 /// (WeaponSet::updateWeaponSet), not a template-name host table. A
 /// Raptor-named template authoring a different PRIMARY must keep it.

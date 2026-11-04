@@ -212,20 +212,9 @@ impl GameLogic {
         // WeaponSet::updateWeaponSet from ThingTemplate), not a name peel
         // (hq-2qedt.155). King / Laser Missiles upgrade refresh is unchanged.
 
-        // Host residual: China MiG PRIMARY napalm / Nuke dual-radius missiles.
-        // Fail-closed: not full RETURN_TO_BASE ClipReload / HistoricBonus Firestorm matrix.
-        if crate::game_logic::host_mig::is_mig_template(template_name) {
-            use crate::game_logic::host_mig::{is_nuke_mig_template, mig_loadout, mig_weapon};
-            let loadout = mig_loadout(
-                is_nuke_mig_template(template_name),
-                if allow_upgrades {
-                    &object.applied_upgrades
-                } else {
-                    &no_upgrade_mask
-                },
-            );
-            object.weapon = Some(mig_weapon(loadout));
-        }
+        // China MiG PRIMARY binds from the authored WeaponSet (C++
+        // WeaponSet::updateWeaponSet from ThingTemplate), not a name peel
+        // (hq-2qedt.156). Black Napalm / Tactical Nuke upgrade refresh is unchanged.
 
         // USA Comanche PRIMARY/SECONDARY bind from the authored WeaponSet
         // (C++ WeaponSet::updateWeaponSet), not this name peel (hq-2qedt.109).
