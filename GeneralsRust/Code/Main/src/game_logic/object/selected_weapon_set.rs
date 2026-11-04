@@ -407,6 +407,27 @@ impl Object {
             .projectile_name
             .as_deref()
     }
+    /// Authored WeaponSet row whose Conditions include PLAYER_UPGRADE (C++
+    /// WeaponSetUpgrade → WEAPONSET_PLAYER_UPGRADE → updateWeaponSet); slot name.
+    pub(in crate::game_logic) fn authored_player_upgrade_weapon_name(
+        &self,
+        slot: u8,
+    ) -> Option<&str> {
+        const PLAYER_UPGRADE: u32 = 1 << 3;
+        let rows = self.thing.template.selected_weapon_sets.as_ref()?;
+        let (_, row) = select_conditional_weapon_row(
+            &rows.conditional,
+            self.active_weapon_condition_mask() | PLAYER_UPGRADE,
+        )?;
+        if !row
+            .condition_alternatives
+            .iter()
+            .any(|mask| mask & PLAYER_UPGRADE != 0)
+        {
+            return None;
+        }
+        row.names.get(slot as usize)?.as_deref()
+    }
     pub(crate) fn selected_weapon_name(&self, slot: u8) -> Option<&str> {
         let row = self.selected_weapon_row()?;
         row.names.get(slot as usize)?.as_deref()

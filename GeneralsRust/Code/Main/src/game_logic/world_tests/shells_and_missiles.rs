@@ -2442,6 +2442,62 @@ fn stealth_fighter_residual_missiles_and_splash() {
     );
 }
 
+/// hq-2qedt.194: C++ BlackNapalm / Tactical Nuke MiG are WeaponSetUpgrade
+/// (WEAPONSET_PLAYER_UPGRADE → updateWeaponSet); the refreshed PRIMARY is the
+/// upgrade row's authored weapon, not name-built mig_weapon() stats.
+#[test]
+fn mig_upgrade_refresh_binds_authored_weapon_not_name_built_stats() {
+    use crate::game_logic::host_mig::{
+        BLACK_NAPALM_MISSILE_WEAPON, MigLoadout, NUKE_NUKE_MISSILE_WEAPON, mig_weapon,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    for (tpl_name, nuke, weapon_name, loadout) in [
+        ("ChinaJetMIG", false, BLACK_NAPALM_MISSILE_WEAPON, MigLoadout::BlackNapalm),
+        ("Nuke_ChinaJetMIG", true, NUKE_NUKE_MISSILE_WEAPON, MigLoadout::NukeTactical),
+    ] {
+        let mut game_logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new(tpl_name);
+        tpl.add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name("HumveeGun");
+        game_logic.templates.insert(tpl_name.to_string(), tpl);
+        let id = game_logic
+            .create_object(tpl_name, Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("mig");
+        let applied = if nuke {
+            game_logic.apply_mig_tactical_nuke_upgrade(id)
+        } else {
+            game_logic.apply_mig_black_napalm_upgrade(id)
+        };
+        assert!(applied, "{tpl_name} upgrade applies");
+        let prim = game_logic
+            .host_object(id)
+            .and_then(|o| o.weapon.clone())
+            .expect("upgraded primary");
+        let authored = game_logic
+            .with_own_services(|| {
+                crate::game_logic::ThingTemplate::weapon_from_host_store(weapon_name)
+            })
+            .expect("authored upgrade weapon");
+        let built = mig_weapon(loadout);
+        assert!(
+            (authored.splash_radius - built.splash_radius).abs() > 0.01
+                || (authored.damage - built.damage).abs() > 0.01,
+            "fixture must distinguish authored vs name-built"
+        );
+        assert!(
+            (prim.damage - authored.damage).abs() < 0.01
+                && (prim.splash_radius - authored.splash_radius).abs() < 0.01
+                && (prim.min_range - authored.min_range).abs() < 0.01,
+            "{tpl_name}: refresh used name-built mig_weapon(): {prim:?} vs authored {authored:?}"
+        );
+    }
+}
+
 /// hq-2qedt.156: C++ binds PRIMARY from the template WeaponSet at create
 /// (WeaponSet::updateWeaponSet), not a template-name host table. A
 /// MiG-named template authoring a different PRIMARY must keep it.

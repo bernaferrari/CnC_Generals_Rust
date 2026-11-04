@@ -1425,7 +1425,7 @@ impl GameLogic {
     pub fn apply_mig_black_napalm_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_mig::{
             UPGRADE_CHINA_BLACK_NAPALM, is_mig_template, is_nuke_mig_template, mig_loadout,
-            mig_weapon,
+            mig_weapon_name,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
@@ -1436,7 +1436,22 @@ impl GameLogic {
         obj.applied_upgrades
             .insert(UPGRADE_CHINA_BLACK_NAPALM.to_string());
         let loadout = mig_loadout(false, &obj.applied_upgrades);
-        let mut w = mig_weapon(loadout);
+        // C++ WeaponSetUpgrade → WEAPONSET_PLAYER_UPGRADE → updateWeaponSet
+        // (hq-2qedt.194): bind the authored PLAYER_UPGRADE row's PRIMARY, else
+        // the upgrade's retail weapon identity from the WeaponStore — never
+        // name-built mig_weapon() stats.
+        let name = obj
+            .authored_player_upgrade_weapon_name(0)
+            .unwrap_or(mig_weapon_name(loadout))
+            .to_string();
+        let Some(mut w) = self.with_own_services(|| {
+            crate::game_logic::ThingTemplate::weapon_from_host_store(&name)
+        }) else {
+            return false;
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
         if let Some(prev) = obj.weapon.as_ref() {
             w.last_fire_time = prev.last_fire_time;
         }
@@ -1449,7 +1464,7 @@ impl GameLogic {
     /// Apply Tactical Nuke MiG residual to a Nuke General MiG.
     pub fn apply_mig_tactical_nuke_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_mig::{
-            UPGRADE_CHINA_TACTICAL_NUKE_MIG, is_nuke_mig_template, mig_loadout, mig_weapon,
+            UPGRADE_CHINA_TACTICAL_NUKE_MIG, is_nuke_mig_template, mig_loadout, mig_weapon_name,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
@@ -1460,7 +1475,22 @@ impl GameLogic {
         obj.applied_upgrades
             .insert(UPGRADE_CHINA_TACTICAL_NUKE_MIG.to_string());
         let loadout = mig_loadout(true, &obj.applied_upgrades);
-        let mut w = mig_weapon(loadout);
+        // C++ WeaponSetUpgrade → WEAPONSET_PLAYER_UPGRADE → updateWeaponSet
+        // (hq-2qedt.194): bind the authored PLAYER_UPGRADE row's PRIMARY, else
+        // the upgrade's retail weapon identity from the WeaponStore — never
+        // name-built mig_weapon() stats.
+        let name = obj
+            .authored_player_upgrade_weapon_name(0)
+            .unwrap_or(mig_weapon_name(loadout))
+            .to_string();
+        let Some(mut w) = self.with_own_services(|| {
+            crate::game_logic::ThingTemplate::weapon_from_host_store(&name)
+        }) else {
+            return false;
+        };
+        let Some(obj) = self.objects.get_mut(&object_id) else {
+            return false;
+        };
         if let Some(prev) = obj.weapon.as_ref() {
             w.last_fire_time = prev.last_fire_time;
         }
