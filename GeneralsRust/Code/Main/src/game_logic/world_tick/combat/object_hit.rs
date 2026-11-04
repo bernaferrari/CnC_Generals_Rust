@@ -532,12 +532,17 @@ impl GameLogic {
                 } else if {
                     // GLA Technical residual: MG direct or cannon/RPG splash salvage tiers.
                     use crate::game_logic::host_technical::{
-                        TechnicalWeaponTier, is_technical_template, should_apply_technical_splash,
+                        TechnicalWeaponTier, is_technical_weapon_name, should_apply_technical_splash,
                     };
+                    // Keyed on the authored weapon fired from this slot
+                    // (Weapon::fireWeapon uses the WeaponTemplate).
                     self.objects
                         .get(&attacker_id)
                         .map(|a| {
-                            if !is_technical_template(&a.template_name) {
+                            if !a
+                                .authored_weapon_name_for_slot(slot)
+                                .is_some_and(is_technical_weapon_name)
+                            {
                                 return false;
                             }
                             let tier = Self::technical_tier_from_object(a);
@@ -616,14 +621,12 @@ impl GameLogic {
                     };
                 } else if {
                     // GLA Marauder residual: salvage fire-rate tiers + small splash.
-                    use crate::game_logic::host_marauder::{
-                        is_marauder_template, should_apply_marauder_residual,
-                    };
+                    // Keyed on the authored weapon fired from this slot.
+                    use crate::game_logic::host_marauder::is_marauder_weapon_name;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_marauder_residual(is_marauder_template(&a.template_name))
-                        })
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .map(is_marauder_weapon_name)
                         .unwrap_or(false)
                 } {
                     use crate::game_logic::host_marauder::{

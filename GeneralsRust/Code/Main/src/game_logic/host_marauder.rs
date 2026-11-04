@@ -160,6 +160,14 @@ impl MarauderWeaponTier {
 ///
 /// Fail-closed: name residual (not full Salvage / W3D turret matrix).
 /// Excludes weapons / projectiles / science tokens.
+/// Whether an authored WeaponSet weapon name is a Marauder salvage-tier gun
+/// (Weapon::fireWeapon keys behavior on the WeaponTemplate, not the chassis).
+pub fn is_marauder_weapon_name(weapon_name: &str) -> bool {
+    weapon_name == MARAUDER_TANK_GUN
+        || weapon_name == MARAUDER_TANK_GUN_UPGRADE_ONE
+        || weapon_name == MARAUDER_TANK_GUN_UPGRADE_TWO
+}
+
 pub fn is_marauder_template(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
     if n.is_empty() {

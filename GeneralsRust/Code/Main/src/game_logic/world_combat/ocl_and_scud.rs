@@ -2290,7 +2290,7 @@ impl GameLogic {
         tier: crate::game_logic::host_technical::TechnicalWeaponTier,
     ) -> bool {
         use crate::game_logic::host_technical::{
-            TECHNICAL_TRANSPORT_SLOTS, delay_frames_to_reload_secs, is_technical_template,
+            TECHNICAL_TRANSPORT_SLOTS, delay_frames_to_reload_secs, is_technical_weapon_name,
             technical_weapon_for_tier, technical_weapon_name_for_tier, technical_weapon_stats,
         };
         use crate::game_logic::thing::ThingTemplate;
@@ -2298,7 +2298,11 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_technical_template(&obj.template_name) {
+        // Salvage tier swaps the authored WeaponSet slot weapon; gate on it.
+        if !obj
+            .authored_weapon_name_for_slot(0)
+            .is_some_and(is_technical_weapon_name)
+        {
             return false;
         }
 
@@ -2366,7 +2370,7 @@ impl GameLogic {
         use crate::game_logic::host_technical::{
             TECH_CANNON_DAMAGE_TYPE, TECH_CANNON_DEATH_TYPE, TECH_FIRE_AUDIO, TECH_MG_DAMAGE_TYPE,
             TECH_MG_DEATH_TYPE, TECH_RPG_DAMAGE_TYPE, TECH_RPG_DEATH_TYPE, TechnicalWeaponTier,
-            is_legal_technical_splash_target, is_technical_template, technical_cannon_scatter_aim,
+            is_legal_technical_splash_target, technical_cannon_scatter_aim,
             technical_cannon_scatter_misses_infantry, technical_splash_damage_at,
             technical_weapon_stats,
         };
@@ -2531,13 +2535,6 @@ impl GameLogic {
                 self.frame,
                 sid,
                 intended_target,
-            );
-            let _ = is_technical_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
             );
         }
 
@@ -3148,7 +3145,7 @@ impl GameLogic {
         tier: crate::game_logic::host_marauder::MarauderWeaponTier,
     ) -> bool {
         use crate::game_logic::host_marauder::{
-            delay_frames_to_reload_secs, is_marauder_template, marauder_weapon_for_tier,
+            delay_frames_to_reload_secs, is_marauder_weapon_name, marauder_weapon_for_tier,
             marauder_weapon_name_for_tier, marauder_weapon_stats,
         };
         use crate::game_logic::thing::ThingTemplate;
@@ -3156,7 +3153,11 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_marauder_template(&obj.template_name) {
+        // Salvage tier swaps the authored WeaponSet slot weapon; gate on it.
+        if !obj
+            .authored_weapon_name_for_slot(0)
+            .is_some_and(is_marauder_weapon_name)
+        {
             return false;
         }
 
@@ -3435,7 +3436,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_marauder::{
             MARAUDER_DAMAGE_TYPE, MARAUDER_DEATH_TYPE, MARAUDER_FIRE_AUDIO, MARAUDER_SPLASH_RADIUS,
-            is_legal_marauder_splash_target, is_marauder_template, marauder_scatter_aim,
+            is_legal_marauder_splash_target, marauder_scatter_aim,
             marauder_scatter_misses_infantry, marauder_splash_damage_at,
         };
 
@@ -3584,13 +3585,6 @@ impl GameLogic {
                 self.frame,
                 sid,
                 intended_target,
-            );
-            let _ = is_marauder_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
             );
         }
 

@@ -200,6 +200,12 @@ impl TechnicalWeaponTier {
     }
 }
 
+/// Whether an authored WeaponSet weapon name is a Technical salvage-tier gun
+/// (Weapon::fireWeapon keys behavior on the WeaponTemplate, not the chassis).
+pub fn is_technical_weapon_name(weapon_name: &str) -> bool {
+    weapon_name == TECHNICAL_MACHINE_GUN || weapon_name == TECHNICAL_CANNON || weapon_name == TECHNICAL_RPG
+}
+
 /// Whether template is a residual Technical vehicle.
 ///
 /// Fail-closed: name residual (not full Salvage / chassis reskin matrix).

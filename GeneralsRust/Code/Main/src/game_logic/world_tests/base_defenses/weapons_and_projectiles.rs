@@ -3335,3 +3335,77 @@ fn minigunner_object_hit_keys_on_authored_weapon_not_template_name() {
         "authored Infa_MiniGunnerGun must take the MiniGunner object_hit path"
     );
 }
+
+/// hq-2qedt.237: Technical / Marauder salvage-tier + object_hit residual key on
+/// the authored WeaponSet weapon (Weapon::fireWeapon / WeaponTemplate), not on
+/// the chassis template name.
+#[test]
+fn technical_marauder_key_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_marauder::{
+        MARAUDER_TANK_GUN, MarauderWeaponTier, is_marauder_template,
+    };
+    use crate::game_logic::host_technical::{
+        TECHNICAL_MACHINE_GUN, TechnicalWeaponTier, is_technical_template,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+
+    for (name, weapon) in [
+        ("GLAPickupCloneGun", TECHNICAL_MACHINE_GUN),
+        ("GLAHeavyCloneTank", MARAUDER_TANK_GUN),
+    ] {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(weapon);
+        game_logic.templates.insert(name.to_string(), tpl);
+    }
+    let tech = game_logic
+        .create_object("GLAPickupCloneGun", Team::GLA, Vec3::ZERO)
+        .expect("tech");
+    let mara = game_logic
+        .create_object("GLAHeavyCloneTank", Team::GLA, Vec3::new(0.0, 40.0, 0.0))
+        .expect("mara");
+    assert!(!is_technical_template("GLAPickupCloneGun"));
+    assert!(!is_marauder_template("GLAHeavyCloneTank"));
+    assert!(
+        game_logic.apply_marauder_weapon_tier(mara, MarauderWeaponTier::One),
+        "authored MarauderTankGun must accept the salvage tier"
+    );
+
+    let target_id = game_logic
+        .create_object("GLAHeavyCloneTank", Team::USA, Vec3::new(60.0, 0.0, 0.0))
+        .expect("target");
+    {
+        let (b, attack_events, _a, part) = game_logic
+            .host_object_attack_audio_partition_mut(tech)
+            .unwrap();
+        b.set_position_with_partition_owner(Vec3::ZERO, 0, &mut Default::default(), part);
+        b.attack_target(
+            target_id,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = b.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.reload_time = 0.1;
+            w.min_range = 0.0;
+            w.range = 200.0;
+        }
+    }
+    game_logic.set_current_frame(30);
+    game_logic.update_combat(&[tech, target_id], LOGIC_FRAME_TIMESTEP);
+    assert!(
+        game_logic.technical_residual_fires() >= 1,
+        "authored TechnicalMachineGunWeapon must take the Technical object_hit path"
+    );
+    assert!(
+        game_logic.apply_technical_weapon_tier(tech, TechnicalWeaponTier::One),
+        "authored TechnicalMachineGunWeapon must accept the salvage tier"
+    );
+}
