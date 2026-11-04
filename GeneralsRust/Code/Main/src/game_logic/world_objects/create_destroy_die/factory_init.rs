@@ -319,30 +319,10 @@ impl GameLogic {
             }
         }
 
-        // Host residual: China MiniGunner dual ground/AA + continuous fire ramp.
-        // Fail-closed: not full FiringTracker CONTINUOUS_FIRE_* anim / bayonet tertiary.
+        // China MiniGunner PRIMARY/SECONDARY bind from the authored WeaponSet
+        // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+        // (hq-2qedt.166). Chain-guns refresh stays in refresh_minigunner_weapon.
         if crate::game_logic::host_minigunner::is_minigunner_template(template_name) {
-            use crate::game_logic::host_gattling_tank::GattlingFireLevel;
-            use crate::game_logic::host_minigunner::{
-                has_chain_guns_upgrade, minigunner_air_weapon, minigunner_ground_weapon,
-            };
-            let chain = has_chain_guns_upgrade(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
-            object.weapon = Some(minigunner_ground_weapon(
-                GattlingFireLevel::Base,
-                chain,
-                false,
-                false,
-            ));
-            object.secondary_weapon = Some(minigunner_air_weapon(
-                GattlingFireLevel::Base,
-                chain,
-                false,
-                false,
-            ));
             reset_continuous_fire_state(object);
         }
 
