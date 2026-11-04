@@ -165,6 +165,12 @@ fn install_reaction_target(logic: &mut GameLogic) -> ObjectId {
         .adjust_damage(gamelogic::damage::DamageType::Poison, 1.0),
         0.25
     );
+    // C++ ThingFactory registers with the partition, but cell coverage only
+    // lands in PartitionManager::update; Weapon.cpp:1283 iterateObjectsInRange
+    // sees covered objects only, so run the partition phase before reactions.
+    logic
+        .update_owned_partition_with_effects(&mut crate::game_logic::ScriptPresentationEffects::default())
+        .unwrap();
     id
 }
 
