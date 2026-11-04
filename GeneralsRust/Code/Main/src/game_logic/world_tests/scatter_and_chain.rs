@@ -3616,3 +3616,69 @@ fn comanche_at_scatter_misses_infantry_residual() {
         .unwrap_or(0.0);
     assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
 }
+
+/// hq-2qedt.87.1: C++ Weapon.cpp FireFX plays at fire time only; impact uses
+/// ProjectileDetonateFX. vehicle_shells residual impact handlers must not
+/// spawn a second muzzle at the shooter (shared dispatch owns the one muzzle).
+#[test]
+fn vehicle_shells_residual_impact_spawns_no_muzzle_hq_2qedt_87_1() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::host_fire_base::FIRE_BASE_HOWITZER_WEAPON;
+    use crate::game_logic::host_mig::NAPALM_MISSILE_WEAPON;
+    use crate::game_logic::host_raptor::RAPTOR_JET_MISSILE_WEAPON;
+    use crate::game_logic::host_scorpion::SCORPION_TANK_GUN;
+    use crate::game_logic::host_tomahawk::TOMAHAWK_MISSILE_WEAPON;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let cases: [(&str, &str, KindOf, Team); 5] = [
+        ("GLAVehicleScorpion", SCORPION_TANK_GUN, KindOf::Vehicle, Team::GLA),
+        ("AmericaVehicleTomahawk", TOMAHAWK_MISSILE_WEAPON, KindOf::Vehicle, Team::USA),
+        ("AmericaJetRaptor", RAPTOR_JET_MISSILE_WEAPON, KindOf::Aircraft, Team::USA),
+        ("ChinaJetMIG", NAPALM_MISSILE_WEAPON, KindOf::Aircraft, Team::China),
+        ("AmericaFireBase", FIRE_BASE_HOWITZER_WEAPON, KindOf::Structure, Team::USA),
+    ];
+    for (tpl_name, weapon, kind, team) in cases {
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let mut tpl = ThingTemplate::new(tpl_name);
+        tpl.add_kind_of(kind)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(weapon);
+        logic.templates.insert(tpl_name.to_string(), tpl);
+        let src = logic
+            .create_object(tpl_name, team, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let enemy = if team == Team::GLA { Team::USA } else { Team::GLA };
+        let tank = logic
+            .create_object("TestTank", enemy, glam::Vec3::new(45.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic.objects.get(&tank).unwrap().get_position();
+        let shooter_pos = logic.objects.get(&src).unwrap().get_position();
+        let before = logic
+            .combat_particles()
+            .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+            .iter()
+            .filter(|e| e.position.distance(shooter_pos) < 1.0)
+            .count();
+        let _ = match tpl_name {
+            "GLAVehicleScorpion" => logic.apply_scorpion_residual_at(impact, Some(src), Some(tank), 0),
+            "AmericaVehicleTomahawk" => logic.apply_tomahawk_residual_at(impact, Some(src), Some(tank)),
+            "AmericaJetRaptor" => logic.apply_raptor_residual_at(impact, Some(src), Some(tank)),
+            "ChinaJetMIG" => logic.apply_mig_residual_at(impact, Some(src), Some(tank)),
+            _ => logic.apply_fire_base_residual_at(impact, Some(src), Some(tank)),
+        };
+        let after = logic
+            .combat_particles()
+            .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+            .iter()
+            .filter(|e| e.position.distance(shooter_pos) < 1.0)
+            .count();
+        assert_eq!(
+            after, before,
+            "{tpl_name}: impact residual must not spawn a second muzzle at the shooter (C++ FireFX is fire-time only)"
+        );
+    }
+}

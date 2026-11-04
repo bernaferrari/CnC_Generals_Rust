@@ -365,18 +365,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact uses ProjectileDetonateFX, never a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -720,7 +710,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_tomahawk::{
             TOMAHAWK_DAMAGE_TYPE, TOMAHAWK_DEATH_TYPE, TOMAHAWK_FIRE_AUDIO,
-            TOMAHAWK_SECONDARY_RADIUS, is_legal_tomahawk_splash_target, is_tomahawk_template,
+            TOMAHAWK_SECONDARY_RADIUS, is_legal_tomahawk_splash_target,
             tomahawk_damage_at, tomahawk_scatter_aim, tomahawk_scatter_misses_infantry,
         };
 
@@ -883,25 +873,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-            let _ = is_tomahawk_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact uses ProjectileDetonateFX, never a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -1215,7 +1188,7 @@ impl GameLogic {
         use crate::game_logic::host_raptor::{
             RAPTOR_DAMAGE_TYPE, RAPTOR_DEATH_TYPE, RAPTOR_FIRE_AUDIO, RAPTOR_PRIMARY_RADIUS,
             has_laser_missiles_upgrade, is_king_raptor_template, is_legal_raptor_target,
-            is_raptor_template, raptor_damage_at, raptor_scatter_aim,
+            raptor_damage_at, raptor_scatter_aim,
             raptor_scatter_misses_infantry,
         };
 
@@ -1389,25 +1362,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-            let _ = is_raptor_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact uses ProjectileDetonateFX, never a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -1731,7 +1687,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_mig::{
             MIG_BLACK_DAMAGE_TYPE, MIG_BLACK_DEATH_TYPE, MIG_DAMAGE_TYPE, MIG_DEATH_TYPE,
-            MIG_FIRE_AUDIO, MIG_PRIMARY_RADIUS, MigLoadout, is_legal_mig_target, is_mig_template,
+            MIG_FIRE_AUDIO, MIG_PRIMARY_RADIUS, MigLoadout, is_legal_mig_target,
             is_nuke_mig_template, mig_damage_at, mig_fire_field_upgraded, mig_loadout,
             mig_scatter_aim, mig_scatter_misses_infantry, mig_secondary_radius,
             mig_spawns_fire_field, mig_spawns_radiation,
@@ -1946,25 +1902,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-            let _ = is_mig_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact uses ProjectileDetonateFX, never a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -2215,7 +2154,7 @@ impl GameLogic {
         use crate::game_logic::host_fire_base::{
             FIRE_BASE_DAMAGE_TYPE, FIRE_BASE_DEATH_TYPE, FIRE_BASE_FIRE_AUDIO,
             FIRE_BASE_PRIMARY_RADIUS, fire_base_damage_at, fire_base_scatter_aim,
-            fire_base_scatter_misses_infantry, is_fire_base_template, is_legal_fire_base_target,
+            fire_base_scatter_misses_infantry, is_legal_fire_base_target,
         };
 
         let source_team = source
@@ -2377,25 +2316,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-            let _ = is_fire_base_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact uses ProjectileDetonateFX, never a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
