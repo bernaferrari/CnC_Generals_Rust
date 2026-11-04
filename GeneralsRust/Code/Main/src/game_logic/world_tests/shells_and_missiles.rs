@@ -2611,6 +2611,45 @@ fn stealth_fighter_residual_missiles_and_splash() {
     );
 }
 
+/// hq-2qedt.109: C++ binds PRIMARY/SECONDARY from the template WeaponSet at
+/// create (WeaponSet::updateWeaponSet), not a template-name host table. A
+/// Comanche-named template authoring different weapons must keep them.
+#[test]
+fn comanche_create_weapons_come_from_authored_weapon_set() {
+    use crate::game_logic::host_comanche_rocket_pods::{
+        COMANCHE_AT_PRIMARY_DAMAGE, COMANCHE_CANNON_DAMAGE,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleComanche");
+    tpl.add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(220.0)
+        .set_primary_weapon_name("HumveeGun")
+        .set_secondary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("AmericaVehicleComanche".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaVehicleComanche", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("comanche");
+    let obj = game_logic.host_object(id).expect("comanche");
+    let prim = obj.weapon.clone().expect("authored primary");
+    assert!(
+        (prim.damage - COMANCHE_CANNON_DAMAGE).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by comanche_cannon_weapon() name peel: {prim:?}"
+    );
+    let sec = obj.secondary_weapon.clone().expect("authored secondary");
+    assert!(
+        (sec.damage - COMANCHE_AT_PRIMARY_DAMAGE).abs() > 0.01,
+        "authored HumveeGun SECONDARY overwritten by comanche_antitank_weapon() name peel: {sec:?}"
+    );
+}
+
 /// Residual: USA Comanche 20mm intended + anti-tank dual-radius residual.
 #[test]
 fn comanche_residual_cannon_and_antitank() {
