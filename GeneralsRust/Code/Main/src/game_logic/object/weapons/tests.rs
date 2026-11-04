@@ -558,3 +558,39 @@ fn leftover_choose_best_ground_resets_primary_unless_locked() {
 
 #[path = "clip_pitch_contract_tests.rs"]
 mod clip_pitch_contract_tests;
+
+#[test]
+fn avenger_air_preference_keys_on_authored_secondary_not_template_name() {
+    use crate::game_logic::host_avenger::{AVENGER_AIR_LASER_DUMMY, is_avenger_template};
+    let air = |d: f32| Weapon {
+        can_target_air: true,
+        ..weapon(d)
+    };
+    let mut aircraft_template = ThingTemplate::new("Target");
+    aircraft_template
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Vehicle);
+    let mut aircraft = Object::new(aircraft_template, ObjectId(2), Team::GLA);
+    aircraft.status.airborne_target = true;
+    aircraft.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+
+    // Clone with the authored Avenger WeaponSet but a non-Avenger name.
+    let name = "AmericaVehicleCloneAirDefense";
+    assert!(!is_avenger_template(name));
+    let mut tpl = ThingTemplate::new(name);
+    tpl.set_secondary_weapon_name(AVENGER_AIR_LASER_DUMMY);
+    let mut clone = Object::new(tpl, ObjectId(1), Team::USA);
+    clone.weapon = Some(air(50.0));
+    clone.secondary_weapon = Some(air(5.0));
+    assert_eq!(
+        clone.select_combat_weapon_slot(&aircraft, 1.0),
+        Some(1),
+        "authored AvengerAirLaserDummy SECONDARY must win vs air"
+    );
+
+    // Avenger-named template without the authored air laser gets no peel.
+    let mut named = Object::new(ThingTemplate::new("AmericaTankAvenger"), ObjectId(3), Team::USA);
+    named.weapon = Some(air(50.0));
+    named.secondary_weapon = Some(air(5.0));
+    assert_eq!(named.select_combat_weapon_slot(&aircraft, 1.0), Some(0));
+}
