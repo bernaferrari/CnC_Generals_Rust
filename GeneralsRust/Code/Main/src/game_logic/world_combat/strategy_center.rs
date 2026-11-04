@@ -390,16 +390,18 @@ impl GameLogic {
         let dual_slot = is_dual_slot_base_defense(&template_name);
         // SPAWNS_ARE_THE_WEAPONS residual: Stinger Site cannot fire with 0 soldiers.
         if is_stinger {
-            let has_live_spawn = attacker.spawn_behavior_children().into_iter().any(
-                |(child_id, birth)| {
-                    self.objects.get(&child_id).is_some_and(|child| {
-                        attacker.spawn_behavior_child_birth_matches(child_id, &birth, child)
-                            && child.is_alive()
-                            && !child.status.destroyed
-                            && !child.status.effectively_dead
-                    })
-                },
-            );
+            let has_live_spawn =
+                attacker
+                    .spawn_behavior_children()
+                    .into_iter()
+                    .any(|(child_id, birth)| {
+                        self.objects.get(&child_id).is_some_and(|child| {
+                            attacker.spawn_behavior_child_birth_matches(child_id, &birth, child)
+                                && child.is_alive()
+                                && !child.status.destroyed
+                                && !child.status.effectively_dead
+                        })
+                    });
             if !has_live_spawn {
                 return Ok(());
             }
@@ -574,7 +576,11 @@ impl GameLogic {
         // America Fire Base residual: dual-radius howitzer splash owns damage.
         // ScatterRadiusVsInfantry residual closed via shell aim offset / instant impact.
         // Fail-closed: not full ScaleWeaponSpeed lob matrix.
-        let is_fire_base = crate::game_logic::host_fire_base::is_fire_base_template(&template_name);
+        // Keyed on the authored howitzer weapon, not the template name (hq-2qedt.213).
+        let is_fire_base = self.objects.get(&defense_id).is_some_and(|d| {
+            d.selected_weapon_name(slot)
+                == Some(crate::game_logic::host_fire_base::FIRE_BASE_HOWITZER_WEAPON)
+        });
         let mut destroyed = false;
         if is_fire_base {
             let impact = self
