@@ -13,6 +13,10 @@ impl GameLogic {
         // ActiveBody is initialized before any onCreate/onBuildComplete callback.
         // Retain the effective receiving module rather than discovering InitialHealth
         // from whichever Core factory happens to be installed at construction.
+        template.highlander_body = definition
+            .behavior_modules
+            .iter()
+            .any(|module| module.class_name.eq_ignore_ascii_case("HighlanderBody"));
         template.body_kind = definition.behavior_modules.iter().find_map(|module| {
             crate::game_logic::thing::BodyKind::from_module_class(&module.class_name)
         });

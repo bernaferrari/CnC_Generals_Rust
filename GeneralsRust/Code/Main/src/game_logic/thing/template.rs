@@ -424,6 +424,9 @@ pub struct ThingTemplate {
     /// Preserve the historical positional ThingTemplate serialization.
     #[serde(skip)]
     pub(crate) body_kind: Option<BodyKind>,
+    /// C++ HighlanderBody is selected only by the authored Body module.
+    #[serde(skip)]
+    pub(crate) highlander_body: bool,
     /// Ordered receiving definitions; Some(empty) suppresses name inference.
     #[serde(skip)]
     pub(crate) native_lifecycle_definitions:
@@ -1105,6 +1108,7 @@ impl ThingTemplate {
             receiving_client_template: None,
             transition_damage_definition: None,
             body_kind: None,
+            highlander_body: false,
             native_lifecycle_definitions: None,
             native_lifecycle_error: None,
             body_initial_health: None,

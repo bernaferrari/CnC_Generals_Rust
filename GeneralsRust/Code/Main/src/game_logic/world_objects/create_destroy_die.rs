@@ -2681,20 +2681,9 @@ impl GameLogic {
             if crate::game_logic::host_battle_bus::is_battle_bus_template(template_name) {
                 object.install_battle_bus_transport();
             }
-            // C++ HighlanderBody.cpp:33-34 is the authored Body module. A
-            // receiving definition is authoritative; name peel only if unbound.
-            let highlander = match object.thing().template.receiving_object_definition.as_ref() {
-                Some(definition) => definition
-                    .behavior_modules
-                    .iter()
-                    .any(|module| module.class_name.eq_ignore_ascii_case("HighlanderBody")),
-                None => {
-                    crate::game_logic::host_highlander_body::is_highlander_body_template(
-                        template_name,
-                    )
-                }
-            };
-            if highlander {
+            // C++ HighlanderBody.cpp:33-34 is the authored Body module only;
+            // no template-name inference.
+            if object.thing().template.highlander_body {
                 object.install_highlander_body();
             }
             object.install_deploy_style_if_needed();

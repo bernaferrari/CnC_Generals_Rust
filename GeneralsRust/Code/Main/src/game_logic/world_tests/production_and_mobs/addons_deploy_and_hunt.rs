@@ -1947,6 +1947,36 @@ fn battle_bus_unresistable_bypasses_undead_body() {
     assert!(killed, "UNRESISTABLE must bypass UndeadBody");
 }
 
+/// C++ selects HighlanderBody only from the authored Body module; a NatureProp
+/// style template name without that Body must not install the clamp.
+#[test]
+fn unauthored_tree_named_template_does_not_install_highlander_body() {
+    let mut game_logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("Tree01UnauthoredBody");
+    tpl.add_kind_of(KindOf::Structure).set_health(50.0);
+    game_logic.templates.insert("Tree01UnauthoredBody".into(), tpl);
+    let id = game_logic
+        .create_object("Tree01UnauthoredBody", Team::Neutral, Vec3::ZERO)
+        .expect("tree");
+    assert!(
+        !game_logic.host_object(id).unwrap().highlander_body,
+        "template-name peel must not stand in for authored Body = HighlanderBody"
+    );
+}
+
+#[test]
+fn authored_highlander_body_installs_without_template_name_peel() {
+    let mut game_logic = GameLogic::new();
+    let mut tpl = ThingTemplate::new("PlainAuthoredRock");
+    tpl.add_kind_of(KindOf::Structure).set_health(50.0);
+    tpl.highlander_body = true;
+    game_logic.templates.insert("PlainAuthoredRock".into(), tpl);
+    let id = game_logic
+        .create_object("PlainAuthoredRock", Team::Neutral, Vec3::ZERO)
+        .expect("rock");
+    assert!(game_logic.host_object(id).unwrap().highlander_body);
+}
+
 #[test]
 fn highlander_body_clamps_normal_and_penalty_damage_unresistable_kills() {
     let mut game_logic = GameLogic::new();
@@ -1955,6 +1985,8 @@ fn highlander_body_clamps_normal_and_penalty_damage_unresistable_kills() {
     tpl.add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Immobile)
         .set_health(50.0);
+    // Fixture stands in for authored `Body = HighlanderBody`.
+    tpl.highlander_body = true;
     game_logic
         .templates
         .insert("TreeHighlanderTest".into(), tpl);
