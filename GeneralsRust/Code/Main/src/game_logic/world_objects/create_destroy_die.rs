@@ -3020,7 +3020,7 @@ impl GameLogic {
             // Host residual: USA Patriot dual ground/AA secondary.
             // Laser General residual uses Lazr_Patriot* damage (40/35) via template.
             // Fail-closed: not full AssistedTargetingModule assist clips / RequestAssistRange.
-            if crate::game_logic::host_base_defense::is_patriot_battery_structure(template_name) {
+            if crate::game_logic::host_base_defense::authors_patriot_weapon_set(&object) {
                 use crate::game_logic::host_base_defense::{
                     patriot_air_weapon_for_template, patriot_ground_weapon_for_template,
                 };

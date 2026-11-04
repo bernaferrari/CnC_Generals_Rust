@@ -5191,3 +5191,41 @@ fn emperor_addon_conflicts_key_on_authored_innate_tower() {
         "Emperor-named hull without authored tower takes the normal conflict clear"
     );
 }
+
+/// hq-2qedt.258: Patriot dual ground/AA create binding keys on the authored
+/// WeaponSet PRIMARY (PatriotMissileWeapon family), not the template name.
+#[test]
+fn patriot_create_binding_keys_on_authored_weapon_set() {
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_GROUND_DAMAGE, PATRIOT_PRIMARY_WEAPON, PATRIOT_SECONDARY_WEAPON,
+    };
+    crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    let run = |name: &str, primary: &str, secondary: Option<&str>| -> bool {
+        let mut world = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(600.0)
+            .set_primary_weapon_name(primary);
+        if let Some(s) = secondary {
+            tpl.set_secondary_weapon_name(s);
+        }
+        world.templates.insert(name.to_string(), tpl);
+        let id = world
+            .create_object(name, Team::USA, Vec3::ZERO)
+            .expect("defense");
+        let o = world.host_object(id).unwrap();
+        o.weapon
+            .as_ref()
+            .is_some_and(|w| (w.damage - PATRIOT_GROUND_DAMAGE).abs() < 0.01)
+    };
+    assert!(
+        run("TestAuthoredBattery", PATRIOT_PRIMARY_WEAPON, Some(PATRIOT_SECONDARY_WEAPON)),
+        "authored PatriotMissileWeapon WeaponSet binds the Patriot ground primary"
+    );
+    assert!(
+        !run("USA_Patriot", "HumveeGun", None),
+        "Patriot-named hull without authored Patriot WeaponSet gets no Patriot ground peel"
+    );
+}

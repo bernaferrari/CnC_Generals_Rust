@@ -367,8 +367,8 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_base_defense::{
             GATTLING_BUILDING_FIRE_AUDIO, PATRIOT_FIRE_AUDIO, STINGER_FIRE_AUDIO,
-            is_dual_slot_base_defense, is_gattling_cannon_structure, is_patriot_battery_structure,
-            is_stinger_site_structure, preferred_dual_defense_slot,
+            is_dual_slot_base_defense, is_gattling_cannon_structure, is_stinger_site_structure,
+            preferred_dual_defense_slot,
         };
 
         let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
@@ -386,7 +386,7 @@ impl GameLogic {
         let template_name = attacker.template_name.clone();
         let is_gattling = is_gattling_cannon_structure(&template_name);
         let is_stinger = is_stinger_site_structure(&template_name);
-        let is_patriot = is_patriot_battery_structure(&template_name);
+        let is_patriot = crate::game_logic::host_base_defense::authors_patriot_weapon_set(attacker);
         let dual_slot = is_dual_slot_base_defense(&template_name);
         // SPAWNS_ARE_THE_WEAPONS residual: Stinger Site cannot fire with 0 soldiers.
         if is_stinger {
@@ -907,7 +907,7 @@ impl GameLogic {
     ) {
         use crate::game_logic::host_base_defense::{
             PATRIOT_ASSIST_LASER_AUDIO, PatriotAssistLaserKind, PendingPatriotAssist,
-            is_patriot_battery_structure, is_patriot_free_to_assist,
+            authors_patriot_weapon_set, is_patriot_free_to_assist,
             is_within_patriot_assist_weapon_range, is_within_patriot_request_assist_range,
             make_patriot_assist_lasers, patriot_request_assist_range_for_template,
             patriots_are_assist_equivalent,
@@ -916,7 +916,7 @@ impl GameLogic {
         let Some(requester) = self.objects.get(&requester_id) else {
             return;
         };
-        if !is_patriot_battery_structure(&requester.template_name) {
+        if !authors_patriot_weapon_set(requester) {
             return;
         }
         let requester_team = requester.team;
@@ -951,7 +951,7 @@ impl GameLogic {
                 if id == requester_id || obj.team != requester_team {
                     return None;
                 }
-                if !is_patriot_battery_structure(&obj.template_name) {
+                if !authors_patriot_weapon_set(obj) {
                     return None;
                 }
                 if !patriots_are_assist_equivalent(&requester_template, &obj.template_name) {
