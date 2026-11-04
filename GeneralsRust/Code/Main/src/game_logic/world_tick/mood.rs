@@ -1242,9 +1242,9 @@ impl GameLogic {
             // C++ WeaponSet.cpp:706 — skip DAMAGE_KILLPILOT on heroes while
             // current is PRIMARY and no specific slot (rifle-mode Jarmen).
             let skip_hero_kill_pilot = (source.is_kind_of(KindOf::Hero)
-                || crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(
-                    &source.template_name,
-                ))
+                // Keyed on the authored rifle, not the template name (hq-2qedt.265).
+                || source.weapon_name_for_slot(0)
+                    == Some(crate::game_logic::host_jarmen_kell::JARMEN_KELL_RIFLE))
                 && current_is_primary
                 && !source.is_weapon_locked();
             let has_legal_anti = candidate_slots.iter().copied().any(|slot| {

@@ -340,9 +340,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
                 let king = crate::game_logic::host_raptor::is_king_raptor_template(template_name);
                 return Some(crate::game_logic::host_raptor::raptor_weapon_name(king));
             }
-            if crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(template_name) {
-                return Some(JARMEN_KELL_RIFLE);
-            }
             if crate::game_logic::host_marauder::is_marauder_template(template_name) {
                 return Some(MARAUDER_TANK_GUN);
             }
@@ -604,6 +601,15 @@ mod name_peel_tests {
         assert_unmapped(
             "FixtureTunnelDefenderVariant",
             gl::host_rpg_trooper::is_rpg_trooper_template,
+        );
+    }
+
+    /// hq-2qedt.265
+    #[test]
+    fn jarmen_kell_variant_name_has_no_unit_map_weapon() {
+        assert_unmapped(
+            "FixtureJarmenKellVariant",
+            gl::host_jarmen_kell::is_jarmen_kell_template,
         );
     }
 }

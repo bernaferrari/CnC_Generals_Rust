@@ -1519,13 +1519,13 @@ impl GameLogic {
     /// Apply AP Bullets residual tag + rebind Jarmen Kell sniper.
     pub fn apply_jarmen_kell_ap_bullets_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_jarmen_kell::{
-            UPGRADE_GLA_AP_BULLETS, has_ap_bullets_upgrade, is_jarmen_kell_template,
-            jarmen_kell_weapon,
+            JARMEN_KELL_RIFLE, UPGRADE_GLA_AP_BULLETS, has_ap_bullets_upgrade, jarmen_kell_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_jarmen_kell_template(&obj.template_name) {
+        // Keyed on the authored weapon, not the template name (hq-2qedt.265).
+        if obj.weapon_name_for_slot(0) != Some(JARMEN_KELL_RIFLE) {
             return false;
         }
         obj.applied_upgrades
@@ -1565,7 +1565,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_jarmen_kell::{
             JARMEN_KELL_DAMAGE_TYPE, JARMEN_KELL_DEATH_TYPE, JARMEN_KELL_FIRE_AUDIO,
-            has_ap_bullets_upgrade, is_jarmen_kell_template, is_legal_jarmen_kell_target,
+            JARMEN_KELL_RIFLE, has_ap_bullets_upgrade, is_legal_jarmen_kell_target,
             jarmen_kell_damage_with_ap,
         };
 
@@ -1576,7 +1576,8 @@ impl GameLogic {
             let Some(obj) = self.objects.get(&sid) else {
                 return (0, false);
             };
-            if !is_jarmen_kell_template(&obj.template_name) {
+            // Keyed on the authored weapon, not the template name (hq-2qedt.265).
+            if obj.weapon_name_for_slot(0) != Some(JARMEN_KELL_RIFLE) {
                 return (0, false);
             }
             let ap = has_ap_bullets_upgrade(&obj.applied_upgrades);
