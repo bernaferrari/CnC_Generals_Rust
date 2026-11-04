@@ -91,6 +91,13 @@ pub fn install(rows: &str) -> mpsc::Receiver<Observation> {
     receiver
 }
 
+/// Production ObjectFxRuntime resolves lists from the receiving session's
+/// catalog, not the thread-local client store `install` wrote into.
+pub fn admit_into(world: &mut generals_main::game_logic::GameLogic) {
+    let catalog = game_client::fx_list::with_fx_list_store(|s| s.clone());
+    world.admit_receiving_fx_catalog(catalog).unwrap();
+}
+
 /// Test-thread owner (hq-2qedt.23): bind CommonServices / WorldServices /
 /// MainServices on this thread before the fixture admits weapons, mirroring
 /// the hq-2qedt.20 world-test helper.

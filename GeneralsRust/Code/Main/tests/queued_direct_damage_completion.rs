@@ -91,6 +91,7 @@ End
         .unwrap();
     let fx = queued_damage_fx::install(&rows);
     let mut world = GameLogic::new();
+    queued_damage_fx::admit_into(&mut world);
     // GameLogic::new owns a fresh WorldServices; admit the parsed rule into
     // this session (C++ TheWeaponStore is the one store Object creation reads).
     let weapon = gamelogic::weapon::with_weapon_store(|store| {
