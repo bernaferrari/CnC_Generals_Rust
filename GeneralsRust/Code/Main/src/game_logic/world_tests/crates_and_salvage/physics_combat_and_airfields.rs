@@ -2613,3 +2613,63 @@ fn worker_mine_clear_dumps_carried_boxes() {
     logic.drop_worker_supply_boxes_for_mine_clear(id);
     assert_eq!(logic.objects[&id].stored_resources.supplies, 0);
 }
+
+/// hq-2qedt.49: C++ pitch is only checked against an Object victim
+/// (Weapon::isWithinTargetPitch(source, victim) via WeaponSet.cpp:414
+/// isAnyWithinTargetPitch and :842 chooseBestWeaponForTarget). The
+/// attack-position / force-fire-at-ground path never calls it, so a
+/// pitch-limited weapon must still fire at an out-of-window ground point.
+#[test]
+fn force_fire_ground_position_ignores_target_pitch_like_cpp() {
+    use crate::game_logic::weapon_bootstrap::{
+        host_target_pitch_limits_for_weapon_name, is_pitch_within_limits,
+    };
+    let mut logic = GameLogic::new();
+    {
+        let mut tmpl = ThingTemplate::new("PitchScGround");
+        tmpl.primary_weapon_name = Some("AmericaStrategyCenterArtillery".into());
+        tmpl.add_kind_of(KindOf::Structure);
+        tmpl.add_kind_of(KindOf::Attackable);
+        logic.templates.insert("PitchScGround".into(), tmpl);
+    }
+    let sc = logic
+        .create_object("PitchScGround", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+        .expect("sc");
+    let ground = glam::Vec3::new(100.0, -80.0, 0.0);
+    let limits = host_target_pitch_limits_for_weapon_name("AmericaStrategyCenterArtillery");
+    assert!(
+        !is_pitch_within_limits(glam::Vec3::ZERO, ground, &limits),
+        "fixture: ground point must be outside the weapon pitch window"
+    );
+    if let Some(o) = logic.objects.get_mut(&sc) {
+        o.weapon = Some(Weapon {
+            damage: 50.0,
+            range: 400.0,
+            reload_time: 0.0,
+            last_fire_time: -100.0,
+            ..Weapon::default()
+        });
+        o.health.current = 5000.0;
+        o.health.maximum = 5000.0;
+        o.set_force_attack(true);
+        o.set_target_location(
+            Some(ground),
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        o.set_ai_state(
+            AIState::AttackingGround,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        o.set_status_attacking(true);
+    }
+    for _ in 0..30 {
+        logic.update_combat(&[sc], 1.0 / 30.0);
+    }
+    let fired = logic
+        .objects
+        .get(&sc)
+        .and_then(|o| o.weapon.as_ref())
+        .map(|w| w.last_fire_time > -100.0)
+        .unwrap_or(false);
+    assert!(fired, "ground-position fire must ignore pitch like C++");
+}

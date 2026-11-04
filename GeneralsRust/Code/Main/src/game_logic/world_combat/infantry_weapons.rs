@@ -299,18 +299,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(160),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                None,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact uses ProjectileDetonateFX, never a muzzle flash.
 
         (hits, any_destroyed)
     }

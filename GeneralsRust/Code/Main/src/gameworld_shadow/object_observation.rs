@@ -1460,6 +1460,10 @@ impl GameWorldShadow {
         }
         e.turret_angle_deg = obj.turret_ai.turret_angle_deg;
         e.turret_pitch_deg = obj.turret_ai.turret_pitch_deg;
+        (e.alt_turret_angle_deg, e.alt_turret_pitch_deg) = obj
+            .alt_turret_ai
+            .as_ref()
+            .map_or((0.0, 0.0), |alt| (alt.turret_angle_deg, alt.turret_pitch_deg));
         e.turret_idle_scanning = obj.turret_ai.turret_idle_scanning;
         e.turret_holding = obj.turret_ai.turret_holding;
         e.turret_turn_rate_rad = obj.turret_ai.turret_turn_rate_rad;

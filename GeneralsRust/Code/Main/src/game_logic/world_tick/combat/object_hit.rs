@@ -77,88 +77,59 @@ impl GameLogic {
         if aurora_queued {
             // Shot consumed; delayed dive residual pending (no instant HP damage).
         } else {
-            // Avenger Target Designator residual: paint FAERIE_FIRE (no HP damage).
-            // Capture the admitted primary status once. The class gate cannot
-            // manufacture FAERIE_FIRE over a found NONE/other authored status.
-            let avenger_paint_context = self.objects.get(&attacker_id).and_then(|a| {
-                use crate::game_logic::host_avenger::{
-                    is_avenger_template, should_apply_faerie_fire_paint,
-                };
-                if !should_apply_faerie_fire_paint(
-                    is_avenger_template(&a.template_name),
-                    slot,
-                    true,
-                    enemy_or_forced,
-                ) {
-                    return None;
-                }
-                let weapon = a.weapon_name_for_slot(slot);
-                let kind = native_rule
-                    .as_ref()
-                    .map(|rule| {
-                        crate::game_logic::host_armor_residual::map_store_damage_type(
-                            rule.damage_type,
-                        )
-                    })
-                    .unwrap_or_else(|| {
-                        weapon
+            // Target Designator: paint FAERIE_FIRE (no HP damage) when the
+            // fired authored weapon's DamageStatusType is FAERIE_FIRE
+            // (C++ Weapon::fireWeapon -> DamageInfo from WeaponTemplate; no
+            // chassis-name / slot gate). Found NONE/other status never paints.
+            let avenger_paint_context = if !enemy_or_forced {
+                None
+            } else {
+                self.objects.get(&attacker_id).and_then(|a| {
+                    let weapon = a.weapon_name_for_slot(slot);
+                    let kind = native_rule
+                        .as_ref()
+                        .map(|rule| {
+                            crate::game_logic::host_armor_residual::map_store_damage_type(
+                                rule.damage_type,
+                            )
+                        })
+                        .unwrap_or_else(|| {
+                            weapon
                     .map(crate::game_logic::host_armor_residual::host_damage_type_for_weapon_name)
                     .unwrap_or(crate::game_logic::combat::DamageType::Explosive)
-                    });
-                Some(crate::game_logic::object::DamageHitContext::new_selected(
-                    Some(a),
-                    weapon,
-                    kind,
-                    native_rule.as_deref(),
-                ))
-            });
-            let avenger_paint = avenger_paint_context.as_ref().is_some_and(|context| {
-                context.status() == Some(gamelogic::common::ObjectStatusTypes::FaerieFire)
-            });
-            let avenger_air = {
-                use crate::game_logic::host_avenger::{
-                    is_avenger_template, should_apply_avenger_air_laser,
-                };
-                let target_is_air = self
-                    .objects
-                    .get(&target_id)
-                    .map(|t| t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target)
-                    .unwrap_or(false);
-                self.objects
-                    .get(&attacker_id)
-                    .map(|a| {
-                        should_apply_avenger_air_laser(
-                            is_avenger_template(&a.template_name),
-                            slot,
-                            target_is_air,
-                            true,
-                            enemy_or_forced,
-                        )
-                    })
-                    .unwrap_or(false)
+                        });
+                    let context = crate::game_logic::object::DamageHitContext::new_selected(
+                        Some(a),
+                        weapon,
+                        kind,
+                        native_rule.as_deref(),
+                    );
+                    (context.status() == Some(gamelogic::common::ObjectStatusTypes::FaerieFire))
+                        .then_some(context)
+                })
             };
-            // Humvee air TOW residual damage boost vs aircraft.
-            let humvee_air_tow = {
-                use crate::game_logic::host_humvee::{
-                    HUMVEE_AIR_TOW_DAMAGE, humvee_prefer_air_tow, is_humvee_template,
-                };
-                let target_is_air = self
-                    .objects
-                    .get(&target_id)
-                    .map(|t| t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target)
-                    .unwrap_or(false);
-                self.objects
-                    .get(&attacker_id)
-                    .map(|a| {
-                        humvee_prefer_air_tow(
-                            is_humvee_template(&a.template_name),
-                            a.has_upgrade_tag(
-                                crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW,
-                            ) || a.has_upgrade_tag("Upgrade_AmericaTOWMissile"),
-                            target_is_air,
-                        ) && slot == 1
+            let avenger_paint = avenger_paint_context.is_some();
+            // Air laser honesty keys on the fired authored weapon identity;
+            // its damage (authored SMALL_ARMS) flows through the generic hit path.
+            let avenger_air = enemy_or_forced
+                && self.objects.get(&attacker_id).is_some_and(|a| {
+                    use crate::game_logic::host_avenger::{AVENGER_AIR_LASER, AVENGER_AIR_LASER_TWO};
+                    a.weapon_name_for_slot(slot).is_some_and(|w| {
+                        w.eq_ignore_ascii_case(AVENGER_AIR_LASER)
+                            || w.eq_ignore_ascii_case(AVENGER_AIR_LASER_TWO)
                     })
-                    .unwrap_or(false)
+                });
+            if avenger_air {
+                self.avenger.record_air_laser_fire();
+            }
+            // Humvee air TOW residual damage boost: keys on authored HumveeMissileWeaponAir.
+            let humvee_air_tow = {
+                use crate::game_logic::host_humvee::HUMVEE_MISSILE_WEAPON_AIR;
+                self.objects.get(&attacker_id).is_some_and(|a| {
+                    a.weapon_name_for_slot(slot).is_some_and(|w| {
+                        w.eq_ignore_ascii_case(HUMVEE_MISSILE_WEAPON_AIR)
+                    })
+                })
             };
             if humvee_air_tow {
                 weapon_damage = crate::game_logic::host_humvee::HUMVEE_AIR_TOW_DAMAGE;
@@ -197,48 +168,6 @@ impl GameLogic {
                         .with_priority(140),
                 );
                 // Status residual: no hitpoint damage from designator.
-            } else if avenger_air {
-                self.avenger.record_air_laser_fire();
-                if let Some(target) = self.objects.get_mut(&target_id) {
-                    let destroyed = {
-                        let owned_victim_id = target.id;
-                        let owned_damage_type = crate::game_logic::combat::DamageType::Unresistable;
-                        self.apply_residual_damage_owned_with_effects(
-                            owned_victim_id,
-                            weapon_damage,
-                            Some(attacker_id),
-                            owned_damage_type,
-                            crate::game_logic::host_usa_pilot::HostDeathType::from_host_damage_type(
-                                owned_damage_type,
-                            ),
-                            None,
-                            effects,
-                        )
-                    };
-                    if destroyed {
-                        let Some(target) = self.objects.get(&target_id) else {
-                            return;
-                        };
-                        let victim_pos = target.get_position();
-                        let victim_team = target.team;
-                        self.mark_object_for_destruction_with_effects(
-                            target_id,
-                            Some(attacker_team),
-                            effects,
-                        );
-                        let wname = self
-                            .objects
-                            .get(&attacker_id)
-                            .and_then(|a| a.weapon_name_for_slot(slot).map(str::to_owned));
-                        self.continue_or_stop_after_kill(
-                            attacker_id,
-                            target_id,
-                            victim_pos,
-                            victim_team,
-                            wname.as_deref(),
-                        );
-                    }
-                }
             } else {
                 // Nuke Cannon primary residual: area shell + medium radiation field.
                 // Nuke Cannon primary / neutron shell keyed on the authored weapon,
@@ -1129,16 +1058,14 @@ impl GameLogic {
                     );
                 } else if {
                     // GLA RPG Trooper residual: rocket splash + AA capable residual.
-                    use crate::game_logic::host_rpg_trooper::{
-                        is_rpg_trooper_template, should_apply_rpg_trooper_residual,
-                    };
+                    // Keyed on the authored weapon fired from this slot
+                    // (Weapon::fireWeapon uses the WeaponTemplate, not the
+                    // firer's template name).
+                    use crate::game_logic::host_rpg_trooper::is_rpg_trooper_weapon_name;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_rpg_trooper_residual(is_rpg_trooper_template(
-                                &a.template_name,
-                            ))
-                        })
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .map(is_rpg_trooper_weapon_name)
                         .unwrap_or(false)
                 } {
                     let impact = target_position;
@@ -1238,16 +1165,14 @@ impl GameLogic {
                         )
                     };
                 } else if {
-                    // GLA Rebel residual: machine gun intended-only residual.
-                    use crate::game_logic::host_gla_rebel::{
-                        is_gla_rebel_template, should_apply_rebel_residual,
-                    };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_rebel_residual(is_gla_rebel_template(&a.template_name))
-                        })
-                        .unwrap_or(false)
+                    // GLA Rebel residual: GLARebelMachineGun intended-only hit, keyed on the
+                    // fired authored weapon (C++ Weapon::fireWeapon uses the WeaponTemplate;
+                    // no chassis-name gate).
+                    use crate::game_logic::host_gla_rebel::REBEL_MACHINE_GUN;
+                    self.objects.get(&attacker_id).is_some_and(|a| {
+                        a.weapon_name_for_slot(slot)
+                            .is_some_and(|w| w.eq_ignore_ascii_case(REBEL_MACHINE_GUN))
+                    })
                 } {
                     let (hits, _destroyed_any) = self.apply_rebel_residual_at_with_effects(
                         target_position,
@@ -1256,14 +1181,18 @@ impl GameLogic {
                         effects,
                     );
                 } else if {
-                    // USA Ranger residual: rifle intended-only or FlashBang dual-radius splash.
+                    // USA Ranger residual: RangerAdvancedCombatRifle intended-only or
+                    // RangerFlashBangGrenadeWeapon dual-radius splash, keyed on the fired
+                    // authored weapon (C++ Weapon::fireWeapon; no chassis-name gate).
                     use crate::game_logic::host_ranger::{
-                        is_ranger_template, should_apply_ranger_residual,
+                        RANGER_FLASHBANG_WEAPON, RANGER_RIFLE_WEAPON,
                     };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| should_apply_ranger_residual(is_ranger_template(&a.template_name)))
-                        .unwrap_or(false)
+                    self.objects.get(&attacker_id).is_some_and(|a| {
+                        a.weapon_name_for_slot(slot).is_some_and(|w| {
+                            w.eq_ignore_ascii_case(RANGER_RIFLE_WEAPON)
+                                || w.eq_ignore_ascii_case(RANGER_FLASHBANG_WEAPON)
+                        })
+                    })
                 } {
                     let flash_slot = slot == 1;
                     let impact = target_position;
@@ -1305,23 +1234,17 @@ impl GameLogic {
                         )
                     };
                 } else if {
-                    // USA Humvee TOW residual: HumveeMissile / PatriotMissile flight + splash.
+                    // USA Humvee TOW residual: keys on authored HumveeMissileWeapon(/Air),
+                    // not chassis name + TOW upgrade tag (hq-2qedt.246).
                     use crate::game_logic::host_humvee::{
-                        is_humvee_template, should_apply_humvee_tow_residual,
+                        HUMVEE_MISSILE_WEAPON, HUMVEE_MISSILE_WEAPON_AIR,
                     };
-                    use crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW;
-                    let (is_hv, has_tow) = self
-                        .objects
-                        .get(&attacker_id)
-                        .map(|a| {
-                            (
-                                is_humvee_template(&a.template_name),
-                                a.has_upgrade_tag(UPGRADE_AMERICA_TOW)
-                                    || a.has_upgrade_tag("Upgrade_AmericaTOWMissile"),
-                            )
+                    self.objects.get(&attacker_id).is_some_and(|a| {
+                        a.weapon_name_for_slot(slot).is_some_and(|w| {
+                            w.eq_ignore_ascii_case(HUMVEE_MISSILE_WEAPON)
+                                || w.eq_ignore_ascii_case(HUMVEE_MISSILE_WEAPON_AIR)
                         })
-                        .unwrap_or((false, false));
-                    should_apply_humvee_tow_residual(is_hv, has_tow, slot == 1)
+                    })
                 } {
                     use crate::game_logic::host_humvee::{
                         HUMVEE_TOW_FIRE_AUDIO as HV_TOW_AUDIO, humvee_prefer_air_tow as hv_air_tow,
@@ -1426,18 +1349,18 @@ impl GameLogic {
                     );
                     // DEPLOY residual deals no meaningful HP damage (PrimaryDamage ~0).
                 } else if {
-                    // China Dragon Tank residual: DragonTankFlameProjectile flight + dual-radius splash.
+                    // Dragon flame residual: DragonTankFlameProjectile flight + dual-radius
+                    // splash, keyed on the fired authored weapon (C++ Weapon::fireWeapon uses
+                    // the WeaponTemplate; no chassis-name gate).
                     use crate::game_logic::host_dragon_tank::{
-                        is_dragon_tank_template, should_apply_dragon_flame_residual,
+                        DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED,
                     };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_dragon_flame_residual(is_dragon_tank_template(
-                                &a.template_name,
-                            ))
+                    self.objects.get(&attacker_id).is_some_and(|a| {
+                        a.weapon_name_for_slot(slot).is_some_and(|w| {
+                            w.eq_ignore_ascii_case(DRAGON_TANK_FLAME_WEAPON)
+                                || w.eq_ignore_ascii_case(DRAGON_TANK_FLAME_WEAPON_UPGRADED)
                         })
-                        .unwrap_or(false)
+                    })
                 } {
                     let impact = target_position;
                     let from = self
@@ -1469,12 +1392,18 @@ impl GameLogic {
                         )
                     };
                 } else if {
-                    // China Gattling Tank residual: ground gun or AA secondary hit.
-                    use crate::game_logic::host_gattling_tank::is_gattling_tank_template;
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| is_gattling_tank_template(&a.template_name))
-                        .unwrap_or(false)
+                    // Gattling Tank residual: GattlingTankGun ground / GattlingTankGunAir AA hit,
+                    // keyed on the fired authored weapon (C++ Weapon::fireWeapon uses the
+                    // WeaponTemplate; no chassis-name gate).
+                    use crate::game_logic::host_gattling_tank::{
+                        GATTLING_TANK_GUN, GATTLING_TANK_GUN_AIR,
+                    };
+                    self.objects.get(&attacker_id).is_some_and(|a| {
+                        a.weapon_name_for_slot(slot).is_some_and(|w| {
+                            w.eq_ignore_ascii_case(GATTLING_TANK_GUN)
+                                || w.eq_ignore_ascii_case(GATTLING_TANK_GUN_AIR)
+                        })
+                    })
                 } {
                     let impact = target_position;
                     let (hits, _destroyed_any) = self.apply_gattling_tank_residual_at_with_effects(
@@ -1809,7 +1738,7 @@ impl GameLogic {
                         }
                     }
                 }
-            } // end !avenger_paint / !avenger_air residual branch
+            } // end !avenger_paint residual branch
         } // end !aurora_queued
 
         // Inferno Cannon residual: InfernoTankShell Bezier flight → FireFieldSmall.

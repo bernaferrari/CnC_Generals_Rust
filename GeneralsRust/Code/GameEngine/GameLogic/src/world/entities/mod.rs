@@ -1394,6 +1394,9 @@ pub struct Entity {
     /// Host turret residual.
     pub turret_angle_deg: f32,
     pub turret_pitch_deg: f32,
+    /// Host TURRET_ALT yaw/pitch residual (degrees); 0 with no alt TurretAI.
+    pub alt_turret_angle_deg: f32,
+    pub alt_turret_pitch_deg: f32,
     pub turret_idle_scanning: bool,
     pub turret_holding: bool,
     /// Host Object::turret_turn_rate_rad residual.
@@ -2384,6 +2387,8 @@ impl EntityStore {
             next_detection_scan_frame: 0,
             turret_angle_deg: 0.0,
             turret_pitch_deg: 0.0,
+            alt_turret_angle_deg: 0.0,
+            alt_turret_pitch_deg: 0.0,
             turret_idle_scanning: false,
             turret_holding: false,
             turret_turn_rate_rad: 0.0,

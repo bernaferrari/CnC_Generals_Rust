@@ -20,6 +20,10 @@ fn world(deployed: bool, pre_delay: f32) -> GameLogic {
     template
         .add_kind_of(KindOf::Vehicle)
         .add_kind_of(KindOf::Attackable);
+    if !deployed {
+        template
+            .set_primary_weapon_name(crate::game_logic::host_slave_drones::HELLFIRE_MISSILE_WEAPON);
+    }
     if deployed {
         template.deploy_style_metadata = Some(DeployStyleMetadata {
             unpack_time_frames: 3,
@@ -192,4 +196,61 @@ fn hellfire_launch_consumes_once_and_deals_damage_only_at_real_impact_phase() {
     assert_eq!(health(&game), 63.0);
     assert_eq!(ammo(&peer), Some(2));
     assert_eq!(health(&peer), 100.0);
+}
+
+#[test]
+fn hellfire_scout_sentry_route_on_authored_weapon_not_chassis_name_hq_2qedt_245() {
+    use crate::game_logic::host_slave_drones::{
+        HELLFIRE_MISSILE_WEAPON, SlaveDroneKind, UPGRADE_AMERICA_DRONE_ARMOR,
+        drone_armor_add_max_health,
+    };
+    for name in [
+        "AmericaVehicleHellfireDrone",
+        "USA_HellfireDrone",
+        "TestHellfireDrone",
+        "AirF_AmericaVehicleHellfireDrone",
+        "AmericaVehicleScoutDrone",
+        "TestScoutDrone",
+        "AmericaVehicleSentryDrone",
+        "TestSentryDrone",
+        "Custom_HellfireDrone",
+    ] {
+        assert_eq!(
+            crate::game_logic::primary_weapon_name_for_unit(name),
+            None,
+            "{name} weapon comes from authored WeaponSet, not a chassis-name row"
+        );
+    }
+
+    let mut game = GameLogic::new();
+    game.add_player(Player::new(0, Team::USA, "usa", true));
+    let mut carrier = ThingTemplate::new("AuthoredHellfireCarrier");
+    carrier
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(100.0)
+        .set_primary_weapon_name(HELLFIRE_MISSILE_WEAPON);
+    game.templates.insert(carrier.name.clone(), carrier);
+    let mut chassis = ThingTemplate::new("AmericaVehicleHellfireDrone");
+    chassis
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(100.0)
+        .set_primary_weapon_name("SomeOtherGun");
+    game.templates.insert(chassis.name.clone(), chassis);
+    let carrier_id = game
+        .create_object_for_player("AuthoredHellfireCarrier", 0, Vec3::ZERO)
+        .unwrap();
+    let chassis_id = game
+        .create_object_for_player("AmericaVehicleHellfireDrone", 0, Vec3::new(30.0, 0.0, 0.0))
+        .unwrap();
+    let carrier_before = game.host_object(carrier_id).unwrap().max_health;
+    let chassis_before = game.host_object(chassis_id).unwrap().max_health;
+    let n = game.apply_drone_armor_to_team(Team::USA.into(), UPGRADE_AMERICA_DRONE_ARMOR);
+    assert_eq!(n, 1, "only the authored Hellfire carrier gets drone armor");
+    let carrier_after = game.host_object(carrier_id).unwrap().max_health;
+    assert!(
+        (carrier_after - carrier_before - drone_armor_add_max_health(SlaveDroneKind::Hellfire))
+            .abs()
+            < 0.1
+    );
+    assert_eq!(game.host_object(chassis_id).unwrap().max_health, chassis_before);
 }

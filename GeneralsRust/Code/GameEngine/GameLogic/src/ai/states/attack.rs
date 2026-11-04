@@ -1078,7 +1078,7 @@ impl AIAttackObjectState {
             }
         };
         {
-            let owner_guard = owner.read().map_err(|_| "lock poisoned".to_string())?;
+            let mut owner_guard = owner.write().map_err(|_| "lock poisoned".to_string())?;
             if !attack_ok {
                 return Ok(StateReturnType::Success);
             }
@@ -1089,10 +1089,12 @@ impl AIAttackObjectState {
             }
 
             // C++ lines 5493-5495: Out of ammo check
-            let out_of_ammo = match ai.as_deref().and_then(|ai| ai.world()) {
-                Some(world) => owner_guard.is_out_of_ammo_at(world.frame()),
-                None => owner_guard.is_out_of_ammo(),
-            };
+            let frame = ai
+                .as_deref()
+                .and_then(|ai| ai.world())
+                .map(|world| world.frame())
+                .unwrap_or_else(TheGameLogic::get_frame);
+            let out_of_ammo = owner_guard.observe_out_of_ammo_at(frame);
             if out_of_ammo && !owner_guard.is_kind_of(KindOf::Projectile) {
                 return Ok(StateReturnType::Failure);
             }
@@ -1410,8 +1412,10 @@ impl AIAttackObjectState {
 
         // C++ lines 5565-5570: Out of ammo check every frame
         {
-            let owner_guard = owner.read().map_err(|_| "lock poisoned".to_string())?;
-            if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
+            let mut owner_guard = owner.write().map_err(|_| "lock poisoned".to_string())?;
+            if owner_guard.observe_out_of_ammo_at(TheGameLogic::get_frame())
+                && !owner_guard.is_kind_of(KindOf::Projectile)
+            {
                 return Ok(StateReturnType::Failure);
             }
         }
@@ -1628,7 +1632,7 @@ impl CppState for AIAttackPositionState {
 
         // C++ lines 5474-5478: Mood matrix sleep mode check
         {
-            let owner_guard = owner.read().map_err(|_| "lock poisoned".to_string())?;
+            let mut owner_guard = owner.write().map_err(|_| "lock poisoned".to_string())?;
             if !owner_guard.ai_fire_attack_ok {
                 return Ok(StateReturnType::Success);
             }
@@ -1639,7 +1643,9 @@ impl CppState for AIAttackPositionState {
             }
 
             // C++ lines 5493-5495: Out of ammo check
-            if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
+            if owner_guard.observe_out_of_ammo_at(TheGameLogic::get_frame())
+                && !owner_guard.is_kind_of(KindOf::Projectile)
+            {
                 return Ok(StateReturnType::Failure);
             }
         }
@@ -1731,8 +1737,10 @@ impl CppState for AIAttackPositionState {
 
         // C++ lines 5565-5570: Out of ammo check every frame
         {
-            let owner_guard = owner.read().map_err(|_| "lock poisoned".to_string())?;
-            if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
+            let mut owner_guard = owner.write().map_err(|_| "lock poisoned".to_string())?;
+            if owner_guard.observe_out_of_ammo_at(TheGameLogic::get_frame())
+                && !owner_guard.is_kind_of(KindOf::Projectile)
+            {
                 return Ok(StateReturnType::Failure);
             }
         }
@@ -2398,8 +2406,10 @@ impl CppState for AIAttackAreaState {
                 .get_machine_owner()
                 .ok_or_else(|| "attack area missing owner".to_string())?;
 
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
+            if let Ok(mut owner_guard) = owner.write() {
+                if owner_guard.observe_out_of_ammo_at(now)
+                    && !owner_guard.is_kind_of(KindOf::Projectile)
+                {
                     return Ok(StateReturnType::Failure);
                 }
             }

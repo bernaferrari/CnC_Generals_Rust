@@ -19,6 +19,7 @@ impl W3DModel {
         primary_turret: &AuthoredDrawPrimaryTurret,
         turret_angle: f32,
         turret_pitch: f32,
+        alt_turret_degrees: (f32, f32),
         weapon_controls: &[W3dWeaponVisualControl],
         visibility: &[AuthoredDrawSubobjectVisibility],
         world_is_night: bool,
@@ -73,6 +74,7 @@ impl W3DModel {
                         primary_turret,
                         turret_angle,
                         turret_pitch,
+                        alt_turret_degrees,
                         weapon_controls,
                     )?;
                 if !transform.is_finite() {
@@ -187,6 +189,7 @@ mod tests {
                 &AuthoredDrawPrimaryTurret::default(),
                 0.0,
                 0.0,
+                (0.0, 0.0),
                 &[],
                 &[AuthoredDrawSubobjectVisibility {
                     name: "BODY".into(),
@@ -220,6 +223,7 @@ mod tests {
                 &AuthoredDrawPrimaryTurret::default(),
                 0.0,
                 0.0,
+                (0.0, 0.0),
                 &[],
                 &[],
                 false,
@@ -245,6 +249,7 @@ mod tests {
                 &AuthoredDrawPrimaryTurret::default(),
                 0.0,
                 0.0,
+                (0.0, 0.0),
                 &[],
                 &[],
                 false,
@@ -281,6 +286,7 @@ mod tests {
                     &AuthoredDrawPrimaryTurret::default(),
                     0.0,
                     0.0,
+                    (0.0, 0.0),
                     &[],
                     &[],
                     false,

@@ -53,10 +53,38 @@ pub(super) struct InstalledDrawPose {
     pub(super) world: Mat4,
     pub(super) animation_binding: Option<crate::assets::W3dAnimationBinding>,
     pub(super) controls: Vec<(i32, Mat4)>,
-    pub(super) turret_names: (Option<String>, Option<String>),
+    /// MAIN + ALT turret pivot names (C++ `m_turrets[0..2]` yaw/pitch NameKeys).
+    pub(super) turret_names: TurretBoneNames,
     pub(super) supported_controls: bool,
     pub(super) hierarchy_valid: bool,
     pub(super) sampled_frame: f32,
+}
+
+/// C++ `ModelConditionInfo::m_turrets[0]` and `[1]` yaw/pitch bone names.
+/// A cached pose is only valid for the exact MAIN+ALT bone set it was built for.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct TurretBoneNames {
+    pub(super) yaw: Option<String>,
+    pub(super) pitch: Option<String>,
+    pub(super) alt_yaw: Option<String>,
+    pub(super) alt_pitch: Option<String>,
+}
+
+impl TurretBoneNames {
+    pub(super) fn of(turret: &crate::assets::AuthoredDrawPrimaryTurret) -> Self {
+        Self {
+            yaw: turret.yaw_bone.clone(),
+            pitch: turret.pitch_bone.clone(),
+            alt_yaw: turret.alternate_yaw_bone.clone(),
+            alt_pitch: turret.alternate_pitch_bone.clone(),
+        }
+    }
+    pub(super) fn matches(&self, turret: &crate::assets::AuthoredDrawPrimaryTurret) -> bool {
+        self.yaw == turret.yaw_bone
+            && self.pitch == turret.pitch_bone
+            && self.alt_yaw == turret.alternate_yaw_bone
+            && self.alt_pitch == turret.alternate_pitch_bone
+    }
 }
 
 impl PartialEq for InstalledDrawPose {
@@ -93,12 +121,8 @@ impl InstalledDrawPose {
             world,
             animation_binding,
             controls: Vec::new(),
-            turret_names: (
-                draw_model.primary_turret.yaw_bone.clone(),
-                draw_model.primary_turret.pitch_bone.clone(),
-            ),
-            supported_controls: draw_model.primary_turret.primary_fields_valid
-                && !draw_model.primary_turret.has_unsupported_alternate_turret(),
+            turret_names: TurretBoneNames::of(&draw_model.primary_turret),
+            supported_controls: draw_model.primary_turret.turret_fields_valid(),
             hierarchy_valid: false,
             sampled_frame: 0.,
         }
@@ -110,9 +134,8 @@ impl InstalledDrawPose {
     ) -> bool {
         std::ptr::eq(self.model.as_ref(), model)
             && self.supported_controls
-            && !selected.primary_turret.has_unsupported_alternate_turret()
-            && self.turret_names.0 == selected.primary_turret.yaw_bone
-            && self.turret_names.1 == selected.primary_turret.pitch_bone
+            && selected.primary_turret.turret_fields_valid()
+            && self.turret_names.matches(&selected.primary_turret)
     }
     pub(super) fn install_transform(&mut self, world: Mat4) {
         self.world = world;
@@ -209,8 +232,7 @@ impl RenderPipeline {
         let needs_recreation = match &state.installed_draw_pose {
             InstalledDrawObject::Ready(pose) => {
                 !Arc::ptr_eq(&pose.model, &model)
-                    || pose.turret_names.0 != draw_model.primary_turret.yaw_bone
-                    || pose.turret_names.1 != draw_model.primary_turret.pitch_bone
+                    || !pose.turret_names.matches(&draw_model.primary_turret)
             }
             _ => true,
         };
@@ -234,8 +256,7 @@ impl RenderPipeline {
         pose.install_transform(world);
         // No HTree/non-controlled plain mesh is valid. A malformed/unsupported
         // turret input remains explicitly unavailable for camera acceptance.
-        pose.supported_controls = draw_model.primary_turret.primary_fields_valid
-            && !draw_model.primary_turret.has_unsupported_alternate_turret();
+        pose.supported_controls = draw_model.primary_turret.turret_fields_valid();
         // `None` may mean a non-HTree MeshClass, where no bone exists. For a
         // real named HTree, callers must not silently drop unsupported controls.
         if controls_requested && controls.is_none() {

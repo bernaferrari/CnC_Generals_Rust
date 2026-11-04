@@ -232,9 +232,15 @@ impl GameLogic {
         {
             // Both combat owners count the same accepted discharge, never an
             // aiming-only update or a replacement source with the same ID.
-            if crate::game_logic::host_slave_drones::is_hellfire_drone_template(
-                &object.template_name,
-            ) {
+            // Hellfire residual counter keys on the fired authored weapon.
+            if object
+                .weapon_name_for_slot(event.weapon_slot)
+                .is_some_and(|w| {
+                    w.eq_ignore_ascii_case(
+                        crate::game_logic::host_slave_drones::HELLFIRE_MISSILE_WEAPON,
+                    )
+                })
+            {
                 self.hellfire_drone_residual_auto_fires =
                     self.hellfire_drone_residual_auto_fires.saturating_add(1);
             }

@@ -868,6 +868,10 @@ pub struct RenderableObject {
     pub turret_angle_deg: f32,
     /// Host turret pitch residual (degrees).
     pub turret_pitch_deg: f32,
+    /// C++ `getTurretRotAndPitch(TURRET_ALT)` yaw (degrees); 0 with no alt TurretAI.
+    pub alt_turret_angle_deg: f32,
+    /// C++ `getTurretRotAndPitch(TURRET_ALT)` pitch (degrees); 0 with no alt TurretAI.
+    pub alt_turret_pitch_deg: f32,
     /// Host turret idle-scan residual.
     pub turret_idle_scanning: bool,
     /// Host weapon-bonus residual flags (presentation UI/FX).

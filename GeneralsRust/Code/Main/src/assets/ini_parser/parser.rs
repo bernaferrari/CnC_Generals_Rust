@@ -589,12 +589,23 @@ impl IniParser {
                             value,
                             DrawWeaponBoneField::HideShow,
                         ),
-                        // AltTurretArtAngle/AltTurretArtPitch only affect an
-                        // active alternate bone, which already makes the
-                        // bounded primary-only renderer fail closed. Do not
-                        // manufacture a second-turret runtime by retaining
-                        // those offsets as primary values.
-                        "altturretartangle" | "altturretartpitch" => {}
+                        // C++ m_turrets[1] retains AltTurretArtAngle /
+                        // AltTurretArtPitch via parseAngleReal. Keep them in
+                        // the alternate slot only; never as primary values.
+                        "altturretartangle" | "altturretartpitch" => {
+                            let is_yaw = lower_key == "altturretartangle";
+                            if let Some(state) = active_draw_module
+                                .and_then(|index| obj.draw_modules.get_mut(index))
+                                .and_then(|module| {
+                                    active_condition_state
+                                        .and_then(|index| module.condition_states.get_mut(index))
+                                })
+                            {
+                                state
+                                    .primary_turret
+                                    .set_alternate_art_angle_degrees(value, is_yaw);
+                            }
+                        }
                         "draw" => {
                             obj.draw_module = Some(value.to_string());
                             obj.draw_modules
@@ -1409,11 +1420,14 @@ impl IniParser {
         else {
             return;
         };
-        let active = Self::parse_draw_turret_bone_name(value).is_some();
+        let bone = Self::parse_draw_turret_bone_name(value);
+        let active = bone.is_some();
         if is_yaw {
             state.primary_turret.alternate_yaw_bone_present = active;
+            state.primary_turret.alternate_yaw_bone = bone;
         } else {
             state.primary_turret.alternate_pitch_bone_present = active;
+            state.primary_turret.alternate_pitch_bone = bone;
         }
     }
 

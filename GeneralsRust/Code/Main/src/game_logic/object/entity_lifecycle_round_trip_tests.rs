@@ -18,7 +18,7 @@ fn present_groups(
     railroad: Option<&crate::game_logic::host_railroad::HostRailroadCar>,
 ) -> Vec<&'static str> {
     let mut out = Vec::new();
-    let pairs: [(&'static str, bool); 67] = [
+    let pairs: [(&'static str, bool); 68] = [
         (
             TAG_WEAPON_SLOTS,
             super::entity_lifecycle_weapon_slots::WeaponSlotsResidual::present(object),
@@ -26,6 +26,10 @@ fn present_groups(
         (
             TAG_TURRET_RUNTIME,
             object.turret_ai.turret_enabled || object.turret_runtime.seeded,
+        ),
+        (
+            TAG_ALT_TURRET,
+            super::alt_turret_persist::present(object),
         ),
         (TAG_UPGRADE_DIE, object.upgrade_die.is_some()),
         (

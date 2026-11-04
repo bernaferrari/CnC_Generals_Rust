@@ -179,26 +179,10 @@ impl GameLogic {
                 return CombatShotResult::NoShot;
             }
 
-            // Pitch window residual for ground fire.
-            {
-                let pitch_ok = if let Some(attacker) = self.objects.get(&attacker_id) {
-                    let wname = attacker.weapon_name_for_slot(ground_slot);
-                    let limits = attacker.selected_native_weapon_rule(ground_slot).map(|rule| crate::game_logic::weapon_bootstrap::HostTargetPitchLimits {
-                        min_pitch: crate::game_logic::weapon_bootstrap::normalize_pitch_radians(rule.min_target_pitch),
-                        max_pitch: crate::game_logic::weapon_bootstrap::normalize_pitch_radians(rule.max_target_pitch),
-                    }).unwrap_or_else(|| wname.map(crate::game_logic::weapon_bootstrap::host_target_pitch_limits_for_weapon_name).unwrap_or_default());
-                    crate::game_logic::weapon_bootstrap::is_pitch_within_limits(
-                        attacker.get_position(),
-                        target_location,
-                        &limits,
-                    )
-                } else {
-                    true
-                };
-                if !pitch_ok {
-                    return CombatShotResult::NoShot;
-                }
-            }
+            // C++ has no pitch gate for ground-position fire:
+            // Weapon::isWithinTargetPitch(source, victim) is only reached
+            // for Object victims (WeaponSet.cpp:414 isAnyWithinTargetPitch,
+            // :842 chooseBestWeaponForTarget). hq-2qedt.49.
             let mut weapon_damage = self
                 .objects
                 .get(&attacker_id)

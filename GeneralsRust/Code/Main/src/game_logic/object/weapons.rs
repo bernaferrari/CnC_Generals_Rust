@@ -899,13 +899,19 @@ impl Object {
             target_is_air,
         );
 
-        // Humvee residual: airborne targets prefer air TOW after TOW upgrade.
-        let humvee_prefer_aa = crate::game_logic::host_humvee::humvee_prefer_air_tow(
-            crate::game_logic::host_humvee::is_humvee_template(&self.template_name),
-            self.has_upgrade_tag(crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW)
-                || self.has_upgrade_tag("Upgrade_AmericaTOWMissile"),
-            target_is_air,
-        );
+        // Humvee residual: airborne targets prefer TOW when authored HumveeMissileWeapon(/Air).
+        let humvee_prefer_aa = {
+            use crate::game_logic::host_humvee::{
+                HUMVEE_MISSILE_WEAPON, HUMVEE_MISSILE_WEAPON_AIR,
+            };
+            target_is_air
+                && (self.weapon_name_for_slot(1).is_some_and(|w| {
+                    w.eq_ignore_ascii_case(HUMVEE_MISSILE_WEAPON)
+                        || w.eq_ignore_ascii_case(HUMVEE_MISSILE_WEAPON_AIR)
+                }) || self.weapon_name_for_slot(2).is_some_and(|w| {
+                    w.eq_ignore_ascii_case(HUMVEE_MISSILE_WEAPON_AIR)
+                }))
+        };
 
         if secondary_ok {
             if scud_prefer_toxin || quad_prefer_aa || avenger_prefer_aa || humvee_prefer_aa {
@@ -1092,23 +1098,39 @@ impl Object {
         }
     }
 
+    /// C++ `WeaponTemplate::isContactWeapon` (Weapon.cpp:531): authored
+    /// attack range only, from the selected rule or the live WeaponStore
+    /// template for this slot. No name heuristic (hq-2qedt.45/.50).
+    pub(in crate::game_logic) fn is_slot_contact_weapon(&self, slot: u8) -> bool {
+        if let Some(rule) = self.selected_native_weapon_rule(slot) {
+            return rule.is_contact_weapon();
+        }
+        let Some(name) = self.authored_weapon_name_for_slot(slot) else {
+            return false;
+        };
+        crate::game_logic::weapon_bootstrap::with_host_weapon_store(|store| {
+            store
+                .find_weapon_template(name)
+                .map(|wt| wt.is_contact_weapon())
+        })
+        .ok()
+        .flatten()
+        .unwrap_or(false)
+    }
+
     /// Leftover `Weapon::isWithinTargetPitch` via leftover-backed loft limits.
     fn is_slot_within_target_pitch(&self, slot: u8, victim: &Object) -> bool {
         use crate::game_logic::weapon_bootstrap::{
-            host_is_contact_weapon_name, host_target_pitch_limits_for_weapon_name,
-            is_pitch_within_limits_geom,
+            host_target_pitch_limits_for_weapon_name, is_pitch_within_limits_geom,
         };
+        // Weapon.cpp:2757: isContactWeapon() || !isPitchLimited() → true.
+        if self.is_slot_contact_weapon(slot) {
+            return true;
+        }
         // Pitch belongs to this concrete WeaponSet entry. The legacy
         // secondary-name fallback is not an authored SECONDARY declaration.
         let name = self.authored_weapon_name_for_slot(slot).unwrap_or("");
         let selected = self.selected_native_weapon_rule(slot);
-        let contact = selected
-            .as_ref()
-            .map(|rule| rule.is_contact_weapon())
-            .unwrap_or_else(|| !name.is_empty() && host_is_contact_weapon_name(name));
-        if contact {
-            return true;
-        }
         let limits = selected
             .as_ref()
             .map(

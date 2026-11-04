@@ -434,25 +434,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-            let _ = is_battlemaster_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -892,18 +875,8 @@ impl GameLogic {
                 .with_position(target_pos)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(target_pos),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -1323,31 +1296,27 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
 
+    /// True when the authored primary weapon is `GLARebelMachineGun` (hq-2qedt.243).
+    pub(in super::super) fn has_authored_rebel_machine_gun(obj: &Object) -> bool {
+        obj.authored_weapon_name_for_slot(0).is_some_and(|w| {
+            w.eq_ignore_ascii_case(crate::game_logic::host_gla_rebel::REBEL_MACHINE_GUN)
+        })
+    }
+
     /// Refresh GLA Rebel gun residual from current AP Bullets upgrade tag.
     pub(in super::super) fn refresh_rebel_weapon(&mut self, object_id: ObjectId) {
-        use crate::game_logic::host_gla_rebel::{
-            has_ap_bullets_upgrade, is_gla_rebel_template, rebel_weapon,
-        };
+        use crate::game_logic::host_gla_rebel::{has_ap_bullets_upgrade, rebel_weapon};
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        if !is_gla_rebel_template(&obj.template_name) {
+        // AP Bullets is a WeaponBonusUpgrade on the authored Rebel gun, not a chassis name.
+        if !Self::has_authored_rebel_machine_gun(obj) {
             return;
         }
         let ap = has_ap_bullets_upgrade(&obj.applied_upgrades);
@@ -1359,11 +1328,11 @@ impl GameLogic {
 
     /// Apply AP Bullets residual tag to a GLA Rebel (damage × 1.25).
     pub fn apply_rebel_ap_bullets_upgrade(&mut self, object_id: ObjectId) -> bool {
-        use crate::game_logic::host_gla_rebel::{UPGRADE_GLA_AP_BULLETS, is_gla_rebel_template};
+        use crate::game_logic::host_gla_rebel::UPGRADE_GLA_AP_BULLETS;
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_gla_rebel_template(&obj.template_name) {
+        if !Self::has_authored_rebel_machine_gun(obj) {
             return false;
         }
         obj.applied_upgrades

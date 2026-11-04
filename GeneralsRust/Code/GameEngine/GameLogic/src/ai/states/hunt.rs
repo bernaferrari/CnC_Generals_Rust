@@ -246,13 +246,21 @@ impl CppState for AIHuntState {
                 .base
                 .get_machine_owner()
                 .ok_or_else(|| "hunt state missing machine owner".to_string())?;
+            // C++ AIStates.cpp hunt update: isOutOfAmmo() is WeaponSet getStatus
+            // on the owner, so observe under the write guard (hq-2qedt.79).
+            {
+                let mut owner_guard = owner
+                    .write()
+                    .map_err(|_| "hunt state owner lock poisoned".to_string())?;
+                if owner_guard.observe_out_of_ammo_at(now)
+                    && !owner_guard.is_kind_of(KindOf::Projectile)
+                {
+                    return Ok(StateReturnType::Failure);
+                }
+            }
             let owner_guard = owner
                 .read()
                 .map_err(|_| "hunt state owner lock poisoned".to_string())?;
-
-            if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
-                return Ok(StateReturnType::Failure);
-            }
 
             if owner_guard.ai_fire_crate_id != crate::common::INVALID_ID {
                 let crate_id = owner_guard.ai_fire_crate_id;

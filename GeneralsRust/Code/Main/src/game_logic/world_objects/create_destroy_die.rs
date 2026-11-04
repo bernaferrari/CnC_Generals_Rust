@@ -2867,8 +2867,9 @@ impl GameLogic {
                 crate::game_logic::host_troop_crawler::is_troop_crawler_template(template_name);
             if is_troop_crawler_spawn {
                 object.install_troop_crawler_transport();
-                object.weapon =
-                    Some(crate::game_logic::host_troop_crawler::troop_crawler_assault_weapon());
+                // PRIMARY binds from the authored WeaponSet above (C++
+                // WeaponSet::updateWeaponSet from ThingTemplate), not a
+                // template-name host table (hq-2qedt.141).
                 if crate::game_logic::host_troop_crawler::troop_crawler_spawn_is_detector(
                     template_name,
                 ) {
@@ -2896,13 +2897,10 @@ impl GameLogic {
                 // OverlordContain style: portable slot reserved; bunker residual separate.
                 object.overlord_bunker_capacity = Some(0);
             }
-            if crate::game_logic::host_overlord_addons::is_helix_template(template_name) {
-                // Host residual: Helix PRIMARY HelixMinigunWeapon (always retained with addons).
-                // Fail-closed: not full ChinookAIUpdate / COMANCHE_VULCAN Stinger matrix.
-                object.weapon = Some(crate::game_logic::host_helix_minigun::helix_minigun_weapon());
-            }
-            let emperor_spawn = object.authors_innate_propaganda_tower();
-            if emperor_spawn {
+            // Helix PRIMARY binds from the authored WeaponSet above (C++
+            // WeaponSet::updateWeaponSet from ThingTemplate), not a
+            // template-name host table (hq-2qedt.139).
+            if crate::game_logic::host_overlord_addons::is_emperor_template(template_name) {
                 // Innate PropagandaTowerBehavior AffectsSelf residual.
                 object.has_overlord_propaganda_addon = true;
 
@@ -2916,14 +2914,12 @@ impl GameLogic {
             if crate::game_logic::host_humvee::is_humvee_template(template_name) {
                 object.install_humvee_transport();
             }
+            // Humvee PRIMARY binds from the authored WeaponSet above (C++
+            // WeaponSet::updateWeaponSet); no create-time name peel (hq-2qedt.140).
 
-            // Host residual: America Avenger designator primary + air laser secondary.
-            // Fail-closed: not portable laser turret OverlordContain passenger.
-            if crate::game_logic::host_avenger::is_avenger_template(template_name) {
-                object.weapon = Some(crate::game_logic::host_avenger::avenger_designator_weapon());
-                object.secondary_weapon =
-                    Some(crate::game_logic::host_avenger::avenger_air_laser_weapon());
-            }
+            // USA Avenger PRIMARY/SECONDARY bind from the authored WeaponSet
+            // above (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a
+            // template-name host table (hq-2qedt.138).
 
             // Host residual: America Sentry Drone StealthDetectorUpdate (DetectionRange 225).
             // Always detector from spawn; gun is PLAYER_UPGRADE residual.

@@ -987,6 +987,10 @@ impl GameLogic {
                 ProductionAuthorityResult::Spawned(id) => id,
                 _ => None,
             };
+            #[cfg(test)]
+            if let Some(new_id) = new_id {
+                spawn_callback_hook::run(self, producer_id, new_id);
+            }
             if let Some(new_id) = new_id {
                 // ThingFactory::newObject has already admitted the unit and
                 // run creation callbacks. Keep that successful birth and its
@@ -2000,3 +2004,37 @@ impl GameLogic {
 #[cfg(test)]
 #[path = "production_variation_owner_tests.rs"]
 mod production_variation_owner_tests;
+
+/// Test-only stand-in for a ThingFactory creation callback that runs inside
+/// `SpawnUnit` with mutable world access (e.g. one that replaces the producer
+/// at the same ObjectId). Production builds compile no hook.
+#[cfg(test)]
+pub(crate) mod spawn_callback_hook {
+    use super::*;
+    type Hook = Box<dyn FnMut(&mut GameLogic, ObjectId, ObjectId)>;
+    thread_local! {
+        static HOOK: std::cell::RefCell<Option<Hook>> = std::cell::RefCell::new(None);
+    }
+    pub(crate) fn install(hook: impl FnMut(&mut GameLogic, ObjectId, ObjectId) + 'static) {
+        HOOK.with(|h| *h.borrow_mut() = Some(Box::new(hook)));
+    }
+    pub(crate) fn clear() {
+        HOOK.with(|h| *h.borrow_mut() = None);
+    }
+    pub(super) fn run(logic: &mut GameLogic, producer: ObjectId, newborn: ObjectId) {
+        let hook = HOOK.with(|h| h.borrow_mut().take());
+        if let Some(mut hook) = hook {
+            hook(logic, producer, newborn);
+            HOOK.with(|h| {
+                let mut slot = h.borrow_mut();
+                if slot.is_none() {
+                    *slot = Some(hook);
+                }
+            });
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "production_replace_self_callback_tests.rs"]
+mod production_replace_self_callback_tests;

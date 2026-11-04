@@ -1257,12 +1257,17 @@ impl CppState for AIAttackFireWeaponState {
         }
 
         let (slot, status, continue_range) = {
-            let (weapon, slot) = owner_guard
+            let slot = owner_guard
                 .get_current_weapon()
+                .map(|(_, slot)| slot)
+                .ok_or_else(|| "attack fire missing weapon".to_string())?;
+            let weapon = owner_guard
+                .weapon_set
+                .get_weapon_in_slot_mut(slot)
                 .ok_or_else(|| "attack fire missing weapon".to_string())?;
             (
                 slot,
-                weapon.get_status(),
+                weapon.observe_status(),
                 weapon.get_continue_attack_range(),
             )
         };
@@ -1414,8 +1419,8 @@ impl CppState for AIAttackFireWeaponState {
             ObjectStatusTypes::IgnoringStealth,
         ));
 
-        if let Some((weapon, _)) = owner_guard.get_current_weapon() {
-            if weapon.get_status() == WeaponStatus::PreAttack {
+        if let Some(weapon) = owner_guard.weapon_set.get_current_weapon_mut() {
+            if weapon.observe_status() == WeaponStatus::PreAttack {
                 owner_guard.cancel_pre_attack_for_current_weapon();
             }
         }

@@ -468,7 +468,8 @@ impl Object {
                 audio.add_audio_event_for_owner(&sound, self);
             }
             let __player_list_arc = crate::player::player_list();
-                let selected = __player_list_arc.read()
+            let selected = __player_list_arc
+                .read()
                 .ok()
                 .and_then(|list| {
                     let index = list.get_local_player_index();
@@ -882,7 +883,7 @@ impl Object {
                     .get_current_weapon_mut()
                     .ok_or(ObjectError::NoWeapon)?;
 
-                if weapon.get_status() != WeaponStatus::ReadyToFire {
+                if weapon.observe_status() != WeaponStatus::ReadyToFire {
                     return Err(ObjectError::WeaponNotReady);
                 }
 
@@ -973,7 +974,7 @@ impl Object {
                 .get_weapon_in_slot_mut(slot)
                 .ok_or(ObjectError::NoWeapon)?;
 
-            if weapon.get_status() != WeaponStatus::ReadyToFire {
+            if weapon.observe_status() != WeaponStatus::ReadyToFire {
                 return Err(ObjectError::WeaponNotReady);
             }
 
@@ -1243,6 +1244,11 @@ impl Object {
         cmd_source: CommandSourceType,
         ai: &dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<bool, String> {
+        let frame = ai
+            .world()
+            .map_or_else(crate::helpers::TheGameLogic::get_frame, |w| w.frame());
+        self.weapon_set
+            .observe_selection_statuses_at(frame, cmd_source);
         let selection = self.weapon_set.select_weapon_for_objects(
             self,
             target,
@@ -1397,6 +1403,11 @@ impl Object {
 
     pub fn is_out_of_ammo(&self) -> bool {
         self.weapon_set.is_out_of_ammo()
+    }
+
+    /// Mutable-owner WeaponSet.cpp:968-980 (hq-2qedt.77).
+    pub(crate) fn observe_out_of_ammo_at(&mut self, frame: UnsignedInt) -> bool {
+        self.weapon_set.observe_out_of_ammo_at(frame)
     }
 
     /// C++ WeaponSet.cpp:968-980 at the driving operation's supplied frame.
@@ -2334,7 +2345,7 @@ impl Object {
                 let weapon = weapon_set
                     .get_current_weapon_mut()
                     .ok_or(ObjectError::NoWeapon)?;
-                if weapon.get_status() != WeaponStatus::ReadyToFire {
+                if weapon.observe_status() != WeaponStatus::ReadyToFire {
                     return Err(ObjectError::WeaponNotReady);
                 }
                 weapon.set_caller_held_source(
@@ -2476,7 +2487,7 @@ impl Object {
             } else if !self.test_status(ObjectStatusTypes::IsAttacking) {
                 crate::weapon::WeaponSetConditionType::None
             } else {
-                let weapon_status = weapon.get_status_at(now);
+                let weapon_status = weapon.peek_status_at(now);
                 let mut condition = match weapon_status {
                     WeaponStatus::BetweenFiringShots => {
                         crate::weapon::WeaponSetConditionType::Between
@@ -2554,7 +2565,7 @@ impl Object {
 
         if let Some((weapon, _slot)) = self.weapon_set.get_current_weapon() {
             if matches!(
-                weapon.get_status(),
+                weapon.peek_status_at(crate::helpers::TheGameLogic::get_frame()),
                 crate::weapon::WeaponStatus::PreAttack
                     | crate::weapon::WeaponStatus::BetweenFiringShots
                     | crate::weapon::WeaponStatus::ReloadingClip
@@ -2748,3 +2759,30 @@ mod veterancy_side_effect_tests {
 #[cfg(test)]
 #[path = "owner_experience_tests.rs"]
 mod owner_experience_tests;
+
+#[cfg(test)]
+mod hq_2qedt_77_mutable_owner_status_tests {
+    /// hq-2qedt.77: callers holding `&mut Weapon` / write guards use the
+    /// mutable-owner `observe_status*` (C++ Weapon::getStatus writes m_status)
+    /// instead of the legacy `&self` AtomicU8 side-effect `get_status*`.
+    #[test]
+    fn turret_attack_and_fire_paths_observe_status_through_mut_owner() {
+        let files: [(&str, &str, usize); 4] = [
+            ("ai/turret.rs", include_str!("../ai/turret.rs"), 3),
+            ("ai/states/attack_machine.rs", include_str!("../ai/states/attack_machine.rs"), 2),
+            ("ai/states/attack_entry_aim.rs", include_str!("../ai/states/attack_entry_aim.rs"), 1),
+            ("object/object_combat.rs", include_str!("object_combat.rs"), 3),
+        ];
+        for (name, src, min_observe) in files {
+            let prod = src.split("#[cfg(test)]").next().unwrap();
+            let observes = prod.matches(".observe_status").count();
+            assert!(observes >= min_observe, "{name}: expected >= {min_observe} observe_status, got {observes}");
+            if name != "object/object_combat.rs" {
+                assert!(!prod.contains("weapon.get_status"), "{name}: legacy &self get_status remains");
+            }
+        }
+        let combat = include_str!("object_combat.rs").split("#[cfg(test)]").next().unwrap();
+        assert!(!combat.contains("if weapon.get_status() != WeaponStatus::ReadyToFire"),
+            "object_combat fire paths must observe_status under &mut");
+    }
+}

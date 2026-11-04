@@ -484,8 +484,8 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_slave_drones::{
-            SlaveDroneKind, UPGRADE_AMERICA_DRONE_ARMOR, drone_armor_add_max_health,
-            is_battle_drone_template, is_hellfire_drone_template, is_scout_drone_template,
+            HELLFIRE_MISSILE_WEAPON, SlaveDroneKind, UPGRADE_AMERICA_DRONE_ARMOR,
+            drone_armor_add_max_health, is_battle_drone_template, is_scout_drone_template,
         };
 
         let mut n = 0u32;
@@ -495,7 +495,10 @@ impl GameLogic {
             }
             let kind = if is_battle_drone_template(&obj.template_name) {
                 Some(SlaveDroneKind::Battle)
-            } else if is_hellfire_drone_template(&obj.template_name) {
+            } else if obj
+                .authored_weapon_name_for_slot(0)
+                .is_some_and(|w| w.eq_ignore_ascii_case(HELLFIRE_MISSILE_WEAPON))
+            {
                 Some(SlaveDroneKind::Hellfire)
             } else if is_scout_drone_template(&obj.template_name) {
                 Some(SlaveDroneKind::Scout)
@@ -731,7 +734,6 @@ impl GameLogic {
         recipients: UpgradeRecipients,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_gla_rebel::is_gla_rebel_template;
         use crate::game_logic::host_jarmen_kell::{
             UPGRADE_GLA_AP_BULLETS, is_jarmen_kell_template,
         };
@@ -745,7 +747,7 @@ impl GameLogic {
             .filter_map(|(id, o)| {
                 if is_jarmen_kell_template(&o.template_name) {
                     Some((*id, 0u8))
-                } else if is_gla_rebel_template(&o.template_name) {
+                } else if Self::has_authored_rebel_machine_gun(o) {
                     Some((*id, 1))
                 } else if is_technical_template(&o.template_name) {
                     Some((*id, 2))
@@ -858,7 +860,6 @@ impl GameLogic {
         recipients: UpgradeRecipients,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_dragon_tank::is_dragon_tank_template;
         use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
         use crate::game_logic::host_mig::is_mig_template;
 
@@ -871,7 +872,7 @@ impl GameLogic {
                     Some((*id, 0u8))
                 } else if is_inferno_cannon_template(&o.template_name) {
                     Some((*id, 1))
-                } else if is_dragon_tank_template(&o.template_name) {
+                } else if Self::has_authored_dragon_flame_weapon(o) {
                     Some((*id, 2))
                 } else {
                     None
@@ -1135,6 +1136,7 @@ impl GameLogic {
         use crate::game_logic::host_gattling_tank::{
             UPGRADE_CHINA_CHAIN_GUNS, is_gattling_tank_template,
         };
+        use crate::game_logic::host_gattling_tank::UPGRADE_CHINA_CHAIN_GUNS;
         use crate::game_logic::host_minigunner::is_minigunner_template;
 
         let ids: Vec<(ObjectId, u8)> = self
@@ -1144,9 +1146,7 @@ impl GameLogic {
             .filter_map(|(id, o)| {
                 if is_minigunner_template(&o.template_name) {
                     Some((*id, 0u8))
-                } else if is_gattling_tank_template(&o.template_name)
-                    || is_authored_gattling_building(o.weapon_name_for_slot(0))
-                {
+                } else if Self::gattling_chain_guns_lane(o).is_some() {
                     Some((*id, 1))
                 } else {
                     None

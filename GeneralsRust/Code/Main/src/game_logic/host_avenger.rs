@@ -212,30 +212,6 @@ pub fn is_avenger_template(template_name: &str) -> bool {
     n.contains("avenger")
 }
 
-/// Whether residual Avenger shot should paint FAERIE_FIRE (primary designator path).
-///
-/// Retail: PRIMARY AvengerTargetDesignator applies status; secondary is air dummy.
-/// Residual: primary slot paints; secondary air laser deals HP damage vs aircraft.
-pub fn should_apply_faerie_fire_paint(
-    is_avenger: bool,
-    weapon_slot: u8,
-    target_alive: bool,
-    enemy_or_forced: bool,
-) -> bool {
-    is_avenger && weapon_slot == 0 && target_alive && enemy_or_forced
-}
-
-/// Whether residual Avenger air laser should deal HP damage (secondary slot).
-pub fn should_apply_avenger_air_laser(
-    is_avenger: bool,
-    weapon_slot: u8,
-    target_is_air: bool,
-    target_alive: bool,
-    enemy_or_forced: bool,
-) -> bool {
-    is_avenger && weapon_slot == 1 && target_is_air && target_alive && enemy_or_forced
-}
-
 /// Effective weapon reload seconds under TARGET_FAERIE_FIRE ROF residual.
 ///
 /// `reload_time / 1.5` when target is painted; identity otherwise.
@@ -402,16 +378,6 @@ mod tests {
         assert!(!is_avenger_template("AmericaTankPaladin"));
         assert!(!is_avenger_template("AmericaTankCrusader"));
         assert!(!is_avenger_template(""));
-    }
-
-    #[test]
-    fn paint_and_air_laser_gates() {
-        assert!(should_apply_faerie_fire_paint(true, 0, true, true));
-        assert!(!should_apply_faerie_fire_paint(true, 1, true, true));
-        assert!(!should_apply_faerie_fire_paint(false, 0, true, true));
-        assert!(should_apply_avenger_air_laser(true, 1, true, true, true));
-        assert!(!should_apply_avenger_air_laser(true, 0, true, true, true));
-        assert!(!should_apply_avenger_air_laser(true, 1, false, true, true));
     }
 
     #[test]

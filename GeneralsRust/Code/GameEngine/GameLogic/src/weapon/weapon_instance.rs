@@ -396,7 +396,7 @@ impl Weapon {
     ) -> Result<bool, WeaponError> {
         let current_frame = TheGameLogic::get_frame();
         let disarm = self.template.get_damage_type() == DamageType::Disarm;
-        let ready = self.get_status() == WeaponStatus::ReadyToFire;
+        let ready = self.observe_status() == WeaponStatus::ReadyToFire;
         // C++ Weapon::fireWeapon(pos) does not range-check. OutOfRange must still fire.
         if ready && !disarm {
             if let Err(err) = self.check_can_fire(source, None, Some(position), current_frame) {
@@ -434,7 +434,7 @@ impl Weapon {
         {
             return Ok(true);
         }
-        if self.get_status() != WeaponStatus::ReadyToFire {
+        if self.observe_status() != WeaponStatus::ReadyToFire {
             return Ok(false);
         }
         Ok(self.load_status() == WeaponStatus::ReloadingClip)
@@ -478,7 +478,7 @@ impl Weapon {
         {
             return Ok(true);
         }
-        if self.get_status() != WeaponStatus::ReadyToFire {
+        if self.observe_status() != WeaponStatus::ReadyToFire {
             return Ok(false);
         }
         Ok(self.load_status() == WeaponStatus::ReloadingClip)
@@ -577,7 +577,7 @@ impl Weapon {
         borrowed_source: Option<&mut crate::object::Object>,
     ) -> Result<bool, WeaponError> {
         let disarm = self.template.get_damage_type() == DamageType::Disarm;
-        let ready = self.get_status() == WeaponStatus::ReadyToFire;
+        let ready = self.observe_status() == WeaponStatus::ReadyToFire;
 
         if ready && !disarm {
             if let Err(err) = self.check_can_fire(source_id, Some(target_id), None, current_frame) {
@@ -621,7 +621,7 @@ impl Weapon {
         {
             return Ok(true);
         }
-        if self.get_status() != WeaponStatus::ReadyToFire {
+        if self.observe_status() != WeaponStatus::ReadyToFire {
             return Ok(false);
         }
         Ok(self.load_status() == WeaponStatus::ReloadingClip)
@@ -764,7 +764,7 @@ impl Weapon {
     ) -> f32 {
         // C++ Weapon.cpp:2376-2379 — reloading is fine; out of ammo with no
         // autoreload estimates as zero.
-        if self.get_status() == WeaponStatus::OutOfAmmo && !self.template.get_auto_reloads_clip() {
+        if self.peek_status_at(TheGameLogic::get_frame()) == WeaponStatus::OutOfAmmo && !self.template.get_auto_reloads_clip() {
             return 0.0;
         }
         let bonus = self.compute_bonus(source_obj, WeaponBonusConditionFlags::new());
@@ -781,7 +781,7 @@ impl Weapon {
         source: &crate::object::Object,
         target: &crate::object::Object,
     ) -> f32 {
-        let status = self.get_status();
+        let status = self.peek_status_at(TheGameLogic::get_frame());
         if status == WeaponStatus::OutOfAmmo && !self.template.get_auto_reloads_clip() {
             return 0.0;
         }
@@ -1077,27 +1077,46 @@ impl Weapon {
     }
 
     pub fn get_status(&self) -> WeaponStatus {
-        self.get_status_at(TheGameLogic::get_frame())
+        self.peek_status_at(TheGameLogic::get_frame())
     }
 
-    pub fn get_status_at(&self, current_frame: u32) -> WeaponStatus {
-        // C++ Weapon::getStatus (Weapon.cpp:2736-2742): PRE_ATTACK is a pure
-        // frame test — stored status is not consulted.
+    /// C++ Weapon::getStatus (Weapon.cpp:2736-2742) without the `mutable
+    /// m_status` write. Pure: never touches stored status.
+    pub fn peek_status_at(&self, current_frame: u32) -> WeaponStatus {
+        // PRE_ATTACK is a pure frame test — stored status is not consulted.
         if current_frame < self.when_pre_attack_finished {
             return WeaponStatus::PreAttack;
         }
-
         if current_frame >= self.when_we_can_fire_again {
-            let next = if self.ammo_in_clip > 0 {
+            return if self.ammo_in_clip > 0 {
                 WeaponStatus::ReadyToFire
             } else {
                 WeaponStatus::OutOfAmmo
             };
-            self.store_status(next);
-            return next;
         }
-
         self.load_status()
+    }
+
+    /// Mutable-owner C++ Weapon::getStatus: refreshes stored status exactly
+    /// where C++ writes `m_status` (hq-2qedt.15).
+    pub fn observe_status_at(&mut self, current_frame: u32) -> WeaponStatus {
+        let status = self.peek_status_at(current_frame);
+        if current_frame >= self.when_pre_attack_finished
+            && current_frame >= self.when_we_can_fire_again
+        {
+            *self.status.get_mut() = status as u8;
+        }
+        status
+    }
+
+    pub fn observe_status(&mut self) -> WeaponStatus {
+        self.observe_status_at(TheGameLogic::get_frame())
+    }
+
+    /// Shared-borrow status read. Pure since hq-2qedt.78: identical to
+    /// `peek_status_at`; only `observe_status_at(&mut)` writes stored status.
+    pub fn get_status_at(&self, current_frame: u32) -> WeaponStatus {
+        self.peek_status_at(current_frame)
     }
 
     /// Get remaining ammunition
@@ -1106,7 +1125,7 @@ impl Weapon {
     }
 
     pub(crate) fn get_remaining_ammo_at(&self, frame: u32) -> u32 {
-        match self.get_status_at(frame) {
+        match self.peek_status_at(frame) {
             WeaponStatus::ReloadingClip => 0,
             _ => self.ammo_in_clip,
         }
@@ -1114,7 +1133,7 @@ impl Weapon {
 
     pub fn get_percent_ready_to_fire(&self) -> f32 {
         // C++ Weapon.cpp:2291 uses getStatus(), not the stored field.
-        match self.get_status() {
+        match self.peek_status_at(TheGameLogic::get_frame()) {
             WeaponStatus::ReadyToFire => 1.0,
             WeaponStatus::OutOfAmmo | WeaponStatus::PreAttack => 0.0,
             WeaponStatus::BetweenFiringShots | WeaponStatus::ReloadingClip => {
@@ -1334,6 +1353,9 @@ impl Weapon {
         self.when_we_can_fire_again = stats.0;
         self.when_last_reload_started = stats.1;
         self.set_status(stats.2);
+        self.when_we_can_fire_again = other.when_we_can_fire_again;
+        self.when_last_reload_started = other.when_last_reload_started;
+        self.store_status(other.peek_status_at(TheGameLogic::get_frame()));
     }
 
     /// Update weapon on bonus change
@@ -1342,7 +1364,7 @@ impl Weapon {
         flags: WeaponBonusConditionFlags,
     ) -> GameLogicResult<Option<u32>> {
         let bonus = self.bonus_from_flags(flags);
-        let new_delay = match self.get_status() {
+        let new_delay = match self.observe_status() {
             WeaponStatus::ReloadingClip => self.template.get_clip_reload_time(&bonus),
             WeaponStatus::BetweenFiringShots => self.template.get_delay_between_shots(&bonus),
             _ => return Ok(None),
@@ -1865,7 +1887,7 @@ impl Weapon {
             return Err(WeaponError::NoAmmo);
         }
 
-        if self.get_status() != WeaponStatus::ReadyToFire {
+        if self.peek_status_at(current_frame) != WeaponStatus::ReadyToFire {
             let frames_remaining = self.when_we_can_fire_again.saturating_sub(current_frame);
             let time_remaining = (frames_remaining as f32) / LOGICFRAMES_PER_SECOND as f32;
             return Err(WeaponError::NotReady { time_remaining });
@@ -2046,7 +2068,7 @@ impl Weapon {
         // Not ready must not reach apply_post_fire_state. Callers treat false
         // as "account the shot". Ok(true) skips that. The wrapper then returns
         // false while the status is still not ReadyToFire.
-        if self.get_status() != WeaponStatus::ReadyToFire {
+        if self.observe_status() != WeaponStatus::ReadyToFire {
             return Ok(true);
         }
 

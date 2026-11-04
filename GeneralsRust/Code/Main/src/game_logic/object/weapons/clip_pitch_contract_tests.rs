@@ -137,3 +137,35 @@ fn actual_secondary_pitch_definition_is_independent_of_limited_primary() {
         "selection query does not switch slot"
     );
 }
+
+/// C++ Weapon.cpp:2757 `isWithinTargetPitch`: `isContactWeapon() ||
+/// !isPitchLimited()` → true before any DZ/geometry check. Contact is the
+/// authored-range rule (Weapon.cpp:531), not a name heuristic (hq-2qedt.50).
+#[test]
+fn contact_range_pitch_limited_weapon_bypasses_target_pitch_like_cpp() {
+    const CONTACT: &str = "__RustPitchLimitedTouch";
+    let _serial = crate::game_logic::combat::tests::combat_test_guard();
+    if gamelogic::system::engine_stores::try_active_services().is_none() {
+        gamelogic::system::engine_stores::install_services(
+            gamelogic::system::engine_stores::new_world_services(),
+        );
+    }
+    gamelogic::initialize_weapon_store().expect("pitch catalog initialization");
+    gamelogic::weapon::with_weapon_store_mut(|store| {
+        let mut t = gamelogic::weapon::WeaponTemplate::new(CONTACT.to_owned());
+        t.primary_damage = 10.0;
+        t.attack_range = 5.0;
+        t.min_target_pitch = (-15f32).to_radians();
+        t.max_target_pitch = 15f32.to_radians();
+        store.add_weapon_template(t);
+    })
+    .expect("register contact pitch-limited weapon");
+    let mut rules = ThingTemplate::new("ContactPitchControl");
+    rules.set_primary_weapon_name(CONTACT);
+    let mut attacker = Object::new(rules, ObjectId(1), Team::USA);
+    attacker.weapon = Some(weapon(10.0));
+    let mut target = Object::new(ThingTemplate::new("TallVictim"), ObjectId(2), Team::GLA);
+    target.set_position(glam::Vec3::new(2.0, 50.0, 0.0));
+    assert!(attacker.is_slot_within_target_pitch(0, &target));
+    assert!(attacker.is_any_within_target_pitch_for_slots(&target, &[0]));
+}

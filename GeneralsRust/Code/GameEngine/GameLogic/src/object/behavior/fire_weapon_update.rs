@@ -253,16 +253,14 @@ impl FireWeaponUpdate {
     /// 3. Object exists and can fire
     /// 4. Object is not under construction
     /// 5. If exclusive_weapon_delay > 0: another weapon hasn't fired recently
-    fn is_okay_to_fire(&self) -> Bool {
+    fn is_okay_to_fire(&mut self) -> Bool {
         // Check if we have a weapon
         if self.weapon.is_none() {
             return false;
         }
 
-        let weapon = self.weapon.as_ref().unwrap();
-
-        // Check weapon status
-        if weapon.get_status() != WeaponStatus::ReadyToFire {
+        // Check weapon status (mutable owner: hq-2qedt.77)
+        if self.weapon.as_mut().unwrap().observe_status() != WeaponStatus::ReadyToFire {
             return false;
         }
 

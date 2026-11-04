@@ -264,8 +264,7 @@ fn parse_turret_module(module: &BehaviorModuleDefinition) -> TurretSpawnSpec {
 
 fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
     use crate::game_logic::host_base_defense::{
-        is_gattling_cannon_structure,
-    };
+        is_gattling_cannon_structure,, is_patriot_battery_structure};
     use crate::game_logic::host_battlemaster::BATTLE_MASTER_TURRET_TURN_RATE;
     use crate::game_logic::host_gattling_tank::is_gattling_tank_template;
     use crate::game_logic::host_humvee::{
@@ -342,6 +341,10 @@ fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
         spec.fire_angle_sweep = [sweep, sweep, 0.0];
         spec.fires_while_turning = true;
         return spec;
+    }
+
+    if is_patriot_battery_structure(template_name) {
+        return TurretSpawnSpec::enabled_with_turn_rate(USA_TANK_TURRET_TURN_RATE);
     }
 
     if is_quad_cannon_name(template_name) {

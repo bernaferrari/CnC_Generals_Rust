@@ -3229,3 +3229,81 @@ fn stick_to_ground_snaps_when_not_falling() {
     let _ = o.tick_physics_motion_step(0, 0.0, &mut health_events);
     assert!((o.get_position().y - 0.0).abs() < 1e-4);
 }
+
+/// C++ PartitionFilterRepulsor::allow (PartitionManager.cpp:4985-5022):
+/// Relationship (not team label) must be ENEMIES, KINDOF_INERT rejects,
+/// structures only if able-to-attack. hq-2qedt.48.
+#[test]
+fn repulsor_filter_rejects_inert_and_uses_relationship_not_team_like_cpp() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
+    use gamelogic::common::Relationship;
+    let mut logic = GameLogic::new();
+    logic.set_enable_repulsors(true);
+    logic.add_player(crate::game_logic::Player::new(0, Team::USA, "P0", true));
+    logic.add_player(crate::game_logic::Player::new(1, Team::GLA, "P1", false));
+    logic.get_player_mut(0).unwrap().set_map_relationship(1, Relationship::Enemies);
+    logic.get_player_mut(1).unwrap().set_map_relationship(0, Relationship::Enemies);
+
+    let mut ct = ThingTemplate::new("RepVictim");
+    ct.add_kind_of(KindOf::Infantry);
+    ct.add_kind_of(KindOf::CanBeRepulsed);
+    let me = ObjectId(4801);
+    let mut o = Object::new(ct, me, Team::USA);
+    o.owner_player_id = Some(0);
+    logic.objects.insert(me, o);
+
+    let armed = |name: &str, id: ObjectId, team: Team, kinds: &[KindOf]| {
+        let mut t = ThingTemplate::new(name);
+        for k in kinds {
+            t.add_kind_of(*k);
+        }
+        let mut o = Object::new(t, id, team);
+        o.owner_player_id = Some(1);
+        o.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+        o.weapon = Some(Weapon {
+            range: 40.0,
+            ..Default::default()
+        });
+        o
+    };
+
+    // Enemy INERT able-to-attack object must not repulse.
+    let inert = ObjectId(4802);
+    logic.objects.insert(
+        inert,
+        armed("RepInert", inert, Team::GLA, &[KindOf::Infantry, KindOf::Inert]),
+    );
+    assert!(logic.objects[&inert].can_attack());
+    assert_eq!(
+        logic.object_relationship(&logic.objects[&me], &logic.objects[&inert]),
+        Relationship::Enemies
+    );
+    assert!(
+        logic.find_closest_repulsor(me, 300.0).is_none(),
+        "KINDOF_INERT enemy must not repulse (PartitionManager.cpp:5011)"
+    );
+    logic.objects.remove(&inert);
+
+    // Enemy by relationship though sharing the Team label → repulses.
+    let same_label = ObjectId(4803);
+    logic.objects.insert(
+        same_label,
+        armed("RepSameLabel", same_label, Team::USA, &[KindOf::Infantry]),
+    );
+    assert_eq!(
+        logic.find_closest_repulsor(me, 300.0).map(|(id, _)| id),
+        Some(same_label),
+        "relationship ENEMIES, not team label, gates repulse"
+    );
+    logic.objects.remove(&same_label);
+
+    // Unarmed enemy structure does not repulse.
+    let mut st = ThingTemplate::new("RepBldg");
+    st.add_kind_of(KindOf::Structure);
+    let bldg = ObjectId(4804);
+    let mut b = Object::new(st, bldg, Team::GLA);
+    b.owner_player_id = Some(1);
+    b.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
+    logic.objects.insert(bldg, b);
+    assert!(logic.find_closest_repulsor(me, 300.0).is_none());
+}

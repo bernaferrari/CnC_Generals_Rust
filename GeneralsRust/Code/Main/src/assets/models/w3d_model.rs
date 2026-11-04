@@ -698,6 +698,7 @@ impl W3DModel {
         primary_turret: &AuthoredDrawPrimaryTurret,
         turret_angle_degrees: f32,
         turret_pitch_degrees: f32,
+        alt_turret_degrees: (f32, f32),
         weapon_controls: &[W3dWeaponVisualControl],
     ) -> Option<Vec<W3dHlodAggregatePose>> {
         let fallback =
@@ -706,6 +707,7 @@ impl W3DModel {
             primary_turret,
             turret_angle_degrees,
             turret_pitch_degrees,
+            alt_turret_degrees,
             weapon_controls,
         ) else {
             return Some(fallback);
@@ -887,6 +889,7 @@ impl W3DModel {
         primary_turret: &AuthoredDrawPrimaryTurret,
         turret_angle_degrees: f32,
         turret_pitch_degrees: f32,
+        alt_turret_degrees: (f32, f32),
     ) -> Option<(Mat4, bool)> {
         let (fallback_transform, visible) = self.mesh_local_transform_and_visibility_for_binding(
             mesh_index,
@@ -901,6 +904,7 @@ impl W3DModel {
             primary_turret,
             turret_angle_degrees,
             turret_pitch_degrees,
+            alt_turret_degrees,
         ) else {
             return Some((fallback_transform, visible));
         };
@@ -933,6 +937,7 @@ impl W3DModel {
         primary_turret: &AuthoredDrawPrimaryTurret,
         turret_angle_degrees: f32,
         turret_pitch_degrees: f32,
+        alt_turret_degrees: (f32, f32),
         weapon_controls: &[W3dWeaponVisualControl],
     ) -> Option<(Mat4, bool)> {
         let (fallback_transform, visible) = self
@@ -943,6 +948,7 @@ impl W3DModel {
                 primary_turret,
                 turret_angle_degrees,
                 turret_pitch_degrees,
+                alt_turret_degrees,
             )?;
         if weapon_controls.is_empty() {
             return Some((fallback_transform, visible));
@@ -961,38 +967,13 @@ impl W3DModel {
         };
 
         let mut capture_controls = vec![None; hierarchy.pivots.len()];
-        if primary_turret.primary_fields_valid && !primary_turret.has_unsupported_alternate_turret()
-        {
-            if let Some((bone_index, transform)) = primary_turret
-                .yaw_bone
-                .as_deref()
-                .and_then(|bone_name| Self::primary_turret_pivot_index(hierarchy, bone_name))
-                .and_then(|bone_index| {
-                    Self::primary_turret_angle_radians(
-                        turret_angle_degrees,
-                        primary_turret.yaw_art_angle_radians(),
-                    )
-                    .map(|angle| (bone_index, Mat4::from_rotation_z(angle).to_cols_array()))
-                })
-            {
-                capture_controls[bone_index] = Some(transform);
-            }
-            if let Some((bone_index, transform)) = primary_turret
-                .pitch_bone
-                .as_deref()
-                .and_then(|bone_name| Self::primary_turret_pivot_index(hierarchy, bone_name))
-                .and_then(|bone_index| {
-                    Self::primary_turret_angle_radians(
-                        turret_pitch_degrees,
-                        primary_turret.pitch_art_angle_radians(),
-                    )
-                    .map(|angle| (bone_index, Mat4::from_rotation_y(-angle).to_cols_array()))
-                })
-            {
-                // C++ calls yaw Control_Bone before pitch. If bad source data
-                // aliases them, the later pitch control replaces yaw.
-                capture_controls[bone_index] = Some(transform);
-            }
+        for (bone_index, transform) in Self::turret_capture_controls(
+            hierarchy,
+            primary_turret,
+            (turret_angle_degrees, turret_pitch_degrees),
+            alt_turret_degrees,
+        ) {
+            capture_controls[bone_index] = Some(transform.to_cols_array());
         }
 
         for control in weapon_controls {
@@ -1091,11 +1072,9 @@ impl W3DModel {
         primary_turret: &AuthoredDrawPrimaryTurret,
         turret_angle_degrees: f32,
         turret_pitch_degrees: f32,
+        alt_turret_degrees: (f32, f32),
     ) -> Option<[f32; 16]> {
-        if !primary_turret.primary_fields_valid
-            || primary_turret.has_unsupported_alternate_turret()
-            || !primary_turret.has_primary_bone()
-        {
+        if !primary_turret.has_any_turret_bone() {
             return None;
         }
 
@@ -1104,47 +1083,22 @@ impl W3DModel {
         // flattened multi-LOD name cannot become an implicit turret target.
         let mesh_bone_index = self.rigid_hlod_bone_index_for_mesh(mesh_index)?;
         let (_hlod, hierarchy) = self.rigid_hlod_context()?;
-
-        let yaw_control = primary_turret
-            .yaw_bone
-            .as_deref()
-            .and_then(|bone_name| Self::primary_turret_pivot_index(hierarchy, bone_name))
-            .and_then(|bone_index| {
-                Self::primary_turret_angle_radians(
-                    turret_angle_degrees,
-                    primary_turret.yaw_art_angle_radians(),
-                )
-                .map(|angle| (bone_index, Mat4::from_rotation_z(angle).to_cols_array()))
-            });
-        let pitch_control = primary_turret
-            .pitch_bone
-            .as_deref()
-            .and_then(|bone_name| Self::primary_turret_pivot_index(hierarchy, bone_name))
-            .and_then(|bone_index| {
-                Self::primary_turret_angle_radians(
-                    turret_pitch_degrees,
-                    primary_turret.pitch_art_angle_radians(),
-                )
-                // C++ uses Rotate_Y(-turretPitch) after adding its authored
-                // `TurretArtPitch` offset.
-                .map(|angle| (bone_index, Mat4::from_rotation_y(-angle).to_cols_array()))
-            });
-
-        if yaw_control.is_none() && pitch_control.is_none() {
+        let turret_controls = Self::turret_capture_controls(
+            hierarchy,
+            primary_turret,
+            (turret_angle_degrees, turret_pitch_degrees),
+            alt_turret_degrees,
+        );
+        if turret_controls.is_empty() {
             return None;
         }
 
         let local_transforms =
             self.local_transforms_for_animation_binding(animation_binding, animation_frame)?;
         let mut capture_controls = vec![None; hierarchy.pivots.len()];
-        if let Some((bone_index, transform)) = yaw_control {
-            capture_controls[bone_index] = Some(transform);
-        }
-        if let Some((bone_index, transform)) = pitch_control {
-            // `handleClientTurretPositioning` calls yaw then pitch. If an
-            // invalid source uses one exact bone for both, the latter
-            // Control_Bone call replaces the former capture transform.
-            capture_controls[bone_index] = Some(transform);
+        for (bone_index, transform) in turret_controls {
+            // Later Control_Bone on the same pivot replaces the earlier one.
+            capture_controls[bone_index] = Some(transform.to_cols_array());
         }
 
         compute_htree_global_transforms_from_locals_with_capture_controls(
@@ -1154,6 +1108,62 @@ impl W3DModel {
         )?
         .get(mesh_bone_index)
         .copied()
+    }
+
+    /// C++ `W3DModelDraw::handleClientTurretPositioning`: for each
+    /// `tslot` in `m_turrets[0..MAX_TURRETS]` (MAIN then ALT), Control_Bone the
+    /// yaw pivot with `Rotate_Z(angle + artAngle)` then the pitch pivot with
+    /// `Rotate_Y(-(pitch + artPitch))`. Angles come from
+    /// `AIUpdateInterface::getTurretRotAndPitch(tslot)`, which leaves 0 when
+    /// that TurretAI is absent. Ordered; a later same-pivot entry wins.
+    /// Malformed authored art angles fail the whole list closed (empty).
+    pub(crate) fn turret_capture_controls(
+        hierarchy: &W3dHierarchy,
+        turret: &AuthoredDrawPrimaryTurret,
+        main_degrees: (f32, f32),
+        alt_degrees: (f32, f32),
+    ) -> Vec<(usize, Mat4)> {
+        let mut out = Vec::new();
+        if !turret.turret_fields_valid() {
+            return out;
+        }
+        let slots = [
+            (
+                turret.yaw_bone.as_deref(),
+                turret.pitch_bone.as_deref(),
+                main_degrees,
+                turret.yaw_art_angle_radians(),
+                turret.pitch_art_angle_radians(),
+            ),
+            (
+                turret.alternate_yaw_bone.as_deref(),
+                turret.alternate_pitch_bone.as_deref(),
+                alt_degrees,
+                turret.alternate_yaw_art_angle_radians(),
+                turret.alternate_pitch_art_angle_radians(),
+            ),
+        ];
+        for (yaw_bone, pitch_bone, (yaw_deg, pitch_deg), yaw_art, pitch_art) in slots {
+            if let Some(control) = yaw_bone
+                .and_then(|name| Self::primary_turret_pivot_index(hierarchy, name))
+                .and_then(|index| {
+                    Self::primary_turret_angle_radians(yaw_deg, yaw_art)
+                        .map(|angle| (index, Mat4::from_rotation_z(angle)))
+                })
+            {
+                out.push(control);
+            }
+            if let Some(control) = pitch_bone
+                .and_then(|name| Self::primary_turret_pivot_index(hierarchy, name))
+                .and_then(|index| {
+                    Self::primary_turret_angle_radians(pitch_deg, pitch_art)
+                        .map(|angle| (index, Mat4::from_rotation_y(-angle)))
+                })
+            {
+                out.push(control);
+            }
+        }
+        out
     }
 
     /// Resolve a C++ `NameKey` only against an exact HTree pivot. Pivot zero

@@ -2033,3 +2033,460 @@ fn laser_patriot_keys_on_authored_weapon_not_template_name() {
         g.damage
     );
 }
+
+/// hq-2qedt.161: object_hit Avenger designator paint / air laser route on the
+/// authored fired weapon (C++ Weapon::fireWeapon -> DamageInfo from the
+/// WeaponTemplate), not on an `is_avenger_template` chassis-name gate.
+#[test]
+fn avenger_object_hit_routes_on_authored_weapon_not_chassis_name_hq_2qedt_161() {
+    use crate::game_logic::host_avenger::{
+        AVENGER_AIR_LASER, AVENGER_FAERIE_FIRE_DURATION_FRAMES, AVENGER_TARGET_DESIGNATOR,
+        is_avenger_template,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut carrier = crate::game_logic::ThingTemplate::new("AuthoredDesignatorCarrier");
+    carrier
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name(AVENGER_TARGET_DESIGNATOR)
+        .set_secondary_weapon_name(AVENGER_AIR_LASER);
+    assert!(!is_avenger_template(&carrier.name));
+    game_logic
+        .templates
+        .insert(carrier.name.clone(), carrier);
+    let mut tank = crate::game_logic::ThingTemplate::new("PaintVictimTank");
+    tank.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    game_logic.templates.insert(tank.name.clone(), tank);
+    let mut jet = crate::game_logic::ThingTemplate::new("AirLaserVictimJet");
+    jet.add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    game_logic.templates.insert(jet.name.clone(), jet);
+
+    // Primary designator vs ground: authored FAERIE_FIRE owns the paint.
+    let shooter = game_logic
+        .create_object("AuthoredDesignatorCarrier", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let tank_id = game_logic
+        .create_object("PaintVictimTank", Team::China, Vec3::new(60.0, 0.0, 0.0))
+        .unwrap();
+    game_logic.frame = 100;
+    {
+        let a = game_logic.host_object_mut(shooter).unwrap();
+        a.target = Some(tank_id);
+        a.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        a.active_weapon_slot = 0;
+        if let Some(w) = a.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.pre_attack_delay = 0.0;
+        }
+    }
+    let mut painted_at = None;
+    for _ in 0..4 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_combat(&[shooter, tank_id], LOGIC_FRAME_TIMESTEP);
+        if painted_at.is_none() && game_logic.host_object(tank_id).unwrap().is_faerie_fire() {
+            painted_at = Some(game_logic.frame);
+        }
+    }
+    let painted_at = painted_at.expect("authored designator paints FAERIE_FIRE");
+    assert!(
+        game_logic.honesty_avenger_paint_ok(),
+        "authored designator hit takes the designator paint route regardless of chassis name"
+    );
+    assert_eq!(
+        game_logic.host_object(tank_id).unwrap().faerie_fire_until_frame,
+        painted_at + AVENGER_FAERIE_FIRE_DURATION_FRAMES
+    );
+    assert_eq!(game_logic.host_object(tank_id).unwrap().health.current, 100.0);
+
+    // Secondary air laser vs aircraft: authored identity counts the shot and
+    // deals authored damage through the generic hit path.
+    let jet_id = game_logic
+        .create_object("AirLaserVictimJet", Team::China, Vec3::new(80.0, 0.0, 0.0))
+        .unwrap();
+    let hp_before = game_logic.host_object(jet_id).unwrap().health.current;
+    {
+        let a = game_logic.host_object_mut(shooter).unwrap();
+        a.target = Some(jet_id);
+        a.status.airborne_target = false;
+        a.active_weapon_slot = 1;
+        if let Some(w) = a.secondary_weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.reload_time = 0.05;
+            w.pre_attack_delay = 0.0;
+        }
+    }
+    game_logic.host_object_mut(jet_id).unwrap().status.airborne_target = true;
+    for _ in 0..4 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_combat(&[shooter, jet_id], LOGIC_FRAME_TIMESTEP);
+    }
+    assert!(
+        game_logic.honesty_avenger_air_laser_ok(),
+        "authored air laser hit counts regardless of chassis name"
+    );
+    assert!(game_logic.host_object(jet_id).unwrap().health.current < hp_before);
+}
+
+#[test]
+fn dragon_object_hit_routes_on_authored_flame_weapon_not_chassis_name_hq_2qedt_202() {
+    use crate::game_logic::host_dragon_tank::DRAGON_TANK_FLAME_WEAPON;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut carrier = crate::game_logic::ThingTemplate::new("AuthoredFlameCarrier");
+    carrier
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name(DRAGON_TANK_FLAME_WEAPON);
+    game_logic.templates.insert(carrier.name.clone(), carrier);
+    let mut tank = crate::game_logic::ThingTemplate::new("FlameVictimTank");
+    tank.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(500.0);
+    game_logic.templates.insert(tank.name.clone(), tank);
+
+    let shooter = game_logic
+        .create_object("AuthoredFlameCarrier", Team::China, Vec3::ZERO)
+        .unwrap();
+    let tank_id = game_logic
+        .create_object("FlameVictimTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    game_logic.frame = 100;
+    {
+        let a = game_logic.host_object_mut(shooter).unwrap();
+        a.target = Some(tank_id);
+        a.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        a.active_weapon_slot = 0;
+        if let Some(w) = a.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.pre_attack_delay = 0.0;
+        }
+    }
+    let before = game_logic.dragon_tank_residual_fires;
+    for _ in 0..4 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_combat(&[shooter, tank_id], LOGIC_FRAME_TIMESTEP);
+    }
+    assert!(
+        game_logic.dragon_tank_residual_fires > before,
+        "authored DragonTankFlameWeapon hit takes the flame residual route regardless of chassis name"
+    );
+}
+
+#[test]
+fn gattling_tank_object_hit_routes_on_authored_weapon_not_chassis_name_hq_2qedt_203() {
+    use crate::game_logic::host_gattling_tank::{
+        GATTLING_FIRE_AUDIO, GATTLING_TANK_GUN, is_gattling_tank_template,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut carrier = crate::game_logic::ThingTemplate::new("AuthoredGattlingCarrier");
+    carrier
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name(GATTLING_TANK_GUN);
+    assert!(!is_gattling_tank_template(&carrier.name));
+    game_logic.templates.insert(carrier.name.clone(), carrier);
+    let mut tank = crate::game_logic::ThingTemplate::new("GattlingVictimTank");
+    tank.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(500.0);
+    game_logic.templates.insert(tank.name.clone(), tank);
+
+    let shooter = game_logic
+        .create_object("AuthoredGattlingCarrier", Team::China, Vec3::ZERO)
+        .unwrap();
+    let tank_id = game_logic
+        .create_object("GattlingVictimTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    game_logic.frame = 100;
+    {
+        let a = game_logic.host_object_mut(shooter).unwrap();
+        a.target = Some(tank_id);
+        a.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        a.active_weapon_slot = 0;
+        if let Some(w) = a.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.pre_attack_delay = 0.0;
+        }
+    }
+    game_logic.queued_audio_events.clear();
+    for _ in 0..4 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_combat(&[shooter, tank_id], LOGIC_FRAME_TIMESTEP);
+    }
+    let residual_hits = game_logic
+        .queued_audio_events
+        .iter()
+        .filter(|e| e.event_type == GATTLING_FIRE_AUDIO && e.priority == 140)
+        .count();
+    assert!(
+        residual_hits > 0,
+        "authored GattlingTankGun hit takes the Gattling residual route regardless of chassis name"
+    );
+}
+
+#[test]
+fn rebel_object_hit_routes_on_authored_weapon_not_chassis_name_hq_2qedt_204() {
+    use crate::game_logic::host_gla_rebel::{REBEL_MACHINE_GUN, is_gla_rebel_template};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut carrier = crate::game_logic::ThingTemplate::new("AuthoredMachineGunCarrier");
+    carrier
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name(REBEL_MACHINE_GUN);
+    assert!(!is_gla_rebel_template(&carrier.name));
+    game_logic.templates.insert(carrier.name.clone(), carrier);
+    let mut victim = crate::game_logic::ThingTemplate::new("MachineGunVictimTank");
+    victim
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(500.0);
+    game_logic.templates.insert(victim.name.clone(), victim);
+
+    let shooter = game_logic
+        .create_object("AuthoredMachineGunCarrier", Team::GLA, Vec3::ZERO)
+        .unwrap();
+    let victim_id = game_logic
+        .create_object("MachineGunVictimTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    game_logic.frame = 100;
+    {
+        let a = game_logic.host_object_mut(shooter).unwrap();
+        a.target = Some(victim_id);
+        a.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        a.active_weapon_slot = 0;
+        if let Some(w) = a.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.pre_attack_delay = 0.0;
+        }
+    }
+    let before = game_logic.rebel_residual_fires;
+    for _ in 0..4 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_combat(&[shooter, victim_id], LOGIC_FRAME_TIMESTEP);
+    }
+    assert!(
+        game_logic.rebel_residual_fires > before,
+        "authored GLARebelMachineGun hit takes the Rebel residual route regardless of chassis name"
+    );
+}
+
+#[test]
+fn ranger_object_hit_routes_on_authored_weapon_not_chassis_name_hq_2qedt_205() {
+    use crate::game_logic::host_ranger::{RANGER_RIFLE_WEAPON, is_ranger_template};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut carrier = crate::game_logic::ThingTemplate::new("AuthoredCombatRifleCarrier");
+    carrier
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name(RANGER_RIFLE_WEAPON);
+    assert!(!is_ranger_template(&carrier.name));
+    game_logic.templates.insert(carrier.name.clone(), carrier);
+    let mut victim = crate::game_logic::ThingTemplate::new("CombatRifleVictimTank");
+    victim
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(500.0);
+    game_logic.templates.insert(victim.name.clone(), victim);
+
+    let shooter = game_logic
+        .create_object("AuthoredCombatRifleCarrier", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let victim_id = game_logic
+        .create_object("CombatRifleVictimTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    game_logic.frame = 100;
+    {
+        let a = game_logic.host_object_mut(shooter).unwrap();
+        a.target = Some(victim_id);
+        a.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        a.active_weapon_slot = 0;
+        if let Some(w) = a.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.pre_attack_delay = 0.0;
+        }
+    }
+    let before = game_logic.ranger_residual_rifle_fires;
+    for _ in 0..4 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_combat(&[shooter, victim_id], LOGIC_FRAME_TIMESTEP);
+    }
+    assert!(
+        game_logic.ranger_residual_rifle_fires > before,
+        "authored RangerAdvancedCombatRifle hit takes the Ranger residual route regardless of chassis name"
+    );
+}
+
+#[test]
+fn gattling_discharge_fire_lane_routes_on_authored_weapon_not_chassis_name_hq_2qedt_239() {
+    use crate::game_logic::host_base_defense::is_gattling_cannon_structure;
+    use crate::game_logic::host_gattling_tank::{GATTLING_TANK_GUN, is_gattling_tank_template};
+    use crate::game_logic::host_overlord_addons::GATTLING_BUILDING_GUN;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    for (carrier_name, weapon) in [
+        ("AuthoredGattlingTankGunCarrier", GATTLING_TANK_GUN),
+        ("AuthoredGattlingBuildingGunCarrier", GATTLING_BUILDING_GUN),
+    ] {
+        let mut game_logic = GameLogic::new();
+        let mut carrier = crate::game_logic::ThingTemplate::new(carrier_name);
+        carrier
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(weapon);
+        assert!(!is_gattling_tank_template(&carrier.name));
+        assert!(!is_gattling_cannon_structure(&carrier.name));
+        game_logic.templates.insert(carrier.name.clone(), carrier);
+        let mut tank = crate::game_logic::ThingTemplate::new("GattlingLaneVictim");
+        tank.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(5000.0);
+        game_logic.templates.insert(tank.name.clone(), tank);
+
+        let shooter = game_logic
+            .create_object(carrier_name, Team::China, Vec3::ZERO)
+            .unwrap();
+        let tank_id = game_logic
+            .create_object("GattlingLaneVictim", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        game_logic.frame = 100;
+        {
+            let a = game_logic.host_object_mut(shooter).unwrap();
+            a.target = Some(tank_id);
+            a.set_ai_state(
+                AIState::Attacking,
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+            );
+            a.active_weapon_slot = 0;
+            if let Some(w) = a.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.pre_attack_delay = 0.0;
+            }
+        }
+        for _ in 0..4 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_combat(&[shooter, tank_id], LOGIC_FRAME_TIMESTEP);
+        }
+        let lane_fires = if weapon == GATTLING_TANK_GUN {
+            game_logic.gattling_tank_residual_ground_fires
+        } else {
+            game_logic.gattling_building_residual_ground_fires
+        };
+        assert!(
+            lane_fires > 0,
+            "authored {weapon} discharge takes the Gattling FiringTracker lane regardless of chassis name"
+        );
+    }
+}
+
+#[test]
+fn humvee_tow_object_hit_and_unit_map_key_on_authored_weapon_not_chassis_name_hq_2qedt_246() {
+    use crate::game_logic::host_humvee::{
+        HUMVEE_MISSILE_WEAPON, is_humvee_template,
+    };
+    use crate::game_logic::weapon_bootstrap::{
+        ensure_host_weapon_store, primary_weapon_name_for_unit, secondary_weapon_name_for_unit,
+    };
+
+    ensure_host_weapon_store();
+    for name in [
+        "USA_Humvee",
+        "AmericaVehicleHumvee",
+        "TestHumvee",
+        "GoldenHumvee",
+    ] {
+        assert_eq!(primary_weapon_name_for_unit(name), None, "{name}");
+        assert_eq!(secondary_weapon_name_for_unit(name), None, "{name}");
+    }
+
+    let mut game_logic = GameLogic::new();
+    let mut carrier = crate::game_logic::ThingTemplate::new("AuthoredTowCarrier");
+    carrier
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(400.0)
+        .set_primary_weapon_name(crate::game_logic::host_humvee::HUMVEE_GUN_WEAPON)
+        .set_secondary_weapon_name(HUMVEE_MISSILE_WEAPON);
+    assert!(!is_humvee_template(&carrier.name));
+    game_logic.templates.insert(carrier.name.clone(), carrier);
+    let mut victim = crate::game_logic::ThingTemplate::new("TowVictimTank");
+    victim
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(800.0);
+    game_logic.templates.insert(victim.name.clone(), victim);
+
+    let shooter = game_logic
+        .create_object("AuthoredTowCarrier", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let victim_id = game_logic
+        .create_object("TowVictimTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .unwrap();
+    game_logic.frame = 100;
+    {
+        let a = game_logic.host_object_mut(shooter).unwrap();
+        a.target = Some(victim_id);
+        a.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        a.active_weapon_slot = 1;
+        if let Some(w) = a.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.pre_attack_delay = 0.0;
+        }
+        if let Some(w) = a.secondary_weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.pre_attack_delay = 0.0;
+        }
+    }
+    let before = game_logic.humvee_tow_residual_fires;
+    for _ in 0..6 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_combat(&[shooter, victim_id], LOGIC_FRAME_TIMESTEP);
+    }
+    assert!(
+        game_logic.humvee_tow_residual_fires > before,
+        "authored HumveeMissileWeapon hit takes the Humvee TOW residual route regardless of chassis name"
+    );
+}

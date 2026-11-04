@@ -3618,3 +3618,387 @@ fn comanche_at_scatter_misses_infantry_residual() {
         .unwrap_or(0.0);
     assert!(hits > 0 && hp_after < hp_before, "vehicle still hit");
 }
+
+/// hq-2qedt.87.1: C++ Weapon.cpp FireFX plays at fire time only; impact uses
+/// ProjectileDetonateFX. vehicle_shells residual impact handlers must not
+/// spawn a second muzzle at the shooter (shared dispatch owns the one muzzle).
+#[test]
+fn vehicle_shells_residual_impact_spawns_no_muzzle_hq_2qedt_87_1() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::host_fire_base::FIRE_BASE_HOWITZER_WEAPON;
+    use crate::game_logic::host_mig::NAPALM_MISSILE_WEAPON;
+    use crate::game_logic::host_raptor::RAPTOR_JET_MISSILE_WEAPON;
+    use crate::game_logic::host_scorpion::SCORPION_TANK_GUN;
+    use crate::game_logic::host_tomahawk::TOMAHAWK_MISSILE_WEAPON;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let cases: [(&str, &str, KindOf, Team); 5] = [
+        ("GLAVehicleScorpion", SCORPION_TANK_GUN, KindOf::Vehicle, Team::GLA),
+        ("AmericaVehicleTomahawk", TOMAHAWK_MISSILE_WEAPON, KindOf::Vehicle, Team::USA),
+        ("AmericaJetRaptor", RAPTOR_JET_MISSILE_WEAPON, KindOf::Aircraft, Team::USA),
+        ("ChinaJetMIG", NAPALM_MISSILE_WEAPON, KindOf::Aircraft, Team::China),
+        ("AmericaFireBase", FIRE_BASE_HOWITZER_WEAPON, KindOf::Structure, Team::USA),
+    ];
+    for (tpl_name, weapon, kind, team) in cases {
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let mut tpl = ThingTemplate::new(tpl_name);
+        tpl.add_kind_of(kind)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(weapon);
+        logic.templates.insert(tpl_name.to_string(), tpl);
+        let src = logic
+            .create_object(tpl_name, team, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let enemy = if team == Team::GLA { Team::USA } else { Team::GLA };
+        let tank = logic
+            .create_object("TestTank", enemy, glam::Vec3::new(45.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic.objects.get(&tank).unwrap().get_position();
+        let shooter_pos = logic.objects.get(&src).unwrap().get_position();
+        let before = logic
+            .combat_particles()
+            .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+            .iter()
+            .filter(|e| e.position.distance(shooter_pos) < 1.0)
+            .count();
+        let _ = match tpl_name {
+            "GLAVehicleScorpion" => logic.apply_scorpion_residual_at(impact, Some(src), Some(tank), 0),
+            "AmericaVehicleTomahawk" => logic.apply_tomahawk_residual_at(impact, Some(src), Some(tank)),
+            "AmericaJetRaptor" => logic.apply_raptor_residual_at(impact, Some(src), Some(tank)),
+            "ChinaJetMIG" => logic.apply_mig_residual_at(impact, Some(src), Some(tank)),
+            _ => logic.apply_fire_base_residual_at(impact, Some(src), Some(tank)),
+        };
+        let after = logic
+            .combat_particles()
+            .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+            .iter()
+            .filter(|e| e.position.distance(shooter_pos) < 1.0)
+            .count();
+        assert_eq!(
+            after, before,
+            "{tpl_name}: impact residual must not spawn a second muzzle at the shooter (C++ FireFX is fire-time only)"
+        );
+    }
+}
+
+/// hq-2qedt.87.2: C++ Weapon.cpp FireFX plays at fire time only (shared
+/// dispatch owns the one muzzle). streams_and_rpg + missile_defenders residual
+/// impact handlers must not spawn a second muzzle at the shooter.
+#[test]
+fn streams_rpg_missile_defenders_residual_impact_spawns_no_muzzle_hq_2qedt_87_2() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let cases = [
+        "ranger", "rebel", "minigunner", "burton", "rpg_trooper", "missile_defender",
+        "combat_cycle", "toxin_tractor", "comanche_pod",
+    ];
+    let mut failures = Vec::new();
+    for case in cases {
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let src = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(45.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic.objects.get(&tank).unwrap().get_position();
+        let shooter_pos = logic.objects.get(&src).unwrap().get_position();
+        let count = |l: &GameLogic| {
+            l.combat_particles()
+                .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+                .iter()
+                .filter(|e| e.position.distance(shooter_pos) < 1.0)
+                .count()
+        };
+        let before = count(&logic);
+        let _ = match case {
+            "ranger" => logic.apply_ranger_residual_at(impact, Some(src), Some(tank), false),
+            "rebel" => logic.apply_rebel_residual_at(impact, Some(src), Some(tank)),
+            "minigunner" => logic.apply_minigunner_residual_at(impact, Some(src), Some(tank), 0),
+            "burton" => logic.apply_burton_residual_at(impact, Some(src), Some(tank)),
+            "rpg_trooper" => logic.apply_rpg_trooper_residual_at(impact, Some(src), Some(tank)),
+            "missile_defender" => {
+                logic.apply_missile_defender_residual_at(impact, Some(src), Some(tank), false)
+            }
+            "combat_cycle" => logic.apply_combat_cycle_residual_at(impact, Some(src), Some(tank)),
+            "toxin_tractor" => {
+                logic.apply_toxin_tractor_stream_at(impact, Some(src), Some(tank), Team::USA)
+            }
+            _ => logic.apply_comanche_rocket_pod_area_at(impact, Some(src)),
+        };
+        if count(&logic) != before {
+            failures.push(case);
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "impact residuals spawned a second muzzle at the shooter (C++ FireFX is fire-time only): {failures:?}"
+    );
+}
+
+/// hq-2qedt.87.3: C++ Weapon.cpp FireFX plays at fire time only (shared
+/// dispatch owns the one muzzle). air_and_mig residual impact handlers must
+/// not spawn a second muzzle at the shooter.
+#[test]
+fn air_and_mig_residual_impact_spawns_no_muzzle_hq_2qedt_87_3() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let cases = [
+        "stealth_fighter", "comanche_cannon", "helix_minigun", "comanche_antitank",
+        "battle_drone", "overlord_gun", "jarmen_kell",
+    ];
+    let mut failures = Vec::new();
+    for case in cases {
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let src = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(45.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic.objects.get(&tank).unwrap().get_position();
+        let shooter_pos = logic.objects.get(&src).unwrap().get_position();
+        let count = |l: &GameLogic| {
+            l.combat_particles()
+                .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+                .iter()
+                .filter(|e| e.position.distance(shooter_pos) < 1.0)
+                .count()
+        };
+        let before = count(&logic);
+        let (s, t) = (Some(src), Some(tank));
+        let _ = match case {
+            "stealth_fighter" => logic.apply_stealth_fighter_residual_at(impact, s, t),
+            "comanche_cannon" => logic.apply_comanche_cannon_residual_at(impact, s, t),
+            "helix_minigun" => logic.apply_helix_minigun_residual_at(impact, s, t),
+            "comanche_antitank" => logic.apply_comanche_antitank_residual_at(impact, s, t),
+            "battle_drone" => logic.apply_battle_drone_residual_at(impact, s, t),
+            "overlord_gun" => logic.apply_overlord_gun_residual_at(impact, s, t),
+            _ => logic.apply_jarmen_kell_residual_at(impact, s, t),
+        };
+        if count(&logic) != before {
+            failures.push(case);
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "impact residuals spawned a second muzzle at the shooter (C++ FireFX is fire-time only): {failures:?}"
+    );
+}
+
+/// hq-2qedt.87.4: C++ Weapon.cpp FireFX plays at fire time only (shared
+/// dispatch owns the one muzzle). ocl_and_scud / tanks_and_upgrades /
+/// base_defense_lasers residual impact handlers must not spawn a second
+/// muzzle at the shooter.
+#[test]
+fn ocl_tanks_lasers_residual_impact_spawns_no_muzzle_hq_2qedt_87_4() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let cases = [
+        "nuke_cannon", "overlord_gattling", "technical", "dragon_flame",
+        "gattling_tank", "marauder", "battlemaster", "red_guard", "tank_hunter",
+        "rocket_buggy",
+    ];
+    let mut failures = Vec::new();
+    for case in cases {
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let src = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(45.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic.objects.get(&tank).unwrap().get_position();
+        let shooter_pos = logic.objects.get(&src).unwrap().get_position();
+        let count = |l: &GameLogic| {
+            l.combat_particles()
+                .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+                .iter()
+                .filter(|e| e.position.distance(shooter_pos) < 1.0)
+                .count()
+        };
+        let before = count(&logic);
+        let (s, t) = (Some(src), Some(tank));
+        let _ = match case {
+            "nuke_cannon" => logic.apply_nuke_cannon_primary_at(impact, s, Team::USA),
+            "overlord_gattling" => logic.apply_overlord_gattling_residual_at(impact, s, t, 0),
+            "technical" => logic.apply_technical_residual_at(impact, s, t),
+            "dragon_flame" => logic.apply_dragon_flame_residual_at(impact, s, t),
+            "gattling_tank" => logic.apply_gattling_tank_residual_at(impact, s, t, 0),
+            "marauder" => logic.apply_marauder_residual_at(impact, s, t),
+            "battlemaster" => logic.apply_battlemaster_residual_at(impact, s, t),
+            "red_guard" => logic.apply_red_guard_residual_at(impact, s, t),
+            "tank_hunter" => logic.apply_tank_hunter_residual_at(impact, s, t),
+            _ => logic.apply_rocket_buggy_residual_at(impact, s, t),
+        };
+        if count(&logic) != before {
+            failures.push(case);
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "impact residuals spawned a second muzzle at the shooter (C++ FireFX is fire-time only): {failures:?}"
+    );
+}
+
+/// hq-2qedt.87.5: C++ Weapon.cpp FireFX plays at fire time only; impact uses
+/// ProjectileDetonateFX. Neutron shell blast and infantry SCUD area impact
+/// residuals must not spawn any WeaponMuzzleFlash (shooter or impact point).
+#[test]
+fn neutron_scud_residual_impact_spawns_no_muzzle_hq_2qedt_87_5() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut failures = Vec::new();
+    for case in ["neutron", "scud", "scud_toxin"] {
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let src = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(45.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic.objects.get(&tank).unwrap().get_position();
+        let count = |l: &GameLogic| {
+            l.combat_particles()
+                .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+                .len()
+        };
+        let before = count(&logic);
+        match case {
+            "neutron" => {
+                let _ = logic.apply_neutron_blast_at(impact, Team::USA, Some(src), false);
+            }
+            "scud" => {
+                let _ = logic.apply_scud_area_at(impact, Some(src), Team::USA, false);
+            }
+            _ => {
+                let _ = logic.apply_scud_area_at(impact, Some(src), Team::USA, true);
+            }
+        }
+        if count(&logic) != before {
+            failures.push(case);
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "impact residuals spawned a muzzle (C++ FireFX is fire-time only): {failures:?}"
+    );
+}
+
+/// hq-2qedt.125: base-defense residual fire captures a pending visual
+/// dispatch and records the accepted discharge (shared FireFX owner,
+/// Weapon.cpp:923-939). C++ plays FireFX exactly once per accepted shot, so
+/// the residual must not add a second muzzle on top of the shared owner.
+#[test]
+fn base_defense_fire_time_exactly_one_muzzle_per_shot_hq_2qedt_125() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut logic = GameLogic::new();
+    let mut pat_tpl = crate::game_logic::ThingTemplate::new("Lazr_AmericaPatriotBattery");
+    pat_tpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(1000.0);
+    logic
+        .templates
+        .insert("Lazr_AmericaPatriotBattery".to_string(), pat_tpl);
+    ensure_test_tank_template(&mut logic);
+    let pat = logic
+        .create_object("Lazr_AmericaPatriotBattery", Team::USA, glam::Vec3::ZERO)
+        .expect("patriot");
+    if let Some(p) = logic.host_object_mut(pat) {
+        p.set_status_under_construction(false);
+        p.construction_percent = 100.0;
+        if let Some(w) = p.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+        }
+    }
+    let _enemy = logic
+        .create_object("TestTank", Team::GLA, glam::Vec3::new(100.0, 0.0, 0.0))
+        .expect("enemy");
+    let muzzles = |l: &GameLogic| {
+        l.combat_particles()
+            .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+            .iter()
+            .filter(|e| e.source_object == Some(pat))
+            .count()
+    };
+    logic.frame = 30;
+    let mut fired = false;
+    for _ in 0..30 {
+        let before_fires = logic.base_defense_residual_fires();
+        let before = muzzles(&logic);
+        logic.try_base_defense_residual_fire(pat);
+        if logic.base_defense_residual_fires() > before_fires {
+            let after = muzzles(&logic);
+            eprintln!("hq-2qedt.125 muzzles per accepted shot = {}", after - before);
+            assert_eq!(after - before, 1, "exactly one fire-time muzzle per accepted shot");
+            fired = true;
+            break;
+        }
+        logic.frame = logic.frame.saturating_add(1);
+    }
+    assert!(fired, "base defense must fire");
+}
+
+/// hq-2qedt.126: inferno fire zone (impact-time, from shell detonation / MIG
+/// napalm) and Aurora bomb queue (called inside the accepted-shot path where
+/// shared dispatch already plays FireFX) must not add a WeaponMuzzleFlash
+/// owned by the shooter. C++ Weapon.cpp:923-939 plays FireFX once per shot at
+/// fire time; impact plays DetonationFX/OCL (OCL_FireFieldSmall), launch has
+/// no second muzzle. FireWall special power (no weapon FireFX dispatch) keeps
+/// its single segment flame presentation.
+#[test]
+fn angry_mob_aurora_zone_launch_muzzle_ownership_hq_2qedt_126() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::host_aurora_bomb::HostAuroraBombKind;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let muzzles = |l: &GameLogic, src: ObjectId| {
+        l.combat_particles()
+            .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+            .iter()
+            .filter(|e| e.source_object == Some(src))
+            .count()
+    };
+    let mut logic = GameLogic::new();
+    ensure_test_tank_template(&mut logic);
+    let src = logic
+        .create_object("TestTank", Team::USA, glam::Vec3::ZERO)
+        .expect("src");
+    let impact = glam::Vec3::new(120.0, 0.0, 0.0);
+
+    let b = muzzles(&logic, src);
+    logic.spawn_inferno_fire_zone(src, Team::USA, impact, false);
+    assert_eq!(muzzles(&logic, src) - b, 0, "inferno zone at impact must not spawn shooter muzzle");
+
+    let b = muzzles(&logic, src);
+    logic.queue_aurora_bomb(HostAuroraBombKind::Standard, src, Team::USA, impact);
+    assert_eq!(muzzles(&logic, src) - b, 0, "aurora launch must not add a second muzzle over shared FireFX");
+
+    let b = muzzles(&logic, src);
+    if logic.activate_firewall(src, impact).is_some() {
+        assert_eq!(muzzles(&logic, src) - b, 1, "firewall keeps exactly one segment flame presentation");
+    }
+}

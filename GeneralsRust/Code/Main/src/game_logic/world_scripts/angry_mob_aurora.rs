@@ -301,6 +301,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&obj_id) {
                 // Clear all spy player bits that no longer have an active residual.
                 // Residual simplification: clear full mask when no active spy covers unit.
+                obj.vision_spied_by = [0; gamelogic::common::MAX_PLAYER_COUNT];
                 obj.vision_spied_mask = 0;
             }
         }
@@ -1194,14 +1195,8 @@ impl GameLogic {
                 .with_priority(140),
         );
 
-        // Residual flame particle at impact (presentation observability).
-        let _ = self.combat_particles.spawn(
-            CombatParticleKind::WeaponMuzzleFlash,
-            impact,
-            frame,
-            Some(source_object),
-            None,
-        );
+        // hq-2qedt.126: no shooter muzzle at impact (C++ FireFX is fire-time
+        // only; impact presentation is OCL_FireFieldSmall below).
 
         // OCL_FireFieldSmall / FireFieldUpgradedSmall object residual.
         let _ = self.spawn_inferno_fire_field_object_with_effects(
@@ -2277,17 +2272,9 @@ impl GameLogic {
                 .with_position(target_position)
                 .with_priority(170),
         );
-        // Launch residual particle (not full FX_AuroraBombLaunch).
-        let _ = self.combat_particles.spawn(
-            CombatParticleKind::WeaponMuzzleFlash,
-            self.objects
-                .lookup(&source_object)
-                .map(|o| o.get_position())
-                .unwrap_or(target_position),
-            frame,
-            Some(source_object),
-            None,
-        );
+        // hq-2qedt.126: no launch muzzle here; callers run inside the
+        // accepted-shot path where shared dispatch already plays FireFX once.
+        let _ = frame;
         let _ = AURORA_BOMB_LAUNCH_AUDIO; // name residual documented via activate_audio
         id
     }

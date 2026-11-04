@@ -1885,18 +1885,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(160),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                None,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -2075,15 +2065,8 @@ impl GameLogic {
                 .with_position(muzzle)
                 .with_priority(140),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                muzzle,
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -2535,25 +2518,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-            let _ = is_technical_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -2617,15 +2583,28 @@ impl GameLogic {
         true
     }
 
+    /// True when the authored primary weapon is `DragonTankFlameWeapon(/Upgraded)`.
+    pub(in super::super) fn has_authored_dragon_flame_weapon(obj: &Object) -> bool {
+        use crate::game_logic::host_dragon_tank::{
+            DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED,
+        };
+        obj.authored_weapon_name_for_slot(0).is_some_and(|w| {
+            w.eq_ignore_ascii_case(DRAGON_TANK_FLAME_WEAPON)
+                || w.eq_ignore_ascii_case(DRAGON_TANK_FLAME_WEAPON_UPGRADED)
+        })
+    }
+
     /// Apply BlackNapalm residual to a Dragon Tank (PLAYER_UPGRADE flame residual).
     pub fn apply_dragon_black_napalm_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_dragon_tank::{
-            UPGRADE_CHINA_BLACK_NAPALM, dragon_flame_weapon, is_dragon_tank_template,
+            UPGRADE_CHINA_BLACK_NAPALM, dragon_flame_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_dragon_tank_template(&obj.template_name) {
+        // Black Napalm is a WeaponBonusUpgrade on the authored Dragon flame weapon,
+        // not a chassis-name special case.
+        if !Self::has_authored_dragon_flame_weapon(obj) {
             return false;
         }
         obj.applied_upgrades
@@ -2637,6 +2616,21 @@ impl GameLogic {
         true
     }
 
+    /// Authored-weapon lane for Chain Guns: `Some(true)` for `GattlingTankGun`,
+    /// `Some(false)` for `GattlingBuildingGun`, `None` otherwise.
+    pub(in super::super) fn gattling_chain_guns_lane(obj: &Object) -> Option<bool> {
+        use crate::game_logic::host_gattling_tank::GATTLING_TANK_GUN;
+        use crate::game_logic::host_overlord_addons::GATTLING_BUILDING_GUN;
+        let w = obj.authored_weapon_name_for_slot(0)?;
+        if w.eq_ignore_ascii_case(GATTLING_TANK_GUN) {
+            Some(true)
+        } else if w.eq_ignore_ascii_case(GATTLING_BUILDING_GUN) {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
     /// Apply Chain Guns residual to a Gattling Tank or Gattling Cannon structure
     /// (PLAYER_UPGRADE damage residual × 1.25).
     pub fn apply_gattling_chain_guns_upgrade(&mut self, object_id: ObjectId) -> bool {
@@ -2646,16 +2640,16 @@ impl GameLogic {
         };
         use crate::game_logic::host_gattling_tank::{
             GattlingFireLevel, UPGRADE_CHINA_CHAIN_GUNS, gattling_air_weapon,
-            gattling_ground_weapon, is_gattling_tank_template,
+            gattling_ground_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        let is_tank = is_gattling_tank_template(&obj.template_name);
-        let is_building = is_authored_gattling_building(obj.weapon_name_for_slot(0));
-        if !is_tank && !is_building {
+        // Chain Guns is a WeaponBonusUpgrade on the authored Gattling weapon,
+        // not a chassis-name special case.
+        let Some(is_tank) = Self::gattling_chain_guns_lane(obj) else {
             return false;
-        }
+        };
         obj.applied_upgrades
             .insert(UPGRADE_CHINA_CHAIN_GUNS.to_string());
         let level = GattlingFireLevel::from_u8(obj.continuous_fire_level);
@@ -2975,18 +2969,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -3137,18 +3121,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(140),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                Some(tid),
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }
@@ -3588,25 +3562,8 @@ impl GameLogic {
                 .with_position(impact)
                 .with_priority(150),
         );
-        if let Some(sid) = source {
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                self.objects
-                    .get(&sid)
-                    .map(|o| o.get_position())
-                    .unwrap_or(impact),
-                Some(impact),
-                self.frame,
-                sid,
-                intended_target,
-            );
-            let _ = is_marauder_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
-            );
-        }
+        // C++ Weapon.cpp FireFX is fire-time only (shared dispatch owns the muzzle);
+        // impact never spawns a second muzzle at the shooter.
 
         (hits, any_destroyed)
     }

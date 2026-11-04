@@ -682,6 +682,7 @@ fn direct_xfer_current_round_trips_cia_builder_sell_tail() {
     world.vision_spied.push(ObjectVisionSpiedSnapshot {
         object_id: ObjectId(7),
         vision_spied_mask: 1,
+        vision_spied_by: vec![1],
     });
     world.builder_tasks.push(ObjectBuilderTaskSnapshot {
         object_id: scaffold,
@@ -713,6 +714,7 @@ fn direct_xfer_current_round_trips_cia_builder_sell_tail() {
         vec![ObjectVisionSpiedSnapshot {
             object_id: ObjectId(7),
             vision_spied_mask: 1,
+            vision_spied_by: vec![1],
         }]
     );
     assert_eq!(
@@ -1309,4 +1311,35 @@ fn admitted_builder_native_world() -> (GameLogic, ObjectId, ObjectId) {
         )
         .unwrap().expect("ObjectId");
     (source, dozer, scaffold)
+}
+
+#[test]
+fn snapshot_round_trips_vision_spied_refcounts() {
+    // C++ Object.cpp:4127 xfers m_visionSpiedBy[] counts, not just the mask.
+    let mut source = GameLogic::new();
+    source.add_player(Player::new(0, Team::USA, "USA", true));
+    source
+        .templates
+        .insert("TestTank".to_string(), ThingTemplate::new("TestTank"));
+    let enemy = source
+        .create_object("TestTank", Team::China, Vec3::new(400.0, 0.0, 400.0))
+        .expect("enemy");
+    {
+        // Two live spy sources on player 0 (Object.cpp:5226 increments).
+        let obj = source.host_object_mut(enemy).unwrap();
+        obj.vision_spied_by[0] = 2;
+        obj.rebuild_vision_spied_mask();
+    }
+    let builder = SnapshotBuilder::new();
+    let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
+    let mut restored = GameLogic::new();
+    restored.add_player(Player::new(0, Team::USA, "USA", true));
+    restored.templates = source.templates.clone();
+    builder
+        .restore_from_snapshot(&snapshot, &mut restored)
+        .expect("restore");
+    let obj = restored.host_object(enemy).unwrap();
+    assert_eq!(obj.vision_spied_by[0], 2, "load must keep refcount");
+    assert_eq!(obj.vision_spied_mask, 1);
+    assert!(obj.is_vision_spied_by_player(0));
 }

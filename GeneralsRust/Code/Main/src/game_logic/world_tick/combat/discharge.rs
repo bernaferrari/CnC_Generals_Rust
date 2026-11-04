@@ -94,15 +94,31 @@ impl GameLogic {
             }
         }
 
-        // China Gattling Tank residual: advance continuous-fire ramp + honesty.
-        if self
-            .objects
-            .get(&attacker_id)
-            .map(|a| {
-                crate::game_logic::host_gattling_tank::is_gattling_tank_template(&a.template_name)
+        // Gattling lanes key on the fired authored weapon (C++ Weapon::fireWeapon /
+        // FiringTracker use the WeaponTemplate), not the chassis name.
+        let fired_weapon = |logic: &Self, names: [&str; 2]| {
+            logic.objects.get(&attacker_id).is_some_and(|a| {
+                a.weapon_name_for_slot(slot)
+                    .is_some_and(|w| names.iter().any(|n| w.eq_ignore_ascii_case(n)))
             })
-            .unwrap_or(false)
-        {
+        };
+        let gattling_tank_lane = fired_weapon(
+            self,
+            [
+                crate::game_logic::host_gattling_tank::GATTLING_TANK_GUN,
+                crate::game_logic::host_gattling_tank::GATTLING_TANK_GUN_AIR,
+            ],
+        );
+        let gattling_building_lane = fired_weapon(
+            self,
+            [
+                crate::game_logic::host_overlord_addons::GATTLING_BUILDING_GUN,
+                crate::game_logic::host_overlord_addons::GATTLING_BUILDING_GUN_AIR,
+            ],
+        );
+
+        // Gattling Tank residual: advance continuous-fire ramp + honesty.
+        if gattling_tank_lane {
             self.advance_gattling_continuous_fire(attacker_id, target_id, slot);
         }
 
@@ -119,11 +135,7 @@ impl GameLogic {
         // A cannon reaching this shared accepted-discharge route still owns
         // one structure FiringTracker transition. The dedicated base-defense
         // driver performs this phase itself and never calls commit_combat_shot.
-        if self.objects.get(&attacker_id).is_some_and(|attacker| {
-            crate::game_logic::host_base_defense::is_authored_gattling_building(
-                attacker.weapon_name_for_slot(0),
-            )
-        }) {
+        if gattling_building_lane {
             self.advance_gattling_building_continuous_fire(attacker_id, target_id, slot);
         }
 
@@ -317,13 +329,10 @@ impl GameLogic {
             // Each lane owns one FiringTracker transition. Specialized lanes
             // already advanced its canonical count/victim and derived ROF;
             // finish only the shared post-shot effects here.
-            let specialized_lane = crate::game_logic::host_gattling_tank::is_gattling_tank_template(
-                &attacker.template_name,
-            ) || crate::game_logic::host_minigunner::is_minigunner_template(
-                &attacker.template_name,
-            )
-                || crate::game_logic::host_base_defense::is_authored_gattling_building(
-                    attacker.weapon_name_for_slot(0),
+            let specialized_lane = gattling_tank_lane
+                || gattling_building_lane
+                || crate::game_logic::host_minigunner::is_minigunner_template(
+                    &attacker.template_name,
                 );
             if specialized_lane {
                 attacker.finish_shot_after_specialized_tracker_with_owned_rof(&rates);

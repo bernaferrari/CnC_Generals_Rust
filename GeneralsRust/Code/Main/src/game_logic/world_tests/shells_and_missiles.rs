@@ -2443,6 +2443,258 @@ fn stealth_fighter_residual_missiles_and_splash() {
     );
 }
 
+/// hq-2qedt.138: C++ binds PRIMARY/SECONDARY from the template WeaponSet at
+/// create (WeaponSet::updateWeaponSet), not a template-name host table. An
+/// Avenger-named template authoring different weapons must keep them.
+#[test]
+fn avenger_create_weapons_come_from_authored_weapon_set() {
+    use crate::game_logic::host_avenger::AVENGER_AIR_LASER_RANGE;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaTankAvenger");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name("HumveeGun")
+        .set_secondary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("AmericaTankAvenger".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaTankAvenger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("avenger");
+    let obj = game_logic.host_object(id).expect("avenger");
+    let prim = obj.weapon.clone().expect("authored primary");
+    assert!(
+        prim.damage > 0.01,
+        "authored HumveeGun PRIMARY overwritten by avenger_designator_weapon() name peel: {prim:?}"
+    );
+    let sec = obj.secondary_weapon.clone().expect("authored secondary");
+    assert!(
+        sec.can_target_ground && (sec.range - AVENGER_AIR_LASER_RANGE).abs() > 0.01,
+        "authored HumveeGun SECONDARY overwritten by avenger_air_laser_weapon() name peel: {sec:?}"
+    );
+}
+
+/// hq-2qedt.139: Helix PRIMARY binds from the authored WeaponSet at create
+/// (C++ WeaponSet::updateWeaponSet), not the helix_minigun_weapon() name peel.
+#[test]
+fn helix_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::host_helix_minigun::{HELIX_MINIGUN_DAMAGE, HELIX_MINIGUN_RANGE};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaVehicleHelix");
+    tpl.add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("ChinaVehicleHelix".to_string(), tpl);
+    let id = game_logic
+        .create_object("ChinaVehicleHelix", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("helix");
+    let obj = game_logic.host_object(id).expect("helix");
+    let prim = obj.weapon.clone().expect("authored primary");
+    assert!(
+        (prim.range - HELIX_MINIGUN_RANGE).abs() > 0.01
+            || (prim.damage - HELIX_MINIGUN_DAMAGE).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by helix_minigun_weapon() name peel: {prim:?}"
+    );
+}
+
+/// hq-2qedt.140: Humvee PRIMARY binds from the authored WeaponSet at create
+/// (C++ WeaponSet::updateWeaponSet); create path only installs transport.
+#[test]
+fn humvee_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::host_humvee::{HUMVEE_GUN_DAMAGE, HUMVEE_GUN_RANGE};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleHumvee");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(240.0)
+        .set_primary_weapon_name("HelixMinigunWeapon");
+    game_logic
+        .templates
+        .insert("AmericaVehicleHumvee".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("humvee");
+    let obj = game_logic.host_object(id).expect("humvee");
+    assert!(obj.is_humvee_transport, "transport residual still installed");
+    let prim = obj.weapon.clone().expect("authored primary");
+    assert!(
+        (prim.range - HUMVEE_GUN_RANGE).abs() > 0.01
+            || (prim.damage - HUMVEE_GUN_DAMAGE).abs() > 0.01,
+        "authored PRIMARY overwritten by humvee_gun_weapon() name peel: {prim:?}"
+    );
+}
+
+/// hq-2qedt.141: Troop Crawler PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not the
+/// troop_crawler_assault_weapon() name peel.
+#[test]
+fn troop_crawler_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::host_troop_crawler::{
+        TROOP_CRAWLER_ASSAULT_DAMAGE, TROOP_CRAWLER_ASSAULT_RANGE,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaVehicleTroopCrawler");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("ChinaVehicleTroopCrawler".to_string(), tpl);
+    let id = game_logic
+        .create_object(
+            "ChinaVehicleTroopCrawler",
+            Team::China,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("troop crawler");
+    let obj = game_logic.host_object(id).expect("troop crawler");
+    let prim = obj.weapon.clone().expect("authored primary");
+    assert!(
+        (prim.range - TROOP_CRAWLER_ASSAULT_RANGE).abs() > 0.01
+            || (prim.damage - TROOP_CRAWLER_ASSAULT_DAMAGE).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by troop_crawler_assault_weapon() name peel: {prim:?}"
+    );
+}
+
+/// hq-2qedt.158: C++ binds PRIMARY from the template WeaponSet at create
+/// (WeaponSet::updateWeaponSet), not a template-name host table. A
+/// Dragon-Tank-named template authoring a different PRIMARY must keep it.
+#[test]
+fn dragon_tank_create_primary_comes_from_authored_weapon_set_hq_2qedt_158() {
+    use crate::game_logic::host_dragon_tank::dragon_flame_weapon;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaTankDragon");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("ChinaTankDragon".to_string(), tpl);
+    let id = game_logic
+        .create_object("ChinaTankDragon", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("dragon");
+    let obj = game_logic.host_object(id).expect("dragon");
+    let prim = obj.weapon.clone().expect("authored primary");
+    let flame = dragon_flame_weapon(false);
+    assert!(
+        (prim.range - flame.range).abs() > 0.01 || (prim.damage - flame.damage).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by dragon_flame_weapon() name peel: {prim:?}"
+    );
+}
+
+/// hq-2qedt.159: C++ binds PRIMARY/SECONDARY from the template WeaponSet at
+/// create (WeaponSet::updateWeaponSet), not a template-name host table. A
+/// Gattling-Tank-named template authoring different weapons must keep them.
+#[test]
+fn gattling_tank_create_weapons_come_from_authored_weapon_set_hq_2qedt_159() {
+    use crate::game_logic::host_gattling_tank::{
+        GattlingFireLevel, gattling_air_weapon, gattling_ground_weapon,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaTankGattling");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name("HumveeGun")
+        .set_secondary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("ChinaTankGattling".to_string(), tpl);
+    let id = game_logic
+        .create_object("ChinaTankGattling", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("gattling");
+    let obj = game_logic.host_object(id).expect("gattling");
+    let prim = obj.weapon.clone().expect("authored primary");
+    let g = gattling_ground_weapon(GattlingFireLevel::Base, false);
+    assert!(
+        (prim.range - g.range).abs() > 0.01 || (prim.damage - g.damage).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by gattling_ground_weapon() name peel: {prim:?}"
+    );
+    let a = gattling_air_weapon(GattlingFireLevel::Base, false);
+    let sec_is_peel = obj.secondary_weapon.as_ref().is_some_and(|s| {
+        (s.range - a.range).abs() < 0.01 && (s.damage - a.damage).abs() < 0.01 && s.can_target_air
+    });
+    assert!(
+        !sec_is_peel,
+        "authored SECONDARY overwritten to gattling_air_weapon() name peel: {:?}",
+        obj.secondary_weapon
+    );
+}
+
+/// hq-2qedt.160: C++ binds structure PRIMARY/SECONDARY from the template
+/// WeaponSet at create (WeaponSet::updateWeaponSet), not a template-name host
+/// table. A Gattling-Cannon-named structure authoring other weapons keeps them.
+#[test]
+fn gattling_cannon_structure_create_weapons_come_from_authored_weapon_set_hq_2qedt_160() {
+    use crate::game_logic::host_base_defense::{
+        gattling_building_air_weapon, gattling_building_ground_weapon,
+    };
+    use crate::game_logic::host_gattling_tank::GattlingFireLevel;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaGattlingCannon");
+    tpl.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun")
+        .set_secondary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("ChinaGattlingCannon".to_string(), tpl);
+    let id = game_logic
+        .create_object("ChinaGattlingCannon", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("gattling cannon");
+    let obj = game_logic.host_object(id).expect("gattling cannon");
+    let prim = obj.weapon.clone().expect("authored primary");
+    let g = gattling_building_ground_weapon(GattlingFireLevel::Base, false);
+    assert!(
+        (prim.range - g.range).abs() > 0.01 || (prim.damage - g.damage).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by gattling_building_ground_weapon() peel: {prim:?}"
+    );
+    let a = gattling_building_air_weapon(GattlingFireLevel::Base, false);
+    let sec_is_peel = obj.secondary_weapon.as_ref().is_some_and(|s| {
+        (s.range - a.range).abs() < 0.01 && (s.damage - a.damage).abs() < 0.01 && s.can_target_air
+    });
+    assert!(
+        !sec_is_peel,
+        "authored SECONDARY overwritten to gattling_building_air_weapon() peel: {:?}",
+        obj.secondary_weapon
+    );
+}
+
 /// Residual: USA Comanche 20mm intended + anti-tank dual-radius residual.
 #[test]
 fn comanche_residual_cannon_and_antitank() {

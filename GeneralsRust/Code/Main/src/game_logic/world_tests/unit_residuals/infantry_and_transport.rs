@@ -3239,3 +3239,34 @@ fn troop_crawler_residual_rejects_vehicle_enter() {
         "vehicle enter must not count as troop crawler residual load"
     );
 }
+
+#[test]
+fn ranger_factory_init_keys_on_authored_rifle_not_chassis_name_hq_2qedt_244() {
+    use crate::game_logic::host_ranger::{
+        FLASHBANG_PRIMARY_DAMAGE, RANGER_RIFLE_WEAPON, UPGRADE_AMERICA_FLASHBANG,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    // Authored RangerAdvancedCombatRifle carrier with a non-Ranger name: researched
+    // FlashBang grants the residual flashbang secondary at create.
+    let mut logic = GameLogic::new();
+    let mut usa = Player::new(0, Team::USA, "USA", true);
+    usa.add_completed_upgrade(UPGRADE_AMERICA_FLASHBANG);
+    logic.players.insert(0, usa);
+    let mut t = crate::game_logic::ThingTemplate::new("AuthoredRifleCarrier");
+    t.add_kind_of(KindOf::Infantry)
+        .set_health(120.0)
+        .set_primary_weapon_name(RANGER_RIFLE_WEAPON);
+    logic.templates.insert("AuthoredRifleCarrier".into(), t);
+    let id = logic
+        .create_object("AuthoredRifleCarrier", Team::USA, Vec3::ZERO)
+        .expect("carrier");
+    let o = logic.host_object(id).expect("carrier");
+    let s = o.secondary_weapon.as_ref().map(|w| w.damage);
+    assert!(
+        s.is_some_and(|d| (d - FLASHBANG_PRIMARY_DAMAGE).abs() < 0.5),
+        "authored rifle carrier gets flashbang {s:?}"
+    );
+    assert!(o.has_upgrade_tag(UPGRADE_AMERICA_FLASHBANG));
+}

@@ -84,20 +84,9 @@ impl GameLogic {
             }
         }
 
-        // Host residual: China Dragon Tank primary flame weapon bind.
-        // Fail-closed: FireWall secondary is host_firewall special-power residual.
-        if crate::game_logic::host_dragon_tank::is_dragon_tank_template(template_name) {
-            use crate::game_logic::host_dragon_tank::{
-                dragon_flame_weapon, has_black_napalm_upgrade,
-            };
-            let upgraded = has_black_napalm_upgrade(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
-            // Force residual flame stats when store/template leaves defaults.
-            object.weapon = Some(dragon_flame_weapon(upgraded));
-        }
+        // China Dragon Tank PRIMARY binds from the authored WeaponSet (C++
+        // WeaponSet::updateWeaponSet from ThingTemplate), not a template-name
+        // host table (hq-2qedt.158). Black Napalm refresh stays upgrade-time.
 
         // Host residual: China Nuke Cannon neutron secondary is PLAYER_UPGRADE only.
         // Fail-closed: Upgrade_ChinaNeutronShells equips SECONDARY; without it, no secondary.
@@ -168,6 +157,12 @@ impl GameLogic {
                 Some(gattling_building_air_weapon(GattlingFireLevel::Base, chain));
             reset_continuous_fire_state(object);
         }
+        // C++ Object::initObject builds a fresh FiringTracker per object, so
+        // continuous-fire ramp state starts cold for every chassis; Gattling
+        // Tank/Cannon weapons bind from the authored WeaponSet (hq-2qedt.159/
+        // .160), not a template-name gate (hq-2qedt.240). Chain-guns refresh
+        // stays upgrade-time.
+        reset_continuous_fire_state(object);
 
         // Stinger Site PRIMARY/SECONDARY bind from the authored WeaponSet
         // (C++ WeaponSet::updateWeaponSet), not a template-name peel
@@ -261,7 +256,10 @@ impl GameLogic {
 
         // Host residual: GLA Rebel PRIMARY machine gun residual.
         // Fail-closed: not full ClipSize volley / CaptureBuilding / BoobyTrap matrix.
-        if crate::game_logic::host_gla_rebel::is_gla_rebel_template(template_name) {
+        // Keys on the authored GLARebelMachineGun primary, not chassis name (hq-2qedt.243).
+        if object.authored_weapon_name_for_slot(0).is_some_and(|w| {
+            w.eq_ignore_ascii_case(crate::game_logic::host_gla_rebel::REBEL_MACHINE_GUN)
+        }) {
             use crate::game_logic::host_gla_rebel::{has_ap_bullets_upgrade, rebel_weapon};
             let ap = has_ap_bullets_upgrade(if allow_upgrades {
                 &object.applied_upgrades
@@ -276,7 +274,13 @@ impl GameLogic {
         // — parity with neutron shells / rocket pods: residual map may name the weapon,
         // but create strips it unless research is unlocked or template explicitly seeds it.
         // Fail-closed: not full SURRENDER surrender-AI / garrison clear matrix.
-        if crate::game_logic::host_ranger::is_ranger_template(template_name) {
+        // Keys on the authored RangerAdvancedCombatRifle / FlashBang slots, not chassis
+        // name (hq-2qedt.244).
+        if object.authored_weapon_name_for_slot(0).is_some_and(|w| {
+            w.eq_ignore_ascii_case(crate::game_logic::host_ranger::RANGER_RIFLE_WEAPON)
+        }) || object.authored_weapon_name_for_slot(1).is_some_and(|w| {
+            w.eq_ignore_ascii_case(crate::game_logic::host_ranger::RANGER_FLASHBANG_WEAPON)
+        }) {
             use crate::game_logic::host_ranger::{
                 UPGRADE_AMERICA_FLASHBANG, has_flashbang_equipped, ranger_flashbang_weapon,
                 ranger_rifle_weapon,

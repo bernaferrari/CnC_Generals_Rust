@@ -966,6 +966,14 @@ impl PresentationFrame {
                     .unwrap_or(0.0),
                 turret_angle_deg: obj.turret_ai.turret_angle_deg,
                 turret_pitch_deg: obj.turret_ai.turret_pitch_deg,
+                alt_turret_angle_deg: obj
+                    .alt_turret_ai
+                    .as_ref()
+                    .map_or(0.0, |alt| alt.turret_angle_deg),
+                alt_turret_pitch_deg: obj
+                    .alt_turret_ai
+                    .as_ref()
+                    .map_or(0.0, |alt| alt.turret_pitch_deg),
                 turret_idle_scanning: obj.turret_ai.turret_idle_scanning,
                 weapon_bonus_enthusiastic: obj.weapon_bonus_enthusiastic,
                 weapon_bonus_subliminal: obj.weapon_bonus_subliminal,

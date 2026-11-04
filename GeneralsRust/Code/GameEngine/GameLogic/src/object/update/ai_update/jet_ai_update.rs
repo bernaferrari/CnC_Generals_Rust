@@ -2435,7 +2435,7 @@ impl JetAIUpdate {
                     continue;
                 }
                 specials += 1;
-                if weapon.get_status() == WeaponStatus::OutOfAmmo {
+                if weapon.peek_status_at(crate::helpers::TheGameLogic::get_frame()) == WeaponStatus::OutOfAmmo {
                     out += 1;
                 }
             }

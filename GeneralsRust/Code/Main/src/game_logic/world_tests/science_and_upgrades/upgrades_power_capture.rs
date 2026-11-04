@@ -3128,3 +3128,222 @@ fn gattling_building_chain_guns_keys_on_authored_weapon_not_template_name() {
     assert!(!logic.apply_gattling_chain_guns_upgrade(foreign));
     assert!(logic.apply_gattling_chain_guns_upgrade(authored));
 }
+
+#[test]
+fn chain_guns_upgrade_keys_on_authored_gattling_weapon_not_chassis_name_hq_2qedt_241() {
+    use crate::game_logic::host_base_defense::is_gattling_cannon_structure;
+    use crate::game_logic::host_gattling_tank::{
+        GATTLING_TANK_GUN, UPGRADE_CHINA_CHAIN_GUNS, is_gattling_tank_template,
+    };
+    use crate::game_logic::host_overlord_addons::GATTLING_BUILDING_GUN;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    ensure_host_weapon_store();
+    for (carrier_name, weapon, kind) in [
+        ("AuthoredChainGunTankCarrier", GATTLING_TANK_GUN, KindOf::Vehicle),
+        ("AuthoredChainGunBuildingCarrier", GATTLING_BUILDING_GUN, KindOf::Structure),
+    ] {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        let mut t = ThingTemplate::new(carrier_name);
+        t.add_kind_of(kind)
+            .set_health(300.0)
+            .set_primary_weapon_name(weapon);
+        assert!(!is_gattling_tank_template(&t.name));
+        assert!(!is_gattling_cannon_structure(&t.name));
+        logic.templates.insert(carrier_name.into(), t);
+        let id = logic
+            .create_object(carrier_name, Team::China, glam::Vec3::ZERO)
+            .expect("carrier");
+        let n = logic.apply_chain_guns_to_team(Team::China.into(), UPGRADE_CHINA_CHAIN_GUNS);
+        assert_eq!(n, 1, "authored {weapon} carrier receives Chain Guns");
+        assert!(logic.host_object(id).unwrap().has_upgrade_tag(UPGRADE_CHINA_CHAIN_GUNS));
+        let (tank, bldg) = (
+            logic.gattling_tank_residual_chain_gun_upgrades,
+            logic.gattling_building_residual_chain_gun_upgrades,
+        );
+        if weapon == GATTLING_TANK_GUN {
+            assert_eq!((tank, bldg), (1, 0));
+        } else {
+            assert_eq!((tank, bldg), (0, 1));
+        }
+    }
+
+    // Chassis name alone, with a non-Gattling authored weapon, no longer qualifies.
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::China, "China", true));
+    let mut t = ThingTemplate::new("ChinaTankGattling");
+    t.add_kind_of(KindOf::Vehicle)
+        .set_health(300.0)
+        .set_primary_weapon_name("DragonTankFlameWeapon");
+    logic.templates.insert("ChinaTankGattling".into(), t);
+    let id = logic
+        .create_object("ChinaTankGattling", Team::China, glam::Vec3::ZERO)
+        .expect("chassis");
+    assert!(!logic.apply_gattling_chain_guns_upgrade(id));
+}
+
+#[test]
+fn dragon_black_napalm_and_unit_map_key_on_authored_flame_weapon_not_chassis_name_hq_2qedt_242() {
+    use crate::game_logic::host_dragon_tank::{
+        DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED, UPGRADE_CHINA_BLACK_NAPALM,
+    };
+    use crate::game_logic::weapon_bootstrap::{
+        ensure_host_weapon_store, primary_weapon_name_for_unit,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    ensure_host_weapon_store();
+    // unit_map no longer invents a Dragon flame primary from chassis names.
+    for name in [
+        "ChinaTankDragon",
+        "China_DragonTank",
+        "TestDragonTank",
+        "Tank_ChinaTankDragon",
+        "Nuke_ChinaTankDragon",
+        "Infa_ChinaTankDragon",
+        "SomeModDragonTank",
+    ] {
+        assert_eq!(primary_weapon_name_for_unit(name), None, "{name}");
+    }
+
+    for weapon in [DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED] {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        let mut t = ThingTemplate::new("AuthoredFlameCarrier");
+        t.add_kind_of(KindOf::Vehicle)
+            .set_health(300.0)
+            .set_primary_weapon_name(weapon);
+        logic.templates.insert("AuthoredFlameCarrier".into(), t);
+        let id = logic
+            .create_object("AuthoredFlameCarrier", Team::China, glam::Vec3::ZERO)
+            .expect("carrier");
+        let n = logic.apply_black_napalm_to_team(Team::China.into(), UPGRADE_CHINA_BLACK_NAPALM);
+        assert_eq!(n, 1, "authored {weapon} carrier receives Black Napalm");
+        assert_eq!(logic.dragon_tank_residual_black_napalm_upgrades, 1);
+    }
+
+    // Chassis name alone, with a non-Dragon authored weapon, no longer qualifies.
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::China, "China", true));
+    let mut t = ThingTemplate::new("ChinaTankDragon");
+    t.add_kind_of(KindOf::Vehicle)
+        .set_health(300.0)
+        .set_primary_weapon_name(crate::game_logic::host_gattling_tank::GATTLING_TANK_GUN);
+    logic.templates.insert("ChinaTankDragon".into(), t);
+    let id = logic
+        .create_object("ChinaTankDragon", Team::China, glam::Vec3::ZERO)
+        .expect("chassis");
+    assert!(!logic.apply_dragon_black_napalm_upgrade(id));
+    assert_eq!(logic.dragon_tank_residual_black_napalm_upgrades, 0);
+}
+
+#[test]
+fn rebel_gun_and_ap_bullets_key_on_authored_machine_gun_not_chassis_name_hq_2qedt_243() {
+    use crate::game_logic::host_gla_rebel::{REBEL_DAMAGE, REBEL_MACHINE_GUN, UPGRADE_GLA_AP_BULLETS};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    ensure_host_weapon_store();
+    // Authored GLARebelMachineGun carrier with a non-Rebel name: factory_init seeds the
+    // Rebel residual gun (AP-aware), AP Bullets team upgrade applies.
+    let mut logic = GameLogic::new();
+    logic.players.insert(0, Player::new(0, Team::GLA, "GLA", true));
+    let mut t = ThingTemplate::new("AuthoredMachineGunCarrier");
+    t.add_kind_of(KindOf::Infantry)
+        .set_health(120.0)
+        .set_primary_weapon_name(REBEL_MACHINE_GUN);
+    logic.templates.insert("AuthoredMachineGunCarrier".into(), t);
+    let id = logic
+        .create_object("AuthoredMachineGunCarrier", Team::GLA, glam::Vec3::ZERO)
+        .expect("carrier");
+    let dmg = logic.host_object(id).and_then(|o| o.weapon.as_ref()).map(|w| w.damage);
+    assert!(dmg.is_some_and(|d| (d - REBEL_DAMAGE).abs() < 0.05), "seeded gun {dmg:?}");
+    let n = logic.apply_ap_bullets_to_team(Team::GLA.into(), UPGRADE_GLA_AP_BULLETS);
+    assert_eq!(n, 1, "authored GLARebelMachineGun carrier receives AP Bullets");
+    assert_eq!(logic.rebel_residual_ap_upgrades, 1);
+    let dmg = logic.host_object(id).and_then(|o| o.weapon.as_ref()).map(|w| w.damage);
+    assert!(dmg.is_some_and(|d| (d - 6.25).abs() < 0.05), "AP gun {dmg:?}");
+
+    // Rebel chassis name with a non-Rebel authored weapon no longer qualifies.
+    let mut logic = GameLogic::new();
+    logic.players.insert(0, Player::new(0, Team::GLA, "GLA", true));
+    let mut t = ThingTemplate::new("GLAInfantryRebel");
+    t.add_kind_of(KindOf::Infantry)
+        .set_health(120.0)
+        .set_primary_weapon_name(crate::game_logic::host_gattling_tank::GATTLING_TANK_GUN);
+    logic.templates.insert("GLAInfantryRebel".into(), t);
+    let id = logic
+        .create_object("GLAInfantryRebel", Team::GLA, glam::Vec3::ZERO)
+        .expect("chassis");
+    assert!(!logic.apply_rebel_ap_bullets_upgrade(id));
+    assert_eq!(logic.rebel_residual_ap_upgrades, 0);
+}
+
+#[test]
+fn hellfire_drone_armor_and_unit_map_key_on_authored_missile_not_chassis_name_hq_2qedt_245() {
+    use crate::game_logic::host_slave_drones::{
+        BATTLE_DRONE_TEMPLATE, HELLFIRE_DRONE_TEMPLATE, HELLFIRE_MISSILE_WEAPON,
+        SCOUT_DRONE_TEMPLATE, UPGRADE_AMERICA_DRONE_ARMOR,
+    };
+    use crate::game_logic::weapon_bootstrap::{
+        ensure_host_weapon_store, primary_weapon_name_for_unit,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    ensure_host_weapon_store();
+    // unit_map no longer invents drone rows from chassis names (Battle Drone is .226).
+    for name in [
+        HELLFIRE_DRONE_TEMPLATE,
+        SCOUT_DRONE_TEMPLATE,
+        "AmericaVehicleSentryDrone",
+    ] {
+        assert_eq!(primary_weapon_name_for_unit(name), None, "{name}");
+    }
+    let _ = BATTLE_DRONE_TEMPLATE;
+
+    // Authored HellfireMissileWeapon carrier receives Drone Armor.
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "USA", true));
+    let mut t = ThingTemplate::new("AuthoredHellfireCarrier");
+    t.add_kind_of(KindOf::Vehicle)
+        .set_health(100.0)
+        .set_primary_weapon_name(HELLFIRE_MISSILE_WEAPON);
+    logic.templates.insert("AuthoredHellfireCarrier".into(), t);
+    logic
+        .create_object("AuthoredHellfireCarrier", Team::USA, glam::Vec3::ZERO)
+        .expect("carrier");
+    assert_eq!(
+        logic.apply_drone_armor_to_team(Team::USA.into(), UPGRADE_AMERICA_DRONE_ARMOR),
+        1
+    );
+
+    // Hellfire chassis name with a non-Hellfire authored weapon no longer qualifies.
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "USA", true));
+    let mut t = ThingTemplate::new(HELLFIRE_DRONE_TEMPLATE);
+    t.add_kind_of(KindOf::Vehicle)
+        .set_health(100.0)
+        .set_primary_weapon_name(crate::game_logic::host_gattling_tank::GATTLING_TANK_GUN);
+    logic.templates.insert(HELLFIRE_DRONE_TEMPLATE.into(), t);
+    logic
+        .create_object(HELLFIRE_DRONE_TEMPLATE, Team::USA, glam::Vec3::ZERO)
+        .expect("chassis");
+    assert_eq!(
+        logic.apply_drone_armor_to_team(Team::USA.into(), UPGRADE_AMERICA_DRONE_ARMOR),
+        0
+    );
+}

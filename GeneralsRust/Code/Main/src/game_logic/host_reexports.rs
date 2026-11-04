@@ -148,7 +148,7 @@ pub use super::host_dragon_tank::{
     DRAGON_PRIMARY_DAMAGE, DRAGON_RANGE, DRAGON_SECONDARY_DAMAGE, DRAGON_SECONDARY_RADIUS,
     DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED, UPGRADE_CHINA_BLACK_NAPALM,
     dragon_flame_damage_at, dragon_flame_stats, dragon_flame_weapon, dragon_flame_weapon_name,
-    has_black_napalm_upgrade, is_dragon_tank_template, should_apply_dragon_flame_residual,
+    has_black_napalm_upgrade,
 };
 pub use super::host_ecm_jam::{HOST_ECM_JAM_RADIUS, is_ecm_jammer, is_legal_ecm_jam_target};
 pub use super::host_emergency_repair::{
@@ -201,7 +201,6 @@ pub use super::host_gattling_tank::{
 pub use super::host_gla_rebel::{
     REBEL_DAMAGE, REBEL_MACHINE_GUN, REBEL_RANGE,
     UPGRADE_GLA_AP_BULLETS as REBEL_UPGRADE_AP_BULLETS, is_gla_rebel_template, rebel_weapon,
-    should_apply_rebel_residual,
 };
 pub use super::host_gla_worker::{
     HostGlaWorkerRegistry, UPGRADE_GLA_WORKER_SHOES, WORKER_SHOES_SPEED, WORKER_SHOES_SUPPLY_BOOST,
@@ -392,8 +391,8 @@ pub use super::host_rng_residual::{
 };
 pub use super::host_rpg_trooper::{
     RPG_TROOPER_DAMAGE, RPG_TROOPER_RANGE, TUNNEL_DEFENDER_ROCKET_WEAPON,
-    UPGRADE_GLA_AP_ROCKETS as RPG_UPGRADE_AP_ROCKETS, is_rpg_trooper_template, rpg_trooper_weapon,
-    should_apply_rpg_trooper_residual,
+    UPGRADE_GLA_AP_ROCKETS as RPG_UPGRADE_AP_ROCKETS, is_rpg_trooper_template,
+    is_rpg_trooper_weapon_name, rpg_trooper_weapon,
 };
 pub use super::host_saboteur::{
     HostSaboteurRegistry, SABOTEUR_STEAL_CASH_AMOUNT, SABOTEUR_SUCCESS_AUDIO, SaboteurEffectKind,
