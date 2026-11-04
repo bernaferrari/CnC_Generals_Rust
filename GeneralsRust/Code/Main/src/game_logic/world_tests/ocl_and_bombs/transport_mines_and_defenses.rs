@@ -2947,3 +2947,79 @@ fn patriot_does_not_request_assist_while_weapon_not_ready() {
         "not-ready Patriot must not fire"
     );
 }
+
+/// C++ AssistedTargetingUpdate::assistAttack (AssistedTargetingUpdate.cpp:74-75)
+/// TEMP-locks the assist slot; that AssistWeapon has no RequestAssistRange, so
+/// processRequestAssistance (Weapon.cpp:2476-2478) never fans out from an
+/// assisting Patriot. A TEMP-locked assistant must not re-request on its ready shot.
+#[test]
+fn patriot_temp_locked_assistant_does_not_re_request_assist() {
+    use crate::game_logic::WeaponLockType;
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+    patriot_tpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(600.0)
+        .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+    game_logic
+        .templates
+        .insert("USA_Patriot".to_string(), patriot_tpl);
+    let assisting_id = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("assisting patriot");
+    let free_id = game_logic
+        .create_object(
+            "USA_Patriot",
+            Team::USA,
+            Vec3::new(PATRIOT_REQUEST_ASSIST_RANGE * 0.5, 0.0, 0.0),
+        )
+        .expect("free patriot");
+    let enemy_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let e = game_logic.host_object_mut(enemy_id).unwrap();
+        e.health.current = 1.0e6;
+        e.health.maximum = 1.0e6;
+        e.max_health = 1.0e6;
+    }
+    {
+        let o = game_logic.host_object_mut(assisting_id).unwrap();
+        if let Some(w) = o.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+        }
+        for slot in 0..3u8 {
+            if let Some(w) = o.weapon_slot_mut(slot) {
+                w.last_fire_time = -10.0;
+            }
+        }
+        assert!(o.set_weapon_lock(1, WeaponLockType::LockedTemporarily));
+    }
+    game_logic.frame = 1;
+    // Only the TEMP-locked assistant runs base-defense this frame.
+    game_logic.update_combat(&[assisting_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+
+    assert_eq!(
+        game_logic.patriot_assist_residual_requests(),
+        0,
+        "TEMP-locked assisting Patriot must not re-request assistance"
+    );
+    assert!(
+        !game_logic
+            .pending_patriot_assists
+            .iter()
+            .any(|p| p.assistant_id == free_id),
+        "no new assistant may be recruited by an assisting Patriot"
+    );
+}

@@ -568,13 +568,19 @@ impl GameLogic {
         if !ready {
             return Ok(());
         }
+        // C++ AssistedTargetingUpdate::assistAttack TEMP-locks the assist slot,
+        // whose AssistWeapon has no RequestAssistRange: an assisting Patriot
+        // never re-requests (Weapon.cpp:2476-2478 gate) until the lock releases.
+        let temp_locked_assisting = self.objects.get(&defense_id).is_some_and(|o| {
+            o.weapon_lock_type == crate::game_logic::WeaponLockType::LockedTemporarily
+        });
 
         // C++ Weapon::privateFireWeapon (Weapon.cpp:2476-2478) requests assistance
         // before the shot is delivered, so a killing shot still recruits helpers.
         // AssistedTargetingUpdate residual: RequestAssistRange → neighboring
         // equivalent Patriots fire AssistingClipSize assist-weapon shots +
         // BinaryDataStream LaserFromAssisted / LaserToTarget residual beams.
-        if is_patriot {
+        if is_patriot && !temp_locked_assisting {
             self.process_patriot_assist_request(defense_id, target_id, slot);
         }
 
