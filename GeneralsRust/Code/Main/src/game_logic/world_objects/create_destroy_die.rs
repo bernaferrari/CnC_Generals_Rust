@@ -2899,13 +2899,9 @@ impl GameLogic {
                 object.install_humvee_transport();
             }
 
-            // Host residual: America Avenger designator primary + air laser secondary.
-            // Fail-closed: not portable laser turret OverlordContain passenger.
-            if crate::game_logic::host_avenger::is_avenger_template(template_name) {
-                object.weapon = Some(crate::game_logic::host_avenger::avenger_designator_weapon());
-                object.secondary_weapon =
-                    Some(crate::game_logic::host_avenger::avenger_air_laser_weapon());
-            }
+            // USA Avenger PRIMARY/SECONDARY bind from the authored WeaponSet
+            // above (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a
+            // template-name host table (hq-2qedt.138).
 
             // Host residual: America Sentry Drone StealthDetectorUpdate (DetectionRange 225).
             // Always detector from spawn; gun is PLAYER_UPGRADE residual.

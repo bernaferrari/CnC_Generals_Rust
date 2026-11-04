@@ -2443,6 +2443,42 @@ fn stealth_fighter_residual_missiles_and_splash() {
     );
 }
 
+/// hq-2qedt.138: C++ binds PRIMARY/SECONDARY from the template WeaponSet at
+/// create (WeaponSet::updateWeaponSet), not a template-name host table. An
+/// Avenger-named template authoring different weapons must keep them.
+#[test]
+fn avenger_create_weapons_come_from_authored_weapon_set() {
+    use crate::game_logic::host_avenger::AVENGER_AIR_LASER_RANGE;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaTankAvenger");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name("HumveeGun")
+        .set_secondary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("AmericaTankAvenger".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaTankAvenger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("avenger");
+    let obj = game_logic.host_object(id).expect("avenger");
+    let prim = obj.weapon.clone().expect("authored primary");
+    assert!(
+        prim.damage > 0.01,
+        "authored HumveeGun PRIMARY overwritten by avenger_designator_weapon() name peel: {prim:?}"
+    );
+    let sec = obj.secondary_weapon.clone().expect("authored secondary");
+    assert!(
+        sec.can_target_ground && (sec.range - AVENGER_AIR_LASER_RANGE).abs() > 0.01,
+        "authored HumveeGun SECONDARY overwritten by avenger_air_laser_weapon() name peel: {sec:?}"
+    );
+}
+
 /// Residual: USA Comanche 20mm intended + anti-tank dual-radius residual.
 #[test]
 fn comanche_residual_cannon_and_antitank() {
