@@ -5445,3 +5445,1377 @@ fn gattling_cannon_factory_init_keys_on_authored_weapon_not_template_name() {
     assert!(a.secondary_weapon.is_some(), "authored gattling AA residual");
 }
 
+/// hq-2qedt.102: C++ binds PRIMARY from the template WeaponSet at create,
+/// not from a template-name host table. A Tomahawk-named template authoring a
+/// different PRIMARY must keep that authored weapon.
+#[test]
+fn tomahawk_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::host_tomahawk::TOMAHAWK_PRIMARY_DAMAGE;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleTomahawk");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(180.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("AmericaVehicleTomahawk".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaVehicleTomahawk", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("tomahawk");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - TOMAHAWK_PRIMARY_DAMAGE).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by tomahawk_weapon() name peel: {prim:?}"
+    );
+}
+
+/// hq-2qedt.104: Crusader/Paladin (incl. Lazr_) PRIMARY binds from the
+/// authored WeaponSet at create (C++ WeaponSet::updateWeaponSet), not the
+/// usa_tanks template-name peel.
+#[test]
+fn crusader_paladin_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::host_usa_tanks::{
+        LAZR_CRUSADER_TANK_GUN_DAMAGE, LAZR_PALADIN_TANK_GUN_DAMAGE, USA_TANK_GUN_DAMAGE,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    for name in [
+        "AmericaTankCrusader",
+        "AmericaTankPaladin",
+        "Lazr_AmericaTankCrusader",
+        "Lazr_AmericaTankPaladin",
+    ] {
+        let mut game_logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0)
+            .set_primary_weapon_name("HumveeGun");
+        game_logic.templates.insert(name.to_string(), tpl);
+        let id = game_logic
+            .create_object(name, Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("tank");
+        let prim = game_logic
+            .host_object(id)
+            .and_then(|t| t.weapon.clone())
+            .expect("authored primary");
+        for d in [USA_TANK_GUN_DAMAGE, LAZR_CRUSADER_TANK_GUN_DAMAGE, LAZR_PALADIN_TANK_GUN_DAMAGE] {
+            assert!(
+                (prim.damage - d).abs() > 0.01,
+                "{name}: authored HumveeGun PRIMARY overwritten by usa_tanks name peel: {prim:?}"
+            );
+        }
+    }
+}
+
+/// hq-2qedt.122: C++ fires the authored WeaponSet weapon; a Tomahawk-named
+/// template authoring a non-Tomahawk PRIMARY must not route through the
+/// Tomahawk residual missile path on object hit.
+#[test]
+fn tomahawk_named_non_tomahawk_weapon_skips_tomahawk_object_hit_residual() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleTomahawk");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(180.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("AmericaVehicleTomahawk".to_string(), tpl);
+    let tom_id = game_logic
+        .create_object("AmericaVehicleTomahawk", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("tomahawk");
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let (t, attack_events) = game_logic
+            .host_object_and_attack_events_mut(tom_id)
+            .unwrap();
+        t.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = t.weapon.as_mut() {
+            w.last_fire_time = -20.0;
+            w.reload_time = 0.1;
+        }
+    }
+    let hp_before = game_logic.host_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[tom_id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    let hp_after = game_logic.host_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+    assert_eq!(
+        game_logic.tomahawk_residual_fires(),
+        0,
+        "Tomahawk residual chosen by template-name peel instead of authored weapon"
+    );
+    assert!(hp_after < hp_before, "authored HumveeGun must land (before={hp_before} after={hp_after})");
+}
+
+/// hq-2qedt.105: Fire Base (incl. AirF_/SupW_/Lazr_) PRIMARY binds from the
+/// authored WeaponSet at create (C++ WeaponSet::updateWeaponSet), not the
+/// is_fire_base_template name peel.
+#[test]
+fn fire_base_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::host_fire_base::FIRE_BASE_DAMAGE;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    for name in [
+        "AmericaFireBase",
+        "AirF_AmericaFireBase",
+        "SupW_AmericaFireBase",
+        "Lazr_AmericaFireBase",
+    ] {
+        let mut game_logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0)
+            .set_primary_weapon_name("HumveeGun");
+        game_logic.templates.insert(name.to_string(), tpl);
+        let id = game_logic
+            .create_object(name, Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("firebase");
+        let prim = game_logic
+            .host_object(id)
+            .and_then(|t| t.weapon.clone())
+            .expect("authored primary");
+        assert!(
+            (prim.damage - FIRE_BASE_DAMAGE).abs() > 0.01,
+            "{name}: authored HumveeGun PRIMARY overwritten by fire_base_weapon() name peel: {prim:?}"
+        );
+    }
+}
+
+/// hq-2qedt.110: C++ binds PRIMARY from the template WeaponSet at create
+/// (WeaponSet::updateWeaponSet), not a template-name host table. A
+/// Stealth-Fighter-named template authoring a different PRIMARY must keep it.
+#[test]
+fn stealth_fighter_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::host_stealth_fighter::STEALTH_FIGHTER_DAMAGE;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaJetStealthFighter");
+    tpl.add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(150.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("AmericaJetStealthFighter".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaJetStealthFighter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("stealth fighter");
+    let obj = game_logic.host_object(id).expect("stealth fighter");
+    let prim = obj.weapon.clone().expect("authored primary");
+    assert!(
+        (prim.damage - STEALTH_FIGHTER_DAMAGE).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by stealth_fighter_weapon() name peel: {prim:?}"
+    );
+}
+
+/// hq-2qedt.109: C++ binds PRIMARY/SECONDARY from the template WeaponSet at
+/// create (WeaponSet::updateWeaponSet), not a template-name host table. A
+/// Comanche-named template authoring different weapons must keep them.
+#[test]
+fn comanche_create_weapons_come_from_authored_weapon_set() {
+    use crate::game_logic::host_comanche_rocket_pods::{
+        COMANCHE_AT_PRIMARY_DAMAGE, COMANCHE_CANNON_DAMAGE,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleComanche");
+    tpl.add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(220.0)
+        .set_primary_weapon_name("HumveeGun")
+        .set_secondary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("AmericaVehicleComanche".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaVehicleComanche", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("comanche");
+    let obj = game_logic.host_object(id).expect("comanche");
+    let prim = obj.weapon.clone().expect("authored primary");
+    assert!(
+        (prim.damage - COMANCHE_CANNON_DAMAGE).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by comanche_cannon_weapon() name peel: {prim:?}"
+    );
+    let sec = obj.secondary_weapon.clone().expect("authored secondary");
+    assert!(
+        (sec.damage - COMANCHE_AT_PRIMARY_DAMAGE).abs() > 0.01,
+        "authored HumveeGun SECONDARY overwritten by comanche_antitank_weapon() name peel: {sec:?}"
+    );
+}
+
+/// hq-2qedt.130: Battle Drone PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
+#[test]
+fn battle_drone_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleBattleDrone");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("AmericaVehicleBattleDrone".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaVehicleBattleDrone", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("battle_drone");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - crate::game_logic::host_slave_drones::BATTLE_DRONE_GUN_DAMAGE).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by battle_drone name peel: {prim:?}"
+    );
+}
+
+/// hq-2qedt.131: China Red Guard PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
+#[test]
+fn red_guard_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaInfantryRedguard");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("ChinaInfantryRedguard".to_string(), tpl);
+    let id = game_logic
+        .create_object("ChinaInfantryRedguard", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("red_guard");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - crate::game_logic::host_red_guard::REDGUARD_DAMAGE).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by red_guard name peel: {prim:?}"
+    );
+}
+
+/// hq-2qedt.132: China Tank Hunter PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
+#[test]
+fn tank_hunter_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaInfantryTankHunter");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("ChinaInfantryTankHunter".to_string(), tpl);
+    let id = game_logic
+        .create_object("ChinaInfantryTankHunter", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("tank_hunter");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - crate::game_logic::host_tank_hunter::TANK_HUNTER_DAMAGE).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by tank_hunter name peel: {prim:?}"
+    );
+}
+
+/// hq-2qedt.133: Colonel Burton PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
+#[test]
+fn colonel_burton_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaInfantryColonelBurton");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("AmericaInfantryColonelBurton".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaInfantryColonelBurton", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("colonel_burton");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - crate::game_logic::host_colonel_burton::BURTON_SNIPER_DAMAGE).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by colonel_burton name peel: {prim:?}"
+    );
+}
+
+/// hq-2qedt.134: C++ fires the authored WeaponSet weapon; a Fire Base-named
+/// template authoring a non-howitzer PRIMARY must not route through the
+/// Fire Base howitzer residual on object hit.
+#[test]
+fn fire_base_named_non_howitzer_weapon_skips_fire_base_object_hit_residual() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaFireBase");
+    // Non-structure fixture so the strategy_center base-defense path (out of
+    // scope) does not fire; isolates the object_hit gate.
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("AmericaFireBase".to_string(), tpl);
+    let fb_id = game_logic
+        .create_object("AmericaFireBase", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("fire base");
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let (t, attack_events) = game_logic
+            .host_object_and_attack_events_mut(fb_id)
+            .unwrap();
+        t.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = t.weapon.as_mut() {
+            w.last_fire_time = -20.0;
+            w.reload_time = 0.1;
+        }
+    }
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[fb_id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    assert_eq!(
+        game_logic.fire_base_residual_fires(),
+        0,
+        "Fire Base residual chosen by template-name peel instead of authored weapon"
+    );
+}
+
+/// hq-2qedt.162: strategy_center base-defense path must key the Fire Base
+/// howitzer residual on the authored WeaponSet slot weapon, not template name.
+#[test]
+fn fire_base_named_structure_non_howitzer_weapon_skips_base_defense_howitzer() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaFireBase");
+    tpl.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("AmericaFireBase".to_string(), tpl);
+    let fb_id = game_logic
+        .create_object("AmericaFireBase", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("fire base");
+    let _enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("enemy");
+    if let Some(w) = game_logic.objects.get_mut(&fb_id).and_then(|o| o.weapon.as_mut()) {
+        w.last_fire_time = -20.0;
+        w.reload_time = 0.1;
+    }
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.try_base_defense_residual_fire(fb_id);
+    }
+    assert_eq!(
+        game_logic.fire_base_residual_fires(),
+        0,
+        "base-defense Fire Base howitzer chosen by template-name peel instead of authored weapon"
+    );
+}
+
+/// hq-2qedt.163: Stinger Site PRIMARY/SECONDARY bind from the authored
+/// WeaponSet at create (C++ WeaponSet::updateWeaponSet), not a name peel.
+#[test]
+fn stinger_site_create_weapons_come_from_authored_weapon_set() {
+    use crate::game_logic::host_base_defense::{STINGER_AIR_DAMAGE, STINGER_GROUND_DAMAGE};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("GLAStingerSite");
+    tpl.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::SpawnsAreTheWeapons)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun")
+        .set_secondary_weapon_name("HumveeGun");
+    game_logic.templates.insert("GLAStingerSite".to_string(), tpl);
+    let id = game_logic
+        .create_object("GLAStingerSite", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("stinger site");
+    let obj = game_logic.host_object(id).expect("obj");
+    let prim = obj.weapon.clone().expect("authored primary");
+    let sec = obj.secondary_weapon.clone().expect("authored secondary");
+    assert!(
+        (prim.damage - STINGER_GROUND_DAMAGE).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by stinger name peel: {prim:?}"
+    );
+    assert!(
+        (sec.damage - STINGER_AIR_DAMAGE).abs() > 0.01,
+        "authored HumveeGun SECONDARY overwritten by stinger name peel: {sec:?}"
+    );
+}
+
+/// hq-2qedt.164: Overlord PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
+#[test]
+fn overlord_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let peel = crate::game_logic::host_overlord_gun::overlord_gun_weapon(false);
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaTankOverlord");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(500.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("ChinaTankOverlord".to_string(), tpl);
+    let id = game_logic
+        .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("overlord");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - peel.damage).abs() > 0.01 || (prim.range - peel.range).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by overlord name peel: {prim:?}"
+    );
+}
+
+/// hq-2qedt.165: Jarmen Kell PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
+#[test]
+fn jarmen_kell_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let peel = crate::game_logic::host_jarmen_kell::jarmen_kell_weapon(false);
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("GLAInfantryJarmenKell");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(500.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("GLAInfantryJarmenKell".to_string(), tpl);
+    let id = game_logic
+        .create_object("GLAInfantryJarmenKell", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("jarmen_kell");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - peel.damage).abs() > 0.01 || (prim.range - peel.range).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by jarmen_kell name peel: {prim:?}"
+    );
+}
+
+/// hq-2qedt.166: MiniGunner PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
+#[test]
+fn minigunner_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let peel = crate::game_logic::host_minigunner::minigunner_ground_weapon(crate::game_logic::host_gattling_tank::GattlingFireLevel::Base, false, false, false);
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("Infa_ChinaInfantryMiniGunner");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(500.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("Infa_ChinaInfantryMiniGunner".to_string(), tpl);
+    let id = game_logic
+        .create_object("Infa_ChinaInfantryMiniGunner", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("minigunner");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - peel.damage).abs() > 0.01 || (prim.range - peel.range).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by minigunner name peel: {prim:?}"
+    );
+}
+
+/// hq-2qedt.181: C++ fires the authored WeaponSet weapon; an Overlord-named
+/// template authoring a non-OverlordTankGun PRIMARY must not route through
+/// the Overlord main-gun residual (OverlordTankShell) on object hit.
+#[test]
+fn overlord_named_non_overlord_gun_skips_overlord_object_hit_residual() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaTankOverlord");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("ChinaTankOverlord".to_string(), tpl);
+    let ol_id = game_logic
+        .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("overlord");
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let (t, attack_events) = game_logic
+            .host_object_and_attack_events_mut(ol_id)
+            .unwrap();
+        t.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = t.weapon.as_mut() {
+            w.last_fire_time = -20.0;
+            w.reload_time = 0.1;
+        }
+    }
+    let mut shells = 0;
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[ol_id, enemy], LOGIC_FRAME_TIMESTEP);
+        shells = shells.max(
+            game_logic
+                .objects
+                .registered_values()
+                .filter(|o| o.template_name == "OverlordTankShell")
+                .count(),
+        );
+    }
+    assert_eq!(
+        shells + game_logic.overlord_gun_residual_fires() as usize,
+        0,
+        "Overlord residual chosen by template-name peel instead of authored weapon"
+    );
+}
+
+/// Spawn `template` as Infantry authoring HumveeGun PRIMARY and let it fire at
+/// a TestTank for a few frames (object_hit residual gate fixtures).
+fn fire_named_template_with_humvee_gun(template: &str, team: Team) -> GameLogic {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new(template);
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert(template.to_string(), tpl);
+    let id = game_logic
+        .create_object(template, team, Vec3::new(0.0, 0.0, 0.0))
+        .expect("attacker");
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let (t, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
+        t.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = t.weapon.as_mut() {
+            w.last_fire_time = -20.0;
+            w.reload_time = 0.1;
+        }
+    }
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    game_logic
+}
+
+/// hq-2qedt.182: Jarmen Kell-named template authoring a non-sniper PRIMARY
+/// must not route through the Jarmen Kell sniper residual on object hit.
+#[test]
+fn jarmen_kell_named_non_sniper_weapon_skips_jarmen_object_hit_residual() {
+    let gl = fire_named_template_with_humvee_gun("GLAInfantryJarmenKell", Team::USA);
+    assert_eq!(gl.jarmen_kell_residual_fires(), 0, "Jarmen residual chosen by template-name peel");
+}
+
+/// hq-2qedt.183: MiniGunner-named template authoring a non-minigun PRIMARY
+/// must not route through the MiniGunner residual on object hit.
+#[test]
+fn minigunner_named_non_minigun_weapon_skips_minigunner_object_hit_residual() {
+    let gl = fire_named_template_with_humvee_gun("ChinaInfantryMiniGunner", Team::USA);
+    assert_eq!(
+        gl.minigunner_residual_ground_fires() + gl.minigunner_residual_aa_fires(),
+        0,
+        "MiniGunner residual chosen by template-name peel"
+    );
+}
+
+/// hq-2qedt.184: Tank Hunter-named template authoring a non-missile PRIMARY
+/// must not route through the Tank Hunter missile residual on object hit.
+#[test]
+fn tank_hunter_named_non_missile_weapon_skips_tank_hunter_object_hit_residual() {
+    let gl = fire_named_template_with_humvee_gun("ChinaInfantryTankHunter", Team::USA);
+    assert_eq!(gl.tank_hunter_residual_fires(), 0, "Tank Hunter residual chosen by template-name peel");
+}
+
+/// hq-2qedt.185: RPG Trooper-named template authoring a non-rocket PRIMARY
+/// must not route through the RPG Trooper rocket residual on object hit.
+#[test]
+fn rpg_trooper_named_non_rocket_weapon_skips_rpg_object_hit_residual() {
+    let gl = fire_named_template_with_humvee_gun("GLAInfantryTunnelDefender", Team::USA);
+    assert_eq!(gl.rpg_trooper_residual_fires(), 0, "RPG Trooper residual chosen by template-name peel");
+}
+
+/// hq-2qedt.187: Red Guard-named template authoring a non-Redguard PRIMARY
+/// must not route through the Red Guard gun/bayonet residual on object hit.
+#[test]
+fn red_guard_named_non_redguard_weapon_skips_red_guard_object_hit_residual() {
+    let gl = fire_named_template_with_humvee_gun("ChinaInfantryRedguard", Team::USA);
+    assert_eq!(gl.red_guard_residual_fires(), 0, "Red Guard residual chosen by template-name peel");
+}
+
+/// hq-2qedt.188: Colonel Burton-named template authoring a non-Burton PRIMARY
+/// must not route through the Burton sniper/knife residual on object hit.
+#[test]
+fn burton_named_non_burton_weapon_skips_burton_object_hit_residual() {
+    let gl = fire_named_template_with_humvee_gun("AmericaInfantryColonelBurton", Team::USA);
+    assert_eq!(
+        gl.burton_residual_sniper_fires() + gl.burton_residual_knife_kills(),
+        0,
+        "Burton residual chosen by template-name peel"
+    );
+}
+
+/// hq-2qedt.189: Helix-named template authoring a non-minigun PRIMARY
+/// must not route through the Helix minigun residual on object hit.
+#[test]
+fn helix_named_non_minigun_weapon_skips_helix_object_hit_residual() {
+    let gl = fire_named_template_with_humvee_gun("ChinaVehicleHelix", Team::USA);
+    assert_eq!(gl.helix_minigun_residual_fires(), 0, "Helix residual chosen by template-name peel");
+}
+
+/// hq-2qedt.190: Humvee-named template with TOW upgrade firing a non-TOW
+/// authored SECONDARY must not route through the Humvee TOW residual.
+#[test]
+fn humvee_named_non_tow_secondary_skips_humvee_tow_object_hit_residual() {
+    use crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleHumvee");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun")
+        .set_secondary_weapon_name("BattleMasterTankGun");
+    game_logic
+        .templates
+        .insert("AmericaVehicleHumvee".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("humvee");
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let (h, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
+        h.apply_upgrade_tag(UPGRADE_AMERICA_TOW);
+        h.active_weapon_slot = 1;
+        h.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = h.secondary_weapon.as_mut() {
+            w.last_fire_time = -100.0;
+            w.reload_time = 0.1;
+            w.min_range = 0.0;
+        }
+    }
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    assert_eq!(
+        game_logic.humvee_tow_residual_fires(),
+        0,
+        "Humvee TOW residual chosen by template-name peel"
+    );
+}
+
+/// hq-2qedt.191: Troop Crawler-named transport authoring a non-assault PRIMARY
+/// must not route through the TroopCrawlerAssault DEPLOY residual on object hit.
+#[test]
+fn troop_crawler_named_non_assault_weapon_skips_assault_deploy_object_hit_residual() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaVehicleTroopCrawler");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("ChinaVehicleTroopCrawler".to_string(), tpl);
+    let id = game_logic
+        .create_object("ChinaVehicleTroopCrawler", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("crawler");
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let (c, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
+        c.is_troop_crawler_transport = true;
+        c.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = c.weapon.as_mut() {
+            w.last_fire_time = -20.0;
+            w.reload_time = 0.1;
+        }
+    }
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    assert_eq!(
+        game_logic.troop_crawler_residual_assault_deploys(),
+        0,
+        "Troop Crawler DEPLOY residual chosen by template-name peel"
+    );
+}
+
+/// hq-2qedt.215: Raptor-named jet authoring a non-jet-missile PRIMARY must not
+/// route through the Raptor jet-missile residual on object hit.
+#[test]
+fn raptor_named_non_jet_missile_weapon_skips_raptor_object_hit_residual() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaJetRaptor");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("AmericaJetRaptor".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaJetRaptor", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("raptor");
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
+        .expect("enemy");
+    // Outside RaptorJetMissileWeapon MinRange (100) so a create-peeled jet weapon still fires.
+    {
+        let (c, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
+        c.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = c.weapon.as_mut() {
+            w.last_fire_time = -20.0;
+            w.reload_time = 0.1;
+        }
+    }
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    assert_eq!(
+        game_logic.raptor_residual_fires(),
+        0,
+        "Raptor jet-missile residual chosen by template-name peel"
+    );
+}
+
+/// hq-2qedt.216: Terrorist-named infantry authoring a non-suicide PRIMARY must
+/// not route through the SuicideDynamitePack residual on object hit.
+#[test]
+fn terrorist_named_non_suicide_weapon_skips_terrorist_object_hit_residual() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new("GLAInfantryTerrorist");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("GLAInfantryTerrorist".to_string(), tpl);
+    let id = game_logic
+        .create_object("GLAInfantryTerrorist", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("terrorist");
+    // Inside any create-peeled suicide trigger range so either weapon fires.
+    let enemy = game_logic
+        .create_object("TestTank", Team::USA, Vec3::new(3.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let (c, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
+        c.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = c.weapon.as_mut() {
+            w.last_fire_time = -20.0;
+            w.reload_time = 0.1;
+        }
+    }
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    assert_eq!(
+        game_logic.terrorist_residual_detonations(),
+        0,
+        "Terrorist suicide residual chosen by template-name peel"
+    );
+}
+
+/// hq-2qedt.220: Raptor / King Raptor PRIMARY binds from the authored
+/// WeaponSet at create (C++ WeaponSet::updateWeaponSet), not a name peel.
+#[test]
+fn raptor_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    for (name, king) in [("AmericaJetRaptor", false), ("AirF_AmericaJetRaptor", true)] {
+        let peel = crate::game_logic::host_raptor::raptor_weapon(king, false);
+        let mut game_logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(160.0)
+            .set_primary_weapon_name("HumveeGun");
+        game_logic.templates.insert(name.to_string(), tpl);
+        let id = game_logic
+            .create_object(name, Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("raptor");
+        let prim = game_logic
+            .host_object(id)
+            .and_then(|t| t.weapon.clone())
+            .expect("authored primary");
+        assert!(
+            (prim.damage - peel.damage).abs() > 0.01 || (prim.range - peel.range).abs() > 0.01,
+            "{name}: authored HumveeGun PRIMARY overwritten by raptor name peel: {prim:?}"
+        );
+    }
+}
+
+/// hq-2qedt.221: Inferno ground-attack fire field keys on the authored
+/// WeaponSet slot weapon (InfernoCannonGun), not the template name.
+#[test]
+fn inferno_ground_fire_field_keys_on_authored_weapon() {
+    use crate::game_logic::weapon_bootstrap::{
+        INFERNO_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store,
+    };
+
+    ensure_host_weapon_store();
+    let run = |weapon: &str| -> bool {
+        let mut game_logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("ChinaVehicleInfernoCannon");
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(weapon);
+        game_logic
+            .templates
+            .insert("ChinaVehicleInfernoCannon".to_string(), tpl);
+        let id = game_logic
+            .create_object("ChinaVehicleInfernoCannon", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("inferno");
+        if let Some(w) = game_logic.host_object_mut(id).and_then(|o| o.weapon.as_mut()) {
+            w.last_fire_time = -100.0;
+            w.min_range = 0.0;
+        }
+        assert!(game_logic.unit_command_attack_ground(id, Vec3::new(60.0, 0.0, 0.0)));
+        for f in 0..30u64 {
+            game_logic.set_current_frame(10 + f);
+            game_logic.update_combat(&[id], LOGIC_FRAME_TIMESTEP);
+        }
+        game_logic.honesty_inferno_fire_spawn_ok()
+    };
+    assert!(
+        run(INFERNO_CANNON_PRIMARY_WEAPON),
+        "authored InfernoCannonGun ground attack must seed the fire field"
+    );
+    assert!(
+        !run("HumveeGun"),
+        "Inferno-named chassis with authored HumveeGun must not seed an Inferno fire field"
+    );
+}
+
+/// hq-2qedt.222: Quad Cannon discharge counters key on the authored WeaponSet
+/// slot weapon (QuadCannonGun), not the template name.
+#[test]
+fn quad_cannon_discharge_counters_key_on_authored_weapon() {
+    use crate::game_logic::host_quad_cannon::QUAD_CANNON_GUN;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let run = |name: &str, weapon: &str| -> u32 {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let mut tpl = ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(220.0)
+            .set_primary_weapon_name(weapon);
+        game_logic.templates.insert(name.to_string(), tpl);
+        let id = game_logic
+            .create_object(name, Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("attacker");
+        let enemy = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let (a, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
+            a.attack_target(
+                enemy,
+                attack_events,
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+            );
+            if let Some(w) = a.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.min_range = 0.0;
+            }
+        }
+        for f in 0..10u64 {
+            game_logic.set_current_frame(50 + f);
+            game_logic.update_combat(&[id, enemy], LOGIC_FRAME_TIMESTEP);
+        }
+        game_logic.quad_cannon_residual_ground_fires()
+    };
+    assert!(
+        run("GLAVehicleTechnicalQuadMount", QUAD_CANNON_GUN) > 0,
+        "authored QuadCannonGun discharge must count as a Quad ground fire"
+    );
+    assert_eq!(
+        run("GLAVehicleQuadCannon", "HumveeGun"),
+        0,
+        "Quad-named chassis with authored HumveeGun must not count Quad fires"
+    );
+}
+
+/// hq-2qedt.255: Comanche rocket-pod TERTIARY at create keys on the authored
+/// WeaponSet (Comanche20mmCannonWeapon chassis), not the template name.
+#[test]
+fn comanche_rocket_pods_create_key_on_authored_weapon_set() {
+    use crate::game_logic::host_comanche_rocket_pods::{
+        COMANCHE_PRIMARY_WEAPON, UPGRADE_COMANCHE_ROCKET_PODS,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let run = |name: &str, weapon: &str| -> bool {
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.add_completed_upgrade(UPGRADE_COMANCHE_ROCKET_PODS);
+        game_logic.add_player(player);
+        let mut tpl = ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(220.0)
+            .set_primary_weapon_name(weapon);
+        game_logic.templates.insert(name.to_string(), tpl);
+        let id = game_logic
+            .create_object(name, Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("unit");
+        game_logic.host_object(id).unwrap().tertiary_weapon.is_some()
+    };
+    assert!(
+        run("USA_Gunship", COMANCHE_PRIMARY_WEAPON),
+        "authored Comanche WeaponSet must receive rocket pods TERTIARY"
+    );
+    assert!(
+        !run("AmericaVehicleComanche", "HumveeGun"),
+        "Comanche-named chassis with authored HumveeGun must not receive pods"
+    );
+}
+
+/// hq-2qedt.256: Emperor innate propaganda keys on the authored
+/// PropagandaTowerBehavior + OverlordContain modules, not the template name.
+#[test]
+fn emperor_innate_propaganda_keys_on_authored_modules() {
+    let run = |name: &str, propaganda: bool| -> (bool, bool) {
+        let mut world = GameLogic::new();
+        let tower = if propaganda {
+            "Behavior = PropagandaTowerBehavior ModulePropaganda_04\nRadius = 150.0\nDelayBetweenUpdates = 2000\nHealPercentEachSecond = 1%\nEnd\n"
+        } else {
+            ""
+        };
+        let source = format!(
+            "Object {name}\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = OverlordContain ModuleTag_06\nSlots = 1\nEnd\n{tower}End\n"
+        );
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "emperor.ini".into(),
+                    source,
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        world.add_player(Player::new(1, Team::China, "owner", true));
+        let id = world
+            .create_object_for_player_with_effects_checked(
+                name,
+                1,
+                Vec3::ZERO,
+                None,
+                &mut Default::default(),
+            )
+            .unwrap()
+            .unwrap();
+        let o = world.host_object(id).unwrap();
+        (o.has_overlord_propaganda_addon, o.authors_innate_propaganda_tower())
+    };
+    assert_eq!(
+        run("TestHullWithTower", true),
+        (true, true),
+        "authored innate PropagandaTowerBehavior on OverlordContain host is Emperor-style"
+    );
+    assert_eq!(
+        run("Tank_ChinaTankEmperor", false),
+        (false, false),
+        "Emperor-named hull without authored PropagandaTowerBehavior gets no innate tower"
+    );
+}
+
+/// hq-2qedt.257: Emperor addon-conflict orders key on the authored innate
+/// PropagandaTowerBehavior, not the template name.
+#[test]
+fn emperor_addon_conflicts_key_on_authored_innate_tower() {
+    let run = |name: &str, propaganda: bool| -> (bool, bool) {
+        let mut world = GameLogic::new();
+        let tower = if propaganda {
+            "Behavior = PropagandaTowerBehavior ModulePropaganda_04\nRadius = 150.0\nEnd\n"
+        } else {
+            ""
+        };
+        let source = format!(
+            "Object {name}\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = OverlordContain ModuleTag_06\nSlots = 1\nEnd\n{tower}End\n"
+        );
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "emperor.ini".into(),
+                    source,
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        world.add_player(Player::new(1, Team::China, "owner", true));
+        let id = world
+            .create_object_for_player_with_effects_checked(
+                name,
+                1,
+                Vec3::ZERO,
+                None,
+                &mut Default::default(),
+            )
+            .unwrap()
+            .unwrap();
+        let o = world.host_object_mut(id).unwrap();
+        o.has_overlord_propaganda_addon = true;
+        o.install_overlord_gattling_addon();
+        (o.has_overlord_propaganda_addon, o.has_overlord_propaganda_residual())
+    };
+    assert_eq!(
+        run("TestHullWithTower", true),
+        (true, true),
+        "authored innate tower survives the gattling ConflictsWith clear"
+    );
+    assert_eq!(
+        run("Tank_ChinaTankEmperor", false),
+        (false, false),
+        "Emperor-named hull without authored tower takes the normal conflict clear"
+    );
+}
+
+/// hq-2qedt.258: Patriot dual ground/AA create binding keys on the authored
+/// WeaponSet PRIMARY (PatriotMissileWeapon family), not the template name.
+#[test]
+fn patriot_create_binding_keys_on_authored_weapon_set() {
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_GROUND_DAMAGE, PATRIOT_PRIMARY_WEAPON, PATRIOT_SECONDARY_WEAPON,
+    };
+    crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    let run = |name: &str, primary: &str, secondary: Option<&str>| -> bool {
+        let mut world = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(600.0)
+            .set_primary_weapon_name(primary);
+        if let Some(s) = secondary {
+            tpl.set_secondary_weapon_name(s);
+        }
+        world.templates.insert(name.to_string(), tpl);
+        let id = world
+            .create_object(name, Team::USA, Vec3::ZERO)
+            .expect("defense");
+        let o = world.host_object(id).unwrap();
+        o.weapon
+            .as_ref()
+            .is_some_and(|w| (w.damage - PATRIOT_GROUND_DAMAGE).abs() < 0.01)
+    };
+    assert!(
+        run("TestAuthoredBattery", PATRIOT_PRIMARY_WEAPON, Some(PATRIOT_SECONDARY_WEAPON)),
+        "authored PatriotMissileWeapon WeaponSet binds the Patriot ground primary"
+    );
+    assert!(
+        !run("USA_Patriot", "HumveeGun", None),
+        "Patriot-named hull without authored Patriot WeaponSet gets no Patriot ground peel"
+    );
+}
+
+/// hq-2qedt.259: Stinger Site hive spawn keys on the authored
+/// KINDOF_SPAWNS_ARE_THE_WEAPONS bit, not the template name.
+#[test]
+fn stinger_hive_spawn_keys_on_authored_spawns_are_the_weapons() {
+    let run = |name: &str, hive: bool| -> usize {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
+        let mut site = crate::game_logic::ThingTemplate::new(name);
+        site.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(1000.0);
+        if hive {
+            site.add_kind_of(KindOf::SpawnsAreTheWeapons);
+        }
+        logic.templates.insert(name.into(), site);
+        let mut soldier = crate::game_logic::ThingTemplate::new("GLAInfantryStingerSoldier");
+        soldier
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("GLAInfantryStingerSoldier".into(), soldier);
+        let site_id = logic.create_object(name, Team::GLA, Vec3::ZERO).expect("site");
+        logic
+            .objects
+            .registered_values()
+            .filter(|o| o.producer_id == Some(site_id))
+            .count()
+    };
+    assert_eq!(
+        run("TestHiveDefense", true),
+        3,
+        "authored SPAWNS_ARE_THE_WEAPONS hive spawns its Stinger soldiers"
+    );
+    assert_eq!(
+        run("GLAStingerSite", false),
+        0,
+        "Stinger-named structure without the authored hive KindOf spawns nothing"
+    );
+}
+
+/// hq-2qedt.260: Black Lotus innate hero stealth keys on the authored
+/// SpecialAbilityBlackLotusCaptureBuilding capture power, not the template name.
+#[test]
+fn black_lotus_innate_stealth_keys_on_authored_capture_power() {
+    let run = |name: &str, lotus: bool| -> bool {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, crate::game_logic::Player::new(0, Team::China, "China", true));
+        let mut t = crate::game_logic::ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(200.0);
+        if lotus {
+            t.capture_power = crate::game_logic::CapturePowerKind::BlackLotus;
+        }
+        logic.templates.insert(name.into(), t);
+        let id = logic.create_object(name, Team::China, Vec3::ZERO).expect("lotus");
+        logic.host_object(id).unwrap().innate_stealth
+    };
+    assert!(
+        run("TestHeroCaptureInfantry", true),
+        "authored Black Lotus capture power gets innate hero stealth"
+    );
+    assert!(
+        !run("ChinaInfantryBlackLotus", false),
+        "Lotus-named infantry without the authored capture power gets no hero stealth"
+    );
+}
+
+/// hq-2qedt.261: Pathfinder reveal response (OrderIdleEnemiesToAttackMeUponReveal)
+/// keys on the authored USAPathfinderSniperRifle WeaponSet slot, not the name.
+#[test]
+fn pathfinder_reveal_response_keys_on_authored_sniper_weapon() {
+    let run = |name: &str, weapon: &str| -> bool {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, crate::game_logic::Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .insert(1, crate::game_logic::Player::new(1, Team::China, "China", true));
+        let mut t = crate::game_logic::ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0)
+            .set_primary_weapon_name(weapon);
+        logic.templates.insert(name.into(), t);
+        let mut e = crate::game_logic::ThingTemplate::new("TestChinaGrunt");
+        e.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic.templates.insert("TestChinaGrunt".into(), e);
+        let v = logic.create_object(name, Team::USA, Vec3::ZERO).expect("victim");
+        let eid = logic
+            .create_object("TestChinaGrunt", Team::China, Vec3::new(20.0, 0.0, 0.0))
+            .expect("enemy");
+        logic.host_object_mut(eid).unwrap().vision_range = 300.0;
+        logic.order_idle_enemies_to_attack_on_reveal(v);
+        logic.host_object(eid).unwrap().target == Some(v)
+    };
+    assert!(
+        run("TestSniperInfantry", crate::game_logic::host_pathfinder::PATHFINDER_SNIPER_WEAPON),
+        "authored Pathfinder sniper WeaponSet orders idle enemies on reveal"
+    );
+    assert!(
+        !run("AmericaInfantryPathfinder", "TestNonRetailRifle"),
+        "Pathfinder-named infantry without the authored sniper does not"
+    );
+}
+
+/// hq-2qedt.262: Red Guard / Tank Hunter nationalism residual keys on the
+/// authored PRIMARY weapon (RedguardMachineGun / ChinaInfantryTankHunterMissileLauncher),
+/// not the template name.
+#[test]
+fn red_guard_tank_hunter_nationalism_keys_on_authored_weapon() {
+    let make = |name: &str, weapon: &str| -> (GameLogic, crate::game_logic::ObjectId) {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, crate::game_logic::Player::new(0, Team::China, "China", true));
+        let mut t = crate::game_logic::ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0)
+            .set_primary_weapon_name(weapon);
+        logic.templates.insert(name.into(), t);
+        let id = logic.create_object(name, Team::China, Vec3::ZERO).expect("unit");
+        (logic, id)
+    };
+    use crate::game_logic::host_red_guard::REDGUARD_MACHINE_GUN;
+    use crate::game_logic::host_tank_hunter::TANK_HUNTER_MISSILE_WEAPON;
+
+    let (mut l, id) = make("TestAuthoredRifleman", REDGUARD_MACHINE_GUN);
+    assert!(
+        l.apply_red_guard_nationalism_upgrade(id),
+        "authored RedguardMachineGun receives Red Guard nationalism"
+    );
+    let (mut l, id) = make("ChinaInfantryRedguard", "TestNonRetailRifle");
+    assert!(
+        !l.apply_red_guard_nationalism_upgrade(id),
+        "Red Guard-named infantry without authored machine gun does not"
+    );
+    let (mut l, id) = make("TestAuthoredRocketeer", TANK_HUNTER_MISSILE_WEAPON);
+    assert!(
+        l.apply_tank_hunter_nationalism_upgrade(id),
+        "authored Tank Hunter launcher receives Tank Hunter nationalism"
+    );
+    let (mut l, id) = make("ChinaInfantryTankHunter", "TestNonRetailRifle");
+    assert!(
+        !l.apply_tank_hunter_nationalism_upgrade(id),
+        "Tank Hunter-named infantry without authored launcher does not"
+    );
+}

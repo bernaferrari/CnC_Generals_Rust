@@ -507,7 +507,9 @@ pub(super) fn ensure_test_troop_crawler_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(240.0)
-        .set_cost(1400, 0);
+        .set_cost(1400, 0)
+        // Retail WeaponSet PRIMARY (hq-2qedt.191: object_hit keys on it).
+        .set_primary_weapon_name(crate::game_logic::host_troop_crawler::TROOP_CRAWLER_ASSAULT_WEAPON);
     crawler.sight_range = 175.0;
     game_logic
         .templates

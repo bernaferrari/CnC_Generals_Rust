@@ -386,7 +386,7 @@ impl GameLogic {
         let template_name = attacker.template_name.clone();
         let is_gattling = is_authored_gattling_building(attacker.weapon_name_for_slot(0));
         let is_stinger = is_stinger_site_structure(&template_name);
-        let is_patriot = is_patriot_battery_structure(&template_name);
+        let is_patriot = crate::game_logic::host_base_defense::authors_patriot_weapon_set(attacker);
         let dual_slot = is_gattling || is_dual_slot_base_defense(&template_name);
         // SPAWNS_ARE_THE_WEAPONS residual: Stinger Site cannot fire with 0 soldiers.
         if is_stinger {
@@ -576,11 +576,13 @@ impl GameLogic {
         // America Fire Base residual: dual-radius howitzer splash owns damage.
         // ScatterRadiusVsInfantry residual closed via shell aim offset / instant impact.
         // Fail-closed: not full ScaleWeaponSpeed lob matrix.
-        // Keyed on the authored howitzer weapon, not the template name (hq-2qedt.213).
-        let is_fire_base = self.objects.get(&defense_id).is_some_and(|d| {
-            d.selected_weapon_name(slot)
-                == Some(crate::game_logic::host_fire_base::FIRE_BASE_HOWITZER_WEAPON)
-        });
+        // Keyed on the authored WeaponSet weapon for this slot, not the
+        // template name (hq-2qedt.162 / hq-2qedt.213; C++ fires whatever weapon is authored).
+        let is_fire_base = self
+            .objects
+            .get(&defense_id)
+            .and_then(|a| a.authored_weapon_name_for_slot(slot))
+            .is_some_and(|n| n == crate::game_logic::host_fire_base::FIRE_BASE_HOWITZER_WEAPON);
         let mut destroyed = false;
         if is_fire_base {
             let impact = self

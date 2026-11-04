@@ -73,7 +73,7 @@ fn fixture(plan: Option<HostBattlePlan>) -> Fixture {
     assert_eq!(initial.owner_player_id, Some(0));
     assert!(initial.is_constructed() && initial.is_alive());
     assert!(initial.weapon.is_none());
-    assert!(!initial.turret_enabled);
+    assert!(!initial.turret_ai.turret_enabled);
     assert_eq!(initial.weapon_discharge_marker().sequence, 0);
     if let Some(plan) = plan {
         assert!(logic.activate_battle_plan(0, plan, Some(center)));
@@ -88,10 +88,10 @@ fn fixture(plan: Option<HostBattlePlan>) -> Fixture {
         assert_eq!(enemy_anchor.get_position(), Vec3::new(2000.0, 0.0, 0.0));
         assert_eq!(enemy_anchor.health.current, 1000.0);
         assert_eq!(object.weapon_discharge_marker().sequence, 0);
-        assert!(object.target.is_none() && object.turret_target_id.is_none());
+        assert!(object.target.is_none() && object.turret_ai.turret_target_id.is_none());
         if processed_frame < 210 || plan != Some(HostBattlePlan::Bombardment) {
             assert!(object.weapon.is_none(), "gun appeared at {processed_frame}");
-            assert!(!object.turret_enabled);
+            assert!(!object.turret_ai.turret_enabled);
         }
     }
     if let Some(plan) = plan {
@@ -128,7 +128,7 @@ fn assert_center_admission(f: &Fixture, armed: bool) {
     assert_eq!(center.get_orientation(), 0.0);
     assert!(center.is_alive() && center.is_constructed() && !center.is_disabled());
     assert!(!f.logic.skirmish_ai_auto_engage_paused(f.center));
-    assert_eq!(center.turret_enabled, armed);
+    assert_eq!(center.turret_ai.turret_enabled, armed);
     assert_eq!(center.weapon.is_some(), armed);
     if armed {
         let weapon = center.weapon.as_ref().unwrap();
@@ -142,7 +142,7 @@ fn assert_center_admission(f: &Fixture, armed: bool) {
             weapon,
             f.logic.get_frame() as f32 / 30.0
         ));
-        assert!((center.turret_turn_rate_rad.to_degrees() - 2.0).abs() < 0.0001);
+        assert!((center.turret_ai.turret_turn_rate_rad.to_degrees() - 2.0).abs() < 0.0001);
     }
     let anchor = f.logic.host_object(f.anchor).unwrap();
     assert_eq!(anchor.owner_player_id, Some(1));
@@ -165,8 +165,8 @@ fn target(f: &mut Fixture, template: &str, distance: f32) -> ObjectId {
         f.logic.object_relationship(center, object),
         Relationship::Enemies
     );
-    assert!(center.target.is_none() && center.turret_target_id.is_none());
-    assert!(!center.turret_mood_target);
+    assert!(center.target.is_none() && center.turret_ai.turret_target_id.is_none());
+    assert!(!center.turret_ai.turret_mood_target);
     target
 }
 
@@ -185,11 +185,11 @@ fn explicit_attack_before_first_mood_tick(f: &mut Fixture, target: ObjectId) {
     let center = f.logic.host_object(f.center).unwrap();
     assert_eq!(center.ai_state(), AIState::Attacking);
     assert_eq!(center.target, Some(target));
-    assert_eq!(center.turret_target_id, Some(target));
+    assert_eq!(center.turret_ai.turret_target_id, Some(target));
     assert_eq!(center.attack_substate(), AttackSubState::AimAtTarget);
-    assert_eq!(center.turret_substate, TurretSubState::Aim);
+    assert_eq!(center.turret_ai.turret_substate, TurretSubState::Aim);
     assert!(center.status.attacking && center.status.is_aiming_weapon);
-    assert!(!center.turret_mood_target);
+    assert!(!center.turret_ai.turret_mood_target);
     assert_eq!(center.weapon_discharge_marker().sequence, 0);
 }
 
@@ -207,7 +207,7 @@ struct Outcome {
 fn observe(f: &mut Fixture, target: ObjectId, label: &str) -> Outcome {
     let mut outcome = Outcome::default();
     let initial_health = f.logic.host_object(target).unwrap().health.current;
-    let mut previous_yaw = f.logic.host_object(f.center).unwrap().turret_angle_deg;
+    let mut previous_yaw = f.logic.host_object(f.center).unwrap().turret_ai.turret_angle_deg;
     for tick in 0..=OBSERVATION_FRAMES {
         let processed_frame = if tick == 0 {
             None
@@ -220,19 +220,19 @@ fn observe(f: &mut Fixture, target: ObjectId, label: &str) -> Outcome {
         let center = f.logic.host_object(f.center).unwrap();
         let victim = f.logic.host_object(target).unwrap();
         let yaw_step =
-            Object::normalize_angle_rad((center.turret_angle_deg - previous_yaw).to_radians())
+            Object::normalize_angle_rad((center.turret_ai.turret_angle_deg - previous_yaw).to_radians())
                 .to_degrees()
                 .abs();
-        previous_yaw = center.turret_angle_deg;
+        previous_yaw = center.turret_ai.turret_angle_deg;
         if tick != 0 {
             outcome.maximum_yaw_step = outcome.maximum_yaw_step.max(yaw_step);
-            if yaw_step > center.turret_turn_rate_rad.to_degrees() + 0.001 {
+            if yaw_step > center.turret_ai.turret_turn_rate_rad.to_degrees() + 0.001 {
                 outcome.oversized_yaw_frames.push(processed_frame.unwrap());
             }
         }
         outcome.sequence = center.weapon_discharge_marker().sequence;
         outcome.health = victim.health.current;
-        if center.turret_mood_target && outcome.first_mood_frame.is_none() {
+        if center.turret_ai.turret_mood_target && outcome.first_mood_frame.is_none() {
             outcome.first_mood_frame = processed_frame;
         }
         if outcome.sequence > 0 && outcome.first_discharge_frame.is_none() {
@@ -260,15 +260,15 @@ fn observe(f: &mut Fixture, target: ObjectId, label: &str) -> Outcome {
                 "players_alive":[f.logic.player_is_alive(0),f.logic.player_is_alive(1)],
                 "relationship":format!("{:?}", f.logic.object_relationship(center,victim)),
                 "positions":[center.get_position().to_array(),victim.get_position().to_array()],
-                "body_yaw":center.get_orientation(),"yaw":center.turret_angle_deg,"yaw_step":yaw_step,
+                "body_yaw":center.get_orientation(),"yaw":center.turret_ai.turret_angle_deg,"yaw_step":yaw_step,
                 "desired_yaw":center.relative_angle_2d_to(victim.get_position()).to_degrees(),
-                "pitch":center.turret_pitch_deg,"mood":center.turret_mood_target,
-                "target":center.target.map(|id|id.0),"turret_target":center.turret_target_id.map(|id|id.0),
+                "pitch":center.turret_ai.turret_pitch_deg,"mood":center.turret_ai.turret_mood_target,
+                "target":center.target.map(|id|id.0),"turret_target":center.turret_ai.turret_target_id.map(|id|id.0),
                 "ai":format!("{:?}",center.ai_state()),"attack_substate":format!("{:?}",center.attack_substate()),
-                "turret_substate":format!("{:?}",center.turret_substate),
+                "turret_substate":format!("{:?}",center.turret_ai.turret_substate),
                 "attacking":center.status.attacking,"aiming":center.status.is_aiming_weapon,
                 "firing":center.status.is_firing_weapon,"disabled":center.is_disabled(),
-                "enabled":center.turret_enabled,"can_attack":center.can_attack(),
+                "enabled":center.turret_ai.turret_enabled,"can_attack":center.can_attack(),
                 "slot":center.selected_weapon_slot(),"weapon":center.weapon.as_ref().map(|w|json!({
                     "damage":w.damage,"minimum":w.min_range,"range":w.range,"last_fire":w.last_fire_time,
                     "speed":w.projectile_speed,"ready":Object::weapon_ready(w,f.logic.get_frame() as f32/30.0)})),
@@ -287,9 +287,9 @@ fn observe(f: &mut Fixture, target: ObjectId, label: &str) -> Outcome {
         {
             assert_eq!(center.ai_state(), AIState::Attacking);
             assert_eq!(center.target, Some(target));
-            assert_eq!(center.turret_target_id, Some(target));
+            assert_eq!(center.turret_ai.turret_target_id, Some(target));
             assert!(
-                !center.turret_mood_target,
+                !center.turret_ai.turret_mood_target,
                 "explicit control became mood-owned"
             );
         }
@@ -425,28 +425,28 @@ fn idle_acquisition_sets_goal_without_turning_until_next_turret_update() {
     let mut f = fixture(Some(HostBattlePlan::Bombardment));
     let victim = target(&mut f, GROUND, 150.0);
     let initial = f.logic.host_object(f.center).unwrap();
-    let pose = (initial.turret_angle_deg, initial.turret_pitch_deg);
-    let rate = initial.turret_turn_rate_rad.to_degrees();
+    let pose = (initial.turret_ai.turret_angle_deg, initial.turret_ai.turret_pitch_deg);
+    let rate = initial.turret_ai.turret_turn_rate_rad.to_degrees();
     f.logic.update();
     let acquired = f.logic.host_object(f.center).unwrap();
     println!(
         "STRATEGY_ACQUISITION {}",
         json!({
-            "processed_frame":211,"before":pose,"after":[acquired.turret_angle_deg,acquired.turret_pitch_deg],
-            "target":acquired.target.map(|id|id.0),"turret_target":acquired.turret_target_id.map(|id|id.0),
-            "mood":acquired.turret_mood_target,"substate":format!("{:?}",acquired.turret_substate)
+            "processed_frame":211,"before":pose,"after":[acquired.turret_ai.turret_angle_deg,acquired.turret_ai.turret_pitch_deg],
+            "target":acquired.target.map(|id|id.0),"turret_target":acquired.turret_ai.turret_target_id.map(|id|id.0),
+            "mood":acquired.turret_ai.turret_mood_target,"substate":format!("{:?}",acquired.turret_ai.turret_substate)
         })
     );
-    assert!(acquired.turret_mood_target);
+    assert!(acquired.turret_ai.turret_mood_target);
     assert_eq!(acquired.target, Some(victim));
-    assert_eq!(acquired.turret_target_id, Some(victim));
-    assert_eq!(acquired.turret_substate, TurretSubState::Aim);
-    assert_eq!((acquired.turret_angle_deg, acquired.turret_pitch_deg), pose);
+    assert_eq!(acquired.turret_ai.turret_target_id, Some(victim));
+    assert_eq!(acquired.turret_ai.turret_substate, TurretSubState::Aim);
+    assert_eq!((acquired.turret_ai.turret_angle_deg, acquired.turret_ai.turret_pitch_deg), pose);
     assert_eq!(acquired.weapon_discharge_marker().sequence, 0);
     f.logic.update();
     let aiming = f.logic.host_object(f.center).unwrap();
-    assert!((aiming.turret_angle_deg - pose.0 - rate).abs() < 0.001);
-    assert_eq!(aiming.turret_pitch_deg, pose.1);
+    assert!((aiming.turret_ai.turret_angle_deg - pose.0 - rate).abs() < 0.001);
+    assert_eq!(aiming.turret_ai.turret_pitch_deg, pose.1);
     assert_eq!(aiming.weapon_discharge_marker().sequence, 0);
 }
 
@@ -455,9 +455,9 @@ fn explicit_takeover_after_mood(replace_goal: bool) {
     let original = target(&mut f, GROUND, 150.0);
     f.logic.update();
     let acquired = f.logic.host_object(f.center).unwrap();
-    assert!(acquired.turret_mood_target);
+    assert!(acquired.turret_ai.turret_mood_target);
     assert_eq!(acquired.target, Some(original));
-    assert_eq!(acquired.turret_target_id, Some(original));
+    assert_eq!(acquired.turret_ai.turret_target_id, Some(original));
     assert_eq!(acquired.weapon_discharge_marker().sequence, 0);
     let victim = if replace_goal {
         let id = f
@@ -581,9 +581,9 @@ fn generic_aim_control(mode: GenericAimControl) {
         let mut object = Object::new(template, ObjectId(100), Team::USA);
         object.owner_player_id = Some(0);
         if mode == GenericAimControl::ZeroTurn {
-            object.turret_enabled = true;
-            object.turret_turn_rate_rad = 0.0;
-            object.turret_angle_deg = 0.0;
+            object.turret_ai.turret_enabled = true;
+            object.turret_ai.turret_turn_rate_rad = 0.0;
+            object.turret_ai.turret_angle_deg = 0.0;
             assert!(object.replace_weapon_set_slot(0, Some(weapon)));
             object.set_active_weapon_slot(0);
         } else {
@@ -647,14 +647,14 @@ fn generic_aim_control(mode: GenericAimControl) {
     assert!(source.is_within_attack_range_pos_for_slot(slot, target.get_position()));
     assert!(!logic.out_of_weapon_range_object(attacker, victim));
     assert_eq!(source.ai_state(), AIState::Idle);
-    assert!(source.target.is_none() && source.turret_target_id.is_none());
+    assert!(source.target.is_none() && source.turret_ai.turret_target_id.is_none());
     assert_eq!(source.owner_player_id, Some(0));
     assert_eq!(source.get_position(), Vec3::ZERO);
     assert_eq!(source.get_orientation(), 0.0);
     assert!(source.is_alive() && source.is_constructed() && !source.is_disabled());
-    assert_eq!(source.turret_enabled, mode != GenericAimControl::NoTurret);
+    assert_eq!(source.turret_ai.turret_enabled, mode != GenericAimControl::NoTurret);
     if mode == GenericAimControl::ZeroTurn {
-        assert_eq!(source.turret_turn_rate_rad, 0.0);
+        assert_eq!(source.turret_ai.turret_turn_rate_rad, 0.0);
         assert_eq!(source.selected_weapon_slot(), Some(0));
         assert!(source.is_weapon_slot_on_turret(0));
         assert_eq!(source.weapon_slot(0).unwrap().damage, 25.0);
@@ -680,7 +680,7 @@ fn generic_aim_control(mode: GenericAimControl) {
         assert_eq!(admitted.weapon_slot(1).unwrap().damage, 25.0);
     }
     if mode == GenericAimControl::ZeroTurn {
-        assert_eq!(admitted.turret_turn_rate_rad, 0.0);
+        assert_eq!(admitted.turret_ai.turret_turn_rate_rad, 0.0);
     }
     let slot = admitted.selected_weapon_slot().unwrap();
     assert_eq!(
@@ -703,8 +703,8 @@ fn generic_aim_control(mode: GenericAimControl) {
     assert_eq!(admitted.target, Some(victim));
     assert!(admitted.status.is_aiming_weapon);
     assert!(!logic.out_of_weapon_range_object(attacker, victim));
-    let authored_rate = admitted.turret_turn_rate_rad.to_degrees();
-    let mut prior_yaw = admitted.turret_angle_deg;
+    let authored_rate = admitted.turret_ai.turret_turn_rate_rad.to_degrees();
+    let mut prior_yaw = admitted.turret_ai.turret_angle_deg;
     let mut maximum_yaw_step = 0.0_f32;
     let mut maximum_body_turn = 0.0_f32;
     let mut first_shot = None;
@@ -714,10 +714,10 @@ fn generic_aim_control(mode: GenericAimControl) {
         logic.update();
         let source = logic.host_object(attacker).unwrap();
         let target = logic.host_object(victim).unwrap();
-        let step = Object::normalize_angle_rad((source.turret_angle_deg - prior_yaw).to_radians())
+        let step = Object::normalize_angle_rad((source.turret_ai.turret_angle_deg - prior_yaw).to_radians())
             .to_degrees()
             .abs();
-        prior_yaw = source.turret_angle_deg;
+        prior_yaw = source.turret_ai.turret_angle_deg;
         maximum_yaw_step = maximum_yaw_step.max(step);
         maximum_body_turn = maximum_body_turn.max(source.get_orientation().abs());
         if source.weapon_discharge_marker().sequence > 0 && first_shot.is_none() {
@@ -730,12 +730,12 @@ fn generic_aim_control(mode: GenericAimControl) {
             "GENERIC_AIM_TRACE {}",
             json!({"mode":format!("{mode:?}"),"frame":frame,
             "owner":source.owner_player_id,"position":source.get_position().to_array(),
-            "body_yaw":source.get_orientation(),"turret_yaw":source.turret_angle_deg,"yaw_step":step,
+            "body_yaw":source.get_orientation(),"turret_yaw":source.turret_ai.turret_angle_deg,"yaw_step":step,
             "rate":authored_rate,"slot":source.selected_weapon_slot(),"slot_on_turret":source.is_weapon_slot_on_turret(slot),
-            "target":source.target.map(|id|id.0),"turret_target":source.turret_target_id.map(|id|id.0),
-            "mood":source.turret_mood_target,"sequence":source.weapon_discharge_marker().sequence,
+            "target":source.target.map(|id|id.0),"turret_target":source.turret_ai.turret_target_id.map(|id|id.0),
+            "mood":source.turret_ai.turret_mood_target,"sequence":source.weapon_discharge_marker().sequence,
             "health":target.health.current,"attack_state":format!("{:?}",source.attack_substate()),
-            "turret_state":format!("{:?}",source.turret_substate)})
+            "turret_state":format!("{:?}",source.turret_ai.turret_substate)})
         );
         assert_eq!(source.owner_player_id, Some(0));
         assert_eq!(target.owner_player_id, Some(1));

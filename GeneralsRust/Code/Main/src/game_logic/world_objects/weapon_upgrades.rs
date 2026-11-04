@@ -1027,8 +1027,6 @@ impl GameLogic {
             UPGRADE_NATIONALISM, is_battlemaster_template, is_china_horde_update_unit,
         };
         use crate::game_logic::host_minigunner::is_minigunner_template;
-        use crate::game_logic::host_red_guard::is_red_guard_template;
-        use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
 
         let ids: Vec<(ObjectId, u8)> = self
             .objects
@@ -1037,9 +1035,9 @@ impl GameLogic {
             .filter_map(|(id, o)| {
                 if is_battlemaster_template(&o.template_name) {
                     Some((*id, 0u8))
-                } else if is_red_guard_template(&o.template_name) {
+                } else if o.authors_red_guard_machine_gun() {
                     Some((*id, 1))
-                } else if is_tank_hunter_template(&o.template_name) {
+                } else if o.authors_tank_hunter_missile() {
                     Some((*id, 2))
                 } else if is_minigunner_template(&o.template_name) {
                     Some((*id, 3))
@@ -1619,7 +1617,7 @@ impl GameLogic {
     ) -> u32 {
         use crate::game_logic::host_comanche_rocket_pods::{
             UPGRADE_COMANCHE_ROCKET_PODS, comanche_antitank_weapon, comanche_rocket_pod_weapon,
-            is_comanche_template,
+            carries_comanche_weapon_set,
         };
 
         let tertiary = comanche_rocket_pod_weapon();
@@ -1628,7 +1626,7 @@ impl GameLogic {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
-            if !is_comanche_template(&obj.template_name) {
+            if !carries_comanche_weapon_set(obj.authored_weapon_name_for_slot(0)) {
                 continue;
             }
             // Preserve the retail anti-tank SECONDARY.  Rebind it only when

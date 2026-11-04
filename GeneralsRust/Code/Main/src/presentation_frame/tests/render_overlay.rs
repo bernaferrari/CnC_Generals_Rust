@@ -1263,7 +1263,7 @@ fn presentation_freezes_transport_kind_damage_residual() {
         obj.has_overlord_gattling_addon = true;
         obj.has_overlord_propaganda_addon = true;
         obj.demo_suicided_detonating = true;
-        obj.turret_holding = true;
+        obj.turret_ai.turret_holding = true;
         obj.last_damage_source = Some(src_id);
     }
     let frame = PresentationFrame::build_from_logic(&mut logic, 0);
@@ -1429,9 +1429,9 @@ fn presentation_freezes_turret_and_weapon_bonus_residual() {
         .expect("id");
     {
         let obj = logic.host_object_mut(id).expect("obj");
-        obj.turret_angle_deg = 33.0;
-        obj.turret_pitch_deg = 12.0;
-        obj.turret_idle_scanning = true;
+        obj.turret_ai.turret_angle_deg = 33.0;
+        obj.turret_ai.turret_pitch_deg = 12.0;
+        obj.turret_ai.turret_idle_scanning = true;
         obj.weapon_bonus_enthusiastic = true;
         obj.weapon_bonus_horde = true;
         obj.weapon_bonus_frenzy = true;

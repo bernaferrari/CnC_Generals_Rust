@@ -1323,7 +1323,7 @@ impl GameLogic {
                 };
                 (
                     u.target == Some(from_id),
-                    u.turret_target_id == Some(from_id),
+                    u.turret_ai.turret_target_id == Some(from_id),
                 )
             };
             if !had_target && !had_turret {
@@ -1342,17 +1342,17 @@ impl GameLogic {
                 // Turret aim residual stays host (not AI decision channel).
                 let initial_team = self.objects.get(&to_id).map(|victim| victim.team);
                 if let Some(u) = self.objects.get_mut(&id) {
-                    u.turret_target_id = Some(to_id);
+                    u.turret_ai.turret_target_id = Some(to_id);
                     u.turret_runtime.target_pos = None;
                     u.turret_runtime.victim_team = initial_team;
-                    u.turret_force_attacking = true;
+                    u.turret_ai.turret_force_attacking = true;
                     if matches!(
-                        u.turret_substate,
+                        u.turret_ai.turret_substate,
                         crate::game_logic::object::TurretSubState::Idle
                             | crate::game_logic::object::TurretSubState::Hold
                             | crate::game_logic::object::TurretSubState::Recenter
                     ) {
-                        u.turret_substate = crate::game_logic::object::TurretSubState::Aim;
+                        u.turret_ai.turret_substate = crate::game_logic::object::TurretSubState::Aim;
                     }
                 }
             }

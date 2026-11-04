@@ -30,7 +30,7 @@ fn idle_scan_world(seed: u32) -> (GameLogic, generals_main::game_logic::ObjectId
     world
         .host_object_mut(id)
         .expect("created turret")
-        .turret_enabled = true;
+        .turret_ai.turret_enabled = true;
     world.set_turret_idle_scan_params(id, 0.2, 0.8, 1, 1);
     (world, id)
 }
@@ -71,21 +71,21 @@ fn ordinary_updates_keep_same_id_turret_scan_owned_by_each_world() {
 
     let actual = world.host_object(id).unwrap();
     let foreign = peer.host_object(peer_id).unwrap();
-    assert_ne!(actual.turret_idle_scan_desired_angle_deg, 0.0);
+    assert_ne!(actual.turret_ai.turret_idle_scan_desired_angle_deg, 0.0);
     assert_eq!(
-        actual.turret_idle_scan_desired_angle_deg,
+        actual.turret_ai.turret_idle_scan_desired_angle_deg,
         control
             .host_object(control_id)
             .unwrap()
-            .turret_idle_scan_desired_angle_deg,
+            .turret_ai.turret_idle_scan_desired_angle_deg,
         "peer simulation must not perturb the receiving world scan"
     );
     assert_eq!(
-        foreign.turret_idle_scan_desired_angle_deg,
+        foreign.turret_ai.turret_idle_scan_desired_angle_deg,
         control_peer
             .host_object(control_peer_id)
             .unwrap()
-            .turret_idle_scan_desired_angle_deg,
+            .turret_ai.turret_idle_scan_desired_angle_deg,
         "owner simulation must not perturb the peer world scan"
     );
     assert_eq!(

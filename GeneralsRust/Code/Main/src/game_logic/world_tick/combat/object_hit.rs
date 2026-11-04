@@ -700,12 +700,16 @@ impl GameLogic {
                             effects,
                         )
                     };
-                } else if self.objects.get(&attacker_id).is_some_and(|a| {
-                    // USA Tomahawk residual keyed on the authored weapon, not the template name
-                    // (hq-2qedt.212).
+                } else if {
+                    // USA Tomahawk dual-radius missile: keyed on the authored
+                    // WeaponSet weapon for this slot, not the template name
+                    // (hq-2qedt.122 / hq-2qedt.212).
                     use crate::game_logic::host_tomahawk::TOMAHAWK_MISSILE_WEAPON;
-                    matches!(a.selected_weapon_name(slot), Some(TOMAHAWK_MISSILE_WEAPON))
-                }) {
+                    self.objects
+                        .get(&attacker_id)
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .is_some_and(|n| n == TOMAHAWK_MISSILE_WEAPON)
+                } {
                     let impact = target_position;
                     let from = self
                         .objects
@@ -803,15 +807,16 @@ impl GameLogic {
                             effects,
                         )
                     };
-                } else if self.objects.get(&attacker_id).is_some_and(|a| {
-                    // America Fire Base residual keyed on the authored weapon, not the template name
-                    // (hq-2qedt.213).
+                } else if {
+                    // America Fire Base howitzer splash: keyed on the authored
+                    // WeaponSet weapon for this slot, not the template name
+                    // (hq-2qedt.134 / hq-2qedt.213).
                     use crate::game_logic::host_fire_base::FIRE_BASE_HOWITZER_WEAPON;
-                    matches!(
-                        a.selected_weapon_name(slot),
-                        Some(FIRE_BASE_HOWITZER_WEAPON)
-                    )
-                }) {
+                    self.objects
+                        .get(&attacker_id)
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .is_some_and(|n| n == FIRE_BASE_HOWITZER_WEAPON)
+                } {
                     let impact = target_position;
                     let from = self
                         .objects
@@ -960,7 +965,7 @@ impl GameLogic {
                     }
                 }) {
                     use crate::game_logic::host_usa_tanks::{
-                        CRUSADER_WEAPON_SPEED, PALADIN_WEAPON_SPEED,
+                        CRUSADER_WEAPON_SPEED, PALADIN_WEAPON_SPEED, is_paladin_template,
                     };
                     let impact = target_position;
                     let from = self
@@ -968,17 +973,31 @@ impl GameLogic {
                         .get(&attacker_id)
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
-                    let speed = self
+                    let (speed, is_pal) = self
                         .objects
                         .get(&attacker_id)
-                        .and_then(|a| a.weapon.as_ref())
-                        .map(|w| w.projectile_speed)
-                        .filter(|s| *s > 1.0)
-                        .unwrap_or(if pal {
-                            PALADIN_WEAPON_SPEED
-                        } else {
-                            CRUSADER_WEAPON_SPEED
-                        });
+                        .map(|a| {
+                            let pal = is_paladin_template(&a.template_name);
+                            // Authored WeaponSet speed is per-frame (C++
+                            // WeaponTemplate::getWeaponSpeed); the shell
+                            // flight helper takes dist/sec (hq-2qedt.104).
+                            let spd = a
+                                .weapon
+                                .as_ref()
+                                .map(|w| {
+                                    w.projectile_speed
+                                        * crate::game_logic::host_usa_tanks::USA_TANKS_LOGIC_FPS
+                                })
+                                .filter(|s| *s > 1.0)
+                                .unwrap_or(if pal {
+                                    PALADIN_WEAPON_SPEED
+                                } else {
+                                    CRUSADER_WEAPON_SPEED
+                                });
+                            (spd, pal)
+                        })
+                        .unwrap_or((CRUSADER_WEAPON_SPEED, false));
+                    let _ = is_pal;
                     let spawned = self
                         .spawn_usa_tank_shell_projectile_with_effects(
                             attacker_id,

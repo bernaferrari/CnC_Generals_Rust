@@ -124,6 +124,26 @@ pub(super) fn turret_spawn_for_thing_template(
         .unwrap_or_else(TurretSpawnSpec::absent)
 }
 
+/// C++ `AIUpdateModuleData::m_turretData[TURRET_ALT]` (AIUpdate.cpp:112-113):
+/// second TurretAI spawn spec when both `Turret` and `AltTurret` are authored.
+/// A lone `AltTurret` already feeds the primary slot above, so it stays one-slot.
+pub(super) fn turret_spawn_alt_for_thing_template(
+    template: &crate::game_logic::ThingTemplate,
+) -> Option<TurretSpawnSpec> {
+    let ai = template
+        .receiving_client_template
+        .as_ref()
+        .and_then(|source| source.receiving_ai_base_data())?;
+    alt_turret_spawn_from_ai(ai)
+}
+
+fn alt_turret_spawn_from_ai(
+    ai: &gamelogic::object::update::ai_update_interface::AIUpdateModuleData,
+) -> Option<TurretSpawnSpec> {
+    ai.turret_primary()?;
+    ai.turret_secondary().map(turret_spawn_from_typed_data)
+}
+
 fn turret_spawn_from_typed_data(
     data: &gamelogic::object::update::ai_update_interface::TurretAIData,
 ) -> TurretSpawnSpec {
@@ -244,7 +264,7 @@ fn parse_turret_module(module: &BehaviorModuleDefinition) -> TurretSpawnSpec {
 
 fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
     use crate::game_logic::host_base_defense::{
-        is_gattling_cannon_structure, is_patriot_battery_structure,
+        is_gattling_cannon_structure,
     };
     use crate::game_logic::host_battlemaster::BATTLE_MASTER_TURRET_TURN_RATE;
     use crate::game_logic::host_gattling_tank::is_gattling_tank_template;
@@ -285,6 +305,9 @@ fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
         return spec;
     }
 
+    // Tomahawk turret comes from the authored AIUpdate Turret block
+    // (hq-2qedt.120); no name peel here.
+
     if is_humvee_template(template_name) {
         let mut spec = TurretSpawnSpec::enabled_with_turn_rate(HUMVEE_TURRET_TURN_RATE);
         spec.recenter_frames = HUMVEE_TURRET_RECENTER_FRAMES;
@@ -311,10 +334,6 @@ fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
 
     if is_tunnel_network_name(template_name) {
         return TurretSpawnSpec::enabled_with_turn_rate(TUNNEL_NETWORK_TURRET_TURN_RATE);
-    }
-
-    if is_patriot_battery_structure(template_name) {
-        return TurretSpawnSpec::enabled_with_turn_rate(USA_TANK_TURRET_TURN_RATE);
     }
 
     if is_gattling_cannon_structure(template_name) || is_gattling_tank_template(template_name) {
@@ -520,5 +539,36 @@ mod tests {
         // Explicit honesty path remains available for residual callers.
         assert!(turret_spawn_for_template("AmericaTankCrusader").has_turret);
     }
-}
 
+    #[test]
+    fn alt_turret_block_seeds_second_host_turret_slot() {
+        use gamelogic::object::update::ai_update_interface::{AIUpdateModuleData, TurretAIData};
+        let mut ai = AIUpdateModuleData::default();
+        let mut primary = TurretAIData::default();
+        primary.turn_rate = 0.1;
+        ai.set_turret_primary(primary);
+        assert!(alt_turret_spawn_from_ai(&ai).is_none(), "primary-only stays one-slot");
+
+        let mut alt = TurretAIData::default();
+        alt.turn_rate = 0.25;
+        alt.natural_turret_angle = 0.5;
+        ai.set_turret_secondary(alt);
+        let spec = alt_turret_spawn_from_ai(&ai).expect("AltTurret seeds slot 1");
+        let extra = crate::game_logic::object::turret_runtime::HostTurretExtra::from_spawn(&spec);
+        assert!(extra.has_authored_turret);
+        assert_eq!(spec.turn_rate_rad, 0.25);
+        assert!((spec.natural_angle_deg - 0.5f32.to_degrees()).abs() < 1e-4);
+        // Primary slot unchanged: still resolved from the Turret block.
+        let mut only_alt = AIUpdateModuleData::default();
+        only_alt.set_turret_secondary(TurretAIData::default());
+        assert!(alt_turret_spawn_from_ai(&only_alt).is_none());
+    }
+
+    /// hq-2qedt.120: C++ TurretAI facts come from the authored AIUpdate
+    /// Turret block (AIUpdate.cpp parse), never a template-name table. The
+    /// name-honesty table must not invent a Tomahawk turret.
+    #[test]
+    fn tomahawk_name_does_not_invent_turret_spawn() {
+        assert!(!turret_spawn_for_template("AmericaVehicleTomahawk").has_turret);
+    }
+}

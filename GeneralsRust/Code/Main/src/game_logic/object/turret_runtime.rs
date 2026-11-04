@@ -134,7 +134,7 @@ pub(crate) fn seed_host_turret_extra(e: &mut HostTurretExtra, turn_rate: f32) {
 
 impl super::Object {
     pub(crate) fn turret_target_kind(&self) -> HostTurretTargetKind {
-        if self.turret_target_id.is_some() {
+        if self.turret_ai.turret_target_id.is_some() {
             HostTurretTargetKind::Object
         } else if self.turret_runtime.target_pos.is_some() {
             HostTurretTargetKind::Position

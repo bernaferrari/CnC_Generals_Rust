@@ -2421,6 +2421,72 @@ fn fire_spread_lights_effectively_dead_neighbor_like_cpp() {
 }
 
 #[test]
+fn fire_spread_skips_destroyed_and_aflame_neighbours_and_isolates_peer_world() {
+    // hq-2qedt.42: FireSpreadUpdate.cpp:118 getClosestObject +
+    // PartitionFilterFlammable::allow (FireSpreadUpdate.cpp:36-48) admits only
+    // objects whose FlammableUpdate wouldIgnite() (false once AFLAME/BURNED);
+    // destroyed objects have left the partition. No isAlive check. Same IDs in
+    // a peer world must be untouched.
+    use crate::game_logic::host_fire_spread::TREE_SPREAD_TRY_RANGE;
+
+    let build = || {
+        let mut logic = GameLogic::new();
+        for name in ["DogwoodTreeA", "DogwoodTreeB"] {
+            let mut tpl = crate::game_logic::ThingTemplate::new(name);
+            tpl.set_health(50.0);
+            logic.templates.insert(name.to_string(), tpl);
+        }
+        let mk = |logic: &mut GameLogic, name: &str, x: f32| {
+            logic
+                .create_object(name, Team::Neutral, Vec3::new(x, 0.0, 0.0))
+                .expect("tree")
+        };
+        let src = mk(&mut logic, "DogwoodTreeA", 0.0);
+        let destroyed = mk(&mut logic, "DogwoodTreeB", TREE_SPREAD_TRY_RANGE * 0.1);
+        let aflame = mk(&mut logic, "DogwoodTreeB", TREE_SPREAD_TRY_RANGE * 0.2);
+        let dead = mk(&mut logic, "DogwoodTreeB", TREE_SPREAD_TRY_RANGE * 0.4);
+        let far = mk(&mut logic, "DogwoodTreeB", TREE_SPREAD_TRY_RANGE * 0.8);
+        (logic, [src, destroyed, aflame, dead, far])
+    };
+    let lit = |logic: &GameLogic, id| {
+        logic
+            .host_object(id)
+            .and_then(|o| o.fire_spread.as_ref().map(|f| f.is_aflame()))
+            .unwrap_or(false)
+    };
+
+    let (mut logic, [src, destroyed, aflame, dead, far]) = build();
+    let (peer, peer_ids) = build();
+    assert_eq!(peer_ids, [src, destroyed, aflame, dead, far]);
+
+    let fx = &mut crate::game_logic::ScriptPresentationEffects::default();
+    assert!(logic.ignite_object_fire_spread(src, fx));
+    assert!(logic.ignite_object_fire_spread(aflame, fx));
+    logic.host_object_mut(destroyed).unwrap().status.destroyed = true;
+    logic.host_object_mut(dead).unwrap().status.effectively_dead = true;
+    for id in [src, aflame] {
+        if let Some(fs) = logic.host_object_mut(id).unwrap().fire_spread.as_mut() {
+            fs.next_spread_frame = u32::MAX;
+        }
+    }
+    if let Some(fs) = logic.host_object_mut(src).unwrap().fire_spread.as_mut() {
+        fs.next_spread_frame = 0;
+    }
+    logic.set_current_frame(30);
+    logic.update_fire_spread();
+
+    assert!(!lit(&logic, destroyed), "destroyed neighbour left the partition");
+    assert!(
+        lit(&logic, dead),
+        "closest wouldIgnite neighbour (dead-but-retained) wins like C++"
+    );
+    assert!(!lit(&logic, far), "only the single closest candidate ignites");
+    for id in peer_ids {
+        assert!(!lit(&peer, id), "peer world same-ID object must stay unlit");
+    }
+}
+
+#[test]
 fn flammable_buildings_ignite_and_play_burning_loop() {
     use crate::game_logic::combat::DamageType;
     use crate::game_logic::host_enum_table_residual::aflame_model_bit;
@@ -2635,6 +2701,46 @@ fn tensile_formation_avalanche_damage_slide_and_rubble() {
                 .unwrap_or(false),
         "life>300 must rubble"
     );
+}
+
+/// hq-2qedt.37: CPP TensileFormationUpdate.cpp:~243 life>300 →
+/// `body->setDamageState(BODY_RUBBLE)` (ActiveBody.cpp:216-239 → internalChangeHealth
+/// → effectivelyDead) with NO onDie / destroyObject. Drives the host tensile
+/// update, not a bare internal_change_health call.
+#[test]
+fn tensile_update_rubble_sets_body_rubble_without_destroy_object() {
+    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use crate::game_logic::host_tensile_formation::TENSILE_LIFE_MAX;
+
+    let mut logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("AvalancheChunk");
+    tpl.set_health(100.0);
+    logic.templates.insert("AvalancheChunk".to_string(), tpl);
+    let a = logic
+        .create_object("AvalancheChunk", Team::Neutral, Vec3::new(0.0, 10.0, 0.0))
+        .expect("chunk");
+    {
+        let o = logic.host_object_mut(a).unwrap();
+        assert_ne!(o.body_damage_state, HostBodyDamageType::Rubble);
+        let tf = o.tensile_formation.as_mut().expect("tensile module");
+        tf.enabled = true;
+        tf.life = TENSILE_LIFE_MAX;
+    }
+    logic.set_current_frame(400);
+    logic.update_tensile_formations();
+
+    let o = logic.host_object(a).expect("rubble object must remain present");
+    assert!(o.tensile_formation.as_ref().unwrap().rubble, "life>300 must rubble");
+    assert_eq!(
+        o.body_damage_state,
+        HostBodyDamageType::Rubble,
+        "tensile rubble must setDamageState(BODY_RUBBLE)"
+    );
+    assert_eq!(o.health.current, 0.0);
+    assert!(o.status.effectively_dead, "BODY_RUBBLE → effectivelyDead");
+    assert!(!o.status.destroyed, "rubble is not destroyObject");
+    assert!(!o.status.on_die_started, "rubble does not run onDie");
+    assert!(!logic.has_pending_destroy_work());
 }
 
 #[test]

@@ -983,59 +983,61 @@ fn authored_upgrade_die_removes_each_modules_upgrade_from_producer_like_cpp() {
     assert!(!p.has_object_upgrade_complete("Upgrade_FixtureB"), "DieB removes its upgrade");
 }
 
-/// C++ SpawnBehavior.cpp:176-248: build completion spawns nothing; the first
-/// update seeds slot-index replacement times (InitialBurst = 0) and each entry
-/// spawns once `currentTime > replacementTime`.
 #[test]
-fn stinger_site_spawn_waits_for_first_update_replacement_times() {
-    let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
-    let mut site = ThingTemplate::new("GLAStingerSite");
-    site.add_kind_of(KindOf::Structure)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::FSBaseDefense)
-        .set_health(1000.0);
-    logic.templates.insert("GLAStingerSite".into(), site);
-    let mut soldier = ThingTemplate::new("GLAInfantryStingerSoldier");
-    soldier
-        .add_kind_of(KindOf::Infantry)
-        .add_kind_of(KindOf::Selectable)
-        .set_health(100.0);
-    logic
-        .templates
-        .insert("GLAInfantryStingerSoldier".into(), soldier);
-    logic.frame = 0;
-    let site_id = logic
-        .create_object("GLAStingerSite", Team::GLA, Vec3::ZERO)
-        .expect("stinger");
-    let count = |logic: &GameLogic| {
-        logic
-            .objects
-            .registered_values()
-            .filter(|o| {
-                o.producer_id == Some(site_id)
-                    && o.template_name
-                        .eq_ignore_ascii_case("GLAInfantryStingerSoldier")
+fn authored_upgrade_die_diemux_skips_module_and_isolates_same_id_peer_like_cpp() {
+    // C++ UpgradeDie::onDie: DieModule::isDieApplicable (DieMuxData
+    // DeathTypes) gates each module before producer->removeUpgrade.
+    // DieA only applies to CRUSHED, so a normal death leaves Upgrade_FixtureA.
+    // A same-ID peer world is untouched.
+    fn world() -> (GameLogic, ObjectId, ObjectId) {
+        let mut logic = GameLogic::new();
+        for upgrade in ["Upgrade_FixtureA", "Upgrade_FixtureB"] {
+            let mut ini = game_engine::common::ini::INI::new();
+            ini.with_inline_source(&format!("Upgrade {upgrade}\nType = OBJECT\nEnd\n"), |ini| {
+                ini.read_line()?;
+                logic.upgrade_definitions.parse_upgrade_definition(ini)
             })
-            .count()
-    };
-    assert_eq!(count(&logic), 0, "build completion must not spawn synchronously");
-    assert_eq!(
-        logic.host_object(site_id).unwrap().spawn_behavior_replacement_times(),
-        &[0, 1, 2],
-        "first pass seeds slot-index replacement times"
+            .expect("upgrade def");
+        }
+        logic
+            .admit_object_ini_sources([(
+                "AuthoredUpgradeDieMux.ini".into(),
+                "Object FixtureProducer\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\nObject FixtureMuxChild\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = UpgradeDie DieA\n DeathTypes = NONE +CRUSHED\n UpgradeToRemove = Upgrade_FixtureA\n End\n Behavior = UpgradeDie DieB\n DeathTypes = ALL\n UpgradeToRemove = Upgrade_FixtureB\n End\nEnd\n"
+                    .into(),
+            )])
+            .expect("ini");
+        logic.players.insert(
+            1,
+            crate::game_logic::Player::new(1, Team::USA, "Owner", true),
+        );
+        let producer = logic
+            .create_object_for_player("FixtureProducer", 1, Vec3::ZERO)
+            .expect("producer");
+        logic.apply_upgrade_to_object(producer, "Upgrade_FixtureA");
+        logic.apply_upgrade_to_object(producer, "Upgrade_FixtureB");
+        let child = logic
+            .create_object_for_player("FixtureMuxChild", 1, Vec3::new(20.0, 0.0, 0.0))
+            .expect("child");
+        logic.host_object_mut(child).unwrap().producer_id = Some(producer);
+        (logic, producer, child)
+    }
+    let (mut logic, producer, child) = world();
+    let (peer, peer_producer, peer_child) = world();
+    assert_eq!((producer, child), (peer_producer, peer_child), "same-ID worlds");
+
+    logic.apply_host_damage(child, 1000.0);
+    // Repeat death must not re-run modules.
+    logic.apply_host_damage(child, 1000.0);
+
+    let p = logic.host_object(producer).unwrap();
+    assert!(
+        p.has_object_upgrade_complete("Upgrade_FixtureA"),
+        "DieMux DeathTypes=CRUSHED skips DieA on normal death"
     );
-    logic.frame = 1;
-    logic.update_stinger_hive_world_soldiers();
-    assert_eq!(count(&logic), 1, "only time 0 is due at frame 1");
-    logic.frame = 3;
-    logic.update_stinger_hive_world_soldiers();
-    assert_eq!(count(&logic), 3);
-    assert!(logic
-        .host_object(site_id)
-        .unwrap()
-        .spawn_behavior_replacement_times()
-        .is_empty());
-}
+    assert!(
+        !p.has_object_upgrade_complete("Upgrade_FixtureB"),
+        "DieB removes its own UpgradeToRemove"
+    );
+    let pp = peer.host_object(peer_producer).unwrap();
+    assert!(pp.has_object_upgrade_complete("Upgrade_FixtureA"));
+    assert!(pp.has_object_upgrade_complete("Upgrade_FixtureB"), "peer world isolated");

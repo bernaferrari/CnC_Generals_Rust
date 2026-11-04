@@ -14,7 +14,12 @@ impl GameLogic {
         let Some(victim) = self.objects.get(&victim_id) else {
             return;
         };
-        if !crate::game_logic::object::order_idle_enemies_on_reveal(&victim.template_name) {
+        if !crate::game_logic::object::order_idle_enemies_on_reveal(
+            &victim.template_name,
+            victim.thing().template.capture_power
+                == crate::game_logic::CapturePowerKind::BlackLotus,
+            victim.authors_pathfinder_sniper_weapon(),
+        ) {
             return;
         }
         let v_team = victim.team;

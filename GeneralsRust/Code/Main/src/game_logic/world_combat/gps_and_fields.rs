@@ -1176,7 +1176,7 @@ impl GameLogic {
                 continue;
             }
             let overlord_style = obj.has_overlord_propaganda_residual()
-                || crate::game_logic::host_overlord_addons::is_emperor_template(&obj.template_name);
+                || obj.authors_innate_propaganda_tower();
             let controlling = obj.owner_player_id.and_then(|pid| {
                 self.players
                     .get(&pid)
@@ -1376,7 +1376,6 @@ impl GameLogic {
                         buff_ticks = buff_ticks.saturating_add(1);
                     }
                 }
-
             }
         }
 

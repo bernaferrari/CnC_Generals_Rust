@@ -169,18 +169,9 @@ impl GameLogic {
             reset_continuous_fire_state(object);
         }
 
-        if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name) {
-            use crate::game_logic::host_base_defense::{
-                stinger_air_weapon, stinger_ground_weapon, stinger_has_ap_rockets,
-            };
-            let ap = stinger_has_ap_rockets(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
-            object.weapon = Some(stinger_ground_weapon(ap));
-            object.secondary_weapon = Some(stinger_air_weapon(ap));
-        }
+        // Stinger Site PRIMARY/SECONDARY bind from the authored WeaponSet
+        // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+        // (hq-2qedt.163). AP rockets refresh stays on the upgrade path.
 
         // Host residual: GLA Scorpion PRIMARY gun (+ secondary rocket if unlocked).
         // Fail-closed: not full SalvageCrate missile-rack W3D subobject matrix.
@@ -210,20 +201,9 @@ impl GameLogic {
             }
         }
 
-        // Host residual: USA Raptor PRIMARY jet missiles (+ Laser Missiles upgrade).
-        // RETURN_TO_BASE ClipReload airfield rearm residual closed (dock + timer).
-        if crate::game_logic::host_raptor::is_raptor_template(template_name) {
-            use crate::game_logic::host_raptor::{
-                has_laser_missiles_upgrade, is_king_raptor_template, raptor_weapon,
-            };
-            let king = is_king_raptor_template(template_name);
-            let laser = has_laser_missiles_upgrade(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
-            object.weapon = Some(raptor_weapon(king, laser));
-        }
+        // USA Raptor / King Raptor PRIMARY binds from the authored WeaponSet
+        // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+        // (hq-2qedt.220). Laser Missiles refresh stays on the upgrade path.
 
         // Host residual: China MiG PRIMARY napalm / Nuke dual-radius missiles.
         // Fail-closed: not full RETURN_TO_BASE ClipReload / HistoricBonus Firestorm matrix.
@@ -240,17 +220,16 @@ impl GameLogic {
             object.weapon = Some(mig_weapon(loadout));
         }
 
-        // Host residual: USA Comanche PRIMARY 20mm + SECONDARY anti-tank.
-        // Retail rocket pods are a PLAYER_UPGRADE TERTIARY weapon; keep
-        // anti-tank bound in SECONDARY and only expose pods after the team
-        // owns the real upgrade.
-        if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(template_name) {
+        // USA Comanche PRIMARY/SECONDARY bind from the authored WeaponSet
+        // (C++ WeaponSet::updateWeaponSet), not this name peel (hq-2qedt.109).
+        // Retail rocket pods are a PLAYER_UPGRADE TERTIARY weapon; only expose
+        // pods after the team owns the real upgrade.
+        if crate::game_logic::host_comanche_rocket_pods::carries_comanche_weapon_set(
+            object.authored_weapon_name_for_slot(0),
+        ) {
             use crate::game_logic::host_comanche_rocket_pods::{
-                UPGRADE_COMANCHE_ROCKET_PODS, comanche_antitank_weapon, comanche_cannon_weapon,
-                comanche_rocket_pod_weapon,
+                UPGRADE_COMANCHE_ROCKET_PODS, comanche_rocket_pod_weapon,
             };
-            object.weapon = Some(comanche_cannon_weapon());
-            object.secondary_weapon = Some(comanche_antitank_weapon());
             let has_pods = (allow_upgrades && object.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS))
                 || (allow_upgrades && object.has_upgrade_tag("Upgrade_ComancheRocketPods"))
                 || players.values().any(|player| {
@@ -268,30 +247,15 @@ impl GameLogic {
             }
         }
 
-        // Host residual: China Overlord / Emperor PRIMARY dual-radius tank gun.
-        // Fail-closed: not full ClipSize=2 dual-volley / Nuclear Tanks death residual.
-        if crate::game_logic::host_overlord_gun::is_overlord_gun_chassis(template_name) {
-            use crate::game_logic::host_overlord_gun::{
-                has_uranium_shells_upgrade, overlord_gun_weapon,
-            };
-            let uranium = has_uranium_shells_upgrade(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
-            object.weapon = Some(overlord_gun_weapon(uranium));
-        }
+        // China Overlord / Emperor PRIMARY binds from the authored WeaponSet
+        // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+        // (hq-2qedt.164). Uranium refresh stays on the upgrade path.
 
-        // Host residual: GLA Jarmen Kell PRIMARY sniper residual.
+        // GLA Jarmen Kell PRIMARY binds from the authored WeaponSet
+        // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+        // (hq-2qedt.165). AP refresh stays on the upgrade path.
         // Pilot-snipe is AutoChooseSources SECONDARY NONE (button/special only).
         if crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(template_name) {
-            use crate::game_logic::host_jarmen_kell::{has_ap_bullets_upgrade, jarmen_kell_weapon};
-            let ap = has_ap_bullets_upgrade(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
-            object.weapon = Some(jarmen_kell_weapon(ap));
             object.template_mut().apply_retail_button_only_auto_choose();
         }
 
@@ -349,30 +313,10 @@ impl GameLogic {
             }
         }
 
-        // Host residual: China MiniGunner dual ground/AA + continuous fire ramp.
-        // Fail-closed: not full FiringTracker CONTINUOUS_FIRE_* anim / bayonet tertiary.
+        // China MiniGunner PRIMARY/SECONDARY bind from the authored WeaponSet
+        // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+        // (hq-2qedt.166). Chain-guns refresh stays in refresh_minigunner_weapon.
         if crate::game_logic::host_minigunner::is_minigunner_template(template_name) {
-            use crate::game_logic::host_gattling_tank::GattlingFireLevel;
-            use crate::game_logic::host_minigunner::{
-                has_chain_guns_upgrade, minigunner_air_weapon, minigunner_ground_weapon,
-            };
-            let chain = has_chain_guns_upgrade(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
-            object.weapon = Some(minigunner_ground_weapon(
-                GattlingFireLevel::Base,
-                chain,
-                false,
-                false,
-            ));
-            object.secondary_weapon = Some(minigunner_air_weapon(
-                GattlingFireLevel::Base,
-                chain,
-                false,
-                false,
-            ));
             reset_continuous_fire_state(object);
         }
 

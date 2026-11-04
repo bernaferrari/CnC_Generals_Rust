@@ -1419,6 +1419,12 @@ fn fire_weapon_when_damaged_reaction_splash() {
     let eid = logic
         .create_object("Ranger", Team::GLA, glam::Vec3::new(20.0, 0.0, 0.0))
         .unwrap();
+    // C++ ThingFactory registers with the partition, but cell coverage only
+    // lands in PartitionManager::update; Weapon.cpp:1283 iterateObjectsInRange
+    // sees covered objects only, so run the partition phase before splash.
+    logic
+        .update_owned_partition_with_effects(&mut crate::game_logic::ScriptPresentationEffects::default())
+        .unwrap();
     {
         let (objects, health_events) = (&mut logic.objects, &mut logic.health_events);
         let b = objects.get_mut(&bid).unwrap();

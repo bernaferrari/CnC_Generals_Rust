@@ -93,7 +93,7 @@ End
         !crate::game_logic::host_base_defense::is_dual_slot_base_defense(&object.template_name),
         "generic FSBaseDefense actually fires primary0"
     );
-    assert!(!object.turret_enabled);
+    assert!(!object.turret_ai.turret_enabled);
     assert_eq!(object.active_weapon_slot, active_slot);
     assert_eq!(
         object.weapon_bonus_fields().1,

@@ -299,20 +299,11 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "Boss_VehicleCombatBikeTerrorist" => Some(TERRORIST_SUICIDE_WEAPON),
         _ => {
             // Name residual for Laser/Superweapon general variants + Nuke Cannon.
-            if crate::game_logic::host_inferno_cannon::is_inferno_cannon_template(template_name) {
-                return Some(INFERNO_CANNON_PRIMARY_WEAPON);
-            }
             if crate::game_logic::host_bunker_buster::is_bunker_buster_carrier(template_name) {
                 return Some(STEALTH_JET_MISSILE_WEAPON);
             }
             if crate::game_logic::host_bunker_buster::is_kill_garrisoned_clearer(template_name) {
                 return Some(MICROWAVE_BUILDING_CLEARER_WEAPON);
-            }
-            if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(template_name) {
-                return Some(COMANCHE_PRIMARY_WEAPON);
-            }
-            if crate::game_logic::host_pathfinder::is_pathfinder_template(template_name) {
-                return Some(PATHFINDER_SNIPER_WEAPON);
             }
             if crate::game_logic::host_slave_drones::is_hellfire_drone_template(template_name) {
                 return Some(HELLFIRE_MISSILE_WEAPON);
@@ -327,24 +318,14 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_rocket_buggy::is_rocket_buggy_template(template_name) {
                 return Some(BUGGY_ROCKET_WEAPON);
             }
-            if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
-                return Some(QUAD_CANNON_GUN);
-            }
             if crate::game_logic::host_technical::is_technical_template(template_name) {
                 return Some(TECHNICAL_MACHINE_GUN);
             }
             if crate::game_logic::host_scorpion::is_scorpion_template(template_name) {
                 return Some(SCORPION_TANK_GUN);
             }
-            if crate::game_logic::host_raptor::is_raptor_template(template_name) {
-                let king = crate::game_logic::host_raptor::is_king_raptor_template(template_name);
-                return Some(crate::game_logic::host_raptor::raptor_weapon_name(king));
-            }
             if crate::game_logic::host_marauder::is_marauder_template(template_name) {
                 return Some(MARAUDER_TANK_GUN);
-            }
-            if crate::game_logic::host_terrorist::is_terrorist_template(template_name) {
-                return Some(TERRORIST_SUICIDE_WEAPON);
             }
             if crate::game_logic::host_missile_defender::is_missile_defender_template(template_name)
             {
@@ -468,9 +449,7 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "ChinaInfantryMiniGunner" => Some(MINIGUNNER_GUN_AIR),
         _ => {
             // Nuke Cannon neutron secondary is upgrade-gated — see comment above.
-            if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
-                Some(QUAD_CANNON_GUN_AIR)
-            } else if crate::game_logic::host_base_defense::is_patriot_battery_structure(
+ else if crate::game_logic::host_base_defense::is_patriot_battery_structure(
                 template_name,
             ) {
                 Some(
@@ -486,13 +465,8 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
                 template_name,
             ) {
                 Some(MISSILE_DEFENDER_LASER_GUIDED_WEAPON)
-            } else if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(
-                template_name,
-            ) {
-                // Comanche residual SECONDARY anti-tank; rocket pods are added
-                // as an independent TERTIARY after upgrade.
-                Some(COMANCHE_ANTITANK_WEAPON)
-            } else if crate::game_logic::host_gattling_tank::is_gattling_tank_template(
+            }
+ else if crate::game_logic::host_gattling_tank::is_gattling_tank_template(
                 template_name,
             ) {
                 Some(GATTLING_TANK_GUN_AIR)
@@ -615,6 +589,145 @@ mod name_peel_tests {
         assert_unmapped(
             "FixtureGattlingCannonVariant",
             gl::host_base_defense::is_gattling_cannon_structure,
+        );
+    }
+}
+
+#[cfg(test)]
+mod tomahawk_unit_map_peel_tests {
+    use super::*;
+
+    /// hq-2qedt.119: C++ resolves PRIMARY from the authored WeaponSet; an
+    /// unlisted template whose name merely contains "Tomahawk" must not pick
+    /// up TomahawkMissileWeapon from a fuzzy name peel.
+    #[test]
+    fn unlisted_tomahawk_named_template_gets_no_name_peel_primary() {
+        assert_eq!(primary_weapon_name_for_unit("Boss_VehicleTomahawkDecoy"), None);
+        // Explicit retail table rows stay.
+        assert_eq!(
+            primary_weapon_name_for_unit("AmericaVehicleTomahawk"),
+            Some(TOMAHAWK_MISSILE_WEAPON)
+        );
+    }
+}
+
+#[cfg(test)]
+mod comanche_unit_map_peel_tests {
+    use super::*;
+
+    /// hq-2qedt.123: C++ resolves PRIMARY/SECONDARY from the authored
+    /// WeaponSet; an unlisted template whose name merely contains "Comanche"
+    /// must not pick up Comanche weapons from a fuzzy name peel.
+    #[test]
+    fn unlisted_comanche_named_template_gets_no_name_peel_defaults() {
+        assert_eq!(primary_weapon_name_for_unit("Boss_VehicleComancheDecoy"), None);
+        assert_eq!(secondary_weapon_name_for_unit("Boss_VehicleComancheDecoy"), None);
+        // Explicit retail table rows stay.
+        assert_eq!(
+            primary_weapon_name_for_unit("AmericaVehicleComanche"),
+            Some(COMANCHE_PRIMARY_WEAPON)
+        );
+        assert_eq!(
+            secondary_weapon_name_for_unit("AmericaVehicleComanche"),
+            Some(COMANCHE_ANTITANK_WEAPON)
+        );
+    }
+}
+
+#[cfg(test)]
+mod terrorist_unit_map_peel_tests {
+    use super::*;
+
+    /// hq-2qedt.217: C++ resolves PRIMARY from the authored WeaponSet; an
+    /// unlisted template whose name merely contains "InfantryTerrorist" must
+    /// not pick up TerroristSuicideWeapon from a fuzzy name peel.
+    #[test]
+    fn unlisted_terrorist_named_template_gets_no_name_peel_primary() {
+        assert_eq!(primary_weapon_name_for_unit("Boss_GLAInfantryTerroristDecoy"), None);
+        // Explicit retail table rows stay.
+        assert_eq!(
+            primary_weapon_name_for_unit("GLAInfantryTerrorist"),
+            Some(TERRORIST_SUICIDE_WEAPON)
+        );
+    }
+}
+
+#[cfg(test)]
+mod quad_cannon_unit_map_peel_tests {
+    use super::*;
+
+    /// hq-2qedt.218: C++ resolves PRIMARY/SECONDARY from the authored
+    /// WeaponSet; an unlisted template whose name merely contains "QuadCannon"
+    /// must not pick up QuadCannonGun/QuadCannonGunAir from a fuzzy name peel.
+    #[test]
+    fn unlisted_quad_cannon_named_template_gets_no_name_peel_defaults() {
+        assert_eq!(primary_weapon_name_for_unit("Boss_GLAVehicleQuadCannonDecoy"), None);
+        assert_eq!(secondary_weapon_name_for_unit("Boss_GLAVehicleQuadCannonDecoy"), None);
+        // Explicit retail table rows stay.
+        assert_eq!(
+            primary_weapon_name_for_unit("GLAVehicleQuadCannon"),
+            Some(QUAD_CANNON_GUN)
+        );
+        assert_eq!(
+            secondary_weapon_name_for_unit("GLAVehicleQuadCannon"),
+            Some(QUAD_CANNON_GUN_AIR)
+        );
+    }
+}
+
+#[cfg(test)]
+mod pathfinder_unit_map_peel_tests {
+    use super::*;
+
+    /// hq-2qedt.219: C++ resolves PRIMARY from the authored WeaponSet; an
+    /// unlisted template whose name merely contains "Pathfinder" must not
+    /// pick up the Pathfinder sniper rifle from a fuzzy name peel.
+    #[test]
+    fn unlisted_pathfinder_named_template_gets_no_name_peel_primary() {
+        assert_eq!(primary_weapon_name_for_unit("Boss_AmericaInfantryPathfinderDecoy"), None);
+        // Explicit retail table rows stay.
+        assert_eq!(
+            primary_weapon_name_for_unit("AmericaInfantryPathfinder"),
+            Some(PATHFINDER_SNIPER_WEAPON)
+        );
+    }
+}
+
+#[cfg(test)]
+mod raptor_unit_map_peel_tests {
+    use super::*;
+
+    /// hq-2qedt.220: C++ resolves PRIMARY from the authored WeaponSet; an
+    /// unlisted template whose name merely contains "Raptor" must not pick up
+    /// RaptorJetMissileWeapon / AirF_RaptorJetMissileWeapon from a name peel.
+    #[test]
+    fn unlisted_raptor_named_template_gets_no_name_peel_primary() {
+        assert_eq!(primary_weapon_name_for_unit("Boss_AmericaJetRaptorDecoy"), None);
+        assert_eq!(primary_weapon_name_for_unit("AirF_AmericaJetRaptorDecoy"), None);
+        // Explicit retail table rows stay.
+        assert_eq!(
+            primary_weapon_name_for_unit("AmericaJetRaptor"),
+            Some(RAPTOR_JET_MISSILE_WEAPON)
+        );
+        assert_eq!(
+            primary_weapon_name_for_unit("AirF_AmericaJetRaptor"),
+            Some(AIRF_RAPTOR_JET_MISSILE_WEAPON)
+        );
+    }
+}
+
+#[cfg(test)]
+mod inferno_unit_map_peel_tests {
+    use super::*;
+
+    /// hq-2qedt.221: an unlisted template whose name merely contains
+    /// "InfernoCannon" must not pick up InfernoCannonGun from a name peel.
+    #[test]
+    fn unlisted_inferno_named_template_gets_no_name_peel_primary() {
+        assert_eq!(primary_weapon_name_for_unit("Boss_ChinaVehicleInfernoCannonDecoy"), None);
+        assert_eq!(
+            primary_weapon_name_for_unit("ChinaVehicleInfernoCannon"),
+            Some(INFERNO_CANNON_PRIMARY_WEAPON)
         );
     }
 }

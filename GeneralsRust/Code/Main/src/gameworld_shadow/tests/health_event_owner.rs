@@ -2,7 +2,29 @@
 use super::*;
 use crate::game_logic::{ObjectId, Player};
 
+/// Same Common/World/Main bag binding as `direct_destroy_owner` and
+/// `health_owner_order` (hq-2qedt.73): `GameLogic::new` and the owned host
+/// boundary read all three process bags.
+fn bind_three_services() {
+    if game_engine::common::common_services::try_common_services().is_none() {
+        game_engine::common::common_services::install_common_services(std::sync::Arc::new(
+            game_engine::common::common_services::CommonServices::new(),
+        ));
+    }
+    if gamelogic::system::engine_stores::try_active_services().is_none() {
+        gamelogic::system::engine_stores::install_services(
+            gamelogic::system::engine_stores::new_world_services(),
+        );
+    }
+    if crate::main_services::try_main_services().is_none() {
+        crate::main_services::install_main_services(std::sync::Arc::new(
+            crate::main_services::MainServices::new(),
+        ));
+    }
+}
+
 fn admitted_world() -> (GameLogic, ObjectId) {
+    bind_three_services();
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "HealthOwner", true));
     ensure_template(&mut logic, "HealthEventOwnerTarget", 100.0);

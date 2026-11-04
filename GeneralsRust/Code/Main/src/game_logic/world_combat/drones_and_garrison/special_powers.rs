@@ -527,8 +527,8 @@ impl GameLogic {
         self.objects.registered_values().any(|o| {
             crate::game_logic::host_strategy_center::is_strategy_center_template(&o.template_name)
                 && !crate::game_logic::host_strategy_center::turret_angles_are_natural(
-                    o.turret_angle_deg,
-                    o.turret_pitch_deg,
+                    o.turret_ai.turret_angle_deg,
+                    o.turret_ai.turret_pitch_deg,
                 )
         })
     }
@@ -567,7 +567,7 @@ impl GameLogic {
         };
         let team = obj.team;
         let fire_pos = obj.get_position();
-        let has_mood = obj.turret_mood_target;
+        let has_mood = obj.turret_ai.turret_mood_target;
         let attitude = HostAiAttitude::from_i8(obj.ai_attitude);
         let last_dmg = obj.last_damage_source;
         // Partition / AI vision residual: VisionRange **400**.
@@ -694,11 +694,11 @@ impl GameLogic {
                     &mut crate::game_logic::ScriptPresentationEffects::default()
                         .reborrow_for_object(&mut self.partition_manager),
                 );
-                o.turret_mood_target = true;
-                o.turret_idle_scanning = false;
-                o.turret_holding = false;
-                o.turret_hold_until_frame = 0;
-                o.turret_idle_recentering = false;
+                o.turret_ai.turret_mood_target = true;
+                o.turret_ai.turret_idle_scanning = false;
+                o.turret_ai.turret_holding = false;
+                o.turret_ai.turret_hold_until_frame = 0;
+                o.turret_ai.turret_idle_recentering = false;
                 entered_attack = !matches!(
                     o.ai_state(),
                     AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
@@ -746,7 +746,7 @@ impl GameLogic {
         // door record. Keep the same ownership clear path as their Idle hook,
         // after the existing registered-center order above.
         for (&cid, obj) in self.objects.registered() {
-            if obj.turret_mood_target
+            if obj.turret_ai.turret_mood_target
                 && (is_strategy_center_template(&obj.template_name)
                     || obj.is_kind_of(KindOf::FSStrategyCenter))
                 && self.battle_plans.door_state_for_center(cid).is_none()
@@ -775,7 +775,7 @@ impl GameLogic {
             }
             let team = obj.team;
             let fire_pos = obj.get_position();
-            let has_mood = obj.turret_mood_target;
+            let has_mood = obj.turret_ai.turret_mood_target;
             // Partition / AI vision residual: VisionRange **400**.
             // Bombardment ACTIVE path: S&D sight scalar does not apply (plans
             // are mutually exclusive). Host residual still uses the vision
@@ -784,7 +784,7 @@ impl GameLogic {
             // Retain/clear bookkeeping at the pre-existing late Strategy boundary.
             if has_mood {
                 let tgt = obj.target;
-                let mut clear = tgt.is_none() || tgt != obj.turret_target_id;
+                let mut clear = tgt.is_none() || tgt != obj.turret_ai.turret_target_id;
                 if let Some(tid) = tgt {
                     if let Some(t) = self.objects.get(&tid) {
                         let tp = t.get_position();
@@ -816,7 +816,7 @@ impl GameLogic {
                 if clear {
                     self.set_turret_target_object(cid, None, false);
                     let was_attacking = if let Some(o) = self.objects.get_mut(&cid) {
-                        o.turret_mood_target = false;
+                        o.turret_ai.turret_mood_target = false;
                         o.set_status_attacking(false);
                         o.target = None;
                         matches!(o.ai_state(), AIState::Attacking)

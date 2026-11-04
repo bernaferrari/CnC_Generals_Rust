@@ -72,6 +72,19 @@ impl crate::game_logic::GameLogic {
     pub(crate) fn admit_fx_catalog(&mut self, catalog: game_client::fx_list::FXListStore) {
         self.session_view.fx.catalog = Some(catalog);
     }
+    /// Receiving-session FX catalog admission (ObjectFxRuntime reads only
+    /// `session_view.fx.catalog`). Like weapon snapshots, admission precedes
+    /// object creation so live objects never straddle two catalogs.
+    pub fn admit_receiving_fx_catalog(
+        &mut self,
+        catalog: game_client::fx_list::FXListStore,
+    ) -> Result<(), String> {
+        if !self.objects.registered_is_empty() {
+            return Err("FX catalog admission requires an empty receiving world".into());
+        }
+        self.admit_fx_baseline(catalog);
+        Ok(())
+    }
     pub(crate) fn fx_baseline(&self) -> Option<&game_client::fx_list::FXListStore> {
         self.session_view.fx.baseline.as_ref()
     }

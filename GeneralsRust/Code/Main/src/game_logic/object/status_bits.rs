@@ -876,6 +876,7 @@ impl Object {
             self.detection_rate_frames =
                 crate::game_logic::host_strategy_center::stealth_detector_rate_frames_for_template(
                     &self.template_name,
+                    self.authors_pathfinder_sniper_weapon(),
                 );
         }
         self.apply_leftover_extra_detect_kindof();

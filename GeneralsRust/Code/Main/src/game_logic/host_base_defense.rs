@@ -1665,6 +1665,26 @@ pub fn is_base_defense_structure(
         || crate::game_logic::host_tunnel_network::is_tunnel_network_template(template_name)
 }
 
+/// C++ Patriot battery identity from authored data: the WeaponSet PRIMARY is a
+/// `PatriotMissileWeapon` family weapon (stock / Lazr_ / SupW_), not the
+/// template name (hq-2qedt.258).
+pub fn is_patriot_primary_weapon_name(name: &str) -> bool {
+    [
+        PATRIOT_PRIMARY_WEAPON,
+        LAZR_PATRIOT_PRIMARY_WEAPON,
+        SUPW_PATRIOT_PRIMARY_WEAPON,
+    ]
+    .iter()
+    .any(|w| w.eq_ignore_ascii_case(name))
+}
+
+/// Whether the object authors a Patriot WeaponSet PRIMARY (hq-2qedt.258).
+pub fn authors_patriot_weapon_set(object: &crate::game_logic::Object) -> bool {
+    object
+        .authored_weapon_name_for_slot(0)
+        .is_some_and(is_patriot_primary_weapon_name)
+}
+
 /// Whether template is a residual USA Patriot battery (ground + AA residual).
 ///
 /// Fail-closed: name residual. Excludes projectile / weapon / debris names.

@@ -18,11 +18,11 @@ fn receiving_world() -> (GameLogic, ObjectId) {
         .unwrap();
     let object = world.host_object(owner).unwrap();
     assert!(
-        object.turret_enabled,
+        object.turret_ai.turret_enabled,
         "actual Humvee turret definition is installed at birth"
     );
     assert!(
-        object.turret_turn_rate_rad > 0.07,
+        object.turret_ai.turret_turn_rate_rad > 0.07,
         "authored turn rate admits one sweep step"
     );
     assert!(
@@ -50,7 +50,7 @@ fn receiving_turret_sweep_and_target_do_not_observe_same_id_peer() {
     let _ = peer.tick_turret_aim(peer_owner, 1.0);
     let _ = world.tick_turret_aim(owner, 1.0);
     let actual = world.host_object(owner).unwrap();
-    assert!((actual.turret_angle_deg.to_radians() - 0.035).abs() < 0.0001);
+    assert!((actual.turret_ai.turret_angle_deg.to_radians() - 0.035).abs() < 0.0001);
     assert_eq!(actual.turret_runtime.enable_sweep_until, 13);
     assert!(!actual.turret_runtime.positive_sweep);
     assert_eq!(
@@ -63,7 +63,7 @@ fn receiving_turret_sweep_and_target_do_not_observe_same_id_peer() {
     assert_eq!(clone.turret_runtime.enable_sweep_until, 13);
     world.frame = 11;
     let _ = world.tick_turret_aim(owner, 1.0);
-    assert!(world.host_object(owner).unwrap().turret_angle_deg < 0.0);
+    assert!(world.host_object(owner).unwrap().turret_ai.turret_angle_deg < 0.0);
     world
         .host_object_mut(owner)
         .unwrap()
@@ -142,7 +142,7 @@ fn idle_scan_keeps_disabled_and_zero_angle_rng_draws_suppressed() {
     let before = world.logic_random.seed_words();
 
     // Disabled TurretAI returns before the idle state machine.
-    world.host_object_mut(owner).unwrap().turret_enabled = false;
+    world.host_object_mut(owner).unwrap().turret_ai.turret_enabled = false;
     assert_eq!(
         world.tick_turret_state_machine(owner, 0.0, 10),
         AttackAimResult::Failure
@@ -153,8 +153,8 @@ fn idle_scan_keeps_disabled_and_zero_angle_rng_draws_suppressed() {
     // without drawing either the random offset or the random sign.
     {
         let unit = world.host_object_mut(owner).unwrap();
-        unit.turret_enabled = true;
-        unit.turret_substate = crate::game_logic::object::TurretSubState::IdleScan;
+        unit.turret_ai.turret_enabled = true;
+        unit.turret_ai.turret_substate = crate::game_logic::object::TurretSubState::IdleScan;
         unit.turret_runtime.idle_scan_entered = false;
     }
     assert_eq!(
@@ -209,7 +209,7 @@ fn normal_encoded_save_continues_existing_sweep_before_another_shot() {
         let original_owner = original.host_object(owner).unwrap();
         let loaded_owner = loaded.host_object(owner).unwrap();
         assert!(
-            (original_owner.turret_angle_deg - loaded_owner.turret_angle_deg).abs() < 0.0001,
+            (original_owner.turret_ai.turret_angle_deg - loaded_owner.turret_ai.turret_angle_deg).abs() < 0.0001,
             "frame {frame}"
         );
         assert_eq!(
@@ -222,13 +222,13 @@ fn normal_encoded_save_continues_existing_sweep_before_another_shot() {
         );
         if frame == 11 {
             assert!(
-                loaded_owner.turret_angle_deg < 0.0,
+                loaded_owner.turret_ai.turret_angle_deg < 0.0,
                 "saved negative sweep applies without notifyFired"
             );
         }
         if frame >= 13 {
             assert!(
-                loaded_owner.turret_angle_deg.abs() < 0.0001,
+                loaded_owner.turret_ai.turret_angle_deg.abs() < 0.0001,
                 "original three-frame sweep expiry"
             );
         }
@@ -290,7 +290,7 @@ fn receiving_object_target_captures_team_immediately_and_load_resolves_actual_vi
         Some(actual_team)
     );
     assert_eq!(
-        loaded.host_object(owner).unwrap().turret_target_id,
+        loaded.host_object(owner).unwrap().turret_ai.turret_target_id,
         Some(victim)
     );
 }

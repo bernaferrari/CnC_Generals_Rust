@@ -595,6 +595,33 @@ impl SpawnBehavior {
         })
     }
 
+    /// Test harness: build a SpawnBehavior without an ObjectFactory spawn template and
+    /// seed `spawn_ids` (C++ `m_spawnIDs`) so slave queries can run over registered Objects.
+    #[cfg(test)]
+    pub(crate) fn new_with_slaves_for_test(
+        object_id: ObjectID,
+        data: Arc<SpawnBehaviorModuleData>,
+        spawn_ids: Vec<ObjectID>,
+    ) -> Self {
+        Self {
+            object_id,
+            module_data: data.clone(),
+            spawn_template: None,
+            template_name_iterator: 0,
+            one_shot_countdown: -1,
+            frames_to_wait: 0,
+            first_batch_count: 0,
+            initial_burst_countdown: data.initial_burst as UnsignedInt,
+            initial_burst_times_inited: false,
+            replacement_times: VecDeque::new(),
+            spawn_ids,
+            active: true,
+            aggregate_health: data.aggregate_health,
+            spawn_count: NONE_SPAWNED_YET,
+            self_tasking_spawn_count: 0,
+        }
+    }
+
     pub fn set_object(&mut self, object_id: ObjectID) {
         self.object_id = object_id;
     }
@@ -2149,4 +2176,52 @@ mod tests {
     }
 
     // C++ SpawnBehavior::crc is BehaviorModule::crc only (SpawnBehavior.cpp:1043-1048).
+
+    // C++ SpawnBehavior::getClosestSlave (SpawnBehavior.cpp:282-301): iterate m_spawnIDs,
+    // findObjectByID, keep min getDistanceSquared FROM_CENTER_2D.
+    #[test]
+    fn spawn_behavior_get_closest_slave_picks_nearest_registered_slave() {
+        let _serial = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let stores = crate::system::engine_stores::new_for_world();
+            crate::system::engine_stores::with_active_stores(&stores, || {
+                use crate::object::registry::OBJECT_REGISTRY;
+                let (far_id, near_id, missing_id): (ObjectID, ObjectID, ObjectID) =
+                    (0x5B4E_0001, 0x5B4E_0002, 0x5B4E_0003);
+                let mut far = Object::new_test(far_id, 100.0);
+                far.set_position(&Coord3D::new(500.0, 0.0, 0.0)).unwrap();
+                let mut near = Object::new_test(near_id, 100.0);
+                near.set_position(&Coord3D::new(40.0, 30.0, 999.0)).unwrap();
+                let far = Arc::new(RwLock::new(far));
+                let near = Arc::new(RwLock::new(near));
+                OBJECT_REGISTRY.register_object(far_id, &far);
+                OBJECT_REGISTRY.register_object(near_id, &near);
+
+                // Far listed first so a "first slave" impl would fail; missing id is skipped like C++.
+                let spawner = SpawnBehavior::new_with_slaves_for_test(
+                    0x5B4E_0000,
+                    Arc::new(SpawnBehaviorModuleData::new()),
+                    vec![missing_id, far_id, near_id],
+                );
+                let picked = SpawnBehaviorInterface::get_closest_slave(
+                    &spawner,
+                    &Coord3D::new(0.0, 0.0, 0.0),
+                )
+                .map(|o| o.read().unwrap().get_id());
+                let empty = SpawnBehavior::new_with_slaves_for_test(
+                    0x5B4E_0010,
+                    Arc::new(SpawnBehaviorModuleData::new()),
+                    Vec::new(),
+                );
+                let none =
+                    SpawnBehaviorInterface::get_closest_slave(&empty, &Coord3D::new(0.0, 0.0, 0.0));
+
+                OBJECT_REGISTRY.unregister_object(near_id);
+                OBJECT_REGISTRY.unregister_object(far_id);
+                assert_eq!(picked, Some(near_id));
+                assert!(none.is_none());
+            })
+        })
+    }
 }

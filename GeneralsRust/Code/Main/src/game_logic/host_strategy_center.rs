@@ -228,7 +228,11 @@ pub fn stealth_detector_ctor_next_scan_frame(update_rate: u32, frame: u32) -> u3
 /// Retail DetectionRate frames for a detector template (C++ INI residual).
 /// Unknown detectors fall back to the common 500ms / 15f residual, not 0
 /// (0 is live legacy "scan every frame" and would ignore ctor stagger).
-pub fn stealth_detector_rate_frames_for_template(template_name: &str) -> u32 {
+/// `authored_pathfinder`: WeaponSet authors `USAPathfinderSniperRifle` (hq-2qedt.261).
+pub fn stealth_detector_rate_frames_for_template(
+    template_name: &str,
+    authored_pathfinder: bool,
+) -> u32 {
     use crate::game_logic::{
         host_listening_outpost, host_pathfinder,
         host_radar_stealth_vision_residual::DETECTOR_RATE_COMMON_FRAMES_RESIDUAL,
@@ -241,7 +245,7 @@ pub fn stealth_detector_rate_frames_for_template(template_name: &str) -> u32 {
         host_troop_crawler::TROOP_CRAWLER_DETECTION_RATE_FRAMES
     } else if host_sentry_drone::is_sentry_drone_template(template_name) {
         host_sentry_drone::SENTRY_DETECTION_RATE_FRAMES
-    } else if host_pathfinder::is_pathfinder_template(template_name) {
+    } else if authored_pathfinder {
         host_pathfinder::PATHFINDER_DETECTION_RATE_FRAMES
     } else if host_slave_drones::is_scout_drone_template(template_name) {
         host_slave_drones::SCOUT_DETECTION_RATE_FRAMES

@@ -1193,11 +1193,6 @@ pub fn is_bunker_buster_unit_template(name: &str) -> bool {
     crate::game_logic::host_bunker_buster::is_bunker_buster_carrier(name)
 }
 
-/// Template names that receive Comanche Rocket Pods secondary when research completes.
-pub fn is_comanche_rocket_pod_unit_template(name: &str) -> bool {
-    crate::game_logic::host_comanche_rocket_pods::is_comanche_template(name)
-}
-
 /// Template names that receive Sentry Drone Gun primary when research completes.
 pub fn is_sentry_drone_gun_unit_template(name: &str) -> bool {
     crate::game_logic::host_sentry_drone::is_sentry_drone_template(name)

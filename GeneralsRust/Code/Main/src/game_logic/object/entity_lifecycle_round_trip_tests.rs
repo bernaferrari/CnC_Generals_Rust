@@ -25,7 +25,7 @@ fn present_groups(
         ),
         (
             TAG_TURRET_RUNTIME,
-            object.turret_enabled || object.turret_runtime.seeded,
+            object.turret_ai.turret_enabled || object.turret_runtime.seeded,
         ),
         (TAG_UPGRADE_DIE, object.upgrade_die.is_some()),
         (

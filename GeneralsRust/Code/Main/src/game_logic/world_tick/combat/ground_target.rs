@@ -55,13 +55,13 @@ impl GameLogic {
 
         let rocket_pod_ground = {
             use crate::game_logic::host_comanche_rocket_pods::{
-                UPGRADE_COMANCHE_ROCKET_PODS, is_comanche_template, rocket_pod_ground_fire_active,
+                COMANCHE_ROCKET_POD_WEAPON, UPGRADE_COMANCHE_ROCKET_PODS, rocket_pod_ground_fire_active,
             };
             self.objects
                 .get(&attacker_id)
                 .map(|a| {
                     rocket_pod_ground_fire_active(
-                        is_comanche_template(&a.template_name),
+                        a.weapon_name_for_slot(2) == Some(COMANCHE_ROCKET_POD_WEAPON),
                         a.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS)
                             || a.has_upgrade_tag("Upgrade_ComancheRocketPods"),
                         a.tertiary_weapon.is_some(),
@@ -281,11 +281,8 @@ impl GameLogic {
                 let tomahawk_ground = self
                     .objects
                     .get(&attacker_id)
-                    // Keyed on the authored weapon, not the template name (hq-2qedt.224).
-                    .is_some_and(|a| {
-                        a.weapon_name_for_slot(ground_slot)
-                            == Some(crate::game_logic::host_tomahawk::TOMAHAWK_MISSILE_WEAPON)
-                    });
+                    .and_then(|a| a.authored_weapon_name_for_slot(ground_slot))
+                    .is_some_and(|n| n == crate::game_logic::host_tomahawk::TOMAHAWK_MISSILE_WEAPON);
 
                 if rocket_pod_ground {
                     // Retail FIRE_WEAPON tertiary at position → scatter projectile + area.
@@ -460,23 +457,31 @@ impl GameLogic {
                 }
 
                 // Inferno Cannon residual: ground attack also seeds FireFieldSmall.
+                // Keyed on the authored WeaponSet slot weapon (InfernoCannonGun /
+                // InfernoCannonGunUpgraded), not the template name (hq-2qedt.221).
                 if !rocket_pod_ground && !buggy_ground && !scud_ground {
-                    use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
-                    let is_inferno = self
-                        .objects
-                        .get(&attacker_id)
-                        .map(|a| is_inferno_cannon_template(&a.template_name))
-                        .unwrap_or(false);
+                    use crate::game_logic::host_inferno_cannon::{
+                        INFERNO_CANNON_GUN, INFERNO_CANNON_GUN_UPGRADED,
+                    };
+                    let inferno_wname = self.objects.get(&attacker_id).and_then(|a| {
+                        a.weapon_name_for_slot(ground_slot).map(str::to_owned)
+                    });
+                    let is_inferno = matches!(
+                        inferno_wname.as_deref(),
+                        Some(INFERNO_CANNON_GUN) | Some(INFERNO_CANNON_GUN_UPGRADED)
+                    );
                     if is_inferno {
-                        let upgraded = self
-                            .objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                crate::game_logic::host_inferno_cannon::has_black_napalm_upgrade(
-                                    &a.applied_upgrades,
-                                )
-                            })
-                            .unwrap_or(false);
+                        let upgraded = inferno_wname.as_deref()
+                            == Some(INFERNO_CANNON_GUN_UPGRADED)
+                            || self
+                                .objects
+                                .get(&attacker_id)
+                                .map(|a| {
+                                    crate::game_logic::host_inferno_cannon::has_black_napalm_upgrade(
+                                        &a.applied_upgrades,
+                                    )
+                                })
+                                .unwrap_or(false);
                         let _ = self.spawn_inferno_fire_zone_with_effects(
                             attacker_id,
                             attacker_team,

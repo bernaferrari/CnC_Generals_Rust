@@ -202,7 +202,7 @@ pub(super) fn object_condition_facts(
             .as_ref()
             .map(|_| obj.get_transform_matrix()),
         topple_lean_radians: obj.presentation_topple_lean_radians(),
-        turret_angle_deg: obj.turret_angle_deg,
+        turret_angle_deg: obj.turret_ai.turret_angle_deg,
         under_construction: under_construction,
         user_1: obj.model_condition_bits
             & (1u128 << crate::game_logic::host_enum_table_residual::user_1_model_bit())

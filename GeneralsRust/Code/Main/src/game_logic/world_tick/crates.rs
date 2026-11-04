@@ -860,10 +860,10 @@ impl GameLogic {
                 };
                 let natural = crate::game_logic::host_deploy_style::leftover_host_turret_is_in_natural_position(
                     obj.status.under_construction,
-                    obj.turret_angle_deg,
-                    obj.turret_pitch_deg,
-                    obj.turret_natural_angle_deg,
-                    obj.turret_natural_pitch_deg,
+                    obj.turret_ai.turret_angle_deg,
+                    obj.turret_ai.turret_pitch_deg,
+                    obj.turret_ai.turret_natural_angle_deg,
+                    obj.turret_ai.turret_natural_pitch_deg,
                 );
                 let Some(ds) = obj.deploy_style.as_mut() else {
                     continue;

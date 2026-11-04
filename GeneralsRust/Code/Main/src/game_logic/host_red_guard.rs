@@ -194,6 +194,11 @@ pub fn is_red_guard_template(template_name: &str) -> bool {
     n.contains("redguard") || n.contains("red_guard") || n == "china_soldier" || n == "testredguard"
 }
 
+/// Authored Red Guard PRIMARY weapon (hq-2qedt.262).
+pub fn is_red_guard_machine_gun_weapon(weapon_name: &str) -> bool {
+    weapon_name.eq_ignore_ascii_case(REDGUARD_MACHINE_GUN)
+}
+
 /// Whether residual unit participates in China infantry HordeUpdate residual
 /// (Red Guard + Tank Hunter share KindOf INFANTRY horde params).
 ///

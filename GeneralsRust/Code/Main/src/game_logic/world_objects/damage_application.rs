@@ -1388,15 +1388,16 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<OwnedDamageResult> {
         use crate::game_logic::host_base_defense::{
-            HostHiveDamageClass, hive_damage_class_for_type, is_stinger_site_structure,
+            HostHiveDamageClass, hive_damage_class_for_type,
         };
 
-        let (template_name, position, team) = {
+        let (template_name, position, team, hive) = {
             let parent = self.objects.get(&victim_id)?;
             (
                 parent.template_name.clone(),
                 parent.get_position(),
                 parent.team,
+                parent.is_kind_of(crate::game_logic::KindOf::SpawnsAreTheWeapons),
             )
         };
         // HiveStructureBody delegates to SpawnBehavior only when the receiving

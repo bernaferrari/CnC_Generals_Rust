@@ -750,9 +750,7 @@ impl GameLogic {
                     && let Some(producer) = self.objects.get_mut(&producer_id)
                     && producer.contains_spawn_behavior_child(id, child_birth)
                 {
-                    if crate::game_logic::host_base_defense::is_stinger_site_structure(
-                        &producer.template_name,
-                    ) {
+                    if producer.is_kind_of(crate::game_logic::KindOf::SpawnsAreTheWeapons) {
                         // C++ SpawnBehavior::onSpawnDeath appends one absolute
                         // replacement time before erasing the exact ID.
                         if let Some(spec) = Self::resolve_host_spawn_behavior_spec(producer) {

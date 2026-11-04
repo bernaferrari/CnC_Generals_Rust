@@ -315,6 +315,7 @@ impl Object {
         let locomotor_set_names = template.locomotor_set_names.clone();
         let locomotor_name = template.locomotor_name.clone();
         let turret = turret_spawn_for_thing_template(&template);
+        let alt_turret = super::turret_spawn::turret_spawn_alt_for_thing_template(&template);
         let is_fs_fake = template.is_kind_of(crate::game_logic::KindOf::FSFake);
 
         let occlusion_delay_frames = template_occlusion_delay_frames(&template);
@@ -1127,26 +1128,34 @@ impl Object {
             hive_slave_hp: 0.0,
             hive_slave_respawn_frame: 0,
             hive_slaves: [crate::game_logic::host_base_defense::ResidualHiveSlave::default(); 3],
-            turret_angle_deg: turret.angle_deg,
+            turret_ai: super::turret_ai_state::TurretAiState {
+                turret_angle_deg: turret.angle_deg,
+                turret_pitch_deg: turret.pitch_deg,
+                turret_idle_scan_next_frame: 0,
+                turret_idle_scanning: false,
+                turret_idle_scan_desired_angle_deg: 0.0,
+                turret_idle_scan_index: 0,
+                turret_holding: false,
+                turret_hold_until_frame: 0,
+                turret_idle_recentering: false,
+                turret_mood_target: false,
+                turret_target_id: None,
+                turret_force_attacking: false,
+                turret_enabled: turret.enabled,
+                turret_turn_rate_rad: turret.turn_rate_rad,
+                turret_substate: TurretSubState::Idle,
+                turret_rotating: false,
+                turret_natural_angle_deg: turret.natural_angle_deg,
+                turret_natural_pitch_deg: turret.natural_pitch_deg,
+                turret_recenter_frames: turret.recenter_frames,
+            },
             turret_runtime: super::turret_runtime::HostTurretExtra::from_spawn(&turret),
-            turret_pitch_deg: turret.pitch_deg,
-            turret_idle_scan_next_frame: 0,
-            turret_idle_scanning: false,
-            turret_idle_scan_desired_angle_deg: 0.0,
-            turret_idle_scan_index: 0,
-            turret_holding: false,
-            turret_hold_until_frame: 0,
-            turret_idle_recentering: false,
-            turret_mood_target: false,
-            turret_target_id: None,
-            turret_force_attacking: false,
-            turret_enabled: turret.enabled,
-            turret_turn_rate_rad: turret.turn_rate_rad,
-            turret_substate: TurretSubState::Idle,
-            turret_rotating: false,
-            turret_natural_angle_deg: turret.natural_angle_deg,
-            turret_natural_pitch_deg: turret.natural_pitch_deg,
-            turret_recenter_frames: turret.recenter_frames,
+            alt_turret_runtime: alt_turret
+                .as_ref()
+                .map(super::turret_runtime::HostTurretExtra::from_spawn),
+            alt_turret_ai: alt_turret
+                .as_ref()
+                .map(super::turret_ai_state::TurretAiState::from_spawn),
             ai_attitude: 0, // HostAiAttitude::Normal
             repulsor_until_frame: 0,
             last_damage_source: None,
@@ -1243,6 +1252,7 @@ impl Object {
             TemporaryWeaponRuntimeBundle::from_thing_template(&template, 0);
         let selection_radius = template.geometry_info.bounding_circle_radius();
         let turret = turret_spawn_for_thing_template(&template);
+        let alt_turret = super::turret_spawn::turret_spawn_alt_for_thing_template(&template);
 
         let pitch_roll_yaw_factor =
             if template.pitch_roll_yaw_factor.is_finite() && template.pitch_roll_yaw_factor > 0.0 {
@@ -2085,26 +2095,34 @@ impl Object {
             hive_slave_hp: 0.0,
             hive_slave_respawn_frame: 0,
             hive_slaves: [crate::game_logic::host_base_defense::ResidualHiveSlave::default(); 3],
-            turret_angle_deg: turret.angle_deg,
+            turret_ai: super::turret_ai_state::TurretAiState {
+                turret_angle_deg: turret.angle_deg,
+                turret_pitch_deg: turret.pitch_deg,
+                turret_idle_scan_next_frame: 0,
+                turret_idle_scanning: false,
+                turret_idle_scan_desired_angle_deg: 0.0,
+                turret_idle_scan_index: 0,
+                turret_holding: false,
+                turret_hold_until_frame: 0,
+                turret_idle_recentering: false,
+                turret_mood_target: false,
+                turret_target_id: None,
+                turret_force_attacking: false,
+                turret_enabled: turret.enabled,
+                turret_turn_rate_rad: turret.turn_rate_rad,
+                turret_substate: TurretSubState::Idle,
+                turret_rotating: false,
+                turret_natural_angle_deg: turret.natural_angle_deg,
+                turret_natural_pitch_deg: turret.natural_pitch_deg,
+                turret_recenter_frames: turret.recenter_frames,
+            },
             turret_runtime: super::turret_runtime::HostTurretExtra::from_spawn(&turret),
-            turret_pitch_deg: turret.pitch_deg,
-            turret_idle_scan_next_frame: 0,
-            turret_idle_scanning: false,
-            turret_idle_scan_desired_angle_deg: 0.0,
-            turret_idle_scan_index: 0,
-            turret_holding: false,
-            turret_hold_until_frame: 0,
-            turret_idle_recentering: false,
-            turret_mood_target: false,
-            turret_target_id: None,
-            turret_force_attacking: false,
-            turret_enabled: turret.enabled,
-            turret_turn_rate_rad: turret.turn_rate_rad,
-            turret_substate: TurretSubState::Idle,
-            turret_rotating: false,
-            turret_natural_angle_deg: turret.natural_angle_deg,
-            turret_natural_pitch_deg: turret.natural_pitch_deg,
-            turret_recenter_frames: turret.recenter_frames,
+            alt_turret_runtime: alt_turret
+                .as_ref()
+                .map(super::turret_runtime::HostTurretExtra::from_spawn),
+            alt_turret_ai: alt_turret
+                .as_ref()
+                .map(super::turret_ai_state::TurretAiState::from_spawn),
             ai_attitude: 0, // HostAiAttitude::Normal
             repulsor_until_frame: 0,
             last_damage_source: None,
@@ -2726,27 +2744,27 @@ mod tests {
             ObjectId(1),
             Team::USA,
         );
-        assert!(!ranger.turret_enabled);
-        assert!((ranger.turret_angle_deg).abs() < 0.01);
-        assert!((ranger.turret_pitch_deg).abs() < 0.01);
+        assert!(!ranger.turret_ai.turret_enabled);
+        assert!((ranger.turret_ai.turret_angle_deg).abs() < 0.01);
+        assert!((ranger.turret_ai.turret_pitch_deg).abs() < 0.01);
 
         let dozer = Object::new(
             ThingTemplate::new("AmericaVehicleDozer"),
             ObjectId(2),
             Team::USA,
         );
-        assert!(!dozer.turret_enabled);
+        assert!(!dozer.turret_ai.turret_enabled);
 
         let crusader = Object::new(
             ThingTemplate::new("AmericaTankCrusader"),
             ObjectId(3),
             Team::USA,
         );
-        assert!(crusader.turret_enabled);
-        assert!((crusader.turret_angle_deg).abs() < 0.01);
-        assert!((crusader.turret_pitch_deg).abs() < 0.01);
+        assert!(crusader.turret_ai.turret_enabled);
+        assert!((crusader.turret_ai.turret_angle_deg).abs() < 0.01);
+        assert!((crusader.turret_ai.turret_pitch_deg).abs() < 0.01);
         assert!(
-            (crusader.turret_turn_rate_rad
+            (crusader.turret_ai.turret_turn_rate_rad
                 - turret_deg_per_sec_to_rad_per_frame(USA_TANK_TURRET_TURN_RATE))
             .abs()
                 < 1e-5
@@ -2757,11 +2775,11 @@ mod tests {
             ObjectId(4),
             Team::USA,
         );
-        assert!(!sc.turret_enabled, "InitiallyDisabled until Bombardment");
-        assert!((sc.turret_angle_deg - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs() < 0.01);
-        assert!((sc.turret_pitch_deg - STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG).abs() < 0.01);
+        assert!(!sc.turret_ai.turret_enabled, "InitiallyDisabled until Bombardment");
+        assert!((sc.turret_ai.turret_angle_deg - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs() < 0.01);
+        assert!((sc.turret_ai.turret_pitch_deg - STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG).abs() < 0.01);
         assert!(
-            (sc.turret_turn_rate_rad
+            (sc.turret_ai.turret_turn_rate_rad
                 - turret_deg_per_sec_to_rad_per_frame(
                     STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC
                 ))
