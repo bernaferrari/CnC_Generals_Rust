@@ -4842,3 +4842,131 @@ fn nuke_cannon_object_hit_residual_keys_on_authored_weapon_not_template_name() {
         .unwrap_or(0.0);
     assert!(hp < 1000.0, "attacker never hit the victim");
 }
+
+/// hq-2qedt.200: object_hit routes BattlemasterTankGeneral residual by the authored weapon,
+/// not a template-name gate; a BattlemasterTankGeneral-named unit with a foreign authored weapon
+/// takes the generic path.
+#[test]
+fn battlemaster_tank_object_hit_residual_fires_for_authored_variant_weapon() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+        let mut w = gamelogic::weapon::WeaponTemplate::new("Tank_BattleMasterTankGun".to_string());
+        w.primary_damage = 40.0;
+        w.attack_range = 150.0;
+        w.min_delay_between_shots = 60;
+        w.max_delay_between_shots = 60;
+        w.clip_size = 0;
+        store.add_weapon_template(w);
+    });
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("A200TankVariant");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name("Tank_BattleMasterTankGun");
+    game_logic
+        .templates
+        .insert("A200TankVariant".to_string(), tpl);
+    let mut victim = crate::game_logic::ThingTemplate::new("A17xVictim");
+    victim
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0);
+    game_logic
+        .templates
+        .insert("A17xVictim".to_string(), victim);
+    let id = game_logic
+        .create_object("A200TankVariant", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("attacker");
+    let enemy = game_logic
+        .create_object("A17xVictim", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("victim");
+    {
+        let (t, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
+        t.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = t.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.min_range = 0.0;
+        }
+    }
+    for f in 40..70 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    assert!(
+        game_logic.battlemaster_shells_spawned + game_logic.battlemaster_residual_fires > 0,
+        "BattlemasterTankGeneral residual must fire for authored Tank_BattleMasterTankGun"
+    );
+}
+
+/// hq-2qedt.200: object_hit routes BattlemasterNukeGeneral residual by the authored weapon,
+/// not a template-name gate; a BattlemasterNukeGeneral-named unit with a foreign authored weapon
+/// takes the generic path.
+#[test]
+fn battlemaster_nuke_object_hit_residual_fires_for_authored_variant_weapon() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+        let mut w = gamelogic::weapon::WeaponTemplate::new("Nuke_BattleMasterTankGun".to_string());
+        w.primary_damage = 40.0;
+        w.attack_range = 150.0;
+        w.min_delay_between_shots = 60;
+        w.max_delay_between_shots = 60;
+        w.clip_size = 0;
+        store.add_weapon_template(w);
+    });
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("A200NukeVariant");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name("Nuke_BattleMasterTankGun");
+    game_logic
+        .templates
+        .insert("A200NukeVariant".to_string(), tpl);
+    let mut victim = crate::game_logic::ThingTemplate::new("A17xVictim");
+    victim
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0);
+    game_logic
+        .templates
+        .insert("A17xVictim".to_string(), victim);
+    let id = game_logic
+        .create_object("A200NukeVariant", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("attacker");
+    let enemy = game_logic
+        .create_object("A17xVictim", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("victim");
+    {
+        let (t, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
+        t.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = t.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.min_range = 0.0;
+        }
+    }
+    for f in 40..70 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    assert!(
+        game_logic.battlemaster_shells_spawned + game_logic.battlemaster_residual_fires > 0,
+        "BattlemasterNukeGeneral residual must fire for authored Nuke_BattleMasterTankGun"
+    );
+}

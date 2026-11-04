@@ -1025,9 +1025,20 @@ impl GameLogic {
                     let _ = hits;
                 } else if self.objects.get(&attacker_id).is_some_and(|a| {
                     // China Battlemaster residual keyed on the authored tank gun,
-                    // not the template name (hq-2qedt.174).
-                    a.selected_weapon_name(slot)
-                        == Some(crate::game_logic::host_battlemaster::BATTLE_MASTER_TANK_GUN)
+                    // not the template name (hq-2qedt.174); Tank/Nuke general variants
+                    // fire the same residual (hq-2qedt.200).
+                    use crate::game_logic::host_battlemaster::{
+                        BATTLE_MASTER_TANK_GUN, NUKE_BATTLE_MASTER_TANK_GUN,
+                        TANK_BATTLE_MASTER_TANK_GUN,
+                    };
+                    matches!(
+                        a.selected_weapon_name(slot),
+                        Some(
+                            BATTLE_MASTER_TANK_GUN
+                                | TANK_BATTLE_MASTER_TANK_GUN
+                                | NUKE_BATTLE_MASTER_TANK_GUN
+                        )
+                    )
                 }) {
                     let impact = target_position;
                     let from = self
