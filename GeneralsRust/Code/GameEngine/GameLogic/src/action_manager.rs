@@ -2119,13 +2119,16 @@ impl TheActionManager {
 
         // C++ ActionManager.cpp:755-771: the first spawn interface evaluates
         // only getClosestSlave(target position), not any slave.
-        // TODO(hq-2qedt.6): Firebase closest-rider fallback when no spawn interface.
+        // C++ ActionManager.cpp:772-785: with no spawn interface (Firebase
+        // garrison), fall back to contain->getClosestRider(target position).
         if obj.is_kind_of(KindOf::SpawnsAreTheWeapons) {
+            let mut has_spawn_interface = false;
             for mut behavior in obj.get_behavior_modules() {
                 let Ok(mut behavior) = behavior.access() else {
                     continue;
                 };
                 if let Some(spawn_behavior) = behavior.get_spawn_behavior_full_interface() {
+                    has_spawn_interface = true;
                     let slave = spawn_behavior.get_closest_slave(object_to_attack.get_position());
                     drop(behavior);
                     if let Some(slave) = slave {
@@ -2141,6 +2144,20 @@ impl TheActionManager {
                         }
                     }
                     break;
+                }
+            }
+            if !has_spawn_interface {
+                if let Some(rider) = closest_rider(obj, object_to_attack.get_position()) {
+                    let result = rider.read().map_or(ATTACKRESULT_NOT_POSSIBLE, |rider| {
+                        rider.get_able_to_attack_specific_object(
+                            attack_type,
+                            object_to_attack,
+                            command_source,
+                        )
+                    });
+                    if result != ATTACKRESULT_NOT_POSSIBLE {
+                        return Ok(result);
+                    }
                 }
             }
         }
@@ -2399,6 +2416,30 @@ impl ActionExecutor for GameLogicActionExecutor {
 
 pub fn get_rts_action_manager() -> Arc<RwLock<RtsActionManager>> {
     Arc::clone(crate::system::engine_stores::active_services().rts_actions())
+}
+
+/// C++ `OpenContain::getClosestRider` (OpenContain.cpp:562-584): nearest
+/// contained rider by 2D center distance; first rider wins ties.
+fn closest_rider(obj: &Object, pos: &crate::common::Coord3D) -> Option<Arc<RwLock<Object>>> {
+    let contain = obj.get_contain()?;
+    let ids: Vec<ObjectID> = contain.lock().ok()?.get_contained_objects().to_vec();
+    let mut closest: Option<(Arc<RwLock<Object>>, f32)> = None;
+    for id in ids {
+        let Some(rider) = TheGameLogic::find_object_by_id(id) else {
+            continue;
+        };
+        let Some(distance) = rider.read().ok().map(|r| {
+            let p = r.get_position();
+            let (dx, dy) = (p.x - pos.x, p.y - pos.y);
+            dx * dx + dy * dy
+        }) else {
+            continue;
+        };
+        if closest.as_ref().is_none_or(|(_, best)| *best > distance) {
+            closest = Some((rider, distance));
+        }
+    }
+    closest.map(|(rider, _)| rider)
 }
 
 #[cfg(test)]
@@ -3308,6 +3349,84 @@ mod tests {
                     ),
                     ATTACKRESULT_NOT_POSSIBLE,
                     "closest slave (unarmed) decides; farther armed slave must not authorize"
+                );
+            })
+        })
+    }
+    // C++ ActionManager.cpp:772-785: a SPAWNS_ARE_THE_WEAPONS garrison
+    // (AmericaBuildingFirebase) with no spawn interface asks its closest rider.
+    // Stealthed target: the site cannot see it, the stealth-ignoring rider can,
+    // so only the closest-rider fallback can authorize.
+    #[test]
+    fn spawns_are_the_weapons_without_spawn_falls_back_to_closest_rider() {
+        let _serial = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let stores = crate::system::engine_stores::new_for_world();
+            crate::system::engine_stores::with_active_stores(&stores, || {
+                let (near_id, far_id) = (0x00A0_8961, 0x00A0_8962);
+                let mut near = Object::new_test(near_id, 100.0);
+                near.set_position(&Coord3D::new(10.0, 0.0, 0.0)).unwrap();
+                let weapon = crate::weapon::Weapon::new_at(
+                    Arc::new(crate::weapon::WeaponTemplate::new("RiderGun".to_string())),
+                    WeaponSlotType::Primary,
+                    0,
+                );
+                near.weapon_set
+                    .restore_weapon(WeaponSlotType::Primary, weapon);
+                let mut far = Object::new_test(far_id, 100.0);
+                far.set_position(&Coord3D::new(500.0, 0.0, 0.0)).unwrap();
+                near.set_status(
+                    crate::MAKE_OBJECT_STATUS_MASK!(
+                        crate::common::ObjectStatusTypes::IgnoringStealth
+                    ),
+                    true,
+                );
+                let near = Arc::new(RwLock::new(near));
+                let far = Arc::new(RwLock::new(far));
+                OBJECT_REGISTRY.register_object(far_id, &far);
+                OBJECT_REGISTRY.register_object(near_id, &near);
+
+                let mut firebase = object_with_kinds(
+                    8960,
+                    500.0,
+                    &[
+                        KindOf::Structure,
+                        KindOf::CanAttack,
+                        KindOf::SpawnsAreTheWeapons,
+                    ],
+                );
+                firebase.set_contain(Some(Arc::new(Mutex::new(TestContain {
+                    ids: vec![far_id, near_id],
+                    garrisonable: true,
+                    max: 5,
+                }))));
+                let mut target = object_with_kinds(8963, 100.0, &[KindOf::Vehicle]);
+                target.set_position(&Coord3D::new(0.0, 0.0, 0.0)).unwrap();
+                target.set_status(
+                    crate::MAKE_OBJECT_STATUS_MASK!(crate::common::ObjectStatusTypes::Stealthed),
+                    true,
+                );
+                let rider_direct = near.read().unwrap().get_able_to_attack_specific_object(
+                    AbleToAttackType::NewTarget,
+                    &target,
+                    CommandSourceType::FromScript,
+                );
+                let result = TheActionManager::get_can_attack_object(
+                    &firebase,
+                    &target,
+                    CommandSourceType::FromScript,
+                    AbleToAttackType::NewTarget,
+                );
+                OBJECT_REGISTRY.unregister_object(near_id);
+                OBJECT_REGISTRY.unregister_object(far_id);
+                assert_ne!(
+                    rider_direct, ATTACKRESULT_NOT_POSSIBLE,
+                    "fixture: rider armed"
+                );
+                assert_eq!(
+                    result, rider_direct,
+                    "Firebase must defer to its closest rider"
                 );
             })
         })
