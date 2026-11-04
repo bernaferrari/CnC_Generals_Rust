@@ -381,9 +381,8 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_scorpion::is_scorpion_template(template_name) {
                 return Some(SCORPION_TANK_GUN);
             }
-            if crate::game_logic::host_tomahawk::is_tomahawk_template(template_name) {
-                return Some(TOMAHAWK_MISSILE_WEAPON);
-            }
+            // Tomahawk: explicit retail rows above only; no fuzzy name peel
+            // (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.119).
             if crate::game_logic::host_raptor::is_raptor_template(template_name) {
                 let king = crate::game_logic::host_raptor::is_king_raptor_template(template_name);
                 return Some(crate::game_logic::host_raptor::raptor_weapon_name(king));
@@ -586,5 +585,23 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
                 None
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tomahawk_unit_map_peel_tests {
+    use super::*;
+
+    /// hq-2qedt.119: C++ resolves PRIMARY from the authored WeaponSet; an
+    /// unlisted template whose name merely contains "Tomahawk" must not pick
+    /// up TomahawkMissileWeapon from a fuzzy name peel.
+    #[test]
+    fn unlisted_tomahawk_named_template_gets_no_name_peel_primary() {
+        assert_eq!(primary_weapon_name_for_unit("Boss_VehicleTomahawkDecoy"), None);
+        // Explicit retail table rows stay.
+        assert_eq!(
+            primary_weapon_name_for_unit("AmericaVehicleTomahawk"),
+            Some(TOMAHAWK_MISSILE_WEAPON)
+        );
     }
 }
