@@ -4484,3 +4484,43 @@ fn scorpion_vehicle_shells_has_no_template_name_sniff() {
     let src = include_str!("../world_combat/vehicle_shells.rs");
     assert!(!src.contains("is_scorpion_template"));
 }
+
+/// hq-2qedt.207: Scorpion rocket / AP-rockets team upgrades pick recipients
+/// by authored PRIMARY (ScorpionTankGun family), not is_scorpion_template.
+/// C++ WeaponSetUpgrade / WeaponBonusUpgrade fire on any object whose
+/// authored modules carry the trigger, regardless of template name.
+#[test]
+fn scorpion_team_upgrades_key_on_authored_gun_not_template_name() {
+    use crate::game_logic::host_scorpion::{
+        SCORPION_TANK_GUN, UPGRADE_GLA_AP_ROCKETS, UPGRADE_GLA_SCORPION_ROCKET,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    fn mk(gl: &mut GameLogic, name: &str, weapon: &str) -> ObjectId {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(weapon);
+        gl.templates.insert(name.to_string(), tpl);
+        gl.create_object(name, Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("obj")
+    }
+
+    ensure_host_weapon_store();
+    let mut gl = GameLogic::new();
+    let named = mk(&mut gl, "GLATankScorpion", "HumveeGun");
+    let authored = mk(&mut gl, "GLAModTankAlpha", SCORPION_TANK_GUN);
+    assert_eq!(
+        gl.apply_scorpion_rocket_to_team(Team::GLA.into(), UPGRADE_GLA_SCORPION_ROCKET),
+        1
+    );
+    assert!(gl.objects.get(&authored).unwrap().has_upgrade_tag(UPGRADE_GLA_SCORPION_ROCKET));
+    assert!(!gl.objects.get(&named).unwrap().has_upgrade_tag(UPGRADE_GLA_SCORPION_ROCKET));
+    assert_eq!(gl.apply_ap_rockets_to_team(Team::GLA.into(), UPGRADE_GLA_AP_ROCKETS), 1);
+    assert!(gl.objects.get(&authored).unwrap().has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS));
+
+    let src = include_str!("../world_objects/weapon_upgrades.rs");
+    assert!(!src.contains("is_scorpion_template"));
+}

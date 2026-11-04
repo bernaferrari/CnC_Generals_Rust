@@ -910,14 +910,15 @@ impl GameLogic {
         recipients: UpgradeRecipients,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_scorpion::{UPGRADE_GLA_SCORPION_ROCKET, is_scorpion_template};
+        use crate::game_logic::host_scorpion::UPGRADE_GLA_SCORPION_ROCKET;
+        use super::super::world_combat::ocl_and_scud::authored_scorpion_gun;
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
             .filter(|(_, o)| {
                 recipients.matches_object(o)
                     && o.is_alive()
-                    && is_scorpion_template(&o.template_name)
+                    && authored_scorpion_gun(o)
             })
             .map(|(id, _)| *id)
             .collect();
@@ -943,14 +944,15 @@ impl GameLogic {
     ) -> u32 {
         use crate::game_logic::host_base_defense::is_stinger_site_structure;
         use crate::game_logic::host_rpg_trooper::is_rpg_trooper_template;
-        use crate::game_logic::host_scorpion::{UPGRADE_GLA_AP_ROCKETS, is_scorpion_template};
+        use crate::game_logic::host_scorpion::UPGRADE_GLA_AP_ROCKETS;
+        use super::super::world_combat::ocl_and_scud::authored_scorpion_gun;
 
         let ids: Vec<(ObjectId, u8)> = self
             .objects
             .registered()
             .filter(|(_, o)| recipients.matches_object(o) && o.is_alive())
             .filter_map(|(id, o)| {
-                if is_scorpion_template(&o.template_name) {
+                if authored_scorpion_gun(o) {
                     Some((*id, 0u8))
                 } else if is_rpg_trooper_template(&o.template_name) {
                     Some((*id, 1))

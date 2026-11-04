@@ -4634,7 +4634,7 @@ End
 /// hq-2qedt.179: Scorpion gun/rocket refresh keys on the authored PRIMARY
 /// (ScorpionTankGun family) rather than a template-name sniff; C++ crate /
 /// WeaponSetUpgrade paths only flip WeaponSet conditions on the authored set.
-fn authored_scorpion_gun(obj: &crate::game_logic::Object) -> bool {
+pub(in crate::game_logic) fn authored_scorpion_gun(obj: &crate::game_logic::Object) -> bool {
     use crate::game_logic::host_scorpion::{SCORPION_TANK_GUN, SCORPION_TANK_GUN_PLUS_ONE};
     obj.authored_weapon_name_for_slot(0).is_some_and(|w| {
         w.eq_ignore_ascii_case(SCORPION_TANK_GUN)
