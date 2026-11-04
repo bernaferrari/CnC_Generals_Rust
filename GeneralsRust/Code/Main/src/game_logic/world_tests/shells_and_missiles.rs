@@ -4776,3 +4776,51 @@ fn humvee_named_non_tow_secondary_skips_humvee_tow_object_hit_residual() {
         "Humvee TOW residual chosen by template-name peel"
     );
 }
+
+/// hq-2qedt.191: Troop Crawler-named transport authoring a non-assault PRIMARY
+/// must not route through the TroopCrawlerAssault DEPLOY residual on object hit.
+#[test]
+fn troop_crawler_named_non_assault_weapon_skips_assault_deploy_object_hit_residual() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaVehicleTroopCrawler");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("ChinaVehicleTroopCrawler".to_string(), tpl);
+    let id = game_logic
+        .create_object("ChinaVehicleTroopCrawler", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("crawler");
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let (c, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
+        c.is_troop_crawler_transport = true;
+        c.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = c.weapon.as_mut() {
+            w.last_fire_time = -20.0;
+            w.reload_time = 0.1;
+        }
+    }
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    assert_eq!(
+        game_logic.troop_crawler_residual_assault_deploys(),
+        0,
+        "Troop Crawler DEPLOY residual chosen by template-name peel"
+    );
+}

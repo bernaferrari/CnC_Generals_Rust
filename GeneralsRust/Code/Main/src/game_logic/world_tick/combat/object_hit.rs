@@ -1424,17 +1424,13 @@ impl GameLogic {
                     );
                 } else if {
                     // China Troop Crawler residual: TroopCrawlerAssault DEPLOY → unload + attack.
-                    use crate::game_logic::host_troop_crawler::{
-                        is_troop_crawler_template, should_apply_troop_crawler_assault_deploy,
-                    };
+                    // Keyed on the authored WeaponSet weapon for this slot, not
+                    // the template name (hq-2qedt.191).
+                    use crate::game_logic::host_troop_crawler::TROOP_CRAWLER_ASSAULT_WEAPON;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_troop_crawler_assault_deploy(is_troop_crawler_template(
-                                &a.template_name,
-                            ))
-                        })
-                        .unwrap_or(false)
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .is_some_and(|n| n == TROOP_CRAWLER_ASSAULT_WEAPON)
                 } {
                     let _ordered = self.apply_troop_crawler_assault_deploy_with_effects(
                         attacker_id,
