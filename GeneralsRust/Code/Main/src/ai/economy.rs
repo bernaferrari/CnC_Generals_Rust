@@ -187,16 +187,22 @@ impl AIPlayer {
             .any(|object| object.team == team && object.is_alive() && object.can_construct())
     }
 
-    pub(super) fn is_dozer_work_order_template(template_name: &str) -> bool {
-        let n = template_name.to_ascii_lowercase();
-        n.contains("dozer") || n.contains("infantryworker") || n.ends_with("worker")
+    /// C++ queueDozer / work-order gates use KINDOF_DOZER, never a name peel.
+    pub(super) fn is_dozer_work_order_template(
+        world: &GameLogic,
+        template_name: &str,
+    ) -> bool {
+        world
+            .templates
+            .get(template_name)
+            .is_some_and(|template| template.is_kind_of(crate::game_logic::KindOf::Dozer))
     }
 
-    pub(super) fn dozer_already_queued(&self) -> bool {
+    pub(super) fn dozer_already_queued(&self, world: &GameLogic) -> bool {
         self.team_queue.iter().any(|team| {
-            team.work_orders
-                .iter()
-                .any(|order| Self::is_dozer_work_order_template(&order.template_name))
+            team.work_orders.iter().any(|order| {
+                Self::is_dozer_work_order_template(world, &order.template_name)
+            })
         })
     }
 
@@ -237,7 +243,7 @@ impl AIPlayer {
         &self,
         world: &GameLogic,
     ) -> Option<super::economic_owner::DozerQueueAttempt> {
-        if self.dozer_already_queued() {
+        if self.dozer_already_queued(world) {
             return None;
         }
         let (template, factory) = Self::first_dozer_template_with_factory(world, self.team)?;

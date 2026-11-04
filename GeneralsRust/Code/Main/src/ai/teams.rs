@@ -59,7 +59,7 @@ impl AIPlayer {
                     // Try to queue more units
                     if work_order.factory_id.is_none()
                         && (can_build_units
-                            || Self::is_dozer_work_order_template(&work_order.template_name)
+                            || Self::is_dozer_work_order_template(game_logic, &work_order.template_name)
                             || work_order.is_resource_gatherer)
                     {
                         factory_assignments.push((
