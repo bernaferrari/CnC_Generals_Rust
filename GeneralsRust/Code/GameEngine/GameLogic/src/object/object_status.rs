@@ -367,8 +367,12 @@ impl Object {
     }
 
     /// Mark this object as unmanned (DisabledUnmanned flag).
+    /// C++ `Object::setDisabled` (Object.cpp:2044) is `setDisabledUntil(type, FOREVER)`.
     pub fn set_disabled_unmanned(&mut self) {
-        self.set_disabled(DisabledType::DisabledUnmanned);
+        self.set_disabled_until(
+            DisabledType::DisabledUnmanned,
+            game_engine::common::game_common::FOREVER,
+        );
     }
 
     /// Set team to neutral if available.
