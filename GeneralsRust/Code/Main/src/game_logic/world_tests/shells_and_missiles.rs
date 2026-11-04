@@ -4696,3 +4696,11 @@ fn rpg_trooper_named_non_rocket_weapon_skips_rpg_object_hit_residual() {
     let gl = fire_named_template_with_humvee_gun("GLAInfantryTunnelDefender", Team::USA);
     assert_eq!(gl.rpg_trooper_residual_fires(), 0, "RPG Trooper residual chosen by template-name peel");
 }
+
+/// hq-2qedt.187: Red Guard-named template authoring a non-Redguard PRIMARY
+/// must not route through the Red Guard gun/bayonet residual on object hit.
+#[test]
+fn red_guard_named_non_redguard_weapon_skips_red_guard_object_hit_residual() {
+    let gl = fire_named_template_with_humvee_gun("ChinaInfantryRedguard", Team::USA);
+    assert_eq!(gl.red_guard_residual_fires(), 0, "Red Guard residual chosen by template-name peel");
+}
