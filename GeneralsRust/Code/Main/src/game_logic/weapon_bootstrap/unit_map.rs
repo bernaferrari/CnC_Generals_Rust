@@ -363,9 +363,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_angry_mob::is_angry_mob_nexus_template(template_name) {
                 return Some(ANGRY_MOB_RESIDUAL_WEAPON);
             }
-            if crate::game_logic::host_rocket_buggy::is_rocket_buggy_template(template_name) {
-                return Some(BUGGY_ROCKET_WEAPON);
-            }
             if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
                 return Some(QUAD_CANNON_GUN);
             }
