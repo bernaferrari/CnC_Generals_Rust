@@ -1453,6 +1453,71 @@ pub fn residual_data_for_template(
     }
 }
 
+/// Typed module admission: bind mine runtime from the Object's admitted
+/// module declarations instead of its template name.
+///
+/// C++ MinefieldBehavior.cpp:59-69 / DemoTrapUpdate.cpp:46-55 / StickyBombUpdate:
+/// the module class selects the runtime; the module's own INI fields set
+/// its data. Returns `None` when no mine module is declared, even if the
+/// name looks like a mine. StickyBombUpdate carries no timed/remote field,
+/// so that split (and curated weapon profiles) still use the name residual.
+pub fn admitted_data_for_modules(
+    modules: &[crate::assets::ini_parser::BehaviorModuleDefinition],
+    template_name: &str,
+    current_frame: u32,
+    has_gamma: bool,
+) -> Option<HostMineData> {
+    let has = |class: &str| {
+        modules
+            .iter()
+            .find(|m| m.class_name.eq_ignore_ascii_case(class))
+    };
+    let parse_bool = |v: &str| matches!(v.trim().to_ascii_lowercase().as_str(), "yes" | "true" | "1");
+    if let Some(module) = has("MinefieldBehavior") {
+        let mut data = HostMineData::land_mine_for_template(template_name);
+        if let Some(v) = module.attribute("NumVirtualMines").and_then(|v| v.trim().parse::<u32>().ok()) {
+            data.num_virtual_mines = v;
+            data.virtual_mines_remaining = v;
+        }
+        if let Some(v) = module.attribute("Regenerates") {
+            data.regenerates = parse_bool(v);
+        }
+        if let Some(v) = module.attribute("WorkersDetonate") {
+            data.workers_detonate = parse_bool(v);
+        }
+        if let Some(v) = module.attribute("StopsRegenAfterCreatorDies") {
+            data.stops_regen_after_creator_dies = parse_bool(v);
+        }
+        if let Some(v) = module.attribute("RepeatDetonateMoveThresh").and_then(|v| v.trim().parse::<f32>().ok()) {
+            data.repeat_detonate_move_thresh = v;
+        }
+        if let Some(v) = module.attribute("ScootFromStartingPointTime").and_then(|v| v.trim().parse::<u32>().ok()) {
+            data.scoot_from_starting_point_time = mine_ms_to_frames(v);
+        }
+        return Some(data);
+    }
+    if let Some(module) = has("DemoTrapUpdate") {
+        let profile = demo_trap_profile(template_name, has_gamma, false);
+        let mut data = HostMineData::demo_trap_with_profile(profile);
+        if let Some(v) = module.attribute("TriggerDetonationRange").and_then(|v| v.trim().parse::<f32>().ok()) {
+            data.trigger_range = v;
+        }
+        if let Some(v) = module.attribute("DefaultProximityMode") {
+            data.demo_trap_mode = if parse_bool(v) { DemoTrapMode::Proximity } else { DemoTrapMode::Manual };
+        }
+        return Some(data);
+    }
+    if has("StickyBombUpdate").is_some() {
+        if is_remote_demo_charge_template(template_name) {
+            let mut data = HostMineData::remote_demo_charge();
+            data.next_ping_frame = Some(current_frame.saturating_add(UNIT_BOMB_PING_FRAMES));
+            return Some(data);
+        }
+        return Some(HostMineData::timed_demo_charge(current_frame));
+    }
+    None
+}
+
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
 pub fn mine_ms_to_frames(ms: u32) -> u32 {
     if ms == 0 {
