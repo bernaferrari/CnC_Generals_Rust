@@ -999,7 +999,7 @@ impl GameLogic {
             }
             // C++ SlowDeathBehavior residual: infantry/vehicles delay destroy + sink.
             // deferred_destruction_credit was stamped at onDie start for final destroyObject.
-            if self.try_begin_slow_death_instead_of_destroy(id, presentation_effects)? {
+            if self.try_begin_slow_death_instead_of_destroy(id, input, presentation_effects)? {
                 return Ok(());
             }
             // C++ KeepObjectDie residual: leave rubble, do not DestroyDie-remove.
@@ -1239,6 +1239,7 @@ impl GameLogic {
     pub(in super::super::super) fn try_begin_slow_death_instead_of_destroy(
         &mut self,
         id: ObjectId,
+        input: Option<crate::game_logic::object::OnDieInput>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<bool> {
         let frame = self.frame;
@@ -1330,6 +1331,7 @@ impl GameLogic {
         }
         if obj.begin_slow_death(
             frame,
+            input,
             &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
         ) {
             return Ok(true);

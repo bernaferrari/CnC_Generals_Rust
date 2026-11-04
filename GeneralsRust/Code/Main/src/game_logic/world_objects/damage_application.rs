@@ -1174,6 +1174,8 @@ impl GameLogic {
                     source: source_id,
                     damage_type,
                     death_type,
+                    actual_damage_dealt: application.actual_damage_dealt().unwrap_or(hp_lost),
+                    actual_damage_clipped: hp_lost,
                 },
                 context.topple_interpreter(),
                 effects,

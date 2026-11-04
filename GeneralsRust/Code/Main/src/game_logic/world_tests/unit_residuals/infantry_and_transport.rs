@@ -3355,3 +3355,58 @@ fn non_authored_slow_death_fallback_gates_veterancy_exempt_and_required_status()
         logic.objects.remove(&id);
     }
 }
+
+#[test]
+fn lethal_damage_overkill_feeds_slow_death_probability_like_cpp() {
+    // C++ SlowDeathBehavior::getProbabilityModifier (SlowDeathBehavior.cpp:158-167)
+    // reads the lethal DamageInfo: Int(actualDealt - actualClipped) / maxHealth
+    // times ModifierBonusPerOverkillPercent. ActiveBody.cpp:540-541 stamps
+    // dealt=amount, clipped=prevHealth-currentHealth.
+    use crate::game_logic::host_slow_death::{
+        msec_to_logic_frames, slow_death_ini_from_behavior_attrs,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("OverkillSlowVictim");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Vehicle);
+    t.authored_slow_death = Some(vec![
+        slow_death_ini_from_behavior_attrs(&[
+            ("DestructionDelay", "9000"),
+            ("ProbabilityModifier", "1"),
+            ("ModifierBonusPerOverkillPercent", "100000000"),
+        ]),
+        slow_death_ini_from_behavior_attrs(&[
+            ("DestructionDelay", "3000"),
+            ("ProbabilityModifier", "1000"),
+        ]),
+    ]);
+    logic.templates.insert("OverkillSlowVictim".into(), t);
+    for i in 0..10 {
+        let id = logic
+            .create_object(
+                "OverkillSlowVictim",
+                Team::USA,
+                glam::Vec3::new(i as f32 * 10.0, 0.0, 0.0),
+            )
+            .unwrap();
+        // 300 dealt vs 100 HP -> 200 overkill -> 2.0 * 1e8 bonus dominates.
+        logic.apply_owned_damage(
+            id,
+            300.0,
+            None,
+            crate::game_logic::combat::DamageType::Unresistable,
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+            None,
+            &crate::game_logic::object::DamageHitContext::default(),
+        );
+        let o = logic.objects.get(&id).unwrap();
+        let sd = o.slow_death.as_ref().expect("lethal hit must begin SlowDeath");
+        assert_eq!(
+            sd.destroy_at_frame - sd.begin_frame,
+            msec_to_logic_frames(9000),
+            "overkill bonus must select the overkill module (C++ getProbabilityModifier)"
+        );
+        logic.objects.remove(&id);
+    }
+}
