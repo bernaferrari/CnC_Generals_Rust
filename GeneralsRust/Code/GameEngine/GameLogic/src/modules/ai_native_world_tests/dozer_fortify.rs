@@ -642,3 +642,17 @@ fn deletion_cancels_frame_zero_target_before_later_construction_cleanup() {
     assert!(game.factory.get_object(id).is_some());
     assert_eq!(game.dispose_destroyed(1).unwrap(), 1);
 }
+
+/// hq-2qedt.68: the shared with_source_at fixture constructs owned bodies
+/// (BodyDefinitionCatalog present), so ordinary owned damage is admitted.
+#[test]
+fn shared_fixture_bodies_admit_owned_damage() {
+    let mut game = world();
+    let owner = Arc::clone(&game.source);
+    let mut damage = crate::damage::DamageInfo::default();
+    damage.input.source_id = game.target.read().unwrap().get_id();
+    damage.input.damage_type = crate::damage::DamageType::Explosion;
+    damage.input.amount = 10.0;
+    let dealt = game.operate(1, |world| world.attempt_damage_owned(&owner, &mut damage));
+    assert!(dealt.is_ok(), "owned damage must be admitted: {dealt:?}");
+}

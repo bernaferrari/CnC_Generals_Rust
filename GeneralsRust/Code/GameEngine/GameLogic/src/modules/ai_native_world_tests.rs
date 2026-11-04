@@ -329,13 +329,42 @@ impl NativeMatch {
         } else {
             team.clone()
         };
+        // hq-2qedt.68: owned construction so bodies carry a BodyDefinitionCatalog
+        // (C++ ActiveBody reads its module data at birth) and owned damage admits.
+        let mut module_catalog = game_engine::common::thing::module_factory::ModuleFactory::new();
+        crate::contain_module_overrides::register_native_module_overrides(&mut module_catalog)
+            .unwrap();
+        for owner in [&source_template, &template] {
+            for entry in owner.get_behavior_module_info() {
+                module_catalog.add_module_internal(
+                    None,
+                    None,
+                    game_engine::common::thing::module::ModuleType::Behavior,
+                    &entry.name,
+                    entry.interface_flags(),
+                );
+            }
+        }
+        let bodies = Arc::new(
+            crate::object::body::active_body::BodyDefinitionCatalog::new(
+                Some(&game_engine::common::global_data::GlobalData::default()),
+                std::collections::HashMap::new(),
+                std::collections::HashMap::new(),
+            )
+            .unwrap(),
+        );
+        let mut lookup =
+            |name: &str| Ok(crate::locomotor::LOCOMOTOR_STORE.get_template(name));
         let source_id = factory
-            .prepare_object(
+            .prepare_object_owned(
                 &mut scheduler,
                 source_template,
                 Coord3D::new(50.0, 50.0, 0.0),
                 Some(team.clone()),
                 ObjectCreationFlags::empty(),
+                &mut lookup,
+                bodies.clone(),
+                &module_catalog,
             )
             .unwrap();
         let expects_containment = template
@@ -352,12 +381,15 @@ impl NativeMatch {
             ObjectCreationFlags::NO_AI
         };
         let target_id = factory
-            .prepare_object(
+            .prepare_object_owned(
                 &mut scheduler,
                 template,
                 target_position,
                 Some(Arc::clone(&target_team)),
                 target_flags,
+                &mut lookup,
+                bodies,
+                &module_catalog,
             )
             .unwrap();
         team.write().unwrap().add_member(source_id);
