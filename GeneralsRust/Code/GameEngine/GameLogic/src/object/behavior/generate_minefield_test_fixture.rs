@@ -391,19 +391,39 @@ fn same_id_minefields_create_and_clear_only_the_supplied_match() {
     assert!(peer.get_statistics().is_generated);
 }
 
+#[derive(Debug, Default)]
+struct OwnedGenFxRecorder {
+    calls: std::sync::Mutex<usize>,
+}
+impl crate::common::FXListManagerInterface for OwnedGenFxRecorder {
+    fn do_fx_pos(&self, fx: crate::common::FXListId, _: &crate::common::Coord3D, _: Option<&glam::Mat4>) {
+        assert_eq!(fx, game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("AuthoredMineFX") as crate::common::FXListId);
+        *self.calls.lock().unwrap() += 1;
+    }
+    fn do_fx_obj(&self, _: crate::common::FXListId, _: crate::common::ThingId) {}
+    fn do_fx_for_object(&self, _: crate::common::FXListId, _: &Object) {}
+    fn do_fx_for_host_objects(&self, _: crate::common::FXListId, _: &crate::helpers::HostFxObjectPose, _: Option<&crate::helpers::HostFxObjectPose>) {}
+}
+
 #[test]
-fn unsupported_generation_fx_rejects_before_creation_or_generation() {
-    let mut fixture = MinefieldFixture::new(98_106);
-    let mut behavior = fixture.behavior(false);
-    behavior.config.generation_fx = Some("AuthoredMineFX".into());
-    let before = fixture.scheduler.get_all_object_ids().to_vec();
-    assert!(matches!(
-        behavior.place_mines_owned(&mut fixture),
-        Err(BehaviorError::ServiceUnavailable(_))
-    ));
-    assert_eq!(fixture.scheduler.get_all_object_ids(), before);
-    assert!(!behavior.get_statistics().is_generated);
-    assert_eq!(behavior.get_statistics().mine_count, 0);
+fn owned_place_mines_plays_generation_fx_once_after_placement() {
+    // GenerateMinefieldBehavior.cpp:431: genFX fires once after the mines exist.
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+        crate::system::engine_stores::with_active_stores(&stores, || {
+            let recorder = Arc::new(OwnedGenFxRecorder::default());
+            assert!(crate::helpers::register_fx_list_manager(recorder.clone()));
+            let mut fixture = MinefieldFixture::new(98_106);
+            let mut behavior = fixture.behavior(false);
+            behavior.config.generation_fx = Some("AuthoredMineFX".into());
+            let before = fixture.scheduler.get_all_object_ids().len();
+            behavior.place_mines_owned(&mut fixture).expect("owned place with genFX");
+            assert!(fixture.scheduler.get_all_object_ids().len() > before, "mines placed");
+            assert!(behavior.get_statistics().is_generated);
+            assert_eq!(*recorder.calls.lock().unwrap(), 1, "gen FX fires once");
+        })
+    });
 }
 
 #[test]

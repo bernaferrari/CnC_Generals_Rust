@@ -684,10 +684,9 @@ impl GenerateMinefieldBehavior {
         if self.config.smart_border
             || !self.config.border_only
             || !self.config.always_circular
-            || self.config.generation_fx.is_some()
         {
             return Err(BehaviorError::ServiceUnavailable(
-                "owned minefield admits normal circular border without generation FX".into(),
+                "owned minefield admits normal circular border only".into(),
             ));
         }
         // GenerateMinefieldBehavior.cpp:354: m_generated is set before the
@@ -730,6 +729,10 @@ impl GenerateMinefieldBehavior {
             }
         }
         self.state.current_mine_template = mine_name;
+        // GenerateMinefieldBehavior.cpp:431: FXList::doFXObj(m_genFX) after placement.
+        if let Some(ref fx_template) = self.config.generation_fx {
+            self.play_fx(fx_template, &geometry.center)?;
+        }
         Ok(())
     }
 
