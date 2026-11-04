@@ -358,6 +358,11 @@ impl OwnedMinefieldServices for MinefieldWindow<'_> {
         self.effects.push(MinefieldEffect::Destroy(mine, actor));
         Ok(())
     }
+    fn owner_completed_upgrades(&self, owner: u32) -> Option<u128> {
+        let view = MinefieldView { objects: self.objects, born: &self.born };
+        let owner = view.find(owner)?.read().ok()?;
+        Some(owner.completed_upgrades().bits())
+    }
 }
 
 impl GameLogic {
@@ -553,4 +558,141 @@ mod tests {
         }
     }
 
+
+    /// hq-2qedt.72: the REAL GenerateMinefieldBehaviorModule behind the actual
+    /// ModuleUpdateProxy reaches the scheduler-lent services on a live tick:
+    /// the owner's Upgrade_ChinaEMPMines destroys old mines and places upgraded
+    /// ones in the same update (GenerateMinefieldBehavior.cpp:437-475).
+    #[test]
+    fn module_update_proxy_dispatches_real_minefield_to_owned_services() {
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+            *stores.upgrade_center().write().unwrap() = crate::upgrade::center::UpgradeCenter::new();
+            crate::system::engine_stores::with_active_stores(&stores, proxy_body)
+        });
+    }
+
+    fn proxy_body() {
+        use crate::object::behavior::generate_minefield_behavior::GenerateMinefieldBehaviorModule;
+        let mut definitions = ThingFactory::new();
+        assert_eq!(definitions.load_ini_text("Object ProxyMine\n KindOf = MINE\n Geometry = CYLINDER\n GeometryMajorRadius = 3.0\n GeometryMinorRadius = 3.0\n GeometryHeight = 1.0\nEnd\nObject ProxyEmpMine\n KindOf = MINE\n Geometry = CYLINDER\n GeometryMajorRadius = 3.0\n GeometryMinorRadius = 3.0\n GeometryHeight = 1.0\nEnd\nObject ProxyMinefieldSource\n Geometry = CYLINDER\n GeometryMajorRadius = 20.0\n GeometryMinorRadius = 20.0\n GeometryHeight = 1.0\nEnd\n"), 3);
+        let mut map = crate::system::map_loader::MapData::new();
+        map.width = 64;
+        map.height = 64;
+        map.heightmap = vec![24; 64 * 64];
+        map.boundaries = vec![crate::common::ICoord2D::new(64, 64)];
+        let mut terrain = crate::terrain::TerrainLogic::new();
+        terrain.load_map_geometry(map);
+        let mut factory = ObjectFactory::new();
+        let modules = ModuleFactory::new();
+        let bodies = Arc::new(
+            BodyDefinitionCatalog::new(
+                Some(&game_engine::common::global_data::GlobalData::default()),
+                HashMap::new(),
+                HashMap::new(),
+            )
+            .unwrap(),
+        );
+        let mut collision = CollisionSystem::new();
+        let mut random = RandomState::default();
+        let mut logic = GameLogic::new();
+        let source = crate::helpers::adapt_owned_thing_template(
+            definitions.find_template("ProxyMinefieldSource", false).unwrap(),
+        );
+        let mut lookup = |_name: &str| Ok(None);
+        let owner_id = factory
+            .prepare_object_owned(
+                &mut logic,
+                source,
+                Coord3D::ZERO,
+                None,
+                ObjectCreationFlags::NO_AI,
+                &mut lookup,
+                bodies.clone(),
+                &modules,
+            )
+            .unwrap();
+        let mut services = OwnedMinefieldPlacementServices {
+            factory: &mut factory,
+            definitions: &definitions,
+            modules: &modules,
+            bodies: bodies.clone(),
+            terrain: &terrain,
+            collision: &mut collision,
+            random: &mut random,
+        };
+        let owner = logic.find_object_by_id(owner_id).unwrap();
+        services
+            .position(owner_id, &owner, Coord3D::new(128.0, 128.0, 3.0), 0.0)
+            .unwrap();
+
+        let data = Arc::new(GenerateMinefieldBehaviorModuleData {
+            mine_name: "ProxyMine".into(),
+            mine_name_upgraded: Some("ProxyEmpMine".into()),
+            distance_around_object: 8.0,
+            mines_per_square_foot: 0.01,
+            random_jitter: 0.0,
+            skip_if_this_much_under_structure: 0.33,
+            border_only: true,
+            always_circular: true,
+            upgradable: true,
+            ..GenerateMinefieldBehaviorModuleData::default()
+        });
+        // Initial field through the same scheduler window (C++ placeMines).
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let initial = Arc::new(RwLock::new(ScheduledMinefieldModule {
+            behavior: GenerateMinefieldBehavior::new_from_config(owner_id, (*data).clone()),
+            upgrade: false,
+            mid_update_ids: Arc::clone(&seen),
+        }));
+        let handle: UpdateModulePtr = initial.clone();
+        logic.register_normal_update_module(owner_id, handle.clone());
+        logic.frame = 4;
+        logic.process_normal_updates_with_upgrade_services(None, Some(&mut services));
+        logic.unregister_update_module(owner_id, handle);
+        let placed = seen.lock().unwrap().clone();
+        let behavior = std::mem::replace(
+            &mut initial.write().unwrap().behavior,
+            GenerateMinefieldBehavior::new_from_config(0, GenerateMinefieldBehaviorModuleData::default()),
+        );
+        assert!(!placed.is_empty(), "initial mines placed");
+
+        let module_name = crate::common::AsciiString::from("GenerateMinefieldBehavior");
+        let real = GenerateMinefieldBehaviorModule::new(behavior, &module_name, Arc::clone(&data));
+        let (_host, proxy) = crate::object::Object::installed_update_proxy_for_test(
+            owner_id,
+            "GenerateMinefieldBehavior",
+            Box::new(real),
+            data,
+        );
+        logic.register_normal_update_module(owner_id, proxy);
+
+        // Tick without the upgrade: nothing changes.
+        logic.frame = 5;
+        logic.process_normal_updates_with_upgrade_services(None, Some(&mut services));
+        for id in &placed {
+            assert!(logic.find_object_by_id(*id).is_some());
+            assert!(!logic.dead_objects.contains(id));
+        }
+
+        let upgrade = crate::upgrade::center::with_upgrade_center_mut(|center| {
+            center.new_upgrade("Upgrade_ChinaEMPMines".into())
+        });
+        owner.write().unwrap().give_upgrade(&upgrade);
+        let counter = logic.get_object_id_counter();
+        logic.frame = 6;
+        logic.process_normal_updates_with_upgrade_services(None, Some(&mut services));
+        for id in &placed {
+            assert!(logic.dead_objects.contains(id), "old mine {id} destroyed same update");
+        }
+        let fresh: Vec<ObjectID> = (counter..logic.get_object_id_counter()).collect();
+        assert!(!fresh.is_empty(), "upgraded mines placed through proxy");
+        for id in &fresh {
+            let mine = logic.find_object_by_id(*id).expect("upgraded mine admitted same update");
+            let mine = mine.read().unwrap();
+            assert_eq!(mine.get_template().get_name().as_str(), "ProxyEmpMine");
+            assert_eq!(mine.get_producer_id(), owner_id);
+        }
+    }
 }

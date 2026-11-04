@@ -68,6 +68,11 @@ pub trait OwnedMinefieldServices {
         skip: f32,
     ) -> Result<u32, MinefieldServiceError>;
     fn remove(&mut self, owner: u32, mine: u32) -> Result<(), MinefieldServiceError>;
+    /// Owner's completed object-upgrade bits (C++ GenerateMinefieldBehavior.cpp:441
+    /// `getObject()->hasUpgrade`). None when the owner is not visible to the match.
+    fn owner_completed_upgrades(&self, _owner: u32) -> Option<u128> {
+        None
+    }
 }
 
 pub trait UpdateScheduleContext {

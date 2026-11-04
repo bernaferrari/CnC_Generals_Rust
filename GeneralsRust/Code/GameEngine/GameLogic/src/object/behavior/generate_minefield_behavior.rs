@@ -760,6 +760,37 @@ impl GenerateMinefieldBehavior {
         Ok(UpdateSleepTime::None)
     }
 
+    /// C++ GenerateMinefieldBehavior::update() 437-475 driven by the scheduler
+    /// with match-lent services: resolves the trigger upgrade mask and the
+    /// owner's completed bits through the services, then runs the owned upgrade.
+    pub(crate) fn update_scheduled_owned(
+        &mut self,
+        services: &mut dyn OwnedMinefieldServices,
+    ) -> BehaviorResult<UpdateSleepTime> {
+        if self.state.upgraded || !self.config.upgradable {
+            return Ok(UpdateSleepTime::Forever);
+        }
+        let mut owner_has_upgrade = false;
+        if self.state.generated {
+            let upgrade_name = self
+                .config
+                .mine_upgrade_trigger
+                .as_deref()
+                .unwrap_or("Upgrade_ChinaEMPMines");
+            let mask = get_upgrade_center()
+                .read()
+                .ok()
+                .and_then(|center| center.find_upgrade(upgrade_name))
+                .map(|upgrade| upgrade.mask().bits());
+            if let (Some(mask), Some(completed)) =
+                (mask, services.owner_completed_upgrades(self.object_id))
+            {
+                owner_has_upgrade = mask != 0 && completed & mask == mask;
+            }
+        }
+        self.update_upgrade_owned(owner_has_upgrade, &mut ScheduledMinefield(services))
+    }
+
     pub(crate) fn on_die_owned(
         &mut self,
         _damage: &DamageInfo,
