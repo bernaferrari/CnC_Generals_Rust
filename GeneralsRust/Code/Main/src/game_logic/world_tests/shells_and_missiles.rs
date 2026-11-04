@@ -1502,6 +1502,47 @@ fn tomahawk_create_primary_comes_from_authored_weapon_set() {
     );
 }
 
+/// hq-2qedt.104: Crusader/Paladin (incl. Lazr_) PRIMARY binds from the
+/// authored WeaponSet at create (C++ WeaponSet::updateWeaponSet), not the
+/// usa_tanks template-name peel.
+#[test]
+fn crusader_paladin_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::host_usa_tanks::{
+        LAZR_CRUSADER_TANK_GUN_DAMAGE, LAZR_PALADIN_TANK_GUN_DAMAGE, USA_TANK_GUN_DAMAGE,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    for name in [
+        "AmericaTankCrusader",
+        "AmericaTankPaladin",
+        "Lazr_AmericaTankCrusader",
+        "Lazr_AmericaTankPaladin",
+    ] {
+        let mut game_logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0)
+            .set_primary_weapon_name("HumveeGun");
+        game_logic.templates.insert(name.to_string(), tpl);
+        let id = game_logic
+            .create_object(name, Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("tank");
+        let prim = game_logic
+            .host_object(id)
+            .and_then(|t| t.weapon.clone())
+            .expect("authored primary");
+        for d in [USA_TANK_GUN_DAMAGE, LAZR_CRUSADER_TANK_GUN_DAMAGE, LAZR_PALADIN_TANK_GUN_DAMAGE] {
+            assert!(
+                (prim.damage - d).abs() > 0.01,
+                "{name}: authored HumveeGun PRIMARY overwritten by usa_tanks name peel: {prim:?}"
+            );
+        }
+    }
+}
+
 /// Residual: USA Tomahawk dual-radius long-range missile.
 #[test]
 fn tomahawk_residual_dual_radius_missile() {

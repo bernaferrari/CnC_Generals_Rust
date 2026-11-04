@@ -3029,18 +3029,9 @@ impl GameLogic {
                 object.secondary_weapon = Some(patriot_air_weapon_for_template(template_name));
             }
 
-            // Host residual: USA Crusader / Paladin PRIMARY tank gun
-            // (Laser General Lazr_* → Lazr_CrusaderTankGun / Lazr_PaladinTankGun).
-            // Fail-closed: not full LaserName beam drawable / shell lob matrix.
-            if crate::game_logic::host_usa_tanks::is_crusader_template(template_name)
-                || crate::game_logic::host_usa_tanks::is_paladin_template(template_name)
-            {
-                object.weapon = Some(
-                    crate::game_logic::host_usa_tanks::usa_tank_gun_weapon_for_template(
-                        template_name,
-                    ),
-                );
-            }
+            // USA Crusader / Paladin (incl. Lazr_) PRIMARY binds from the
+            // authored WeaponSet above (C++ WeaponSet::updateWeaponSet), not a
+            // usa_tanks template-name peel (hq-2qedt.104).
 
             // USA Tomahawk PRIMARY binds from the authored WeaponSet above
             // (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a

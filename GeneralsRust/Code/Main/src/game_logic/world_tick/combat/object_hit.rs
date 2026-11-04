@@ -1020,10 +1020,16 @@ impl GameLogic {
                         .get(&attacker_id)
                         .map(|a| {
                             let pal = is_paladin_template(&a.template_name);
+                            // Authored WeaponSet speed is per-frame (C++
+                            // WeaponTemplate::getWeaponSpeed); the shell
+                            // flight helper takes dist/sec (hq-2qedt.104).
                             let spd = a
                                 .weapon
                                 .as_ref()
-                                .map(|w| w.projectile_speed)
+                                .map(|w| {
+                                    w.projectile_speed
+                                        * crate::game_logic::host_usa_tanks::USA_TANKS_LOGIC_FPS
+                                })
                                 .filter(|s| *s > 1.0)
                                 .unwrap_or(if pal {
                                     PALADIN_WEAPON_SPEED
@@ -1791,7 +1797,8 @@ impl GameLogic {
                                 .objects
                                 .get(&attacker_id)
                                 .map(|a| {
-                                    let bonus = self.receiving_weapon_bonus_fields_for_slot(a, slot);
+                                    let bonus =
+                                        self.receiving_weapon_bonus_fields_for_slot(a, slot);
                                     (
                                         a.weapon_slot(slot)
                                             .map(|w| w.splash_radius.max(0.0))
