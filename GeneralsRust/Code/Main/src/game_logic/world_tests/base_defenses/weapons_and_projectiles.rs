@@ -3409,3 +3409,55 @@ fn technical_marauder_key_on_authored_weapon_not_template_name() {
         "authored TechnicalMachineGunWeapon must accept the salvage tier"
     );
 }
+
+/// hq-2qedt.238: Missile Defender object_hit residual keys on the authored
+/// WeaponSet weapon (Weapon::fireWeapon / WeaponTemplate), not the template name.
+#[test]
+fn missile_defender_object_hit_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_missile_defender::{
+        MISSILE_DEFENDER_MISSILE_WEAPON, is_missile_defender_template,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let name = "AmericaInfantryCloneRocketeer";
+    let mut tpl = crate::game_logic::ThingTemplate::new(name);
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name(MISSILE_DEFENDER_MISSILE_WEAPON);
+    game_logic.templates.insert(name.to_string(), tpl);
+    assert!(!is_missile_defender_template(name));
+    let md = game_logic
+        .create_object(name, Team::USA, Vec3::ZERO)
+        .expect("md");
+    let target_id = game_logic
+        .create_object(name, Team::GLA, Vec3::new(60.0, 0.0, 0.0))
+        .expect("target");
+    {
+        let (b, attack_events, _a, part) = game_logic
+            .host_object_attack_audio_partition_mut(md)
+            .unwrap();
+        b.set_position_with_partition_owner(Vec3::ZERO, 0, &mut Default::default(), part);
+        b.attack_target(
+            target_id,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = b.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.reload_time = 0.1;
+            w.min_range = 0.0;
+            w.range = 200.0;
+        }
+    }
+    game_logic.set_current_frame(30);
+    game_logic.update_combat(&[md, target_id], LOGIC_FRAME_TIMESTEP);
+    assert!(
+        game_logic.missile_defender_residual_fires() >= 1,
+        "authored MissileDefenderMissileWeapon must take the Missile Defender object_hit path"
+    );
+}

@@ -1216,16 +1216,13 @@ impl GameLogic {
                     );
                 } else if {
                     // USA Missile Defender residual: missile splash + laser guided secondary.
-                    use crate::game_logic::host_missile_defender::{
-                        is_missile_defender_template, should_apply_missile_defender_residual,
-                    };
+                    // Keyed on the authored weapon fired from this slot
+                    // (Weapon::fireWeapon uses the WeaponTemplate).
+                    use crate::game_logic::host_missile_defender::is_missile_defender_weapon_name;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_missile_defender_residual(is_missile_defender_template(
-                                &a.template_name,
-                            ))
-                        })
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .map(is_missile_defender_weapon_name)
                         .unwrap_or(false)
                 } {
                     let impact = target_position;
