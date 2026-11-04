@@ -903,9 +903,23 @@ fn ordinary_library_queued_area_elevation_uses_3d_sphere() {
 
 #[test]
 fn ordinary_library_queued_area_mask_fallback_and_intended_bypass() {
-    // Some(players)/None(team_factory) preserves the current frozen-team Neutral fallback,
-    // despite the players' explicit Enemies relationship.
+    // C++ Weapon.cpp:1360-1372 filters by curVictim->getRelationship(source).
+    // The session owns a live team factory, so alliance-team players resolve as
+    // Enemies (Player::getRelationship); give the victim's player an explicit
+    // Neutral relation to the shooter so the ENEMIES-only mask spares it, while
+    // the intended primaryVictim still bypasses the mask and producer exclusion.
     let mut f = fixture_custom("Mask", 200.0, false, 30000000, 1, 10.0, 5.0, "ENEMIES", "");
+    f.world
+        .get_player_mut(1)
+        .unwrap()
+        .set_map_relationship(0, gamelogic::common::Relationship::Neutral);
+    assert_eq!(
+        f.world.object_relationship(
+            &f.world.host_objects()[&f.victim],
+            &f.world.host_objects()[&f.shooters[0]]
+        ),
+        gamelogic::common::Relationship::Neutral
+    );
     f.world.host_object_mut(f.shooters[0]).unwrap().producer_id = Some(f.intended);
     f.accept();
     assert_eq!(f.world.host_objects()[&f.victim].health.current, 200.0);
