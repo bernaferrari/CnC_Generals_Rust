@@ -4722,3 +4722,62 @@ fn toxin_tractor_object_hit_residual_keys_on_authored_weapon_not_template_name()
         .unwrap_or(0.0);
     assert!(hp < 1000.0, "attacker never hit the victim");
 }
+
+/// hq-2qedt.196: object_hit routes Aurora residual by the authored weapon,
+/// not a template-name gate; a Aurora-named unit with a foreign authored weapon
+/// takes the generic path.
+#[test]
+fn aurora_object_hit_residual_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("TestAurora");
+    tpl.add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name("RangerFlashBangGrenadeWeapon");
+    game_logic.templates.insert("TestAurora".to_string(), tpl);
+    let mut victim = crate::game_logic::ThingTemplate::new("A17xVictim");
+    victim
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0);
+    game_logic
+        .templates
+        .insert("A17xVictim".to_string(), victim);
+    let id = game_logic
+        .create_object("TestAurora", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("attacker");
+    let enemy = game_logic
+        .create_object("A17xVictim", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("victim");
+    {
+        let (t, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
+        t.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = t.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.min_range = 0.0;
+        }
+    }
+    for f in 40..70 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    assert_eq!(
+        game_logic.aurora_bombs.honesty_projectile_ok() as u32,
+        0,
+        "Aurora template-name residual fired for a foreign authored weapon"
+    );
+    let hp = game_logic
+        .host_object(enemy)
+        .map(|e| e.health.current)
+        .unwrap_or(0.0);
+    assert!(hp < 1000.0, "attacker never hit the victim");
+}

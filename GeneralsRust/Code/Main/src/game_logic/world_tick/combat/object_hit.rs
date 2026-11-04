@@ -45,14 +45,18 @@ impl GameLogic {
         // Instant single-target take_damage is skipped; AOE applies after delay.
         // Keep fired_slot so last_fire_time / particles / audio still run.
         let aurora_queued = {
+            // Bomb kind keyed on the authored Aurora bomb weapon, not the
+            // template name (hq-2qedt.196).
             use crate::game_logic::host_aurora_bomb::{
-                aurora_bomb_kind_for_template, is_aurora_aircraft_template,
+                AIRF_AURORA_BOMB_PRIMARY_WEAPON, AURORA_BOMB_PRIMARY_WEAPON, HostAuroraBombKind,
+                SUPW_AURORA_FUEL_BOMB_WEAPON,
             };
             let aurora = self.objects.get(&attacker_id).and_then(|a| {
-                if is_aurora_aircraft_template(&a.template_name) {
-                    Some(aurora_bomb_kind_for_template(&a.template_name))
-                } else {
-                    None
+                match a.selected_weapon_name(slot)? {
+                    AURORA_BOMB_PRIMARY_WEAPON => Some(HostAuroraBombKind::Standard),
+                    AIRF_AURORA_BOMB_PRIMARY_WEAPON => Some(HostAuroraBombKind::FuelAir),
+                    SUPW_AURORA_FUEL_BOMB_WEAPON => Some(HostAuroraBombKind::FuelAirSupW),
+                    _ => None,
                 }
             });
             if let Some(kind) = aurora {
