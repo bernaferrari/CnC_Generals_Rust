@@ -504,6 +504,12 @@ pub trait SpawnBehaviorInterface: Send + Sync {
     fn are_all_slaves_stealthed(&self) -> bool;
     fn reveal_slaves(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     fn do_slaves_have_freedom(&self) -> bool;
+    /// Live slave ids in C++ m_spawnIDs order (owned-world getClosestSlave).
+    fn slave_ids(&self) -> Vec<ObjectID> {
+        Vec::new()
+    }
+    #[cfg(test)]
+    fn push_slave_for_test(&mut self, _id: ObjectID) {}
 }
 
 /// Main SpawnBehavior implementation
@@ -1390,6 +1396,15 @@ impl DamageModuleInterface for SpawnBehavior {
 }
 
 impl SpawnBehaviorInterface for SpawnBehavior {
+    fn slave_ids(&self) -> Vec<ObjectID> {
+        self.spawn_ids.clone()
+    }
+
+    #[cfg(test)]
+    fn push_slave_for_test(&mut self, id: ObjectID) {
+        self.spawn_ids.push(id);
+    }
+
     fn may_spawn_self_task_ai(&self, max_self_taskers_ratio: Real) -> bool {
         let parent_last_command_source = self
             .with_object(|object| {

@@ -344,15 +344,14 @@ impl BorrowedAiWorld<'_> {
     }
 
     /// CPP HiveStructureBody.cpp attemptDamage: a propagated type goes to
-    /// OpenContain::getClosestRider (FROM_CENTER_2D) relative to the shooter;
-    /// with no rider a swallowed type is eaten. SpawnBehavior slaves are not
-    /// on the owned path yet.
+    /// SpawnBehavior::getClosestSlave, else OpenContain::getClosestRider
+    /// (FROM_CENTER_2D from the shooter); with none, a swallowed type is eaten.
     fn hive_redirect_owned(
         &self,
         owner: &Arc<RwLock<Object>>,
         damage: &DamageInfo,
     ) -> Result<Option<HiveOwnedRedirect>, String> {
-        let (flags, has_spawn, contain) = {
+        let (flags, slaves, contain) = {
             let object = owner.try_read().map_err(|_| "damage owner unavailable")?;
             let Some(body) = object.get_body_module() else {
                 return Ok(None);
@@ -363,7 +362,7 @@ impl BorrowedAiWorld<'_> {
                 .hive_redirect_flags(damage.input.damage_type);
             (
                 flags,
-                object.with_spawn_behavior_full_interface(|_| ()).is_some(),
+                object.with_spawn_behavior_full_interface(|spawn| spawn.slave_ids()),
                 object.get_contain(),
             )
         };
@@ -373,21 +372,20 @@ impl BorrowedAiWorld<'_> {
         if !propagate {
             return Ok(None);
         }
-        if has_spawn {
-            return Err("owned hive slave propagation not admitted".into());
-        }
-        let Some(contain) = contain else {
-            return Ok(None);
+        // C++ checks spawn first, then contain; a missing shooter falls through.
+        let riders = match (slaves, contain) {
+            (Some(slaves), _) => slaves,
+            (None, Some(contain)) => contain
+                .try_lock()
+                .map_err(|_| "hive contain unavailable")?
+                .get_contained_objects()
+                .to_vec(),
+            (None, None) => return Ok(None),
         };
         let Some(shooter) = self.object(damage.input.source_id) else {
             return Ok(None);
         };
         let pos = *shooter.read().map_err(|_| "hive shooter poisoned")?.get_position();
-        let riders = contain
-            .try_lock()
-            .map_err(|_| "hive contain unavailable")?
-            .get_contained_objects()
-            .to_vec();
         let mut closest: Option<(f32, Arc<RwLock<Object>>)> = None;
         for id in riders {
             let Some(rider) = self.object(id) else { continue };
