@@ -484,26 +484,20 @@ impl GameLogic {
                             effects,
                         )
                     };
-                } else if {
-                    // GLA SCUD launcher residual: area blast (+ toxin field on secondary).
+                } else if let Some(toxin) = self.objects.get(&attacker_id).and_then(|a| {
+                    // GLA SCUD launcher residual keyed on the authored SCUD gun, not the
+                    // template name (hq-2qedt.197); non-explosive warheads leave a toxin field.
                     use crate::game_logic::host_scud_launcher::{
-                        is_scud_launcher_template, should_apply_scud_area,
+                        SCUD_GUN_ANTHRAX, SCUD_GUN_ANTHRAX_GAMMA, SCUD_GUN_EXPLOSIVE,
+                        SCUD_GUN_TOXIN,
                     };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_scud_area(is_scud_launcher_template(&a.template_name))
-                        })
-                        .unwrap_or(false)
-                } {
+                    match a.selected_weapon_name(slot)? {
+                        SCUD_GUN_EXPLOSIVE => Some(false),
+                        SCUD_GUN_TOXIN | SCUD_GUN_ANTHRAX | SCUD_GUN_ANTHRAX_GAMMA => Some(true),
+                        _ => None,
+                    }
+                }) {
                     let impact = target_position;
-                    let toxin = {
-                        use crate::game_logic::host_scud_launcher::scud_toxin_warhead_for_slot;
-                        self.objects
-                            .get(&attacker_id)
-                            .map(|a| scud_toxin_warhead_for_slot(&a.template_name, slot))
-                            .unwrap_or(slot == 1)
-                    };
                     let from = self
                         .objects
                         .get(&attacker_id)
