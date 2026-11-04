@@ -359,9 +359,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_gattling_tank::is_gattling_tank_template(template_name) {
                 return Some(GATTLING_TANK_GUN);
             }
-            if crate::game_logic::host_minigunner::is_minigunner_template(template_name) {
-                return Some(MINIGUNNER_GUN);
-            }
             if crate::game_logic::host_rpg_trooper::is_rpg_trooper_template(template_name) {
                 return Some(TUNNEL_DEFENDER_ROCKET_WEAPON);
             }
@@ -509,8 +506,6 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
                 template_name,
             ) {
                 Some(GATTLING_TANK_GUN_AIR)
-            } else if crate::game_logic::host_minigunner::is_minigunner_template(template_name) {
-                Some(MINIGUNNER_GUN_AIR)
             } else {
                 None
             }
@@ -594,6 +589,15 @@ mod name_peel_tests {
         assert_unmapped(
             "FixtureAngryMobNexusVariant",
             gl::host_angry_mob::is_angry_mob_nexus_template,
+        );
+    }
+
+    /// hq-2qedt.263
+    #[test]
+    fn minigunner_variant_name_has_no_unit_map_weapon() {
+        assert_unmapped(
+            "FixtureMiniGunnerVariant",
+            gl::host_minigunner::is_minigunner_template,
         );
     }
 }
