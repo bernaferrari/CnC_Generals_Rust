@@ -3042,12 +3042,9 @@ impl GameLogic {
                 );
             }
 
-            // Host residual: USA Tomahawk PRIMARY dual-radius missile.
-            // TomahawkMissile projectile lob residual closed (MissileAI peels + impact).
-            if crate::game_logic::host_tomahawk::is_tomahawk_template(template_name) {
-                use crate::game_logic::host_tomahawk::tomahawk_weapon;
-                object.weapon = Some(tomahawk_weapon());
-            }
+            // USA Tomahawk PRIMARY binds from the authored WeaponSet above
+            // (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a
+            // template-name host table (hq-2qedt.102).
 
             // Host residual: America Fire Base PRIMARY howitzer.
             // Fail-closed: not full SPAWNS_ARE_THE_WEAPONS / garrison HiveStructure matrix.

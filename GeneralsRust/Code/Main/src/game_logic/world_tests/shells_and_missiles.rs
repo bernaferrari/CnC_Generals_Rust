@@ -1470,6 +1470,38 @@ fn scorpion_residual_gun_salvage_and_rocket() {
     );
 }
 
+/// hq-2qedt.102: C++ binds PRIMARY from the template WeaponSet at create,
+/// not from a template-name host table. A Tomahawk-named template authoring a
+/// different PRIMARY must keep that authored weapon.
+#[test]
+fn tomahawk_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::host_tomahawk::TOMAHAWK_PRIMARY_DAMAGE;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleTomahawk");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(180.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("AmericaVehicleTomahawk".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaVehicleTomahawk", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("tomahawk");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - TOMAHAWK_PRIMARY_DAMAGE).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by tomahawk_weapon() name peel: {prim:?}"
+    );
+}
+
 /// Residual: USA Tomahawk dual-radius long-range missile.
 #[test]
 fn tomahawk_residual_dual_radius_missile() {
