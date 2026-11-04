@@ -4704,3 +4704,15 @@ fn red_guard_named_non_redguard_weapon_skips_red_guard_object_hit_residual() {
     let gl = fire_named_template_with_humvee_gun("ChinaInfantryRedguard", Team::USA);
     assert_eq!(gl.red_guard_residual_fires(), 0, "Red Guard residual chosen by template-name peel");
 }
+
+/// hq-2qedt.188: Colonel Burton-named template authoring a non-Burton PRIMARY
+/// must not route through the Burton sniper/knife residual on object hit.
+#[test]
+fn burton_named_non_burton_weapon_skips_burton_object_hit_residual() {
+    let gl = fire_named_template_with_humvee_gun("AmericaInfantryColonelBurton", Team::USA);
+    assert_eq!(
+        gl.burton_residual_sniper_fires() + gl.burton_residual_knife_kills(),
+        0,
+        "Burton residual chosen by template-name peel"
+    );
+}

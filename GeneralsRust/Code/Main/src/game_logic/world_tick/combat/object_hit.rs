@@ -1406,17 +1406,15 @@ impl GameLogic {
                     );
                 } else if {
                     // Colonel Burton residual: knife one-shot vs close infantry, else sniper.
+                    // Keyed on the authored WeaponSet weapon for this slot, not
+                    // the template name (hq-2qedt.188).
                     use crate::game_logic::host_colonel_burton::{
-                        is_colonel_burton_template, should_apply_burton_residual,
+                        BURTON_KNIFE_WEAPON, BURTON_SNIPER_WEAPON,
                     };
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_burton_residual(is_colonel_burton_template(
-                                &a.template_name,
-                            ))
-                        })
-                        .unwrap_or(false)
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .is_some_and(|n| n == BURTON_SNIPER_WEAPON || n == BURTON_KNIFE_WEAPON)
                 } {
                     let (hits, _destroyed_any) = self.apply_burton_residual_at_with_effects(
                         target_position,
