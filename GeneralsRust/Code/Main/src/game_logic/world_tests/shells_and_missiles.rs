@@ -4475,3 +4475,32 @@ fn stinger_site_create_weapons_come_from_authored_weapon_set() {
         "authored HumveeGun SECONDARY overwritten by stinger name peel: {sec:?}"
     );
 }
+
+/// hq-2qedt.164: Overlord PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
+#[test]
+fn overlord_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let peel = crate::game_logic::host_overlord_gun::overlord_gun_weapon(false);
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaTankOverlord");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(500.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("ChinaTankOverlord".to_string(), tpl);
+    let id = game_logic
+        .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("overlord");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - peel.damage).abs() > 0.01 || (prim.range - peel.range).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by overlord name peel: {prim:?}"
+    );
+}

@@ -253,19 +253,9 @@ impl GameLogic {
             }
         }
 
-        // Host residual: China Overlord / Emperor PRIMARY dual-radius tank gun.
-        // Fail-closed: not full ClipSize=2 dual-volley / Nuclear Tanks death residual.
-        if crate::game_logic::host_overlord_gun::is_overlord_gun_chassis(template_name) {
-            use crate::game_logic::host_overlord_gun::{
-                has_uranium_shells_upgrade, overlord_gun_weapon,
-            };
-            let uranium = has_uranium_shells_upgrade(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
-            object.weapon = Some(overlord_gun_weapon(uranium));
-        }
+        // China Overlord / Emperor PRIMARY binds from the authored WeaponSet
+        // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+        // (hq-2qedt.164). Uranium refresh stays on the upgrade path.
 
         // Host residual: GLA Jarmen Kell PRIMARY sniper residual.
         // Pilot-snipe is AutoChooseSources SECONDARY NONE (button/special only).
