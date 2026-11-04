@@ -3305,6 +3305,98 @@ mod death_flooded_tests {
     }
 
     #[test]
+    fn sniper_kill_pilot_unmans_and_neutralizes_but_ordinary_lethal_does_not() {
+        // C++ ActiveBody.cpp:399-410: DAMAGE_KILLPILOT on an ordinary vehicle sets
+        // DISABLED_UNMANNED and setTeam(neutral default team); hull HP untouched.
+        // An ordinary lethal hit kills without unmanning or changing owner.
+        const TEST_NAME: &str = concat!(
+            "object::body::active_body::death_flooded_tests::",
+            "sniper_kill_pilot_unmans_and_neutralizes_but_ordinary_lethal_does_not"
+        );
+        if let crate::test_process::TestProcess::ParentVerified =
+            crate::test_process::run_bounded(TEST_NAME, "GENERALS_SNIPER_UNMANNED_NEUTRAL_CHILD")
+        {
+            return;
+        }
+        use crate::player::{Player, PlayerType, player_list};
+        use crate::team::Team;
+        use std::sync::{Arc, RwLock};
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        let services = crate::system::engine_stores::new_world_services();
+        game_engine::common::common_services::with_common_services(&common, || {
+            crate::system::engine_stores::with_world_services(&services, || {
+                let mut teams = Vec::new();
+                for (index, team_id, neutral) in [(0, 0x5A1u32, false), (1, 0x5A2u32, true)] {
+                    let player = Arc::new(RwLock::new(Player::new(index)));
+                    if neutral {
+                        player
+                            .write()
+                            .unwrap()
+                            .set_player_type(PlayerType::Neutral, false);
+                    }
+                    let team = Arc::new(RwLock::new(Team::new(
+                        format!("Team{index}").into(),
+                        team_id,
+                    )));
+                    team.write()
+                        .unwrap()
+                        .set_controlling_player_id(Some(index as u32));
+                    player.write().unwrap().set_default_team(Some(team.clone()));
+                    player_list().write().unwrap().add_player(player);
+                    teams.push(team);
+                }
+                OBJECT_REGISTRY.clear();
+                let sniped = vehicle_with_contain(801, false, false, vec![]);
+                let shot = vehicle_with_contain(802, false, false, vec![]);
+                for veh in [&sniped, &shot] {
+                    veh.write()
+                        .unwrap()
+                        .set_team(Some(teams[0].clone()))
+                        .unwrap();
+                    assert_eq!(veh.read().unwrap().get_team_id(), Some(0x5A1));
+                }
+
+                let mut body = ActiveBody::new_with_owner(ActiveBodyModuleData::default(), 801);
+                let mut info = DamageInfo::with_simple(
+                    1.0,
+                    INVALID_ID,
+                    DamageType::KillPilot,
+                    DeathType::Normal,
+                );
+                body.attempt_damage(&mut info).expect("killpilot");
+                {
+                    let g = sniped.read().unwrap();
+                    assert!(g.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned));
+                    assert_eq!(
+                        g.get_team_id(),
+                        Some(0x5A2),
+                        "sniped vehicle must go neutral"
+                    );
+                    assert!((g.get_health() - 100.0).abs() < 1e-3);
+                }
+
+                let mut body = ActiveBody::new_with_owner(ActiveBodyModuleData::default(), 802);
+                let mut info = DamageInfo::with_simple(
+                    HUGE_DAMAGE_AMOUNT,
+                    INVALID_ID,
+                    DamageType::Explosion,
+                    DeathType::Normal,
+                );
+                let _ = body.attempt_damage(&mut info);
+                {
+                    let g = shot.read().unwrap();
+                    assert!(!g.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned));
+                    assert_eq!(g.get_team_id(), Some(0x5A1), "ordinary lethal keeps owner");
+                }
+                OBJECT_REGISTRY.clear();
+                // Object::drop runs the Core AI destructor tail; this fixture
+                // binds only Main world services, so skip teardown.
+                std::mem::forget((sniped, shot));
+            })
+        });
+    }
+
+    #[test]
     fn kill_pilot_destroys_moving_rider_change_bike() {
         const TEST_NAME: &str = concat!(
             "object::body::active_body::death_flooded_tests::",

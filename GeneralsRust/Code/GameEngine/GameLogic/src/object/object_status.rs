@@ -378,8 +378,11 @@ impl Object {
             .ok()
             .and_then(|list| list.get_neutral_player())
         {
-            if let Ok(p) = neutral_player.read() {
-                let _ = self.set_team(p.get_default_team());
+            // Release the neutral Player read guard before setTeam, which
+            // writes Player rosters (else RwLock self-deadlock).
+            let team = neutral_player.read().ok().and_then(|p| p.get_default_team());
+            if team.is_some() {
+                let _ = self.set_team(team);
             }
         }
     }
