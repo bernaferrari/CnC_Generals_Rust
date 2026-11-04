@@ -378,11 +378,8 @@ impl GameLogic {
         if obj.leech_range_active_for_slot(slot) {
             return false;
         }
-        let wname = obj.weapon_name_for_slot(slot);
-        let contact = wname
-            .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
-            .unwrap_or(false)
-            || crate::game_logic::weapon_bootstrap::is_contact_effective_range(weapon.range);
+        // C++ Weapon.cpp:531 isContactWeapon: authored range only.
+        let contact = crate::game_logic::weapon_bootstrap::is_contact_effective_range(weapon.range);
         let name = obj.template_name.to_ascii_lowercase();
         let spawns = name.contains("spawnsaretheweapons") || name.contains("stinger");
         let immobile = obj.is_kind_of(crate::game_logic::KindOf::Immobile);
@@ -2848,13 +2845,11 @@ impl GameLogic {
                     let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
                     let min_r = (min_r - under).max(0.0);
                     let max_r = (max_r - under).max(0.0);
-                    let name = slot.and_then(|s| u.weapon_name_for_slot(s));
                     let raw_range = w.map(|w| w.range).unwrap_or(0.0);
+                    // C++ Weapon.cpp:531 isContactWeapon: authored range only.
                     let contact = crate::game_logic::weapon_bootstrap::is_contact_effective_range(
                         raw_range - under,
-                    ) || name
-                        .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
-                        .unwrap_or(false);
+                    );
                     (
                         min_r,
                         max_r,

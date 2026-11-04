@@ -2041,11 +2041,8 @@ impl GameLogic {
                     })
                     .unwrap_or(50.0);
                 let raw_range = weapon.map(|w| w.range).unwrap_or(0.0);
-                let wname = slot.and_then(|s| u.weapon_name_for_slot(s));
-                let contact = wname
-                    .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
-                    .unwrap_or(false)
-                    || crate::game_logic::weapon_bootstrap::is_contact_effective_range(
+                // C++ Weapon.cpp:531 isContactWeapon: authored range only.
+                let contact = crate::game_logic::weapon_bootstrap::is_contact_effective_range(
                         raw_range - under,
                     );
                 (

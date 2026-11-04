@@ -1245,10 +1245,8 @@ impl GameLogic {
         if gap < 0.001 {
             return src;
         }
-        let contact = weapon_name
-            .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
-            .unwrap_or(false)
-            || crate::game_logic::weapon_bootstrap::is_contact_effective_range(raw_gap);
+        // C++ Weapon.cpp:531 isContactWeapon: authored range only.
+        let contact = crate::game_logic::weapon_bootstrap::is_contact_effective_range(raw_gap);
         if contact {
             return target_pos;
         }
