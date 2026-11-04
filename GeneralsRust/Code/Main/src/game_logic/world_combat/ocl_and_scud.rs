@@ -1140,9 +1140,11 @@ impl GameLogic {
                             }
                             // C++ ObjectCreationList.cpp:996-1006 — inherit rank and
                             // transferObjectName only when the created tracker isTrainable.
+                            // ExperienceTracker::setVeterancyLevel is exact: it replaces
+                            // (and may lower) the receiving constructor/onCreate rank.
                             let inherit_name = generic.inherit_veterancy && object.is_trainable();
                             if inherit_name {
-                                object.set_min_veterancy_level_with_health_bonus_table(
+                                object.set_exact_veterancy_level_with_health_bonus_table(
                                     source_veterancy,
                                     &veterancy_health_bonus,
                                     audio,
@@ -4371,6 +4373,69 @@ End
             logic.objects.get(&field_src).map(|o| o.name.as_str()),
             Some("FieldSrc")
         );
+    }
+
+    /// hq-2qedt.60: C++ ObjectCreationList.cpp:996-1001 calls the exact
+    /// `ExperienceTracker::setVeterancyLevel` (ExperienceTracker.cpp:82-95),
+    /// not setMinVeterancyLevel, after construction/onCreate already seeded the
+    /// receiving rank (Object.cpp:456, VeterancyGainCreate). The inherited
+    /// source rank therefore replaces — and may lower — that rank.
+    #[test]
+    fn ocl_inherits_veterancy_sets_exact_rank_over_receiving_create_rank() {
+        let ini = r#"
+ObjectCreationList OCL_Hq60Inherit
+  CreateObject
+    ObjectNames = Hq60Spawned
+    Count = 1
+    InheritsVeterancy = Yes
+  End
+End
+"#;
+        let mut logic = GameLogic::new();
+        logic
+            .apply_receiving_ocl_overrides(&[ini.to_owned()])
+            .expect("inherit OCL must parse");
+        let mut source_tpl = ThingTemplate::new("__Hq60Source");
+        source_tpl.is_trainable = true;
+        logic.templates.insert("__Hq60Source".into(), source_tpl);
+        let mut spawned_tpl = ThingTemplate::new("Hq60Spawned");
+        spawned_tpl.is_trainable = true;
+        spawned_tpl.veterancy_gain_creates =
+            vec![crate::game_logic::VeterancyGainCreateMetadata {
+                starting_level: VeterancyLevel::Elite,
+                science_required: None,
+            }];
+        logic.templates.insert("Hq60Spawned".into(), spawned_tpl);
+        let source = logic
+            .create_object("__Hq60Source", Team::USA, Vec3::new(2.0, 0.0, 4.0))
+            .expect("source");
+
+        let baseline = logic
+            .create_object("Hq60Spawned", Team::USA, Vec3::new(20.0, 0.0, 4.0))
+            .expect("baseline");
+        assert_eq!(
+            logic.objects.get(&baseline).unwrap().experience.level,
+            VeterancyLevel::Elite,
+            "fixture: receiving create seeds Elite before OCL inherit"
+        );
+
+        for (source_rank, x) in [(VeterancyLevel::Veteran, 6.0), (VeterancyLevel::Rookie, 10.0)] {
+            let created = logic.execute_parsed_weapon_ocl_at(
+                "OCL_Hq60Inherit",
+                Some(source),
+                Team::USA,
+                source_rank,
+                0.0,
+                Vec3::ZERO,
+                Vec3::new(x, 0.0, 4.0),
+            );
+            assert_eq!(created.len(), 1);
+            assert_eq!(
+                logic.objects.get(&created[0]).unwrap().experience.level,
+                source_rank,
+                "C++ setVeterancyLevel is exact: source {source_rank:?} replaces created Elite"
+            );
+        }
     }
 
     /// C++ HelixContain.cpp:340 — portable gattling fires without host shot.
