@@ -456,7 +456,10 @@ fn host_upgrade_complete_uranium_and_black_napalm() {
     bm.add_kind_of(KindOf::Vehicle).set_health(400.0);
     logic.templates.insert("ChinaTankBattleMaster".into(), bm);
     let mut mig = ThingTemplate::new("ChinaJetMIG");
-    mig.add_kind_of(KindOf::Aircraft).set_health(200.0);
+    // Retail ChinaJetMIG authors NapalmMissileWeapon (hq-2qedt.247 gate).
+    mig.add_kind_of(KindOf::Aircraft)
+        .set_health(200.0)
+        .set_primary_weapon_name(crate::game_logic::host_mig::NAPALM_MISSILE_WEAPON);
     logic.templates.insert("ChinaJetMIG".into(), mig);
 
     let bid = logic

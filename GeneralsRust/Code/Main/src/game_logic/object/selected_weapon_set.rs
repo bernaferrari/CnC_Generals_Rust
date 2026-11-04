@@ -327,6 +327,9 @@ impl Object {
         u32::from(self.weapon_set_veteran)
             | (u32::from(self.weapon_set_elite) << 1)
             | (u32::from(self.weapon_set_hero) << 2)
+            // C++ WeaponSetUpgrade → setWeaponSetFlag(WEAPONSET_PLAYER_UPGRADE)
+            // → updateWeaponSet (hq-2qedt.247).
+            | (u32::from(self.weapon_set_player_upgrade) << 3)
             | (u32::from(self.weapon_set_mine_clearing_detail) << 8)
     }
 
@@ -428,6 +431,14 @@ impl Object {
         }
         row.names.get(slot as usize)?.as_deref()
     }
+    /// Authored PRIMARY identities (base template + PLAYER_UPGRADE row);
+    /// C++ upgrade modules key on authored data, not the template name.
+    pub(in crate::game_logic) fn authored_primary_weapon_names(&self) -> [Option<&str>; 2] {
+        [
+            self.thing.template.primary_weapon_name.as_deref(),
+            self.authored_player_upgrade_weapon_name(0),
+        ]
+    }
     pub(crate) fn selected_weapon_name(&self, slot: u8) -> Option<&str> {
         let row = self.selected_weapon_row()?;
         row.names.get(slot as usize)?.as_deref()
@@ -497,7 +508,8 @@ mod tests {
         let mask = object.active_weapon_condition_mask();
         assert_ne!(mask & 1, 0);
         assert_ne!(mask & (1 << 8), 0);
-        for unsupported in [3, 4, 5, 6, 7, 11] {
+        assert_ne!(mask & (1 << 3), 0, "PLAYER_UPGRADE selects its row");
+        for unsupported in [4, 5, 6, 7, 11] {
             assert_eq!(mask & (1 << unsupported), 0);
         }
     }

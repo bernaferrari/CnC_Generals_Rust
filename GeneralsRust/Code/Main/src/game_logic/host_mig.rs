@@ -241,6 +241,22 @@ pub fn is_nuke_mig_template(template_name: &str) -> bool {
     n.starts_with("nuke") || n.contains("nukemig")
 }
 
+/// hq-2qedt.247: object authors a MiG missile PRIMARY (base or PLAYER_UPGRADE).
+/// `nuke`: Some(true) → Nuke General MiG weapons only, Some(false) → standard, None → any.
+pub fn authors_mig_missile(names: [Option<&str>; 2], nuke: Option<bool>) -> bool {
+    names.into_iter().flatten().any(|n| {
+        let std = n.eq_ignore_ascii_case(NAPALM_MISSILE_WEAPON)
+            || n.eq_ignore_ascii_case(BLACK_NAPALM_MISSILE_WEAPON);
+        let nk = n.eq_ignore_ascii_case(NUKE_MIG_MISSILE_WEAPON)
+            || n.eq_ignore_ascii_case(NUKE_NUKE_MISSILE_WEAPON);
+        match nuke {
+            Some(true) => nk,
+            Some(false) => std,
+            None => std || nk,
+        }
+    })
+}
+
 /// Whether residual fire should apply MiG residual path.
 pub fn should_apply_mig_residual(is_mig: bool) -> bool {
     is_mig

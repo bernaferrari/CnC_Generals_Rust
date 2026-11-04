@@ -537,7 +537,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_mig::{
-            UPGRADE_CHINA_AIRCRAFT_ARMOR, apply_mig_aircraft_armor_health, is_mig_template,
+            UPGRADE_CHINA_AIRCRAFT_ARMOR, apply_mig_aircraft_armor_health, authors_mig_missile,
         };
 
         let mut n = 0u32;
@@ -545,7 +545,7 @@ impl GameLogic {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
-            if !is_mig_template(&obj.template_name) {
+            if !authors_mig_missile(obj.authored_primary_weapon_names(), None) {
                 continue;
             }
             if obj.has_upgrade_tag(UPGRADE_CHINA_AIRCRAFT_ARMOR)
@@ -617,14 +617,14 @@ impl GameLogic {
         recipients: UpgradeRecipients,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_mig::{UPGRADE_CHINA_TACTICAL_NUKE_MIG, is_nuke_mig_template};
+        use crate::game_logic::host_mig::{UPGRADE_CHINA_TACTICAL_NUKE_MIG, authors_mig_missile};
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
             .filter(|(_, o)| {
                 recipients.matches_object(o)
                     && o.is_alive()
-                    && is_nuke_mig_template(&o.template_name)
+                    && authors_mig_missile(o.authored_primary_weapon_names(), Some(true))
             })
             .map(|(id, _)| *id)
             .collect();
@@ -860,14 +860,14 @@ impl GameLogic {
     ) -> u32 {
         use crate::game_logic::host_dragon_tank::is_dragon_tank_template;
         use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
-        use crate::game_logic::host_mig::is_mig_template;
+        use crate::game_logic::host_mig::authors_mig_missile;
 
         let ids: Vec<(ObjectId, u8)> = self
             .objects
             .registered()
             .filter(|(_, o)| recipients.matches_object(o) && o.is_alive())
             .filter_map(|(id, o)| {
-                if is_mig_template(&o.template_name) {
+                if authors_mig_missile(o.authored_primary_weapon_names(), Some(false)) {
                     Some((*id, 0u8))
                 } else if is_inferno_cannon_template(&o.template_name) {
                     Some((*id, 1))
@@ -2146,5 +2146,47 @@ mod upgrade_lookup_admission_tests {
         assert!(world.objects[&registered].has_upgrade_tag(name));
         assert!(!world.objects[&raw_id].has_upgrade_tag(name));
         assert!(world.get_player(0).unwrap().has_unlocked_upgrade(name));
+    }
+}
+
+#[cfg(test)]
+mod authored_mig_gate_tests {
+    use super::UpgradeRecipients;
+    use crate::game_logic::*;
+
+    /// hq-2qedt.247: C++ MaxHealthUpgrade / WeaponSetUpgrade on the MiG key on the
+    /// object's authored modules/WeaponSet, not its template name. A MiG-named
+    /// template authoring no MiG missile gets nothing; an unlisted name authoring
+    /// NapalmMissileWeapon gets Aircraft Armor.
+    #[test]
+    fn mig_team_upgrade_gates_key_on_authored_missile_not_template_name() {
+        use crate::game_logic::host_mig::NAPALM_MISSILE_WEAPON;
+
+        let mut game_logic = GameLogic::new();
+        for (tpl_name, primary) in [
+            ("ChinaJetMIG", "HumveeGun"),
+            ("AuthoredAirframeX", NAPALM_MISSILE_WEAPON),
+        ] {
+            let mut tpl = crate::game_logic::ThingTemplate::new(tpl_name);
+            tpl.add_kind_of(KindOf::Aircraft)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::Attackable)
+                .set_health(300.0)
+                .set_primary_weapon_name(primary);
+            game_logic.templates.insert(tpl_name.to_string(), tpl);
+        }
+        let named = game_logic
+            .create_object("ChinaJetMIG", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let authored = game_logic
+            .create_object("AuthoredAirframeX", Team::China, Vec3::new(50.0, 0.0, 0.0))
+            .unwrap();
+        let n = game_logic.apply_aircraft_armor_to_team(
+            UpgradeRecipients::Team(Team::China),
+            "Upgrade_ChinaAircraftArmor",
+        );
+        assert_eq!(n, 1, "exactly the authored MiG-missile object upgrades");
+        assert!((game_logic.host_object(named).unwrap().max_health - 300.0).abs() < 0.01);
+        assert!(game_logic.host_object(authored).unwrap().max_health > 300.0);
     }
 }
