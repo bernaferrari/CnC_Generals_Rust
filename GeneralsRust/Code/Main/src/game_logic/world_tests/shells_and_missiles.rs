@@ -2577,6 +2577,37 @@ fn troop_crawler_create_primary_comes_from_authored_weapon_set() {
     );
 }
 
+/// hq-2qedt.158: C++ binds PRIMARY from the template WeaponSet at create
+/// (WeaponSet::updateWeaponSet), not a template-name host table. A
+/// Dragon-Tank-named template authoring a different PRIMARY must keep it.
+#[test]
+fn dragon_tank_create_primary_comes_from_authored_weapon_set_hq_2qedt_158() {
+    use crate::game_logic::host_dragon_tank::dragon_flame_weapon;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaTankDragon");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("ChinaTankDragon".to_string(), tpl);
+    let id = game_logic
+        .create_object("ChinaTankDragon", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("dragon");
+    let obj = game_logic.host_object(id).expect("dragon");
+    let prim = obj.weapon.clone().expect("authored primary");
+    let flame = dragon_flame_weapon(false);
+    assert!(
+        (prim.range - flame.range).abs() > 0.01 || (prim.damage - flame.damage).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by dragon_flame_weapon() name peel: {prim:?}"
+    );
+}
+
 /// Residual: USA Comanche 20mm intended + anti-tank dual-radius residual.
 #[test]
 fn comanche_residual_cannon_and_antitank() {

@@ -84,20 +84,9 @@ impl GameLogic {
             }
         }
 
-        // Host residual: China Dragon Tank primary flame weapon bind.
-        // Fail-closed: FireWall secondary is host_firewall special-power residual.
-        if crate::game_logic::host_dragon_tank::is_dragon_tank_template(template_name) {
-            use crate::game_logic::host_dragon_tank::{
-                dragon_flame_weapon, has_black_napalm_upgrade,
-            };
-            let upgraded = has_black_napalm_upgrade(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
-            // Force residual flame stats when store/template leaves defaults.
-            object.weapon = Some(dragon_flame_weapon(upgraded));
-        }
+        // China Dragon Tank PRIMARY binds from the authored WeaponSet (C++
+        // WeaponSet::updateWeaponSet from ThingTemplate), not a template-name
+        // host table (hq-2qedt.158). Black Napalm refresh stays upgrade-time.
 
         // Host residual: China Nuke Cannon neutron secondary is PLAYER_UPGRADE only.
         // Fail-closed: Upgrade_ChinaNeutronShells equips SECONDARY; without it, no secondary.
