@@ -355,3 +355,78 @@ fn nonnull_zero_mask_grant_rechecks_completed_player_upgrade() {
     });
     assert_eq!(crc_after, vec![1, 1]);
 }
+
+// hq-2qedt.67 — C++ UpgradeModule.cpp:105-147,191-201 + Object.cpp:4491-4503:
+// ConflictsWith blocks attemptUpgrade without latching; a later module's
+// RemovesUpgrades resets an earlier, already-executed module's latch so the
+// next updateUpgradeModules re-runs it in authored order.
+#[test]
+fn conflicts_block_without_latch_and_later_removal_resets_earlier_latch() {
+    if !child(concat!(
+        module_path!(),
+        "::conflicts_block_without_latch_and_later_removal_resets_earlier_latch"
+    )) {
+        return;
+    }
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let stores = crate::system::engine_stores::new_for_world();
+        crate::system::engine_stores::with_active_stores(&stores, conflict_reset_body);
+    });
+}
+
+fn conflict_reset_body() {
+    let modules = format!(
+        " Behavior = StatusBitsUpgrade EarlySet\n TriggeredBy = {FIRST}\n ConflictsWith = {SECOND}\n StatusToSet = MASKED\n End\n Behavior = StatusBitsUpgrade LateRemoves\n TriggeredBy = {SECOND}\n RemovesUpgrades = {FIRST}\n StatusToClear = MASKED\n End\n"
+    );
+    let owner = owner("OwnedAdmissionConflictReset", &modules, true);
+    // SECOND alone: LateRemoves runs (removing absent FIRST is a no-op).
+    owner
+        .write()
+        .unwrap()
+        .give_upgrade(&upgrade(SECOND, UpgradeType::Object));
+    // FIRST with SECOND owned: EarlySet conflicts -> not run, not latched.
+    owner
+        .write()
+        .unwrap()
+        .give_upgrade(&upgrade(FIRST, UpgradeType::Object));
+    assert!(
+        !status(&owner, ObjectStatusMaskType::MASKED),
+        "ConflictsWith in key mask blocks attemptUpgrade"
+    );
+    // Drop SECOND (resets LateRemoves), then regrant FIRST: EarlySet now runs.
+    owner
+        .write()
+        .unwrap()
+        .remove_upgrade_mask(mask(SECOND));
+    owner
+        .write()
+        .unwrap()
+        .give_upgrade(&upgrade(FIRST, UpgradeType::Object));
+    assert!(
+        status(&owner, ObjectStatusMaskType::MASKED),
+        "conflict-blocked module never latched, so it runs once the conflict clears"
+    );
+    // SECOND again: EarlySet already latched (skip); LateRemoves removes FIRST
+    // (resetting EarlySet) and clears MASKED.
+    owner
+        .write()
+        .unwrap()
+        .give_upgrade(&upgrade(SECOND, UpgradeType::Object));
+    assert!(!status(&owner, ObjectStatusMaskType::MASKED));
+    assert_eq!(owner.read().unwrap().completed_upgrades(), mask(SECOND));
+    // Remove SECOND, regrant FIRST: EarlySet latch was reset by the later
+    // module's removal, so it re-runs.
+    owner
+        .write()
+        .unwrap()
+        .remove_upgrade_mask(mask(SECOND));
+    owner
+        .write()
+        .unwrap()
+        .give_upgrade(&upgrade(FIRST, UpgradeType::Object));
+    assert!(
+        status(&owner, ObjectStatusMaskType::MASKED),
+        "later RemovesUpgrades reset the earlier executed module (C++ resetUpgrade)"
+    );
+}
