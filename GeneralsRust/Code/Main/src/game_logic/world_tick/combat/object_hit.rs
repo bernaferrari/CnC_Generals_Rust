@@ -889,14 +889,12 @@ impl GameLogic {
                             effects,
                         )
                     };
-                } else if {
-                    // USA Battle Drone residual: intended-only MG fire.
-                    use crate::game_logic::host_slave_drones::is_battle_drone_template;
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| is_battle_drone_template(&a.template_name))
-                        .unwrap_or(false)
-                } {
+                } else if self.objects.get(&attacker_id).is_some_and(|a| {
+                    // USA Battle Drone residual keyed on the authored weapon, not the template name
+                    // (hq-2qedt.211).
+                    use crate::game_logic::host_slave_drones::BATTLE_DRONE_MACHINE_GUN;
+                    matches!(a.selected_weapon_name(slot), Some(BATTLE_DRONE_MACHINE_GUN))
+                }) {
                     let impact = target_position;
                     let (hits, _destroyed_any) = self.apply_battle_drone_residual_at_with_effects(
                         impact,
