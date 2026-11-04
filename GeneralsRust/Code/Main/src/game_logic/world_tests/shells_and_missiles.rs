@@ -5000,3 +5000,56 @@ fn inferno_ground_fire_field_keys_on_authored_weapon() {
         "Inferno-named chassis with authored HumveeGun must not seed an Inferno fire field"
     );
 }
+
+/// hq-2qedt.222: Quad Cannon discharge counters key on the authored WeaponSet
+/// slot weapon (QuadCannonGun), not the template name.
+#[test]
+fn quad_cannon_discharge_counters_key_on_authored_weapon() {
+    use crate::game_logic::host_quad_cannon::QUAD_CANNON_GUN;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let run = |name: &str, weapon: &str| -> u32 {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        let mut tpl = ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(220.0)
+            .set_primary_weapon_name(weapon);
+        game_logic.templates.insert(name.to_string(), tpl);
+        let id = game_logic
+            .create_object(name, Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("attacker");
+        let enemy = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let (a, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
+            a.attack_target(
+                enemy,
+                attack_events,
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+            );
+            if let Some(w) = a.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.min_range = 0.0;
+            }
+        }
+        for f in 0..10u64 {
+            game_logic.set_current_frame(50 + f);
+            game_logic.update_combat(&[id, enemy], LOGIC_FRAME_TIMESTEP);
+        }
+        game_logic.quad_cannon_residual_ground_fires()
+    };
+    assert!(
+        run("GLAVehicleTechnicalQuadMount", QUAD_CANNON_GUN) > 0,
+        "authored QuadCannonGun discharge must count as a Quad ground fire"
+    );
+    assert_eq!(
+        run("GLAVehicleQuadCannon", "HumveeGun"),
+        0,
+        "Quad-named chassis with authored HumveeGun must not count Quad fires"
+    );
+}

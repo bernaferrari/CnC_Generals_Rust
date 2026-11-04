@@ -63,19 +63,33 @@ impl GameLogic {
                 self.pathfinder_residual_sniper_fires.saturating_add(1);
         }
 
-        // Quad Cannon residual honesty: ground primary vs AA secondary fires.
-        if self
-            .objects
-            .get(&attacker_id)
-            .map(|a| crate::game_logic::host_quad_cannon::is_quad_cannon_template(&a.template_name))
-            .unwrap_or(false)
+        // Quad Cannon residual honesty: ground vs AA fires, keyed on the
+        // authored WeaponSet slot weapon (QuadCannonGun* / *Air), not the
+        // template name (hq-2qedt.222).
         {
-            if slot == 1 {
-                self.quad_cannon_residual_aa_fires =
-                    self.quad_cannon_residual_aa_fires.saturating_add(1);
-            } else {
-                self.quad_cannon_residual_ground_fires =
-                    self.quad_cannon_residual_ground_fires.saturating_add(1);
+            use crate::game_logic::host_quad_cannon::{
+                QUAD_CANNON_GUN, QUAD_CANNON_GUN_AIR, QUAD_CANNON_GUN_UPGRADE_ONE,
+                QUAD_CANNON_GUN_UPGRADE_ONE_AIR, QUAD_CANNON_GUN_UPGRADE_TWO,
+                QUAD_CANNON_GUN_UPGRADE_TWO_AIR,
+            };
+            match self
+                .objects
+                .get(&attacker_id)
+                .and_then(|a| a.weapon_name_for_slot(slot))
+            {
+                Some(
+                    QUAD_CANNON_GUN_AIR
+                    | QUAD_CANNON_GUN_UPGRADE_ONE_AIR
+                    | QUAD_CANNON_GUN_UPGRADE_TWO_AIR,
+                ) => {
+                    self.quad_cannon_residual_aa_fires =
+                        self.quad_cannon_residual_aa_fires.saturating_add(1);
+                }
+                Some(QUAD_CANNON_GUN | QUAD_CANNON_GUN_UPGRADE_ONE | QUAD_CANNON_GUN_UPGRADE_TWO) => {
+                    self.quad_cannon_residual_ground_fires =
+                        self.quad_cannon_residual_ground_fires.saturating_add(1);
+                }
+                _ => {}
             }
         }
 
