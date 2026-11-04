@@ -1037,6 +1037,22 @@ impl WeaponSet {
         self.is_out_of_ammo_with_status(|weapon| weapon.get_status_at(frame))
     }
 
+    /// Pure WeaponSet.cpp:968-980 check: never writes stored status.
+    pub(crate) fn peek_out_of_ammo_at(&self, frame: u32) -> bool {
+        self.is_out_of_ammo_with_status(|weapon| weapon.peek_status_at(frame))
+    }
+
+    /// Mutable-owner WeaponSet.cpp:968-980: each slot's getStatus refreshes
+    /// stored status through `observe_status_at` (hq-2qedt.77).
+    pub(crate) fn observe_out_of_ammo_at(&mut self, frame: u32) -> bool {
+        for weapon in self.weapons.iter_mut().flatten() {
+            if weapon.observe_status_at(frame) != WeaponStatus::OutOfAmmo {
+                return false;
+            }
+        }
+        true
+    }
+
     fn is_out_of_ammo_with_status(&self, status: impl Fn(&Weapon) -> WeaponStatus) -> bool {
         for weapon_opt in &self.weapons {
             if let Some(weapon) = weapon_opt {
@@ -1521,6 +1537,35 @@ mod tests {
                 .load_status(),
             WeaponStatus::ReadyToFire,
         );
+    }
+
+    #[test]
+    fn observe_out_of_ammo_at_is_the_mutable_owner_status_write() {
+        // hq-2qedt.77: &mut WeaponSet owners observe status via
+        // Weapon::observe_status_at, while peek leaves stored status alone.
+        let services = crate::system::engine_stores::new_world_services();
+        crate::system::engine_stores::with_world_services(&services, || {
+            let mut set = WeaponSet::new();
+            let mut weapon = Weapon::new(
+                Arc::new(WeaponTemplate::new("ObserveAmmo".to_string())),
+                WeaponSlotType::Primary,
+            );
+            weapon.set_possible_next_shot_frame(100);
+            weapon.set_status(WeaponStatus::ReloadingClip);
+            weapon.ammo_in_clip = 1;
+            set.restore_weapon(WeaponSlotType::Primary, weapon);
+
+            assert!(!set.peek_out_of_ammo_at(100));
+            assert_eq!(
+                set.get_weapon_in_slot(WeaponSlotType::Primary).unwrap().load_status(),
+                WeaponStatus::ReloadingClip,
+            );
+            assert!(!set.observe_out_of_ammo_at(100));
+            assert_eq!(
+                set.get_weapon_in_slot(WeaponSlotType::Primary).unwrap().load_status(),
+                WeaponStatus::ReadyToFire,
+            );
+        });
     }
 
     #[test]

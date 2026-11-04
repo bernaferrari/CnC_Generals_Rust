@@ -1399,6 +1399,11 @@ impl Object {
         self.weapon_set.is_out_of_ammo()
     }
 
+    /// Mutable-owner WeaponSet.cpp:968-980 (hq-2qedt.77).
+    pub(crate) fn observe_out_of_ammo_at(&mut self, frame: UnsignedInt) -> bool {
+        self.weapon_set.observe_out_of_ammo_at(frame)
+    }
+
     /// C++ WeaponSet.cpp:968-980 at the driving operation's supplied frame.
     pub(crate) fn is_out_of_ammo_at(&self, frame: UnsignedInt) -> bool {
         self.weapon_set.is_out_of_ammo_at(frame)
