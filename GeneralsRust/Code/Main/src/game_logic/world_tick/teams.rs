@@ -350,7 +350,7 @@ impl GameLogic {
                 if !self.host_reject_buildings_allows(unit_id, cand) {
                     continue;
                 }
-                if rel != Relationship::Enemies {
+                if rel != gamelogic::common::Relationship::Enemies {
                     continue;
                 }
                 if !matches!(
@@ -1952,9 +1952,9 @@ impl GameLogic {
     ///
     /// Returns closest living repulsor in range:
     /// - OBJECT_STATUS_REPULSOR flag, OR
-    /// - enemy able-to-attack structure, OR  
-    /// - enemy able-to-attack non-structure (C++ filter residual simplified)
-    /// Fail-closed vs full PartitionManager filters / stealth reject.
+    /// - Relationship ENEMIES (not team label) and: structure only if
+    ///   able-to-attack; KINDOF_INERT rejects; otherwise able-to-attack.
+    /// Order mirrors PartitionManager.cpp:4985-5022 (hq-2qedt.48).
     pub(in super::super) fn find_closest_repulsor(
         &self,
         unit_id: ObjectId,
@@ -1968,7 +1968,6 @@ impl GameLogic {
             return None;
         }
         let my_pos = me.get_position();
-        let my_team = me.team;
         // Pure residual acquire: nearest repulsor in range (XZ).
         // Dead units only count when explicitly flagged repulsor (ActiveBody residual).
         let candidates: Vec<_> = self
@@ -1986,13 +1985,20 @@ impl GameLogic {
                 if other.status.stealthed && !other.status.detected && !other.status.disguised {
                     return None;
                 }
-                let is_flag_repulsor = other.status.repulsor;
-                let is_enemy = other.team != my_team
-                    && other.team != Team::Neutral
-                    && my_team != Team::Neutral;
-                let enemy_attacker = is_enemy && other.can_attack();
-                // C++ PartitionFilterRepulsor: flag OR (enemy attackers; structures only if can attack)
-                let allow = is_flag_repulsor || enemy_attacker;
+                // C++ PartitionFilterRepulsor::allow (PartitionManager.cpp:4985-5022).
+                let allow = if other.status.repulsor {
+                    true
+                } else if !alive {
+                    false
+                } else if self.object_relationship(me, other) != gamelogic::common::Relationship::Enemies {
+                    false
+                } else if other.is_kind_of(KindOf::Structure) {
+                    other.can_attack()
+                } else if other.is_kind_of(KindOf::Inert) {
+                    false
+                } else {
+                    other.can_attack()
+                };
                 if !allow {
                     return None;
                 }
