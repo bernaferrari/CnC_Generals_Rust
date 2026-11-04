@@ -739,7 +739,7 @@ impl GameLogic {
             UPGRADE_GLA_AP_BULLETS, is_jarmen_kell_template,
         };
         use crate::game_logic::host_quad_cannon::is_quad_cannon_template;
-        use crate::game_logic::host_technical::is_technical_template;
+        use crate::game_logic::host_technical::is_technical_weapon_name;
 
         let ids: Vec<(ObjectId, u8)> = self
             .objects
@@ -750,7 +750,7 @@ impl GameLogic {
                     Some((*id, 0u8))
                 } else if is_gla_rebel_template(&o.template_name) {
                     Some((*id, 1))
-                } else if is_technical_template(&o.template_name) {
+                } else if o.authored_weapon_name_for_slot(0).is_some_and(is_technical_weapon_name) {
                     Some((*id, 2))
                 } else if is_quad_cannon_template(&o.template_name) {
                     Some((*id, 3))

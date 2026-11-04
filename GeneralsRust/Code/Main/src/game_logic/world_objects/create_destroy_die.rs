@@ -3302,7 +3302,7 @@ impl GameLogic {
             // another same-team player's units.
             {
                 use crate::game_logic::host_unit_training::{
-                    normalize_identity, unit_training_level_for_template, veterancy_rank,
+                    normalize_identity, unit_training_level_for_object, veterancy_rank,
                 };
                 let sciences: Vec<String> = owner_player_id
                     .and_then(|player_id| self.players.get(&player_id))
@@ -3340,7 +3340,11 @@ impl GameLogic {
                                     locomotors,
                                 );
                             } else if let Some((kind, level)) =
-                                unit_training_level_for_template(template_name, &sciences)
+                                unit_training_level_for_object(
+                                    template_name,
+                                    obj.authored_weapon_name_for_slot(0),
+                                    &sciences,
+                                )
                             {
                                 if obj.set_min_veterancy_level_with_health_bonus_table(
                                     level,
