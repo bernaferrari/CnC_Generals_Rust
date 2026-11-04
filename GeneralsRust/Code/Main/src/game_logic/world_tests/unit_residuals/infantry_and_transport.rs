@@ -3295,3 +3295,63 @@ fn non_authored_slow_death_fallback_selects_through_die_mux_and_probability() {
     assert_eq!(picks[0], 0, "DieMux must exclude CRUSHED-only module for NORMAL: {picks:?}");
     assert!(picks[2] >= 19, "ProbabilityModifier weight must dominate: {picks:?}");
 }
+
+#[test]
+fn non_authored_slow_death_fallback_gates_veterancy_exempt_and_required_status() {
+    // C++ DieMuxData::isDieApplicable (DieModule.cpp:47-67) inside
+    // SlowDeathBehavior::onDie selection: VeterancyLevels, ExemptStatus (any),
+    // RequiredStatus (all) exclude modules before the ProbabilityModifier roll.
+    use crate::game_logic::host_slow_death::{
+        msec_to_logic_frames, slow_death_ini_from_behavior_attrs,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("FallbackGatedSlowVictim");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Vehicle);
+    t.authored_slow_death = Some(vec![
+        slow_death_ini_from_behavior_attrs(&[
+            ("VeterancyLevels", "NONE +ELITE"),
+            ("DestructionDelay", "9000"),
+            ("ProbabilityModifier", "1000000"),
+        ]),
+        slow_death_ini_from_behavior_attrs(&[
+            ("ExemptStatus", "DETECTED"),
+            ("DestructionDelay", "6000"),
+            ("ProbabilityModifier", "1000000"),
+        ]),
+        slow_death_ini_from_behavior_attrs(&[
+            ("RequiredStatus", "DETECTED STEALTHED"),
+            ("DestructionDelay", "12000"),
+            ("ProbabilityModifier", "1000000"),
+        ]),
+        slow_death_ini_from_behavior_attrs(&[
+            ("DestructionDelay", "3000"),
+            ("ProbabilityModifier", "1"),
+        ]),
+    ]);
+    logic.templates.insert("FallbackGatedSlowVictim".into(), t);
+    for i in 0..10 {
+        let id = logic
+            .create_object(
+                "FallbackGatedSlowVictim",
+                Team::USA,
+                glam::Vec3::new(i as f32 * 10.0, 0.0, 0.0),
+            )
+            .unwrap();
+        {
+            let o = logic.objects.get_mut(&id).unwrap();
+            o.status.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Normal;
+            o.set_status_detected(true);
+        }
+        logic.mark_object_for_destruction(id, None);
+        let o = logic.objects.get(&id).unwrap();
+        let sd = o.slow_death.as_ref().expect("fallback SlowDeath must begin");
+        assert_eq!(
+            sd.destroy_at_frame - sd.begin_frame,
+            msec_to_logic_frames(3000),
+            "rookie+DETECTED must exclude ELITE / ExemptStatus / partial RequiredStatus modules"
+        );
+        logic.objects.remove(&id);
+    }
+}

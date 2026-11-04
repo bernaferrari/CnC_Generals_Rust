@@ -497,6 +497,12 @@ impl Object {
                 crate::game_logic::host_slow_death::select_slow_death_ini(
                     modules,
                     self.status.death_type,
+                    crate::game_logic::host_fx_list_die::leftover_veterancy_from_host(
+                        self.experience.level,
+                    ),
+                    self.object_status_mask_for_queries(),
+                    // Residual: OnDieInput carries no actualDealt/Clipped yet.
+                    0.0,
                 )
             })
         };
