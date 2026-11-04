@@ -398,9 +398,8 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_marauder::is_marauder_template(template_name) {
                 return Some(MARAUDER_TANK_GUN);
             }
-            if crate::game_logic::host_terrorist::is_terrorist_template(template_name) {
-                return Some(TERRORIST_SUICIDE_WEAPON);
-            }
+            // Terrorist: explicit retail rows above only; no fuzzy name peel
+            // (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.217).
             if crate::game_logic::host_missile_defender::is_missile_defender_template(template_name)
             {
                 return Some(MISSILE_DEFENDER_MISSILE_WEAPON);
@@ -618,6 +617,24 @@ mod comanche_unit_map_peel_tests {
         assert_eq!(
             secondary_weapon_name_for_unit("AmericaVehicleComanche"),
             Some(COMANCHE_ANTITANK_WEAPON)
+        );
+    }
+}
+
+#[cfg(test)]
+mod terrorist_unit_map_peel_tests {
+    use super::*;
+
+    /// hq-2qedt.217: C++ resolves PRIMARY from the authored WeaponSet; an
+    /// unlisted template whose name merely contains "InfantryTerrorist" must
+    /// not pick up TerroristSuicideWeapon from a fuzzy name peel.
+    #[test]
+    fn unlisted_terrorist_named_template_gets_no_name_peel_primary() {
+        assert_eq!(primary_weapon_name_for_unit("Boss_GLAInfantryTerroristDecoy"), None);
+        // Explicit retail table rows stay.
+        assert_eq!(
+            primary_weapon_name_for_unit("GLAInfantryTerrorist"),
+            Some(TERRORIST_SUICIDE_WEAPON)
         );
     }
 }
