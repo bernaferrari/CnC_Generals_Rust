@@ -430,3 +430,62 @@ fn conflict_reset_body() {
         "later RemovesUpgrades reset the earlier executed module (C++ resetUpgrade)"
     );
 }
+
+// hq-2qedt.18 — C++ Object.cpp onVeterancyLevelChanged: updateUpgradeModules()
+// runs *before* findVeterancyUpgrade/giveUpgrade and before the Body callback.
+// A module triggered by a researched PLAYER upgrade that ConflictsWith the rank
+// upgrade only runs if the pre-rank scan happens first; dropping or moving that
+// scan after giveUpgrade(Upgrade_Veterancy_VETERAN) leaves it conflict-blocked.
+#[test]
+fn veterancy_change_rescans_upgrade_modules_before_rank_upgrade_and_body() {
+    if !child(concat!(
+        module_path!(),
+        "::veterancy_change_rescans_upgrade_modules_before_rank_upgrade_and_body"
+    )) {
+        return;
+    }
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let stores = crate::system::engine_stores::new_for_world();
+        crate::system::engine_stores::with_active_stores(&stores, pre_rank_rescan_body);
+    });
+}
+
+fn pre_rank_rescan_body() {
+    let veteran = crate::upgrade::center::get_upgrade_center()
+        .read()
+        .unwrap()
+        .find_veterancy_upgrade("VETERAN")
+        .expect("C++ UpgradeCenter::init creates rank upgrades");
+    let veteran_name = veteran.get_name().as_str().to_owned();
+    assert_eq!(veteran_name, "Upgrade_Veterancy_VETERAN");
+    let player = player();
+    let first = upgrade(FIRST, UpgradeType::Player);
+    player.add_upgrade(&first, UpgradeStatus::Complete, None);
+    let owner = owner(
+        "OwnedAdmissionPreRankRescan",
+        &format!(
+            " Behavior = StatusBitsUpgrade PreRankPlayerUpgrade\n TriggeredBy = {FIRST}\n ConflictsWith = {veteran_name}\n StatusToSet = MASKED\n End\n"
+        ),
+        true,
+    );
+    // Installed before set_team supplied the player: module has not run.
+    assert!(!status(&owner, ObjectStatusMaskType::MASKED));
+    owner.write().unwrap().on_veterancy_level_changed(
+        VeterancyLevel::Regular,
+        VeterancyLevel::Veteran,
+        false,
+    );
+    assert!(
+        owner
+            .read()
+            .unwrap()
+            .completed_upgrades()
+            .contains(UpgradeMaskType::from_bits_retain(veteran.mask().to_bits())),
+        "rank giveUpgrade still follows the pre-rank scan"
+    );
+    assert!(
+        status(&owner, ObjectStatusMaskType::MASKED),
+        "pre-rank updateUpgradeModules ran before the VETERAN conflict existed (C++ order)"
+    );
+}
