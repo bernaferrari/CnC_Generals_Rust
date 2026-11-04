@@ -2561,6 +2561,23 @@ pub fn gattling_building_has_chain_guns(applied_upgrades: &HashSet<String>) -> b
     crate::game_logic::host_gattling_tank::has_chain_guns_upgrade(applied_upgrades)
 }
 
+
+
+/// Whether the authored PRIMARY is the Gattling Cannon structure gun
+/// (`GattlingBuildingGun`). Keys the building ramp/AA residual on the
+/// WeaponSet instead of the template name (hq-2qedt.266).
+pub fn is_authored_gattling_building(primary_weapon: Option<&str>) -> bool {
+    primary_weapon == Some(GATTLING_BUILDING_PRIMARY_WEAPON)
+}
+
+
+/// Whether the object authors a Patriot WeaponSet PRIMARY (hq-2qedt.258).
+pub fn authors_patriot_weapon_set(object: &crate::game_logic::Object) -> bool {
+    object
+        .authored_weapon_name_for_slot(0)
+        .is_some_and(is_patriot_primary_weapon_name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
