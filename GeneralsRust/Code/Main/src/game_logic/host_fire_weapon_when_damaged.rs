@@ -44,7 +44,13 @@ pub struct HostFireWeaponWhenDamagedData {
     pub continuous_damaged: Option<String>,
     pub continuous_really_damaged: Option<String>,
     pub continuous_rubble: Option<String>,
+    /// Compatibility mirror of the most recent reaction fire (save/observation
+    /// `fwwd_last_reaction_frame`). Not a gate: C++ owns one Weapon per role.
     pub last_reaction_frame: u32,
+    /// C++ per-role reaction Weapon READY_TO_FIRE clocks, indexed
+    /// Pristine/Damaged/ReallyDamaged/Rubble.
+    #[serde(default)]
+    pub reaction_fire_frames: [u32; 4],
     pub last_continuous_frame: u32,
     pub continuous_reload_frames: u32,
 }
@@ -64,6 +70,7 @@ impl Default for HostFireWeaponWhenDamagedData {
             continuous_really_damaged: None,
             continuous_rubble: None,
             last_reaction_frame: 0,
+            reaction_fire_frames: [0; 4],
             last_continuous_frame: 0,
             continuous_reload_frames: FWWDB_CONTINUOUS_RELOAD_FRAMES,
         }
@@ -141,19 +148,35 @@ impl HostFireWeaponWhenDamagedData {
         if actual_damage < self.damage_amount {
             return None;
         }
+        self.on_damage_with_reload(state, current_frame, |name| {
+            crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_nominal(name)
+                .map(|secs| (secs * 30.0).round() as u32)
+                .unwrap_or(0)
+        })
+    }
+
+    fn on_damage_with_reload(
+        &mut self,
+        state: HostBodyDamageType,
+        current_frame: u32,
+        reload_frames: impl Fn(&str) -> u32,
+    ) -> Option<String> {
         let name = self.weapon_for_state(state, false)?.to_string();
         // C++ getStatus()==READY_TO_FIRE. DelayBetweenShots 0 stays ready every hit.
-        let reload =
-            crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_nominal(&name)
-                .map(|secs| (secs * 30.0).round() as u32)
-                .unwrap_or(0);
-        if reload > 0
-            && self.last_reaction_frame != 0
-            && current_frame.saturating_sub(self.last_reaction_frame) < reload
-        {
+        let reload = reload_frames(&name);
+        let role = match state {
+            HostBodyDamageType::Pristine => 0,
+            HostBodyDamageType::Damaged => 1,
+            HostBodyDamageType::ReallyDamaged => 2,
+            HostBodyDamageType::Rubble => 3,
+        };
+        let last = self.reaction_fire_frames[role];
+        if reload > 0 && last != 0 && current_frame.saturating_sub(last) < reload {
             return None;
         }
-        self.last_reaction_frame = current_frame.max(1);
+        let fired = current_frame.max(1);
+        self.reaction_fire_frames[role] = fired;
+        self.last_reaction_frame = fired;
         Some(name)
     }
 
@@ -278,6 +301,24 @@ mod tests {
         assert!(first.contains("BattleshipTarget"));
         assert!(same_frame.contains("BattleshipTarget"));
         assert!(next_frame.contains("BattleshipTarget"));
+    }
+
+    #[test]
+    fn reaction_roles_keep_independent_ready_clocks_like_cpp_weapons() {
+        // C++ allocates one Weapon per reaction role; each has its own
+        // READY_TO_FIRE status. A Pristine shot must not reload Damaged.
+        let name = "ReactionWeapon";
+        let reload = |_: &str| 30;
+        let mut d = HostFireWeaponWhenDamagedData {
+            reaction_pristine: Some(name.into()),
+            reaction_damaged: Some(name.into()),
+            ..Default::default()
+        };
+        assert!(d.on_damage_with_reload(HostBodyDamageType::Pristine, 10, reload).is_some());
+        // Same role still reloading.
+        assert!(d.on_damage_with_reload(HostBodyDamageType::Pristine, 11, reload).is_none());
+        // Different role: separate C++ Weapon, READY_TO_FIRE.
+        assert!(d.on_damage_with_reload(HostBodyDamageType::Damaged, 11, reload).is_some());
     }
 
     #[test]
