@@ -32,6 +32,7 @@ fn fixture(
 ) -> Fixture {
     let rule = format!("LibraryQueuedDirect{label}Weapon");
     let rows = format!("LibraryQueuedDirect{label}Rows");
+    queued_damage_fx::bind_test_world();
     gamelogic::initialize_weapon_store().unwrap();
     assert_eq!(
         register_weapons_from_ini_text(&format!(

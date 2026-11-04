@@ -90,3 +90,24 @@ pub fn install(rows: &str) -> mpsc::Receiver<Observation> {
     }
     receiver
 }
+
+/// Test-thread owner (hq-2qedt.23): bind CommonServices / WorldServices /
+/// MainServices on this thread before the fixture admits weapons, mirroring
+/// the hq-2qedt.20 world-test helper.
+pub fn bind_test_world() {
+    if game_engine::common::common_services::try_common_services().is_none() {
+        game_engine::common::common_services::install_common_services(Arc::new(
+            game_engine::common::common_services::CommonServices::new(),
+        ));
+    }
+    if gamelogic::system::engine_stores::try_active_services().is_none() {
+        gamelogic::system::engine_stores::install_services(
+            gamelogic::system::engine_stores::new_world_services(),
+        );
+    }
+    if generals_main::main_services::try_main_services().is_none() {
+        generals_main::main_services::install_main_services(Arc::new(
+            generals_main::main_services::MainServices::new(),
+        ));
+    }
+}

@@ -73,6 +73,7 @@ fn fixture_custom_with_variation(
 ) -> Fixture {
     let rule = format!("LibraryQueuedArea{label}Weapon");
     let rows = format!("LibraryQueuedArea{label}Rows");
+    queued_damage_fx::bind_test_world();
     gamelogic::initialize_weapon_store().unwrap();
     assert_eq!(
         register_weapons_from_ini_text(&format!(
