@@ -870,7 +870,12 @@ pub const SOUND_STEALTH_OFF: &str = "StealthOff";
 /// C++ `StealthUpdate` `m_orderIdleEnemiesToAttackMeUponReveal` for retail units.
 /// `authored_black_lotus`: template authors the Black Lotus capture power
 /// (`CapturePowerKind::BlackLotus`), the Lotus StealthUpdate owner.
-pub fn order_idle_enemies_on_reveal(template_name: &str, authored_black_lotus: bool) -> bool {
+/// `authored_pathfinder`: WeaponSet authors `USAPathfinderSniperRifle` (hq-2qedt.261).
+pub fn order_idle_enemies_on_reveal(
+    template_name: &str,
+    authored_black_lotus: bool,
+    authored_pathfinder: bool,
+) -> bool {
     use crate::game_logic::host_colonel_burton::{
         BURTON_ORDER_IDLE_ENEMIES_ON_REVEAL, is_colonel_burton_template,
     };
@@ -881,9 +886,7 @@ pub fn order_idle_enemies_on_reveal(template_name: &str, authored_black_lotus: b
     use crate::game_logic::host_listening_outpost::{
         LISTENING_OUTPOST_ORDER_IDLE_ENEMIES_ON_REVEAL, is_listening_outpost_template,
     };
-    use crate::game_logic::host_pathfinder::{
-        PATHFINDER_ORDER_IDLE_ENEMIES_ON_REVEAL, is_pathfinder_template,
-    };
+    use crate::game_logic::host_pathfinder::PATHFINDER_ORDER_IDLE_ENEMIES_ON_REVEAL;
     use crate::game_logic::host_upgrades::is_camo_netting_structure_template;
 
     if is_colonel_burton_template(template_name) {
@@ -895,7 +898,7 @@ pub fn order_idle_enemies_on_reveal(template_name: &str, authored_black_lotus: b
     if authored_black_lotus {
         return LOTUS_ORDER_IDLE_ENEMIES_ON_REVEAL;
     }
-    if is_pathfinder_template(template_name) {
+    if authored_pathfinder {
         return PATHFINDER_ORDER_IDLE_ENEMIES_ON_REVEAL;
     }
     if is_listening_outpost_template(template_name) {
@@ -1608,28 +1611,13 @@ mod stealth_grant_tests {
 
     #[test]
     fn order_idle_enemies_on_reveal_matches_retail_heroes() {
-        assert!(order_idle_enemies_on_reveal(
-            "AmericaInfantryColonelBurton",
-            false
-        ));
-        assert!(order_idle_enemies_on_reveal("GLAInfantryJarmenKell", false));
-        assert!(order_idle_enemies_on_reveal(
-            "ChinaInfantryBlackLotus",
-            true
-        ));
-        assert!(order_idle_enemies_on_reveal(
-            "AmericaInfantryPathfinder",
-            false
-        ));
-        assert!(order_idle_enemies_on_reveal(
-            "AmericaVehicleListeningOutpost",
-            false
-        ));
-        assert!(order_idle_enemies_on_reveal("GLATunnelNetwork", false));
-        assert!(!order_idle_enemies_on_reveal(
-            "AmericaInfantryRanger",
-            false
-        ));
+        assert!(order_idle_enemies_on_reveal("AmericaInfantryColonelBurton", false, false));
+        assert!(order_idle_enemies_on_reveal("GLAInfantryJarmenKell", false, false));
+        assert!(order_idle_enemies_on_reveal("ChinaInfantryBlackLotus", true, false));
+        assert!(order_idle_enemies_on_reveal("AmericaInfantryPathfinder", false, true));
+        assert!(order_idle_enemies_on_reveal("AmericaVehicleListeningOutpost", false, false));
+        assert!(order_idle_enemies_on_reveal("GLATunnelNetwork", false, false));
+        assert!(!order_idle_enemies_on_reveal("AmericaInfantryRanger", false, false));
     }
 
     #[test]

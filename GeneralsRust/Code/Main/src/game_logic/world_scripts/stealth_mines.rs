@@ -960,9 +960,7 @@ impl GameLogic {
                 is_sentry: crate::game_logic::host_sentry_drone::is_sentry_drone_template(
                     &o.template_name,
                 ),
-                is_pathfinder: crate::game_logic::host_pathfinder::is_pathfinder_template(
-                    &o.template_name,
-                ),
+                is_pathfinder: o.authors_pathfinder_sniper_weapon(),
                 is_scout: crate::game_logic::host_slave_drones::is_scout_drone_template(
                     &o.template_name,
                 ),

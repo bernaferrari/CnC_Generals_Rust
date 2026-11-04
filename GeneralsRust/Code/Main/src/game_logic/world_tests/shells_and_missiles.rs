@@ -5305,3 +5305,44 @@ fn black_lotus_innate_stealth_keys_on_authored_capture_power() {
         "Lotus-named infantry without the authored capture power gets no hero stealth"
     );
 }
+
+/// hq-2qedt.261: Pathfinder reveal response (OrderIdleEnemiesToAttackMeUponReveal)
+/// keys on the authored USAPathfinderSniperRifle WeaponSet slot, not the name.
+#[test]
+fn pathfinder_reveal_response_keys_on_authored_sniper_weapon() {
+    let run = |name: &str, weapon: &str| -> bool {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, crate::game_logic::Player::new(0, Team::USA, "USA", true));
+        logic
+            .players
+            .insert(1, crate::game_logic::Player::new(1, Team::China, "China", true));
+        let mut t = crate::game_logic::ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0)
+            .set_primary_weapon_name(weapon);
+        logic.templates.insert(name.into(), t);
+        let mut e = crate::game_logic::ThingTemplate::new("TestChinaGrunt");
+        e.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic.templates.insert("TestChinaGrunt".into(), e);
+        let v = logic.create_object(name, Team::USA, Vec3::ZERO).expect("victim");
+        let eid = logic
+            .create_object("TestChinaGrunt", Team::China, Vec3::new(20.0, 0.0, 0.0))
+            .expect("enemy");
+        logic.host_object_mut(eid).unwrap().vision_range = 300.0;
+        logic.order_idle_enemies_to_attack_on_reveal(v);
+        logic.host_object(eid).unwrap().target == Some(v)
+    };
+    assert!(
+        run("TestSniperInfantry", crate::game_logic::host_pathfinder::PATHFINDER_SNIPER_WEAPON),
+        "authored Pathfinder sniper WeaponSet orders idle enemies on reveal"
+    );
+    assert!(
+        !run("AmericaInfantryPathfinder", "TestNonRetailRifle"),
+        "Pathfinder-named infantry without the authored sniper does not"
+    );
+}

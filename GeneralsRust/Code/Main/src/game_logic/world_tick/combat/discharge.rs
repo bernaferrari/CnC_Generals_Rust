@@ -52,12 +52,13 @@ impl GameLogic {
                         &rates,
                     )
                 });
-        // Pathfinder residual sniper honesty (any successful fire from residual).
+        // Pathfinder residual sniper honesty: keyed on the authored WeaponSet
+        // slot weapon (USAPathfinderSniperRifle), not the template name (hq-2qedt.261).
         if self
             .objects
             .get(&attacker_id)
-            .map(|a| crate::game_logic::host_pathfinder::is_pathfinder_template(&a.template_name))
-            .unwrap_or(false)
+            .and_then(|a| a.weapon_name_for_slot(slot))
+            .is_some_and(crate::game_logic::host_pathfinder::is_pathfinder_sniper_weapon)
         {
             self.pathfinder_residual_sniper_fires =
                 self.pathfinder_residual_sniper_fires.saturating_add(1);

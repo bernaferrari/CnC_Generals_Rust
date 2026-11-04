@@ -216,6 +216,11 @@ pub fn is_pathfinder_template(template_name: &str) -> bool {
     n.contains("pathfinder") || n == "usapathfinder"
 }
 
+/// Authored Pathfinder sniper WeaponSet weapon (hq-2qedt.261).
+pub fn is_pathfinder_sniper_weapon(weapon_name: &str) -> bool {
+    weapon_name.eq_ignore_ascii_case(PATHFINDER_SNIPER_WEAPON)
+}
+
 /// Residual SCIENCE_Pathfinder gate name matcher.
 pub fn is_pathfinder_science_name(name: &str) -> bool {
     let n = name

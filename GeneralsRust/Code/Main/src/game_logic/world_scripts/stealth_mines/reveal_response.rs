@@ -18,6 +18,7 @@ impl GameLogic {
             &victim.template_name,
             victim.thing().template.capture_power
                 == crate::game_logic::CapturePowerKind::BlackLotus,
+            victim.authors_pathfinder_sniper_weapon(),
         ) {
             return;
         }
