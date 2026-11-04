@@ -926,8 +926,10 @@ impl GameLogic {
         let victim_pos = victim.get_position();
 
         // C++ Weapon.cpp:2477 — only fan out when leftover RequestAssistRange > 0.
-        let request_range =
-            patriot_request_assist_range_for_template(&requester_template, slot == 1);
+        // Read this world's WeaponStore: an unbound read falls back to 0.
+        let request_range = self.with_own_services(|| {
+            patriot_request_assist_range_for_template(&requester_template, slot == 1)
+        });
         if request_range <= 0.0 {
             return;
         }
