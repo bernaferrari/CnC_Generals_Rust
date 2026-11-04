@@ -4716,3 +4716,11 @@ fn burton_named_non_burton_weapon_skips_burton_object_hit_residual() {
         "Burton residual chosen by template-name peel"
     );
 }
+
+/// hq-2qedt.189: Helix-named template authoring a non-minigun PRIMARY
+/// must not route through the Helix minigun residual on object hit.
+#[test]
+fn helix_named_non_minigun_weapon_skips_helix_object_hit_residual() {
+    let gl = fire_named_template_with_humvee_gun("ChinaVehicleHelix", Team::USA);
+    assert_eq!(gl.helix_minigun_residual_fires(), 0, "Helix residual chosen by template-name peel");
+}
