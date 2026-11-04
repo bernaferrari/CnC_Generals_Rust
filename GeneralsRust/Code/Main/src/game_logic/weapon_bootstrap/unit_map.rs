@@ -126,27 +126,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "AirF_AmericaInfantryPathfinder"
         | "SupW_AmericaInfantryPathfinder"
         | "Lazr_AmericaInfantryPathfinder" => Some(PATHFINDER_SNIPER_WEAPON),
-        // Hellfire drone residual primary.
-        "AmericaVehicleHellfireDrone"
-        | "USA_HellfireDrone"
-        | "TestHellfireDrone"
-        | "AirF_AmericaVehicleHellfireDrone"
-        | "SupW_AmericaVehicleHellfireDrone"
-        | "Lazr_AmericaVehicleHellfireDrone" => Some(HELLFIRE_MISSILE_WEAPON),
-        // Scout drone has no primary weapon (sensor only).
-        "AmericaVehicleScoutDrone"
-        | "USA_ScoutDrone"
-        | "TestScoutDrone"
-        | "AirF_AmericaVehicleScoutDrone"
-        | "SupW_AmericaVehicleScoutDrone"
-        | "Lazr_AmericaVehicleScoutDrone" => None,
-        // Sentry gun is PLAYER_UPGRADE only — no primary until research residual.
-        "AmericaVehicleSentryDrone"
-        | "USA_SentryDrone"
-        | "TestSentryDrone"
-        | "AirF_AmericaVehicleSentryDrone"
-        | "SupW_AmericaVehicleSentryDrone"
-        | "Lazr_AmericaVehicleSentryDrone" => None,
         // GLA Rocket Buggy residual long-range rockets.
         "GLAVehicleRocketBuggy"
         | "GLA_RocketBuggy"
@@ -323,16 +302,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             }
             if crate::game_logic::host_pathfinder::is_pathfinder_template(template_name) {
                 return Some(PATHFINDER_SNIPER_WEAPON);
-            }
-            if crate::game_logic::host_slave_drones::is_hellfire_drone_template(template_name) {
-                return Some(HELLFIRE_MISSILE_WEAPON);
-            }
-            if crate::game_logic::host_slave_drones::is_scout_drone_template(template_name) {
-                return None;
-            }
-            // Sentry without gun upgrade has no residual primary (fail-closed).
-            if crate::game_logic::host_sentry_drone::is_sentry_drone_template(template_name) {
-                return None;
             }
             // Angry Mob nexus residual aggregate fire weapon (AI range residual).
             if crate::game_logic::host_angry_mob::is_angry_mob_nexus_template(template_name) {

@@ -484,8 +484,8 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_slave_drones::{
-            SlaveDroneKind, UPGRADE_AMERICA_DRONE_ARMOR, drone_armor_add_max_health,
-            is_battle_drone_template, is_hellfire_drone_template, is_scout_drone_template,
+            HELLFIRE_MISSILE_WEAPON, SlaveDroneKind, UPGRADE_AMERICA_DRONE_ARMOR,
+            drone_armor_add_max_health, is_battle_drone_template, is_scout_drone_template,
         };
 
         let mut n = 0u32;
@@ -495,7 +495,10 @@ impl GameLogic {
             }
             let kind = if is_battle_drone_template(&obj.template_name) {
                 Some(SlaveDroneKind::Battle)
-            } else if is_hellfire_drone_template(&obj.template_name) {
+            } else if obj
+                .authored_weapon_name_for_slot(0)
+                .is_some_and(|w| w.eq_ignore_ascii_case(HELLFIRE_MISSILE_WEAPON))
+            {
                 Some(SlaveDroneKind::Hellfire)
             } else if is_scout_drone_template(&obj.template_name) {
                 Some(SlaveDroneKind::Scout)
