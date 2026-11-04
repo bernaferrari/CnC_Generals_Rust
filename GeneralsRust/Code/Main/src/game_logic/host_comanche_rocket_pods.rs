@@ -210,40 +210,6 @@ pub fn is_comanche_template(template_name: &str) -> bool {
     n.contains("comanche")
 }
 
-/// Whether residual fire should apply Comanche combat residual (any slot).
-pub fn should_apply_comanche_residual(is_comanche: bool) -> bool {
-    is_comanche
-}
-
-/// Whether combat should apply rocket-pod area residual instead of single-target HP.
-///
-/// Host residual: Comanche + upgrade tag + tertiary slot (2).
-/// Retail AutoChooseSources = NONE — only fires when player locks slot / FIRE_WEAPON.
-pub fn should_apply_rocket_pod_area_attack(
-    is_comanche: bool,
-    has_upgrade: bool,
-    fired_slot: u8,
-) -> bool {
-    is_comanche && has_upgrade && fired_slot == 2
-}
-
-/// Whether combat should apply anti-tank dual-radius residual on secondary fire.
-///
-/// Active when the independent secondary slot fires.  Rocket pods no longer
-/// displace this retail anti-tank weapon.
-pub fn should_apply_comanche_antitank_residual(
-    is_comanche: bool,
-    fired_slot: u8,
-    _rocket_pods_active: bool,
-) -> bool {
-    is_comanche && fired_slot == 1
-}
-
-/// Whether combat should apply primary 20mm intended residual.
-pub fn should_apply_comanche_cannon_residual(is_comanche: bool, fired_slot: u8) -> bool {
-    is_comanche && fired_slot == 0
-}
-
 /// Whether residual auto weapon-chooser may pick rocket-pod tertiary.
 /// Always false (retail AutoChooseSources TERTIARY NONE).
 pub fn rocket_pods_auto_choose_allowed() -> bool {
@@ -434,24 +400,6 @@ mod tests {
         assert!(!is_comanche_template("ComancheRocketPodRocket"));
         assert!(!is_comanche_template("ComancheAntiTankMissile"));
         assert!(!is_comanche_template("ComancheBlades"));
-    }
-
-    #[test]
-    fn should_apply_area_gate() {
-        assert!(should_apply_rocket_pod_area_attack(true, true, 2));
-        assert!(!should_apply_rocket_pod_area_attack(true, true, 1));
-        assert!(!should_apply_rocket_pod_area_attack(true, true, 0));
-        assert!(!should_apply_rocket_pod_area_attack(true, false, 2));
-        assert!(!should_apply_rocket_pod_area_attack(false, true, 2));
-    }
-
-    #[test]
-    fn cannon_and_antitank_slot_gates() {
-        assert!(should_apply_comanche_cannon_residual(true, 0));
-        assert!(!should_apply_comanche_cannon_residual(true, 1));
-        assert!(should_apply_comanche_antitank_residual(true, 1, false));
-        assert!(should_apply_comanche_antitank_residual(true, 1, true));
-        assert!(!should_apply_comanche_antitank_residual(true, 0, false));
     }
 
     #[test]

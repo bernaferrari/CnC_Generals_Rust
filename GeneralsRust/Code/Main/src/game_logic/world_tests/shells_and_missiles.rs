@@ -4188,3 +4188,66 @@ fn stealth_fighter_innate_stealth_residual_keys_on_authored_stealth_update() {
         "authored StealthDelay 2000ms = 60f"
     );
 }
+
+/// hq-2qedt.153: object_hit Comanche residuals key on the fired slot's authored
+/// weapon (Comanche20mmCannonWeapon), not an is_comanche_template sniff. C++
+/// Weapon::fireWeapon has no firing-template name branch.
+#[test]
+fn comanche_cannon_object_hit_residual_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_comanche_rocket_pods::COMANCHE_PRIMARY_WEAPON;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    fn fire(name: &str, weapon: &str) -> u32 {
+        ensure_host_weapon_store();
+        let mut gl = GameLogic::new();
+        ensure_test_tank_template(&mut gl);
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(160.0)
+            .set_primary_weapon_name(weapon);
+        gl.templates.insert(name.to_string(), tpl);
+        let shooter = gl
+            .create_object(name, Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let enemy = gl
+            .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let (f, ev) = gl.host_object_and_attack_events_mut(shooter).unwrap();
+            f.attack_target(
+                enemy,
+                ev,
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+            );
+            if let Some(w) = f.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.reload_time = 0.05;
+            }
+        }
+        gl.set_current_frame(50);
+        gl.update_combat(&[shooter, enemy], LOGIC_FRAME_TIMESTEP);
+        gl.comanche_cannon_residual_fires
+    }
+
+    assert!(
+        fire("TestAuthoredGunshipCarrier", COMANCHE_PRIMARY_WEAPON) > 0,
+        "authored Comanche20mmCannonWeapon must take the cannon residual"
+    );
+    assert_eq!(
+        fire("AmericaVehicleComanche", "RaptorJetMissileWeapon"),
+        0,
+        "comanche-named template with a different authored weapon must not"
+    );
+}
+
+/// hq-2qedt.153: object_hit has no Comanche template-name sniff.
+#[test]
+fn comanche_object_hit_residual_has_no_template_name_sniff() {
+    let src = include_str!("../world_tick/combat/object_hit.rs");
+    assert!(!src.contains("is_comanche_template"));
+    assert!(!src.contains("should_apply_comanche"));
+    assert!(!src.contains("should_apply_rocket_pod_area_attack"));
+}

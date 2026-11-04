@@ -355,37 +355,42 @@ impl GameLogic {
                         effects,
                     );
                 } else if {
-                    // Comanche residual: 20mm primary / anti-tank secondary /
-                    // manual rocket pods tertiary.
+                    // Comanche residuals: keyed on the fired slot's authored weapon
+                    // (C++ Weapon::fireWeapon; no firing-template name branch).
                     use crate::game_logic::host_comanche_rocket_pods::{
-                        UPGRADE_COMANCHE_ROCKET_PODS, is_comanche_template,
-                        should_apply_comanche_antitank_residual,
-                        should_apply_comanche_cannon_residual, should_apply_rocket_pod_area_attack,
+                        COMANCHE_ANTITANK_WEAPON, COMANCHE_PRIMARY_WEAPON,
+                        COMANCHE_ROCKET_POD_WEAPON,
                     };
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| is_comanche_template(&a.template_name))
-                        .unwrap_or(false)
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .is_some_and(|w| {
+                            w.eq_ignore_ascii_case(COMANCHE_PRIMARY_WEAPON)
+                                || w.eq_ignore_ascii_case(COMANCHE_ANTITANK_WEAPON)
+                                || w.eq_ignore_ascii_case(COMANCHE_ROCKET_POD_WEAPON)
+                        })
                 } {
                     use crate::game_logic::host_comanche_rocket_pods::{
-                        UPGRADE_COMANCHE_ROCKET_PODS, is_comanche_template,
-                        should_apply_comanche_antitank_residual,
-                        should_apply_comanche_cannon_residual, should_apply_rocket_pod_area_attack,
+                        COMANCHE_ANTITANK_WEAPON, COMANCHE_PRIMARY_WEAPON,
+                        COMANCHE_ROCKET_POD_WEAPON, UPGRADE_COMANCHE_ROCKET_PODS,
                     };
                     let impact = target_position;
-                    let (has_pods, is_comanche) = self
+                    let (has_pods, weapon) = self
                         .objects
                         .get(&attacker_id)
                         .map(|a| {
                             (
                                 a.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS)
                                     || a.has_upgrade_tag("Upgrade_ComancheRocketPods"),
-                                is_comanche_template(&a.template_name),
+                                a.authored_weapon_name_for_slot(slot)
+                                    .map(|w| w.to_string())
+                                    .unwrap_or_default(),
                             )
                         })
-                        .unwrap_or((false, false));
+                        .unwrap_or_default();
+                    let is_w = |n: &str| weapon.eq_ignore_ascii_case(n);
                     let (hits, _destroyed_any) =
-                        if should_apply_rocket_pod_area_attack(is_comanche, has_pods, slot) {
+                        if has_pods && is_w(COMANCHE_ROCKET_POD_WEAPON) {
                             {
                                 use crate::game_logic::host_comanche_rocket_pods::{
                                     ROCKET_POD_CLIP_SIZE, rocket_pod_scatter_impact,
@@ -422,18 +427,14 @@ impl GameLogic {
                                     effects,
                                 )
                             }
-                        } else if should_apply_comanche_antitank_residual(
-                            is_comanche,
-                            slot,
-                            has_pods,
-                        ) {
+                        } else if is_w(COMANCHE_ANTITANK_WEAPON) {
                             self.apply_comanche_antitank_residual_at_with_effects(
                                 impact,
                                 Some(attacker_id),
                                 Some(target_id),
                                 effects,
                             )
-                        } else if should_apply_comanche_cannon_residual(is_comanche, slot) {
+                        } else if is_w(COMANCHE_PRIMARY_WEAPON) {
                             self.apply_comanche_cannon_residual_at_with_effects(
                                 impact,
                                 Some(attacker_id),
