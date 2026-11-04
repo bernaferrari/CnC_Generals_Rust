@@ -402,22 +402,9 @@ impl GameLogic {
             object.weapon = Some(rpg_trooper_weapon(ap));
         }
 
-        // Host residual: GLA Terrorist PRIMARY TerroristSuicideWeapon residual.
-        // Chem Beta/Gamma + Demo death-weapon residual profiles.
-        // Fail-closed: not ConvertToCarBomb full matrix / SlowDeath fling.
-        if crate::game_logic::host_terrorist::is_terrorist_template(template_name) {
-            use crate::game_logic::host_terrorist::{
-                terrorist_death_profile, terrorist_suicide_weapon_for_profile,
-            };
-            let has_gamma = (allow_upgrades
-                && object.has_upgrade_tag("Chem_Upgrade_GLAAnthraxGamma"))
-                || (allow_upgrades && object.has_upgrade_tag("Upgrade_GLAAnthraxGamma"));
-            let has_beta = (allow_upgrades && object.has_upgrade_tag("Upgrade_GLAAnthraxBeta"))
-                || (allow_upgrades && object.has_upgrade_tag("Chem_Upgrade_GLAAnthraxBeta"));
-            let profile = terrorist_death_profile(template_name, has_gamma, has_beta);
-            object.weapon = Some(terrorist_suicide_weapon_for_profile(profile));
-            object.secondary_weapon = None;
-        }
+        // GLA Terrorist PRIMARY binds from the authored WeaponSet above (C++
+        // WeaponSet::updateWeaponSet), not a name peel (hq-2qedt.169).
+        // Death-profile / demo charge residuals live in host_terrorist.
 
         // C++ Object::initObject → updateUpgradeModules: PLAYER_UPGRADE
         // Upgrade_AmericaDroneArmor fires MaxHealthUpgrade on new drones.

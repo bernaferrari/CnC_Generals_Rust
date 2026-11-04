@@ -230,3 +230,17 @@ fn ranger_create_primary_has_no_name_peel_without_authored_weapon_set() {
     });
     assert!(!is_peel, "Ranger PRIMARY seeded by ranger_rifle_weapon name peel: {prim:?}");
 }
+
+/// hq-2qedt.169: GLA Terrorist PRIMARY comes only from the authored WeaponSet
+/// (WeaponSet::updateWeaponSet); no `terrorist_suicide_weapon_for_profile` name peel at create.
+#[test]
+fn terrorist_create_primary_has_no_suicide_name_peel_without_authored_weapon_set() {
+    crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    let mut w = world(
+        "Object GLAInfantryTerrorist\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n",
+    );
+    let id = w.create_object_for_player("GLAInfantryTerrorist", 1, Vec3::ZERO).unwrap();
+    let prim = w.host_object(id).unwrap().weapon_slot(0).cloned();
+    let is_peel = prim.as_ref().is_some_and(|p| p.projectile_speed == 999_999.0 && p.ammo == Some(1));
+    assert!(!is_peel, "Terrorist PRIMARY seeded by terrorist_suicide_weapon_for_profile peel: {prim:?}");
+}
