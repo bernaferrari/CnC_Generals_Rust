@@ -4458,6 +4458,7 @@ fn stinger_site_create_weapons_come_from_authored_weapon_set() {
     let mut game_logic = GameLogic::new();
     let mut tpl = crate::game_logic::ThingTemplate::new("GLAStingerSite");
     tpl.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::SpawnsAreTheWeapons)
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(1000.0)
@@ -5227,5 +5228,50 @@ fn patriot_create_binding_keys_on_authored_weapon_set() {
     assert!(
         !run("USA_Patriot", "HumveeGun", None),
         "Patriot-named hull without authored Patriot WeaponSet gets no Patriot ground peel"
+    );
+}
+
+/// hq-2qedt.259: Stinger Site hive spawn keys on the authored
+/// KINDOF_SPAWNS_ARE_THE_WEAPONS bit, not the template name.
+#[test]
+fn stinger_hive_spawn_keys_on_authored_spawns_are_the_weapons() {
+    let run = |name: &str, hive: bool| -> usize {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
+        let mut site = crate::game_logic::ThingTemplate::new(name);
+        site.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(1000.0);
+        if hive {
+            site.add_kind_of(KindOf::SpawnsAreTheWeapons);
+        }
+        logic.templates.insert(name.into(), site);
+        let mut soldier = crate::game_logic::ThingTemplate::new("GLAInfantryStingerSoldier");
+        soldier
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        logic
+            .templates
+            .insert("GLAInfantryStingerSoldier".into(), soldier);
+        let site_id = logic.create_object(name, Team::GLA, Vec3::ZERO).expect("site");
+        logic
+            .objects
+            .registered_values()
+            .filter(|o| o.producer_id == Some(site_id))
+            .count()
+    };
+    assert_eq!(
+        run("TestHiveDefense", true),
+        3,
+        "authored SPAWNS_ARE_THE_WEAPONS hive spawns its Stinger soldiers"
+    );
+    assert_eq!(
+        run("GLAStingerSite", false),
+        0,
+        "Stinger-named structure without the authored hive KindOf spawns nothing"
     );
 }

@@ -483,8 +483,7 @@ impl GameLogic {
 
     fn is_stinger_soldier_template(name: &str) -> bool {
         let n = name.to_ascii_lowercase();
-        (n.contains("stingersoldier") || n.contains("stinger_soldier"))
-            && !crate::game_logic::host_base_defense::is_stinger_site_structure(name)
+        n.contains("stingersoldier") || n.contains("stinger_soldier")
     }
 
     fn resolve_host_spawn_behavior_spec(object: &Object) -> Option<HostSpawnBehaviorSpec> {
@@ -501,7 +500,7 @@ impl GameLogic {
         {
             return Self::authored_spawn_behavior_template(template);
         }
-        Self::fallback_spawn_behavior_spec(template_name)
+        Self::fallback_spawn_behavior_spec(template, template_name)
     }
 
     pub(crate) fn supported_spawn_behavior_child_template(
@@ -536,10 +535,6 @@ impl GameLogic {
         &self,
         parent_template_name: &str,
     ) -> Result<Option<u32>, ()> {
-        use crate::game_logic::host_base_defense::is_stinger_site_structure;
-        if !is_stinger_site_structure(parent_template_name) {
-            return Ok(None);
-        }
         let (name, template) =
             if let Some((name, template)) = self.templates.get_key_value(parent_template_name) {
                 (name, template)
@@ -556,6 +551,10 @@ impl GameLogic {
                 }
                 first
             };
+        // C++ Stinger hive identity is the authored SPAWNS_ARE_THE_WEAPONS bit.
+        if !template.is_kind_of(KindOf::SpawnsAreTheWeapons) {
+            return Ok(None);
+        }
         let Some(spec) = Self::resolve_host_spawn_behavior_template(template, name) else {
             return Ok(None);
         };
@@ -628,7 +627,10 @@ impl GameLogic {
             .is_some_and(|spec| !spec.slaves_have_free_will)
     }
 
-    fn fallback_spawn_behavior_spec(template_name: &str) -> Option<HostSpawnBehaviorSpec> {
+    fn fallback_spawn_behavior_spec(
+        template: &ThingTemplate,
+        template_name: &str,
+    ) -> Option<HostSpawnBehaviorSpec> {
         use crate::game_logic::host_tunnel_network::{
             TUNNEL_NETWORK_SPAWN_NUMBER, general_prefixed_spawn_template,
             tunnel_network_has_oneshot_spawn, tunnel_network_spawn_template_for,
@@ -643,7 +645,8 @@ impl GameLogic {
                 slaves_have_free_will: false,
             });
         }
-        if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name) {
+        // C++ Stinger Site hive: authored KINDOF_SPAWNS_ARE_THE_WEAPONS (hq-2qedt.259).
+        if template.is_kind_of(KindOf::SpawnsAreTheWeapons) {
             return Some(HostSpawnBehaviorSpec {
                 spawn_template: general_prefixed_spawn_template(
                     template_name,
@@ -940,11 +943,10 @@ impl GameLogic {
                 ui,
                 None,
             )?;
-            if self.host_object(object_id).is_some_and(|object| {
-                crate::game_logic::host_base_defense::is_stinger_site_structure(
-                    &object.template_name,
-                )
-            }) {
+            if self
+                .host_object(object_id)
+                .is_some_and(|object| object.is_kind_of(KindOf::SpawnsAreTheWeapons))
+            {
                 let live =
                     self.count_spawn_behavior_children(object_id, &spec.spawn_template, true);
                 if live < spec.spawn_number
@@ -1102,9 +1104,7 @@ impl GameLogic {
             (
                 parent.get_position(),
                 parent.get_orientation(),
-                crate::game_logic::host_base_defense::is_stinger_site_structure(
-                    &parent.template_name,
-                ),
+                parent.is_kind_of(KindOf::SpawnsAreTheWeapons),
                 collect_world_spawn_point_bones(parent),
                 used_slots,
             )
@@ -1196,13 +1196,12 @@ impl GameLogic {
         &mut self,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
-        use crate::game_logic::host_base_defense::is_stinger_site_structure;
         let frame = self.frame;
         let sites: Vec<ObjectId> = self
             .objects
             .registered()
             .filter_map(|(id, object)| {
-                if is_stinger_site_structure(&object.template_name) && object.is_alive() {
+                if object.is_kind_of(KindOf::SpawnsAreTheWeapons) && object.is_alive() {
                     Some(*id)
                 } else {
                     None
@@ -2981,7 +2980,7 @@ impl GameLogic {
             // Host residual: GLA Stinger Site SPAWNS_ARE_THE_WEAPONS dual ground/AA +
             // HiveStructureBody / SpawnBehavior. The admitted child roster is
             // the only live source for slave identity and occupancy.
-            if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name) {
+            if object.is_kind_of(KindOf::SpawnsAreTheWeapons) {
                 use crate::game_logic::host_base_defense::{
                     stinger_air_weapon, stinger_ground_weapon, stinger_has_ap_rockets,
                 };
