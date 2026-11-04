@@ -244,3 +244,25 @@ fn terrorist_create_primary_has_no_suicide_name_peel_without_authored_weapon_set
     let is_peel = prim.as_ref().is_some_and(|p| p.projectile_speed == 999_999.0 && p.ammo == Some(1));
     assert!(!is_peel, "Terrorist PRIMARY seeded by terrorist_suicide_weapon_for_profile peel: {prim:?}");
 }
+
+/// hq-2qedt.192: an unauthored Ranger gets no PRIMARY at create; C++
+/// WeaponSet::updateWeaponSet leaves the slot empty with no authored WeaponSet.
+#[test]
+fn unauthored_ranger_create_primary_is_empty_as_cpp() {
+    crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    let mut w = world(
+        "Object AmericaInfantryRanger\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 180\n InitialHealth = 180\n End\nEnd\n",
+    );
+    let id = w.create_object_for_player("AmericaInfantryRanger", 1, Vec3::ZERO).unwrap();
+    let o = w.host_object(id).unwrap();
+    assert!(
+        o.weapon_slot(0).is_none(),
+        "unauthored Ranger PRIMARY not empty: {:?}",
+        o.weapon_slot(0)
+    );
+    assert!(
+        o.weapon_slot(1).is_none(),
+        "unauthored Ranger SECONDARY not empty: {:?}",
+        o.weapon_slot(1)
+    );
+}

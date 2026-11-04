@@ -1597,6 +1597,12 @@ impl ThingTemplate {
             // kind-based Weapon::default after a store miss.
             return None;
         }
+        // C++ WeaponSet::updateWeaponSet (WeaponSet.cpp:275) arms only the
+        // authored WeaponSet; an unauthored Ranger stays empty, with no name
+        // map or kind-based default (hq-2qedt.192).
+        if crate::game_logic::host_ranger::is_ranger_template(&self.name) {
+            return None;
+        }
         // Host residual map: templates often omit primary_weapon_name (units.rs /
         // setup_templates gaps) but have a known retail weapon for the unit name.
         // Prefer store residual over kind-based Weapon::default().
