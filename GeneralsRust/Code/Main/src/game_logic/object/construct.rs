@@ -1154,6 +1154,9 @@ impl Object {
             alt_turret_runtime: alt_turret
                 .as_ref()
                 .map(super::turret_runtime::HostTurretExtra::from_spawn),
+            alt_turret_ai: alt_turret
+                .as_ref()
+                .map(super::turret_ai_state::TurretAiState::from_spawn),
             ai_attitude: 0, // HostAiAttitude::Normal
             repulsor_until_frame: 0,
             last_damage_source: None,
@@ -2119,6 +2122,9 @@ impl Object {
             alt_turret_runtime: alt_turret
                 .as_ref()
                 .map(super::turret_runtime::HostTurretExtra::from_spawn),
+            alt_turret_ai: alt_turret
+                .as_ref()
+                .map(super::turret_ai_state::TurretAiState::from_spawn),
             ai_attitude: 0, // HostAiAttitude::Normal
             repulsor_until_frame: 0,
             last_damage_source: None,

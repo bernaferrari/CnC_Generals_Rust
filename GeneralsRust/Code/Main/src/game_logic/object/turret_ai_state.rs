@@ -75,6 +75,23 @@ pub struct TurretAiState {
     pub turret_recenter_frames: u32,
 }
 
+impl TurretAiState {
+    /// Seed a fresh TurretAI pose/SM from a spawn spec (primary or AltTurret).
+    pub(crate) fn from_spawn(turret: &super::TurretSpawnSpec) -> Self {
+        Self {
+            turret_angle_deg: turret.angle_deg,
+            turret_pitch_deg: turret.pitch_deg,
+            turret_enabled: turret.enabled,
+            turret_turn_rate_rad: turret.turn_rate_rad,
+            turret_substate: TurretSubState::Idle,
+            turret_natural_angle_deg: turret.natural_angle_deg,
+            turret_natural_pitch_deg: turret.natural_pitch_deg,
+            turret_recenter_frames: turret.recenter_frames,
+            ..Self::default()
+        }
+    }
+}
+
 impl Default for TurretAiState {
     fn default() -> Self {
         Self {
@@ -98,5 +115,33 @@ impl Default for TurretAiState {
             turret_natural_pitch_deg: Default::default(),
             turret_recenter_frames: super::default_turret_recenter_frames(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::object::TurretSpawnSpec;
+
+    /// hq-2qedt.2.3.2: AltTurret slot owns an independent TurretAiState
+    /// seeded from its own spawn spec (C++ m_turretAI[TURRET_ALT]).
+    #[test]
+    fn alt_slot_owns_independent_turret_ai_state() {
+        let mut primary = crate::game_logic::object::turret_spawn::turret_spawn_for_template("AmericaTankCrusader");
+        primary.turn_rate_rad = 0.1;
+        primary.natural_angle_deg = -90.0;
+        let mut alt = primary.clone();
+        alt.turn_rate_rad = 0.25;
+        alt.natural_angle_deg = 30.0;
+        alt.natural_pitch_deg = 10.0;
+
+        let p = TurretAiState::from_spawn(&primary);
+        let a = TurretAiState::from_spawn(&alt);
+        assert_eq!(p.turret_turn_rate_rad, 0.1);
+        assert_eq!(a.turret_turn_rate_rad, 0.25);
+        assert_eq!(a.turret_natural_angle_deg, 30.0);
+        assert_eq!(a.turret_natural_pitch_deg, 10.0);
+        assert_eq!(a.turret_substate, TurretSubState::Idle);
+        assert_ne!(p, a, "alt pose/SM memory is independent of primary");
     }
 }
