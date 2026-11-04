@@ -2004,3 +2004,37 @@ fn combat_cycle_gates_key_on_container_not_template_name() {
         "name-only bike (no transport/RiderChangeContain) must not swap rider weapon"
     );
 }
+
+#[test]
+fn dragon_black_napalm_keys_on_authored_flame_weapon_not_chassis_name() {
+    use crate::game_logic::host_dragon_tank::DRAGON_TANK_FLAME_WEAPON;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    // Dragon-named chassis without the authored flame; neutral name WITH it.
+    for (name, primary) in [
+        ("ChinaTankDragon", None),
+        ("ModdedFlameVehicle", Some(DRAGON_TANK_FLAME_WEAPON)),
+    ] {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        if let Some(p) = primary {
+            tpl.set_primary_weapon_name(p);
+        }
+        game_logic.templates.insert(name.to_string(), tpl);
+    }
+    let named = game_logic.create_object("ChinaTankDragon", Team::China, Vec3::ZERO).unwrap();
+    let authored = game_logic.create_object("ModdedFlameVehicle", Team::China, Vec3::ZERO).unwrap();
+    assert!(
+        !game_logic.apply_dragon_black_napalm_upgrade(named),
+        "Dragon chassis name without authored flame weapon must not take Black Napalm"
+    );
+    assert!(
+        game_logic.apply_dragon_black_napalm_upgrade(authored),
+        "authored DragonTankFlameWeapon primary must take Black Napalm"
+    );
+}

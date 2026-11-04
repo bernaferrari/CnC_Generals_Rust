@@ -2603,12 +2603,19 @@ impl GameLogic {
     /// Apply BlackNapalm residual to a Dragon Tank (PLAYER_UPGRADE flame residual).
     pub fn apply_dragon_black_napalm_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_dragon_tank::{
-            UPGRADE_CHINA_BLACK_NAPALM, dragon_flame_weapon, is_dragon_tank_template,
+            DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED,
+            UPGRADE_CHINA_BLACK_NAPALM, dragon_flame_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_dragon_tank_template(&obj.template_name) {
+        // Black Napalm is a WeaponBonusUpgrade on the authored Dragon flame weapon,
+        // not a chassis-name special case.
+        let has_flame = obj.authored_weapon_name_for_slot(0).is_some_and(|w| {
+            w.eq_ignore_ascii_case(DRAGON_TANK_FLAME_WEAPON)
+                || w.eq_ignore_ascii_case(DRAGON_TANK_FLAME_WEAPON_UPGRADED)
+        });
+        if !has_flame {
             return false;
         }
         obj.applied_upgrades
