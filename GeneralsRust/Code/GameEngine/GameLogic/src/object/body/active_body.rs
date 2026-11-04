@@ -54,7 +54,7 @@ fn dual_world_registry_unavailable() -> bool {
 /// Yellow damage threshold percentage (when fear sounds play)
 const YELLOW_DAMAGE_PERCENT: f32 = 0.25;
 
-fn record_neutral_vehicle_sniped() {
+pub(crate) fn record_neutral_vehicle_sniped() {
     let __player_list_arc = player_list();
     let Ok(list) = __player_list_arc.read() else {
         return;
