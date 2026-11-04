@@ -734,7 +734,9 @@ impl Object {
         if let Some(data) = self.jet_lockon_data() {
             return data.lockon_time;
         }
-        if crate::game_logic::host_stealth_fighter::is_stealth_fighter_template(&self.template_name)
+        // Keyed on the authored weapon, not the template name (hq-2qedt.225).
+        if self.primary_weapon_name()
+            == Some(crate::game_logic::host_stealth_fighter::STEALTH_JET_MISSILE_WEAPON)
         {
             STEALTH_FIGHTER_LOCKON_TIME_FRAMES
         } else {

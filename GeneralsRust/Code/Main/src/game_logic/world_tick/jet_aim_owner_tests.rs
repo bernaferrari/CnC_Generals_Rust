@@ -15,7 +15,10 @@ fn world(frame: u32) -> (GameLogic, ObjectId, ObjectId) {
         ..Default::default()
     });
     let mut victim = ThingTemplate::new("AmericaJetStealthFighter");
-    victim.add_kind_of(KindOf::Aircraft).set_health(100.0);
+    victim
+        .add_kind_of(KindOf::Aircraft)
+        .set_health(100.0)
+        .set_primary_weapon_name("StealthJetMissileWeapon");
     world.templates.insert(attacker.name.clone(), attacker);
     world.templates.insert(victim.name.clone(), victim);
     let source = world

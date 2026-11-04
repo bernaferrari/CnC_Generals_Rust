@@ -190,11 +190,6 @@ pub fn is_stealth_fighter_template(template_name: &str) -> bool {
     n.contains("stealthfighter") || n.contains("jetstealth")
 }
 
-/// Whether residual fire should apply Stealth Fighter residual path.
-pub fn should_apply_stealth_fighter_residual(is_stealth_fighter: bool) -> bool {
-    is_stealth_fighter
-}
-
 /// Whether a unit template requires SCIENCE_StealthFighter for production.
 ///
 /// Explicitly **not** gated: AirF_AmericaJetStealthFighter (Airforce General free).

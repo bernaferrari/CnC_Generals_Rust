@@ -5331,3 +5331,39 @@ fn stealth_fighter_object_hit_residual_keys_on_authored_weapon_not_template_name
         .unwrap_or(0.0);
     assert!(hp < 1000.0, "attacker never hit the victim");
 }
+
+/// hq-2qedt.225: Stealth Fighter jet lockon and innate-stealth residuals key on
+/// the authored StealthJetMissileWeapon, not the template name.
+#[test]
+fn stealth_fighter_lockon_and_innate_stealth_key_on_authored_weapon_not_template_name() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    for (name, weapon) in [
+        ("TestStealthFighter", "RangerFlashBangGrenadeWeapon"),
+        ("A225xAuthoredJet", "StealthJetMissileWeapon"),
+    ] {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(weapon);
+        game_logic.templates.insert(name.to_string(), tpl);
+    }
+    let foreign = game_logic
+        .create_object("TestStealthFighter", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("foreign");
+    let authored = game_logic
+        .create_object("A225xAuthoredJet", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("authored");
+    game_logic.set_current_frame(5);
+    game_logic.update_stealth_and_detection();
+    let f = game_logic.host_object(foreign).unwrap();
+    assert_eq!(f.jet_lockon_time_frames(), 0, "name-only lockon residual");
+    assert!(!f.innate_stealth, "name-only innate stealth residual");
+    let a = game_logic.host_object(authored).unwrap();
+    assert_ne!(a.jet_lockon_time_frames(), 0, "authored weapon lockon");
+    assert!(a.innate_stealth, "authored weapon innate stealth");
+}

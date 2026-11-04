@@ -709,11 +709,14 @@ impl GameLogic {
                 STEALTH_FIGHTER_STEALTH_DELAY_FRAMES_RESIDUAL,
                 stealth_fighter_allowed_to_stealth_residual,
             };
-            use crate::game_logic::host_stealth_fighter::is_stealth_fighter_template;
+            // Keyed on the authored weapon, not the template name (hq-2qedt.225).
+            use crate::game_logic::host_stealth_fighter::STEALTH_JET_MISSILE_WEAPON;
             let sf_ids: Vec<ObjectId> = self
                 .objects
                 .registered()
-                .filter(|(_, o)| o.is_alive() && is_stealth_fighter_template(&o.template_name))
+                .filter(|(_, o)| {
+                    o.is_alive() && o.weapon_name_for_slot(0) == Some(STEALTH_JET_MISSILE_WEAPON)
+                })
                 .map(|(id, _)| *id)
                 .collect();
             for sid in sf_ids {

@@ -2190,7 +2190,8 @@ fn jet_lockon_rearms_after_targeter_removed() {
     use crate::game_logic::object::STEALTH_FIGHTER_LOCKON_TIME_FRAMES;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut sf_t = ThingTemplate::new("AmericaJetStealthFighter");
-    sf_t.add_kind_of(KindOf::Aircraft);
+    sf_t.add_kind_of(KindOf::Aircraft)
+        .set_primary_weapon_name("StealthJetMissileWeapon");
     let mut sf = Object::new(sf_t, ObjectId(2), Team::USA);
     sf.add_jet_targeter(ObjectId(9), true, 100);
     assert!(sf.is_temporarily_preventing_aim_success(100));
