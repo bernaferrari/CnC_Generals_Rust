@@ -1951,3 +1951,63 @@ End
         "nested Weapon rows must not overwrite the legacy top-level view"
     );
 }
+
+#[test]
+fn w3d_alt_turret_draw_retains_bone_names_and_art_angles_like_cpp_m_turrets_1() {
+    // C++ ModelConditionInfo::m_turrets[1] keeps AltTurret/AltTurretPitch
+    // bone NameKeys plus parseAngleReal AltTurretArtAngle/ArtPitch offsets.
+    let ini_content = r#"
+Object DrawAltTurretProbe
+  Draw = W3DTankDraw ModuleTag_01
+    DefaultConditionState
+      Model = AltTurretProbe
+      Turret = HullYaw
+      AltTurret = AltYaw
+      AltTurretPitch = AltPitch
+      AltTurretArtAngle = 90
+      AltTurretArtPitch = -30
+    End
+    ConditionState = DAMAGED
+      AltTurret = None
+    End
+  End
+End
+"#;
+    let mut parser = IniParser::new();
+    parser
+        .parse_ini_content(ini_content, "draw_alt_turret_probe.ini")
+        .expect("parse alt turret draw");
+    let definition = parser
+        .get_definition("DrawAltTurretProbe")
+        .expect("parsed alt turret probe");
+    let default = definition
+        .select_draw_models_for_conditions(0)
+        .expect("default state");
+    let turret = &default[0].primary_turret;
+    assert_eq!(turret.alternate_yaw_bone.as_deref(), Some("altyaw"));
+    assert_eq!(turret.alternate_pitch_bone.as_deref(), Some("altpitch"));
+    assert!(
+        (turret.alternate_yaw_art_angle_radians() - std::f32::consts::FRAC_PI_2).abs() < 1.0e-6
+    );
+    assert!(
+        (turret.alternate_pitch_art_angle_radians() + std::f32::consts::FRAC_PI_6).abs() < 1.0e-6
+    );
+    assert!(turret.alternate_fields_valid);
+    // Primary art offsets are untouched by Alt* fields.
+    assert_eq!(turret.yaw_art_angle_radians(), 0.0);
+    assert_eq!(turret.pitch_art_angle_radians(), 0.0);
+    // Still unsupported until .2.6 wires the pose.
+    assert!(turret.has_unsupported_alternate_turret());
+
+    let damaged = definition
+        .select_draw_models_for_conditions(model_condition_bit("DAMAGED"))
+        .expect("damaged state");
+    let damaged_turret = &damaged[0].primary_turret;
+    assert_eq!(damaged_turret.alternate_yaw_bone, None, "None clears AltTurret");
+    assert_eq!(damaged_turret.alternate_pitch_bone.as_deref(), Some("altpitch"));
+    assert!(
+        (damaged_turret.alternate_yaw_art_angle_radians() - std::f32::consts::FRAC_PI_2).abs()
+            < 1.0e-6,
+        "ConditionState inherits Default alt art offsets"
+    );
+}
