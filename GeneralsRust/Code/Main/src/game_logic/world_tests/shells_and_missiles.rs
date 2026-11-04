@@ -4680,3 +4680,11 @@ fn minigunner_named_non_minigun_weapon_skips_minigunner_object_hit_residual() {
         "MiniGunner residual chosen by template-name peel"
     );
 }
+
+/// hq-2qedt.184: Tank Hunter-named template authoring a non-missile PRIMARY
+/// must not route through the Tank Hunter missile residual on object hit.
+#[test]
+fn tank_hunter_named_non_missile_weapon_skips_tank_hunter_object_hit_residual() {
+    let gl = fire_named_template_with_humvee_gun("ChinaInfantryTankHunter", Team::USA);
+    assert_eq!(gl.tank_hunter_residual_fires(), 0, "Tank Hunter residual chosen by template-name peel");
+}
