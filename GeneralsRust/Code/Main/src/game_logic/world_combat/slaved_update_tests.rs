@@ -464,6 +464,16 @@ pub(in crate::game_logic) fn install_slave_fixture(
         };
         let name = kind.template_name();
         let upgrade = kind.upgrade_name();
+        // Retail FactionUnit.ini authors the drone guns as a WeaponSet row.
+        let weapon_set = match kind {
+            SlaveDroneKind::Battle => {
+                " WeaponSet\n  Conditions = None\n  Weapon = PRIMARY BattleDroneMachineGun\n End\n"
+            }
+            SlaveDroneKind::Hellfire => {
+                " WeaponSet\n  Conditions = None\n  Weapon = PRIMARY HellfireMissileWeapon\n End\n"
+            }
+            SlaveDroneKind::Scout => "",
+        };
         format!(
             r#"
 Object {name}
@@ -472,7 +482,7 @@ Object {name}
   MaxHealth = 100
   InitialHealth = 100
  End
- VisionRange = {vision}
+{weapon_set} VisionRange = {vision}
  Locomotor = SET_NORMAL ComancheLocomotor
  Behavior = AIUpdateInterface FixtureSlaveAI
   AutoAcquireEnemiesWhenIdle = Yes
