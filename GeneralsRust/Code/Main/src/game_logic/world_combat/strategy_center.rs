@@ -1177,140 +1177,31 @@ impl GameLogic {
                 continue;
             }
 
-            // Fire one assist residual shot.
-            let damage = clip.damage();
-            let asst_pos = self
-                .objects
-                .get(&clip.assistant_id)
-                .map(|a| a.get_position())
-                .unwrap_or(glam::Vec3::ZERO);
-            let weapon_snap = self
-                .objects
-                .get(&clip.assistant_id)
-                .and_then(|a| a.weapon.clone());
-            let (destroyed, _) = self.residual_auto_fire_apply_damage_with_effects(
-                clip.assistant_id,
-                clip.victim_id,
-                damage,
-                asst_pos,
-                weapon_snap.as_ref(),
-                0,
-                presentation_effects,
-            );
-            if destroyed {
-                self.mark_object_for_destruction_with_effects(
-                    clip.victim_id,
-                    Some(assistant_team),
-                    presentation_effects,
-                );
-            }
+            // C++ AssistedTargetingUpdate::assistAttack (AssistedTargetingUpdate.cpp:74-75):
+            //   me->setWeaponLock(m_weaponSlot, LOCKED_TEMPORARILY);
+            //   me->getAI()->aiAttackObject(victim, m_clipSize, CMD_FROM_AI);
+            // The clip is fired by the real weapon lifecycle, not an HP loop.
+            let _ = (is_laser, is_supw, victim_birth, assistant_birth, PATRIOT_ASSIST_DELAY_FRAMES,
+                LAZR_PATRIOT_FIRE_AUDIO, PATRIOT_FIRE_AUDIO);
             if let Some(asst) = self.objects.get_mut(&clip.assistant_id) {
-                let _ = asst.capture_pending_weapon_visual_dispatch(
-                    0,
-                    frame,
-                    Some(clip.victim_id),
-                    Some(victim_pos),
+                asst.set_weapon_lock(
+                    clip.weapon_slot,
+                    crate::game_logic::WeaponLockType::LockedTemporarily,
                 );
-                // Assist residual marks engagement; keeps primary on clip-reload honesty.
-                if let Some(w) = asst.weapon.as_mut() {
-                    let t = frame as f32 * LOGIC_FRAME_TIMESTEP;
-                    crate::game_logic::Object::consume_ammo_on_fire(w, t);
-                }
-                // AI attack authority: residual fire-intent for GameWorld last-writer.
-                {}
-                asst.note_attack_target_with_operation(
-                    clip.victim_id,
-                    &mut self.attack_events,
-                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                    self.frame,
-                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
-                );
-                let entered_attack = !matches!(
-                    asst.ai_state(),
-                    AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
-                );
-                if entered_attack {
-                    asst.set_ai_state(
-                        AIState::Attacking,
-                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-                    );
-                }
-                {}
-                // Kill XP awarded after this borrow via award_experience.
             }
-            // An assisted-targeting clip is a real primary WeaponSet shot,
-            // not one visual event per auto-fire victim.
-            let _ = self.record_accepted_weapon_discharge_with_effects(
-                clip.assistant_id,
-                0,
-                presentation_effects,
-            );
-            if destroyed
-                && self.objects.get(&clip.victim_id).is_some_and(|victim| {
-                    victim_birth.ptr_eq(&std::sync::Arc::downgrade(
-                        &victim.visual_draw_identity_token,
-                    ))
-                })
-            {
-                self.award_score_the_kill_experience_with_effects_and_interpreter(
+            let attacked = self
+                .private_attack_object_with_effects(
                     clip.assistant_id,
                     clip.victim_id,
-                    None,
+                    clip.shots_remaining as i32,
                     presentation_effects,
                 )
-                .expect("assisted shot kill XP callback must complete");
-                // Clear engagement via decision authority (log-only when GW applies).
-                if assistant_birth.as_ref().is_some_and(|birth| {
-                    self.objects
-                        .get(&clip.assistant_id)
-                        .is_some_and(|assistant| {
-                            birth.ptr_eq(&std::sync::Arc::downgrade(
-                                &assistant.visual_draw_identity_token,
-                            ))
-                        })
-                }) {
-                    self.stop_attack_decision_aware(clip.assistant_id);
-                }
-            }
-
-            let _ = self.combat_particles.spawn_weapon_fire_fx(
-                assistant_pos,
-                Some(victim_pos),
-                frame,
-                clip.assistant_id,
-                Some(clip.victim_id),
-            );
-            let audio = if is_laser {
-                LAZR_PATRIOT_FIRE_AUDIO
-            } else {
-                PATRIOT_FIRE_AUDIO
-            };
-            self.queue_audio_event(
-                AudioEventRequest::new(audio)
-                    .with_object(clip.assistant_id)
-                    .with_position(assistant_pos)
-                    .with_priority(160),
-            );
-
-            // SupW assist shells also seed EMPPatriotEffectSpheroid residual.
-            if is_supw {
-                self.apply_supw_patriot_emp_residual_at_with_effects(
-                    victim_pos,
-                    clip.assistant_id,
-                    assistant_team,
-                    Some(clip.victim_id),
-                    presentation_effects,
-                );
-            }
-
-            self.patriot_assist_residual_fires =
-                self.patriot_assist_residual_fires.saturating_add(1);
-            self.base_defense_residual_fires = self.base_defense_residual_fires.saturating_add(1);
-
-            clip.shots_remaining = clip.shots_remaining.saturating_sub(1);
-            if clip.shots_remaining > 0 && !destroyed {
-                clip.next_shot_frame = frame.saturating_add(PATRIOT_ASSIST_DELAY_FRAMES);
-                keep.push(clip);
+                .unwrap_or(false);
+            if attacked {
+                self.patriot_assist_residual_fires =
+                    self.patriot_assist_residual_fires.saturating_add(1);
+                self.base_defense_residual_fires =
+                    self.base_defense_residual_fires.saturating_add(1);
             }
         }
 

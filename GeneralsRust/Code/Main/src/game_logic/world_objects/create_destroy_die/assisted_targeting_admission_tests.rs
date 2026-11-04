@@ -70,3 +70,39 @@ fn pending_assist_clip_comes_from_bound_module_not_retail_four() {
     assert_eq!(pending.shots_remaining, 2);
     assert_eq!(pending.weapon_slot, 1);
 }
+
+/// hq-2qedt.31: AssistedTargetingUpdate.cpp:74-75 — assistAttack locks the
+/// authored slot LOCKED_TEMPORARILY then aiAttackObject(victim, clipSize).
+/// No instant clip damage is dealt by the assist path itself.
+#[test]
+fn pending_assist_locks_authored_slot_and_attacks_with_clip() {
+    use crate::game_logic::{Weapon, WeaponLockType};
+    let mut w = world(&patriot(
+        "Behavior = AssistedTargetingUpdate AssistTag\n AssistingClipSize = 3\n AssistingWeaponSlot = SECONDARY\nEnd\n",
+    ));
+    let id = w.create_object_for_player("AmericaPatriotBattery", 0, Vec3::ZERO).unwrap();
+    let victim = w
+        .create_object_for_player("AuthoredVictim", 1, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    {
+        let o = w.objects.get_mut(&id).unwrap();
+        o.weapon = Some(Weapon { damage: 10.0, range: 200.0, ..Weapon::default() });
+        o.secondary_weapon = Some(Weapon { damage: 30.0, range: 200.0, ..Weapon::default() });
+    }
+    let assist = w.host_object(id).unwrap().assisted_targeting.expect("bound");
+    let hp_before = w.host_object(victim).unwrap().health.current;
+    w.frame = 1;
+    w.pending_patriot_assists.push(
+        crate::game_logic::host_base_defense::PendingPatriotAssist::new(
+            id, victim, id, 1, "AmericaPatriotBattery", assist,
+        ),
+    );
+    w.update_pending_patriot_assists();
+    let o = w.host_object(id).unwrap();
+    assert_eq!(o.weapon_lock_type, WeaponLockType::LockedTemporarily);
+    assert_eq!(o.weapon_lock_slot, 1);
+    assert_eq!(o.max_shots_to_fire, 3);
+    assert_eq!(o.target, Some(victim));
+    assert_eq!(w.host_object(victim).unwrap().health.current, hp_before);
+    assert!(w.pending_patriot_assists.is_empty(), "clip handed to AI attack");
+}
