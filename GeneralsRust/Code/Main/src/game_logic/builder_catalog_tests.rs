@@ -188,3 +188,35 @@ fn ensured_faction_catalog_does_not_reclassify_existing_authored_definition() {
     assert!(!owner.host_object(object).unwrap().is_kind_of(KindOf::Dozer));
     assert!(!owner.host_object(object).unwrap().can_construct());
 }
+
+#[test]
+fn synthesized_builders_author_dozer_kindof_not_name() {
+    // hq-v16h8: C++ ActionManager requires KindOf::Dozer, never a name peel.
+    for (team, name) in [
+        (Team::USA, "USA_Dozer"),
+        (Team::USA, "AmericaVehicleDozer"),
+        (Team::China, "China_Dozer"),
+        (Team::GLA, "GLAInfantryWorker"),
+        (Team::GLA, "GLA_Worker"),
+    ] {
+        let mut owner = world(team);
+        owner.ensure_ai_faction_templates(team);
+        owner
+            .templates
+            .extend(crate::game_logic::units::create_unit_templates());
+        let id = owner
+            .create_object_for_player(name, 0, Vec3::new(10.0, 0.0, 10.0))
+            .unwrap_or_else(|| panic!("spawn {name}"));
+        let object = owner.host_object(id).unwrap();
+        assert!(
+            object.is_kind_of(KindOf::Dozer),
+            "{name} must author KindOf::Dozer"
+        );
+        assert!(object.can_construct(), "{name} can_construct via Dozer kind");
+        assert!(
+            !name.to_ascii_lowercase().contains("dozer") || object.is_kind_of(KindOf::Dozer),
+            "name alone is not the gate"
+        );
+    }
+}
+
