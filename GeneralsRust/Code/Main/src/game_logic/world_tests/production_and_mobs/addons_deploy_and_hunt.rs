@@ -887,6 +887,17 @@ fn overlord_gattling_addon_residual_install_and_fire() {
         });
     }
 
+    // Object::giveUpgrade (Object.cpp:3559-3567) ignores a grant with no
+    // UpgradeTemplate, so admit the retail upgrade before granting it.
+    let mut ini = game_engine::common::ini::INI::new();
+    ini.with_inline_source(
+        &format!("Upgrade {UPGRADE_OVERLORD_GATTLING}\nType = OBJECT\nEnd\n"),
+        |ini| {
+            ini.read_line()?;
+            game_logic.upgrade_definitions.parse_upgrade_definition(ini)
+        },
+    )
+    .expect("object upgrade definition should admit");
     // Install gattling addon residual (upgrade path).
     game_logic.apply_upgrade_to_object(overlord_id, UPGRADE_OVERLORD_GATTLING);
     {
