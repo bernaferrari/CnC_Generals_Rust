@@ -3058,14 +3058,8 @@ impl GameLogic {
                 };
                 // Lazr family keys on authored PRIMARY, not the Lazr_ name (hq-2qedt.270).
                 let primary = object.authored_weapon_name_for_slot(0).map(str::to_owned);
-                object.weapon = Some(patriot_ground_weapon_for_template(
-                    template_name,
-                    primary.as_deref(),
-                ));
-                object.secondary_weapon = Some(patriot_air_weapon_for_template(
-                    template_name,
-                    primary.as_deref(),
-                ));
+                object.weapon = Some(patriot_ground_weapon_for_template(template_name));
+                object.secondary_weapon = Some(patriot_air_weapon_for_template(template_name));
             }
 
             // USA Crusader / Paladin (incl. Lazr_) PRIMARY binds from the

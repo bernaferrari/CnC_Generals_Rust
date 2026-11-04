@@ -2572,6 +2572,19 @@ pub fn is_authored_gattling_building(primary_weapon: Option<&str>) -> bool {
 
 
 /// Whether the object authors a Patriot WeaponSet PRIMARY (hq-2qedt.258).
+/// Authored data: the WeaponSet PRIMARY is a
+/// `PatriotMissileWeapon` family weapon (stock / Lazr_ / SupW_), not the
+/// template name (hq-2qedt.258).
+pub fn is_patriot_primary_weapon_name(name: &str) -> bool {
+    [
+        PATRIOT_PRIMARY_WEAPON,
+        LAZR_PATRIOT_PRIMARY_WEAPON,
+        SUPW_PATRIOT_PRIMARY_WEAPON,
+    ]
+    .iter()
+    .any(|w| w.eq_ignore_ascii_case(name))
+}
+
 pub fn authors_patriot_weapon_set(object: &crate::game_logic::Object) -> bool {
     object
         .authored_weapon_name_for_slot(0)
