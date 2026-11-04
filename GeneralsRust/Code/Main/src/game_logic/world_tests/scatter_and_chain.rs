@@ -3682,3 +3682,61 @@ fn vehicle_shells_residual_impact_spawns_no_muzzle_hq_2qedt_87_1() {
         );
     }
 }
+
+/// hq-2qedt.87.2: C++ Weapon.cpp FireFX plays at fire time only (shared
+/// dispatch owns the one muzzle). streams_and_rpg + missile_defenders residual
+/// impact handlers must not spawn a second muzzle at the shooter.
+#[test]
+fn streams_rpg_missile_defenders_residual_impact_spawns_no_muzzle_hq_2qedt_87_2() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let cases = [
+        "ranger", "rebel", "minigunner", "burton", "rpg_trooper", "missile_defender",
+        "combat_cycle", "toxin_tractor", "comanche_pod",
+    ];
+    let mut failures = Vec::new();
+    for case in cases {
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let src = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(45.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic.objects.get(&tank).unwrap().get_position();
+        let shooter_pos = logic.objects.get(&src).unwrap().get_position();
+        let count = |l: &GameLogic| {
+            l.combat_particles()
+                .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+                .iter()
+                .filter(|e| e.position.distance(shooter_pos) < 1.0)
+                .count()
+        };
+        let before = count(&logic);
+        let _ = match case {
+            "ranger" => logic.apply_ranger_residual_at(impact, Some(src), Some(tank), false),
+            "rebel" => logic.apply_rebel_residual_at(impact, Some(src), Some(tank)),
+            "minigunner" => logic.apply_minigunner_residual_at(impact, Some(src), Some(tank), 0),
+            "burton" => logic.apply_burton_residual_at(impact, Some(src), Some(tank)),
+            "rpg_trooper" => logic.apply_rpg_trooper_residual_at(impact, Some(src), Some(tank)),
+            "missile_defender" => {
+                logic.apply_missile_defender_residual_at(impact, Some(src), Some(tank), false)
+            }
+            "combat_cycle" => logic.apply_combat_cycle_residual_at(impact, Some(src), Some(tank)),
+            "toxin_tractor" => {
+                logic.apply_toxin_tractor_stream_at(impact, Some(src), Some(tank), Team::USA)
+            }
+            _ => logic.apply_comanche_rocket_pod_area_at(impact, Some(src)),
+        };
+        if count(&logic) != before {
+            failures.push(case);
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "impact residuals spawned a second muzzle at the shooter (C++ FireFX is fire-time only): {failures:?}"
+    );
+}
