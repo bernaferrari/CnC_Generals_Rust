@@ -365,9 +365,8 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_rocket_buggy::is_rocket_buggy_template(template_name) {
                 return Some(BUGGY_ROCKET_WEAPON);
             }
-            if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
-                return Some(QUAD_CANNON_GUN);
-            }
+            // Quad Cannon: explicit retail rows above only; no fuzzy name peel
+            // (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.218).
             if crate::game_logic::host_scud_launcher::is_scud_launcher_template(template_name) {
                 return Some(SCUD_GUN_EXPLOSIVE);
             }
@@ -537,9 +536,8 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "ChinaInfantryMiniGunner" => Some(MINIGUNNER_GUN_AIR),
         _ => {
             // Nuke Cannon neutron secondary is upgrade-gated — see comment above.
-            if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
-                Some(QUAD_CANNON_GUN_AIR)
-            } else if crate::game_logic::host_scud_launcher::is_scud_launcher_template(
+            // Quad Cannon: explicit retail rows above only (hq-2qedt.218).
+            if crate::game_logic::host_scud_launcher::is_scud_launcher_template(
                 template_name,
             ) {
                 Some(SCUD_GUN_TOXIN)
@@ -635,6 +633,29 @@ mod terrorist_unit_map_peel_tests {
         assert_eq!(
             primary_weapon_name_for_unit("GLAInfantryTerrorist"),
             Some(TERRORIST_SUICIDE_WEAPON)
+        );
+    }
+}
+
+#[cfg(test)]
+mod quad_cannon_unit_map_peel_tests {
+    use super::*;
+
+    /// hq-2qedt.218: C++ resolves PRIMARY/SECONDARY from the authored
+    /// WeaponSet; an unlisted template whose name merely contains "QuadCannon"
+    /// must not pick up QuadCannonGun/QuadCannonGunAir from a fuzzy name peel.
+    #[test]
+    fn unlisted_quad_cannon_named_template_gets_no_name_peel_defaults() {
+        assert_eq!(primary_weapon_name_for_unit("Boss_GLAVehicleQuadCannonDecoy"), None);
+        assert_eq!(secondary_weapon_name_for_unit("Boss_GLAVehicleQuadCannonDecoy"), None);
+        // Explicit retail table rows stay.
+        assert_eq!(
+            primary_weapon_name_for_unit("GLAVehicleQuadCannon"),
+            Some(QUAD_CANNON_GUN)
+        );
+        assert_eq!(
+            secondary_weapon_name_for_unit("GLAVehicleQuadCannon"),
+            Some(QUAD_CANNON_GUN_AIR)
         );
     }
 }
