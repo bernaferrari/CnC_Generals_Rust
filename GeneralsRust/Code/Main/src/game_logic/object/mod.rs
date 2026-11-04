@@ -3360,6 +3360,10 @@ mod fx;
 pub(in crate::game_logic) use fx::{BodyStateFx, BodyStateFxReceiver};
 mod install;
 mod jets;
+#[cfg(test)]
+#[path = "jet_attack_loco_owner_tests.rs"]
+mod jet_attack_loco_owner_tests;
+
 pub(crate) use jets::NativeJetLockon;
 mod orders;
 mod panic_runtime;

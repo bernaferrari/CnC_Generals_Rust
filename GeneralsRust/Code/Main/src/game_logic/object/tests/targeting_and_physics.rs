@@ -1936,10 +1936,47 @@ fn jet_stop_idle_timer_sneaky_and_lockon() {
     use crate::game_logic::object::{
         HostJetPendingResume, JetAiTickAction, STEALTH_FIGHTER_LOCKON_TIME_FRAMES,
     };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use crate::game_logic::{GameLogic, KindOf, Player, Team, ThingTemplate};
     use glam::Vec3;
 
-    let mut aurora_t = ThingTemplate::new("AmericaJetAurora");
+    // Authored Aurora JetAI fields (AmericaAir.ini) — not template-name invent.
+    let mut world = GameLogic::new();
+    world.add_player(Player::new(0, Team::USA, "USA", true));
+    let aurora_ini = "Object AmericaJetAurora
+KindOf = AIRCRAFT CAN_ATTACK SELECTABLE
+Body = ActiveBody Body
+MaxHealth = 80
+InitialHealth = 80
+End
+Behavior = JetAIUpdate JetAI
+    SneakyOffsetWhenAttacking = -20.0
+    AttackLocomotorType = SET_SUPERSONIC
+    AttackLocomotorPersistTime = 100
+    AttackersMissPersistTime = 2000
+    ReturnForAmmoLocomotorType = SET_SLUGGISH
+    ReturnToBaseIdleTime = 10000
+End
+Locomotor = SET_NORMAL AuroraJetLocomotor
+Locomotor = SET_SUPERSONIC AuroraJetSupersonicLocomotor
+Locomotor = SET_SLUGGISH AuroraJetSluggishLocomotor
+Locomotor = SET_TAXIING BasicJetTaxiLocomotor
+End
+";
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "aurora-jet-ai.ini".into(),
+                aurora_ini.into(),
+            )])
+            .unwrap(),
+        )
+        .unwrap();
+    assert!(world.ensure_host_spawn_template("AmericaJetAurora"));
+    let mut aurora_t = world
+        .templates
+        .get("AmericaJetAurora")
+        .cloned()
+        .expect("aurora template");
     aurora_t.add_kind_of(KindOf::Aircraft);
     let mut aurora = Object::new(aurora_t, ObjectId(1), Team::USA);
     aurora.set_position(Vec3::new(0.0, 50.0, 0.0));

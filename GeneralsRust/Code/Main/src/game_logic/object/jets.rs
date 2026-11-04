@@ -538,51 +538,40 @@ impl Object {
             )
     }
 
+    /// C++ `JetAIUpdateModuleData::m_returnToBaseIdleTime` (duration frames).
+    /// Defaults to 0 when no JetAI module is bound — never invent by template name.
     pub fn jet_return_to_base_idle_frames(&self) -> u32 {
-        if crate::game_logic::host_aurora_bomb::is_aurora_aircraft_template(&self.template_name) {
-            crate::game_logic::host_aurora_bomb::AURORA_JET_RETURN_TO_BASE_IDLE_FRAMES
-        } else if self.is_runway_jet() {
-            // Retail Raptor / MIG / Stealth share Aurora's 10000ms idle RTB.
-            crate::game_logic::host_aurora_bomb::AURORA_JET_RETURN_TO_BASE_IDLE_FRAMES
-        } else {
-            0
-        }
+        self.jet_lockon_data()
+            .map(|data| data.return_to_base_idle_time)
+            .unwrap_or(0)
     }
 
+    /// C++ `JetAIUpdateModuleData::m_sneakyOffsetWhenAttacking` (default 0).
     pub fn jet_sneaky_offset_when_attacking(&self) -> f32 {
-        if crate::game_logic::host_aurora_bomb::is_aurora_aircraft_template(&self.template_name) {
-            crate::game_logic::host_aurora_bomb::AURORA_JET_SNEAKY_OFFSET
-        } else {
-            0.0
-        }
+        self.jet_lockon_data()
+            .map(|data| data.sneaky_offset_when_attacking)
+            .unwrap_or(0.0)
     }
 
+    /// C++ `JetAIUpdateModuleData::m_attackersMissPersistTime` (duration frames).
     pub fn jet_attackers_miss_persist_frames(&self) -> u32 {
-        if crate::game_logic::host_aurora_bomb::is_aurora_aircraft_template(&self.template_name) {
-            // 2000ms → 60 frames @ 30 FPS.
-            60
-        } else {
-            0
-        }
+        self.jet_lockon_data()
+            .map(|data| data.attackers_miss_persist_time)
+            .unwrap_or(0)
     }
 
-    /// Retail `AttackLocomotorType = SET_SUPERSONIC` jets (runway attack craft).
+    /// C++ JetAIUpdate always remaps attack loco while `m_attackLocoExpireFrame`
+    /// is live. Host keeps the runway-jet gate so non-jet aircraft skip the
+    /// residual; authored values still come from the JetAI module, not names.
     pub fn jet_uses_attack_locomotor(&self) -> bool {
         self.is_runway_jet()
     }
 
-    /// C++ `m_attackLocoPersistTime` in logic frames. Retail 100ms on Aurora /
-    /// Raptor / MIG / Stealth (`AttackLocomotorPersistTime`).
+    /// C++ `m_attackLocoPersistTime` in logic frames (default 0).
     pub fn jet_attack_loco_persist_frames(&self) -> u32 {
-        if let Some(data) = self.jet_lockon_data() {
-            return data.attack_loco_persist_time;
-        }
-        if !self.jet_uses_attack_locomotor() {
-            return 0;
-        }
-        crate::game_logic::host_aurora_bomb::aurora_ms_to_frames(
-            crate::game_logic::host_aurora_bomb::AURORA_JET_ATTACK_LOCO_PERSIST_MS,
-        )
+        self.jet_lockon_data()
+            .map(|data| data.attack_loco_persist_time)
+            .unwrap_or(0)
     }
 
     /// C++ `JetAIUpdate` `ALLOW_AIR_LOCO` residual.
@@ -699,7 +688,12 @@ impl Object {
         }
     }
 
-    /// C++ defaults the authored JetAI attack locomotor to SET_NORMAL.
+    /// C++ defaults `m_attackingLoco` to `LOCOMOTORSET_NORMAL` (JetAIUpdate.cpp:1636).
+    /// Do not invent SET_SUPERSONIC from template/runway heuristics.
+    pub(crate) fn jet_attack_locomotor_token_for_test(&self) -> &'static str {
+        self.jet_attack_locomotor_token()
+    }
+
     fn jet_attack_locomotor_token(&self) -> &'static str {
         self.jet_lockon_data()
             .map(|data| {
@@ -707,8 +701,9 @@ impl Object {
                     data.attacking_loco,
                 )
             })
-            .unwrap_or("SET_SUPERSONIC") // Assetless prototype fallback.
+            .unwrap_or("SET_NORMAL")
     }
+
 
     fn jet_lockon_data(
         &self,

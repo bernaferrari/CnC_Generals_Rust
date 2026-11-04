@@ -2347,6 +2347,51 @@ mod mixed_source_rate_admission_tests {
 }
 
 #[cfg(test)]
+
+#[cfg(test)]
+mod aircraft_taxi_seed_retail_tests {
+    use super::*;
+
+    /// hq-z0oio: seed uses retail BasicJetTaxiLocomotor (TREADS/50/100/180),
+    /// never invented AirplaneTaxiingLocomotor / WHEELS.
+    #[test]
+    fn basic_jet_taxi_seed_matches_retail_locomotor_ini() {
+        assert_eq!(AIRPLANE_TAXIING_LOCOMOTOR, "BasicJetTaxiLocomotor");
+        assert_eq!(RAPTOR_TAXIING_LOCOMOTOR, "BasicJetTaxiLocomotor");
+        let mut store = LocomotorStore::new();
+        let added = seed_exact_aircraft_set_switch_locomotors(&mut store);
+        assert!(added >= 1, "seed must install BasicJetTaxiLocomotor");
+        let taxi = store
+            .find_template(AIRPLANE_TAXIING_LOCOMOTOR)
+            .expect("BasicJetTaxiLocomotor present");
+        assert_eq!(taxi.appearance, SourceLocomotorAppearance::Treads);
+        // Common template is per-frame; host binding keeps retail dist/sec values.
+        let binding = host_locomotor_binding_from_template(taxi).expect("bind taxi");
+        assert!((binding.movement.max_speed - 50.0).abs() < 0.01);
+        assert!((binding.movement.acceleration - 100.0).abs() < 0.01);
+        // INI TurnRate is degrees/sec; host binding stores radians/sec.
+        let expected_turn = 180.0_f32.to_radians();
+        assert!(
+            (binding.movement.turn_rate - expected_turn).abs() < 0.01,
+            "turn_rate={}, expected rad/sec {}",
+            binding.movement.turn_rate,
+            expected_turn
+        );
+        assert_eq!(
+            binding.appearance,
+            crate::game_logic::LocomotorAppearance::Treads
+        );
+        assert!(
+            store.find_template("AirplaneTaxiingLocomotor").is_none(),
+            "must not invent AirplaneTaxiingLocomotor"
+        );
+        assert!(
+            store.find_template("RaptorTaxiingLocomotor").is_none(),
+            "must not invent RaptorTaxiingLocomotor"
+        );
+    }
+}
+
 mod source_zero_speed_admission_tests {
     use super::*;
     #[test]
