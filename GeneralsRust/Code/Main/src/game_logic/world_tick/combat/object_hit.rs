@@ -488,12 +488,12 @@ impl GameLogic {
                 } else if {
                     // GLA SCUD launcher residual: area blast (+ toxin field on secondary).
                     use crate::game_logic::host_scud_launcher::{
-                        is_scud_launcher_template, should_apply_scud_area,
+                        authors_scud_gun, should_apply_scud_area,
                     };
                     self.objects
                         .get(&attacker_id)
                         .map(|a| {
-                            should_apply_scud_area(is_scud_launcher_template(&a.template_name))
+                            should_apply_scud_area(authors_scud_gun(a.authored_primary_weapon_names()))
                         })
                         .unwrap_or(false)
                 } {

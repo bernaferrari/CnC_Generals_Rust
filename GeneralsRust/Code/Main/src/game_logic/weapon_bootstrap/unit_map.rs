@@ -373,9 +373,7 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
                 return Some(QUAD_CANNON_GUN);
             }
-            if crate::game_logic::host_scud_launcher::is_scud_launcher_template(template_name) {
-                return Some(SCUD_GUN_EXPLOSIVE);
-            }
+            // SCUD: explicit retail rows above only (hq-2qedt.250).
             if crate::game_logic::host_technical::is_technical_template(template_name) {
                 return Some(TECHNICAL_MACHINE_GUN);
             }
@@ -541,10 +539,6 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
             // Nuke Cannon neutron secondary is upgrade-gated — see comment above.
             if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
                 Some(QUAD_CANNON_GUN_AIR)
-            } else if crate::game_logic::host_scud_launcher::is_scud_launcher_template(
-                template_name,
-            ) {
-                Some(SCUD_GUN_TOXIN)
             } else if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(
                 template_name,
             ) {

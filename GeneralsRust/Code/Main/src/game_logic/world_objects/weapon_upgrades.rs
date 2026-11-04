@@ -655,7 +655,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_scud_launcher::{
-            UPGRADE_GLA_ANTHRAX_BETA, is_scud_launcher_template,
+            UPGRADE_GLA_ANTHRAX_BETA, authors_scud_gun,
         };
         use crate::game_logic::host_toxin_tractor::is_toxin_tractor_template;
 
@@ -665,7 +665,7 @@ impl GameLogic {
                 continue;
             }
             let is_tt = is_toxin_tractor_template(&obj.template_name);
-            let is_scud = is_scud_launcher_template(&obj.template_name);
+            let is_scud = authors_scud_gun(obj.authored_primary_weapon_names());
             if !is_tt && !is_scud {
                 continue;
             }
@@ -694,7 +694,7 @@ impl GameLogic {
         recipients: UpgradeRecipients,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_scud_launcher::is_scud_launcher_template;
+        use crate::game_logic::host_scud_launcher::authors_scud_gun;
         use crate::game_logic::host_upgrades::UPGRADE_GLA_TOXIN_SHELLS;
 
         let mut n = 0u32;
@@ -702,7 +702,7 @@ impl GameLogic {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
-            if !is_scud_launcher_template(&obj.template_name) {
+            if !authors_scud_gun(obj.authored_primary_weapon_names()) {
                 continue;
             }
             if obj.has_upgrade_tag(UPGRADE_GLA_TOXIN_SHELLS) || obj.has_upgrade_tag(upgrade_name) {
@@ -2284,5 +2284,44 @@ mod authored_mig_gate_tests {
         assert!(!has(&gl, named));
         assert!(has(&gl, auth));
         assert!(has(&gl, king));
+    }
+
+    /// hq-2qedt.250: Anthrax Beta / Toxin Shells key on authored SCUD gun PRIMARY,
+    /// not template-name sniffing.
+    #[test]
+    fn scud_upgrades_key_on_authored_scud_gun_not_template_name() {
+        use crate::game_logic::host_scud_launcher::UPGRADE_GLA_ANTHRAX_BETA;
+        use crate::game_logic::host_upgrades::UPGRADE_GLA_TOXIN_SHELLS;
+        use crate::game_logic::weapon_bootstrap::SCUD_GUN_EXPLOSIVE;
+        let mut gl = GameLogic::new();
+        for (tpl_name, primary) in [
+            ("GLAVehicleScudLauncher", "HumveeGun"),
+            ("AuthoredRackS", SCUD_GUN_EXPLOSIVE),
+        ] {
+            let mut tpl = crate::game_logic::ThingTemplate::new(tpl_name);
+            tpl.add_kind_of(KindOf::Vehicle)
+                .set_health(200.0)
+                .set_primary_weapon_name(primary);
+            gl.templates.insert(tpl_name.to_string(), tpl);
+        }
+        let named = gl
+            .create_object("GLAVehicleScudLauncher", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let auth = gl
+            .create_object("AuthoredRackS", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        assert_eq!(
+            gl.apply_anthrax_beta_to_team(UpgradeRecipients::Team(Team::GLA), UPGRADE_GLA_ANTHRAX_BETA),
+            1
+        );
+        assert_eq!(
+            gl.apply_toxin_shells_to_team(UpgradeRecipients::Team(Team::GLA), UPGRADE_GLA_TOXIN_SHELLS),
+            1
+        );
+        let has = |gl: &GameLogic, id, u: &str| gl.host_object(id).unwrap().applied_upgrades.contains(u);
+        assert!(!has(&gl, named, UPGRADE_GLA_ANTHRAX_BETA));
+        assert!(has(&gl, auth, UPGRADE_GLA_ANTHRAX_BETA));
+        assert!(!has(&gl, named, UPGRADE_GLA_TOXIN_SHELLS));
+        assert!(has(&gl, auth, UPGRADE_GLA_TOXIN_SHELLS));
     }
 }

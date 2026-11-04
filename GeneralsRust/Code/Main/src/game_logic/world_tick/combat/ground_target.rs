@@ -275,8 +275,8 @@ impl GameLogic {
                     .objects
                     .get(&attacker_id)
                     .map(|a| {
-                        crate::game_logic::host_scud_launcher::is_scud_launcher_template(
-                            &a.template_name,
+                        crate::game_logic::host_scud_launcher::authors_scud_gun(
+                            a.authored_primary_weapon_names(),
                         )
                     })
                     .unwrap_or(false);

@@ -183,6 +183,19 @@ pub fn is_scud_launcher_template(template_name: &str) -> bool {
         || (n.contains("vehiclescud") && n.contains("launcher"))
 }
 
+/// hq-2qedt.250: whether authored PRIMARY / PLAYER_UPGRADE weapon names name a SCUD
+/// launcher gun (C++ WeaponSet identity, not template-name sniffing).
+pub fn authors_scud_gun(names: [Option<&str>; 2]) -> bool {
+    use crate::game_logic::weapon_bootstrap::{
+        SCUD_GUN_ANTHRAX, SCUD_GUN_EXPLOSIVE, SCUD_GUN_TOXIN,
+    };
+    names.into_iter().flatten().any(|n| {
+        n.eq_ignore_ascii_case(SCUD_GUN_EXPLOSIVE)
+            || n.eq_ignore_ascii_case(SCUD_GUN_TOXIN)
+            || n.eq_ignore_ascii_case(SCUD_GUN_ANTHRAX)
+    })
+}
+
 /// Whether residual fire should apply SCUD area residual.
 pub fn should_apply_scud_area(is_scud: bool) -> bool {
     is_scud
