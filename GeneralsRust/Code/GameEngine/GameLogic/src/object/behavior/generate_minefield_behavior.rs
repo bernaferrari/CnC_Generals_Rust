@@ -592,6 +592,9 @@ impl GenerateMinefieldBehavior {
                 "owned minefield admits normal circular border without generation FX".into(),
             ));
         }
+        // GenerateMinefieldBehavior.cpp:354: m_generated is set before the
+        // owner/template resolve, so resolve failures surface already generated.
+        self.state.generated = true;
         let (mut geometry, mine_radius) =
             services.preflight(self.object_id, &self.config.mine_name)?;
         if let Some(target) = self.state.target {
@@ -619,7 +622,6 @@ impl GenerateMinefieldBehavior {
                 Err(error) => return Err(error),
             }
         }
-        self.state.generated = true;
         self.state.current_mine_template = self.config.mine_name.clone();
         Ok(())
     }
@@ -759,8 +761,13 @@ impl GenerateMinefieldBehavior {
         if self.state.generated {
             return Err(BehaviorError::MinefieldAlreadyGenerated);
         }
+        // GenerateMinefieldBehavior.cpp:351-354: mark generated first.
+        self.state.generated = true;
 
-        // Get object geometry information
+        // Owner is required (C++ getObject()); no default-geometry fallback.
+        if crate::helpers::TheGameLogic::find_object_by_id(self.object_id).is_none() {
+            return Err(BehaviorError::ObjectNotFound { id: self.object_id });
+        }
         let geometry = self.get_object_geometry()?;
         // Resolve the host-position fallback here so geometry remains the final fallback.
         let target = self
@@ -781,17 +788,15 @@ impl GenerateMinefieldBehavior {
             self.config.mine_name.clone()
         };
 
-        // Play generation FX if specified
-        if let Some(ref fx_template) = self.config.generation_fx {
-            self.play_fx(fx_template, &geometry.center)?;
-        }
-
         // Place mines based on configuration
         let pattern = self.determine_placement_pattern(&placement_geometry);
         self.place_mines_with_pattern(&placement_geometry, &mine_template, pattern)?;
-
-        self.state.generated = true;
         self.state.current_mine_template = mine_template;
+
+        // GenerateMinefieldBehavior.cpp:431: FXList::doFXObj after placement.
+        if let Some(ref fx_template) = self.config.generation_fx {
+            self.play_fx(fx_template, &geometry.center)?;
+        }
 
         Ok(())
     }

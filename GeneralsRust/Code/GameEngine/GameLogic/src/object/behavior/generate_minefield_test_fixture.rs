@@ -395,3 +395,26 @@ fn unsupported_generation_fx_rejects_before_creation_or_generation() {
     assert!(!behavior.get_statistics().is_generated);
     assert_eq!(behavior.get_statistics().mine_count, 0);
 }
+
+#[test]
+fn missing_owner_errors_with_generated_flag_already_set() {
+    // GenerateMinefieldBehavior.cpp:349-361 sets m_generated before resolving
+    // the mine template/owner, so a failed placement never retries.
+    let services = std::sync::Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&services, || {
+    let mut fixture = MinefieldFixture::new(98_107);
+    let mut behavior = fixture.behavior(false);
+    behavior.object_id = 0xDEAD_BEEF;
+    let before = fixture.scheduler.get_all_object_ids().to_vec();
+    assert!(matches!(
+        behavior.place_mines_owned(&mut fixture),
+        Err(BehaviorError::ObjectNotFound { .. })
+    ));
+    assert!(behavior.get_statistics().is_generated);
+    assert_eq!(fixture.scheduler.get_all_object_ids(), before);
+    assert!(matches!(
+        behavior.place_mines_owned(&mut fixture),
+        Err(BehaviorError::MinefieldAlreadyGenerated)
+    ));
+    });
+}
