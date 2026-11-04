@@ -56,7 +56,7 @@ const YELLOW_DAMAGE_PERCENT: f32 = 0.25;
 
 fn record_neutral_vehicle_sniped() {
     let __player_list_arc = player_list();
-        let Ok(list) = __player_list_arc.read() else {
+    let Ok(list) = __player_list_arc.read() else {
         return;
     };
     let Some(neutral) = list.get_neutral_player() else {
@@ -3256,6 +3256,17 @@ mod death_flooded_tests {
         }
     }
 
+    fn with_kill_pilot_services<R>(f: impl FnOnce() -> R) -> R {
+        let common =
+            std::sync::Arc::new(game_engine::common::common_services::CommonServices::new());
+        // Kill paths reach Core AI (EngineStores::active), so bind Core stores.
+        game_engine::common::common_services::with_common_services(&common, || {
+            let stores =
+                std::sync::Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+            crate::system::engine_stores::with_active_stores(&stores, f)
+        })
+    }
+
     fn vehicle_with_contain(
         id: ObjectId,
         rider_change: bool,
@@ -3282,26 +3293,30 @@ mod death_flooded_tests {
     #[test]
     fn kill_pilot_unmans_ordinary_vehicle_without_hull_damage() {
         // C++ ActiveBody.cpp:399-410 ordinary vehicle DAMAGE_KILLPILOT path.
-        OBJECT_REGISTRY.clear();
-        let tank = vehicle_with_contain(501, false, false, vec![502]);
-        let rider = std::sync::Arc::new(std::sync::RwLock::new(Object::new_test(502, 50.0)));
-        OBJECT_REGISTRY.register_object(502, &rider);
+        with_kill_pilot_services(|| {
+            OBJECT_REGISTRY.clear();
+            let tank = vehicle_with_contain(501, false, false, vec![502]);
+            let rider = std::sync::Arc::new(std::sync::RwLock::new(Object::new_test(502, 50.0)));
+            OBJECT_REGISTRY.register_object(502, &rider);
 
-        let mut body = ActiveBody::new_with_owner(ActiveBodyModuleData::default(), 501);
-        let mut info =
-            DamageInfo::with_simple(1.0, INVALID_ID, DamageType::KillPilot, DeathType::Normal);
-        body.attempt_damage(&mut info).expect("killpilot");
+            let mut body = ActiveBody::new_with_owner(ActiveBodyModuleData::default(), 501);
+            let mut info =
+                DamageInfo::with_simple(1.0, INVALID_ID, DamageType::KillPilot, DeathType::Normal);
+            body.attempt_damage(&mut info).expect("killpilot");
 
-        let tank_g = tank.read().unwrap();
-        assert!(
-            (tank_g.get_health() - 100.0).abs() < 1e-3,
-            "KillPilot must not apply hull HP, got {}",
-            tank_g.get_health()
-        );
-        assert!(tank_g.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned));
-        assert!(!tank_g.is_effectively_dead());
-        drop(tank_g);
-        OBJECT_REGISTRY.clear();
+            let tank_g = tank.read().unwrap();
+            assert!(
+                (tank_g.get_health() - 100.0).abs() < 1e-3,
+                "KillPilot must not apply hull HP, got {}",
+                tank_g.get_health()
+            );
+            assert!(tank_g.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned));
+            assert!(!tank_g.is_effectively_dead());
+            drop(tank_g);
+            OBJECT_REGISTRY.clear();
+            // Object::drop runs the Core AI destructor tail; skip teardown.
+            std::mem::forget((tank, rider));
+        });
     }
 
     #[test]
@@ -3397,6 +3412,54 @@ mod death_flooded_tests {
     }
 
     #[test]
+    fn kill_pilot_same_id_worlds_unman_only_the_bound_world() {
+        // C++ ActiveBody.cpp:399-410 acts on the owning world's object only;
+        // a same-ID vehicle in another world must stay manned.
+        const TEST_NAME: &str = concat!(
+            "object::body::active_body::death_flooded_tests::",
+            "kill_pilot_same_id_worlds_unman_only_the_bound_world"
+        );
+        if let crate::test_process::TestProcess::ParentVerified =
+            crate::test_process::run_bounded(TEST_NAME, "GENERALS_KILL_PILOT_SAME_ID_CHILD")
+        {
+            return;
+        }
+        let common =
+            std::sync::Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            use crate::system::engine_stores::{EngineStores, with_active_stores};
+            let a = std::sync::Arc::new(EngineStores::new_for_world());
+            let b = std::sync::Arc::new(EngineStores::new_for_world());
+            let veh_a = with_active_stores(&a, || vehicle_with_contain(901, false, false, vec![]));
+            let veh_b = with_active_stores(&b, || vehicle_with_contain(901, false, false, vec![]));
+            with_active_stores(&a, || {
+                let mut body = ActiveBody::new_with_owner(ActiveBodyModuleData::default(), 901);
+                let mut info = DamageInfo::with_simple(
+                    1.0,
+                    INVALID_ID,
+                    DamageType::KillPilot,
+                    DeathType::Normal,
+                );
+                body.attempt_damage(&mut info).expect("killpilot");
+            });
+            assert!(
+                veh_a
+                    .read()
+                    .unwrap()
+                    .is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned)
+            );
+            assert!(
+                !veh_b
+                    .read()
+                    .unwrap()
+                    .is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned),
+                "same-ID vehicle in other world must stay manned"
+            );
+            std::mem::forget((veh_a, veh_b, a, b));
+        });
+    }
+
+    #[test]
     fn kill_pilot_destroys_moving_rider_change_bike() {
         const TEST_NAME: &str = concat!(
             "object::body::active_body::death_flooded_tests::",
@@ -3409,24 +3472,28 @@ mod death_flooded_tests {
         }
 
         // C++ ActiveBody.cpp:380-385: moving RiderChangeContain bike is killed.
-        OBJECT_REGISTRY.clear();
-        let bike = vehicle_with_contain(601, true, true, vec![602]);
-        let rider = std::sync::Arc::new(std::sync::RwLock::new(Object::new_test(602, 50.0)));
-        OBJECT_REGISTRY.register_object(602, &rider);
+        with_kill_pilot_services(|| {
+            OBJECT_REGISTRY.clear();
+            let bike = vehicle_with_contain(601, true, true, vec![602]);
+            let rider = std::sync::Arc::new(std::sync::RwLock::new(Object::new_test(602, 50.0)));
+            OBJECT_REGISTRY.register_object(602, &rider);
 
-        let mut body = ActiveBody::new_with_owner(ActiveBodyModuleData::default(), 601);
-        let mut info =
-            DamageInfo::with_simple(1.0, INVALID_ID, DamageType::KillPilot, DeathType::Normal);
-        body.attempt_damage(&mut info).expect("killpilot");
+            let mut body = ActiveBody::new_with_owner(ActiveBodyModuleData::default(), 601);
+            let mut info =
+                DamageInfo::with_simple(1.0, INVALID_ID, DamageType::KillPilot, DeathType::Normal);
+            body.attempt_damage(&mut info).expect("killpilot");
 
-        let bike_g = bike.read().unwrap();
-        assert!(
-            bike_g.is_effectively_dead() || bike_g.get_health() <= 0.0,
-            "moving combat bike must be destroyed (C++ obj->kill)"
-        );
-        assert!(!bike_g.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned));
-        drop(bike_g);
-        OBJECT_REGISTRY.clear();
+            let bike_g = bike.read().unwrap();
+            assert!(
+                bike_g.is_effectively_dead() || bike_g.get_health() <= 0.0,
+                "moving combat bike must be destroyed (C++ obj->kill)"
+            );
+            assert!(!bike_g.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned));
+            drop(bike_g);
+            OBJECT_REGISTRY.clear();
+            // Object::drop runs the Core AI destructor tail; skip teardown.
+            std::mem::forget((bike, rider));
+        });
     }
 
     #[test]
@@ -3442,33 +3509,37 @@ mod death_flooded_tests {
         }
 
         // C++ ActiveBody.cpp:387-396: stationary bike evacuates + kills rider.
-        OBJECT_REGISTRY.clear();
-        let bike = vehicle_with_contain(701, true, false, vec![702]);
-        let rider = std::sync::Arc::new(std::sync::RwLock::new(Object::new_test(702, 50.0)));
-        OBJECT_REGISTRY.register_object(702, &rider);
+        with_kill_pilot_services(|| {
+            OBJECT_REGISTRY.clear();
+            let bike = vehicle_with_contain(701, true, false, vec![702]);
+            let rider = std::sync::Arc::new(std::sync::RwLock::new(Object::new_test(702, 50.0)));
+            OBJECT_REGISTRY.register_object(702, &rider);
 
-        let mut body = ActiveBody::new_with_owner(ActiveBodyModuleData::default(), 701);
-        let mut info =
-            DamageInfo::with_simple(1.0, INVALID_ID, DamageType::KillPilot, DeathType::Normal);
-        body.attempt_damage(&mut info).expect("killpilot");
+            let mut body = ActiveBody::new_with_owner(ActiveBodyModuleData::default(), 701);
+            let mut info =
+                DamageInfo::with_simple(1.0, INVALID_ID, DamageType::KillPilot, DeathType::Normal);
+            body.attempt_damage(&mut info).expect("killpilot");
 
-        let bike_g = bike.read().unwrap();
-        assert!(
-            (bike_g.get_health() - 100.0).abs() < 1e-3,
-            "stationary bike hull must survive KillPilot"
-        );
-        assert!(
-            !bike_g.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned),
-            "stationary bike is scuttled via rider evacuate, not UNMANNED"
-        );
-        drop(bike_g);
-        let rider_g = rider.read().unwrap();
-        assert!(
-            rider_g.is_effectively_dead() || rider_g.get_health() <= 0.0,
-            "stationary bike rider must be killed (C++ rider->kill)"
-        );
-        drop(rider_g);
-        OBJECT_REGISTRY.clear();
+            let bike_g = bike.read().unwrap();
+            assert!(
+                (bike_g.get_health() - 100.0).abs() < 1e-3,
+                "stationary bike hull must survive KillPilot"
+            );
+            assert!(
+                !bike_g.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned),
+                "stationary bike is scuttled via rider evacuate, not UNMANNED"
+            );
+            drop(bike_g);
+            let rider_g = rider.read().unwrap();
+            assert!(
+                rider_g.is_effectively_dead() || rider_g.get_health() <= 0.0,
+                "stationary bike rider must be killed (C++ rider->kill)"
+            );
+            drop(rider_g);
+            OBJECT_REGISTRY.clear();
+            // Object::drop runs the Core AI destructor tail; skip teardown.
+            std::mem::forget((bike, rider));
+        });
     }
 
     #[test]
