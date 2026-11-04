@@ -784,6 +784,10 @@ impl Object {
                 continue;
             }
             any_limited = true;
+            // Weapon.cpp:2757: contact weapons pass isWithinTargetPitch.
+            if self.is_slot_contact_weapon(slot) {
+                return true;
+            }
             if is_pitch_within_limits_geom(src, tgt, &limits, src_half, tgt_above, tgt_below) {
                 return true;
             }

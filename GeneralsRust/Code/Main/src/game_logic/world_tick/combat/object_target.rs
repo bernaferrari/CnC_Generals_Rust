@@ -343,6 +343,10 @@ impl GameLogic {
             // whose elevation angle is outside the weapon loft window.
             {
                 let pitch_ok = if let Some(attacker) = self.objects.get(&attacker_id) {
+                    // Weapon.cpp:2757: contact weapons bypass target pitch.
+                    if attacker.is_slot_contact_weapon(slot) {
+                        true
+                    } else {
                     let wname = attacker.weapon_name_for_slot(slot);
                     let limits = attacker.selected_native_weapon_rule(slot).map(|rule| crate::game_logic::weapon_bootstrap::HostTargetPitchLimits {
                         min_pitch: crate::game_logic::weapon_bootstrap::normalize_pitch_radians(rule.min_target_pitch),
@@ -372,6 +376,7 @@ impl GameLogic {
                         tgt_above,
                         tgt_below,
                     )
+                    }
                 } else {
                     true
                 };
