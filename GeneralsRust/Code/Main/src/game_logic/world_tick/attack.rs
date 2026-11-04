@@ -380,8 +380,7 @@ impl GameLogic {
         }
         // C++ Weapon.cpp:531 isContactWeapon: authored range only.
         let contact = crate::game_logic::weapon_bootstrap::is_contact_effective_range(weapon.range);
-        let name = obj.template_name.to_ascii_lowercase();
-        let spawns = name.contains("spawnsaretheweapons") || name.contains("stinger");
+        let spawns = spawns_are_the_weapons_forces_on_ground(obj);
         let immobile = obj.is_kind_of(crate::game_logic::KindOf::Immobile);
         // C++ AIStates.cpp:1090 starts true and queries ground movement only
         // when getAI() is non-null. A present AI with no current locomotor
@@ -3273,3 +3272,32 @@ impl GameLogic {
 #[cfg(test)]
 #[path = "turret_owner_tests.rs"]
 mod turret_owner_tests;
+
+/// C++ AIStates.cpp:1096-1100 outOfWeaponRangeObject: an object that is
+/// KINDOF_SPAWNS_ARE_THE_WEAPONS is treated as on the ground (view-block check).
+fn spawns_are_the_weapons_forces_on_ground(obj: &Object) -> bool {
+    obj.is_kind_of(crate::game_logic::KindOf::SpawnsAreTheWeapons)
+}
+
+#[cfg(test)]
+mod spawns_are_the_weapons_on_ground_tests {
+    use super::spawns_are_the_weapons_forces_on_ground;
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+
+    #[test]
+    fn out_of_range_on_ground_uses_spawns_are_the_weapons_kindof_not_name() {
+        let mut kind_t = ThingTemplate::new("GLAHiveSite");
+        kind_t.add_kind_of(KindOf::SpawnsAreTheWeapons);
+        let kind_obj = Object::new(kind_t, ObjectId(1), Team::GLA);
+        assert!(
+            spawns_are_the_weapons_forces_on_ground(&kind_obj),
+            "KINDOF_SPAWNS_ARE_THE_WEAPONS forces onGround (AIStates.cpp:1096)"
+        );
+        let name_t = ThingTemplate::new("GLAStingerSiteLookalike");
+        let name_obj = Object::new(name_t, ObjectId(2), Team::GLA);
+        assert!(
+            !spawns_are_the_weapons_forces_on_ground(&name_obj),
+            "a Stinger-named object without the kindof must not be forced onGround"
+        );
+    }
+}
