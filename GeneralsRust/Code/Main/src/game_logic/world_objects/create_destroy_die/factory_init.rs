@@ -146,7 +146,10 @@ impl GameLogic {
 
         // Host residual: China Gattling Cannon structure dual ground/AA + continuous-fire ramp.
         // Fail-closed: not full CONTINUOUS_FIRE_* model-condition animation matrix.
-        if crate::game_logic::host_base_defense::is_gattling_cannon_structure(template_name) {
+        // Keyed on the authored weapon, not the template name (hq-2qedt.266).
+        if crate::game_logic::host_base_defense::is_authored_gattling_building(
+            object.weapon_name_for_slot(0),
+        ) {
             use crate::game_logic::host_base_defense::{
                 gattling_building_air_weapon, gattling_building_ground_weapon,
                 gattling_building_has_chain_guns,

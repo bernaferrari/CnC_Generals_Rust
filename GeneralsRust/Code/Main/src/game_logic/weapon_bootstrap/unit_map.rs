@@ -470,10 +470,6 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
             // Nuke Cannon neutron secondary is upgrade-gated — see comment above.
             if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
                 Some(QUAD_CANNON_GUN_AIR)
-            } else if crate::game_logic::host_base_defense::is_gattling_cannon_structure(
-                template_name,
-            ) {
-                Some(GATTLING_BUILDING_SECONDARY_WEAPON)
             } else if crate::game_logic::host_base_defense::is_patriot_battery_structure(
                 template_name,
             ) {
@@ -610,6 +606,15 @@ mod name_peel_tests {
         assert_unmapped(
             "FixtureJarmenKellVariant",
             gl::host_jarmen_kell::is_jarmen_kell_template,
+        );
+    }
+
+    /// hq-2qedt.266
+    #[test]
+    fn gattling_cannon_variant_name_has_no_unit_map_weapon() {
+        assert_unmapped(
+            "FixtureGattlingCannonVariant",
+            gl::host_base_defense::is_gattling_cannon_structure,
         );
     }
 }

@@ -1801,6 +1801,13 @@ fn leftover_stealth_detector_range(template_name: &str) -> Option<f32> {
     None
 }
 
+/// Whether the authored PRIMARY is the Gattling Cannon structure gun
+/// (`GattlingBuildingGun`). Keys the building ramp/AA residual on the
+/// WeaponSet instead of the template name (hq-2qedt.266).
+pub fn is_authored_gattling_building(primary_weapon: Option<&str>) -> bool {
+    primary_weapon == Some(GATTLING_BUILDING_PRIMARY_WEAPON)
+}
+
 /// Whether template is a residual China Gattling Cannon structure (ramp + AA).
 ///
 /// Fail-closed: name residual. Excludes tank / Overlord / Helix payloads.
@@ -1964,8 +1971,6 @@ pub fn primary_weapon_name_for_defense(template_name: &str) -> Option<&'static s
         } else {
             PATRIOT_PRIMARY_WEAPON
         })
-    } else if is_gattling_cannon_structure(template_name) {
-        Some(GATTLING_BUILDING_PRIMARY_WEAPON)
     } else if is_stinger_site_structure(template_name) {
         Some(STINGER_PRIMARY_WEAPON)
     } else if crate::game_logic::host_tunnel_network::is_tunnel_network_template(template_name) {
@@ -1981,9 +1986,7 @@ pub fn primary_weapon_name_for_defense(template_name: &str) -> Option<&'static s
 
 /// Secondary AA residual weapon name for dual-slot base defenses.
 pub fn secondary_weapon_name_for_defense(template_name: &str) -> Option<&'static str> {
-    if is_gattling_cannon_structure(template_name) {
-        Some(GATTLING_BUILDING_SECONDARY_WEAPON)
-    } else if is_patriot_battery_structure(template_name) {
+    if is_patriot_battery_structure(template_name) {
         Some(if is_laser_patriot_template(template_name) {
             LAZR_PATRIOT_SECONDARY_WEAPON
         } else if is_supw_patriot_template(template_name) {
@@ -2617,14 +2620,10 @@ mod tests {
             secondary_weapon_name_for_defense("USA_Patriot"),
             Some(PATRIOT_SECONDARY_WEAPON)
         );
-        assert_eq!(
-            primary_weapon_name_for_defense("China_GattlingCannon"),
-            Some(GATTLING_BUILDING_PRIMARY_WEAPON)
-        );
-        assert_eq!(
-            secondary_weapon_name_for_defense("China_GattlingCannon"),
-            Some(GATTLING_BUILDING_SECONDARY_WEAPON)
-        );
+        // hq-2qedt.266: Gattling Cannon names no longer map a weapon here;
+        // the authored WeaponSet is the only source.
+        assert_eq!(primary_weapon_name_for_defense("China_GattlingCannon"), None);
+        assert_eq!(secondary_weapon_name_for_defense("China_GattlingCannon"), None);
         assert_eq!(
             primary_weapon_name_for_defense("GLA_StingerSite"),
             Some(STINGER_PRIMARY_WEAPON)

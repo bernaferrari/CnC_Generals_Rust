@@ -5413,3 +5413,35 @@ fn jarmen_kell_ap_and_residual_key_on_authored_weapon_not_template_name() {
     assert_eq!(hits, 1, "authored sniper residual");
 }
 
+/// hq-2qedt.266: Gattling Cannon structure factory dual-slot residual keys on
+/// the authored GattlingBuildingGun, not the template name.
+#[test]
+fn gattling_cannon_factory_init_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    for (name, weapon) in [
+        ("TestGattlingCannon266", "RangerFlashBangGrenadeWeapon"),
+        ("A266xAuthoredCannon", "GattlingBuildingGun"),
+    ] {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0)
+            .set_primary_weapon_name(weapon);
+        game_logic.templates.insert(name.to_string(), tpl);
+    }
+    let foreign = game_logic
+        .create_object("TestGattlingCannon266", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("foreign");
+    let authored = game_logic
+        .create_object("A266xAuthoredCannon", Team::China, Vec3::new(80.0, 0.0, 0.0))
+        .expect("authored");
+    let f = game_logic.host_object(foreign).unwrap();
+    assert!(f.secondary_weapon.is_none(), "name-only gattling AA residual");
+    let a = game_logic.host_object(authored).unwrap();
+    assert!(a.secondary_weapon.is_some(), "authored gattling AA residual");
+}
+
