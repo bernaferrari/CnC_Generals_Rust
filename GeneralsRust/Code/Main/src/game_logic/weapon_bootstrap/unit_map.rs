@@ -340,9 +340,8 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_bunker_buster::is_kill_garrisoned_clearer(template_name) {
                 return Some(MICROWAVE_BUILDING_CLEARER_WEAPON);
             }
-            if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(template_name) {
-                return Some(COMANCHE_PRIMARY_WEAPON);
-            }
+            // Comanche: explicit retail rows above only; no fuzzy name peel
+            // (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.123).
             if crate::game_logic::host_overlord_addons::is_helix_template(template_name) {
                 return Some(HELIX_MINIGUN_WEAPON);
             }
@@ -569,12 +568,6 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
                 template_name,
             ) {
                 Some(MISSILE_DEFENDER_LASER_GUIDED_WEAPON)
-            } else if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(
-                template_name,
-            ) {
-                // Comanche residual SECONDARY anti-tank; rocket pods are added
-                // as an independent TERTIARY after upgrade.
-                Some(COMANCHE_ANTITANK_WEAPON)
             } else if crate::game_logic::host_gattling_tank::is_gattling_tank_template(
                 template_name,
             ) {
@@ -602,6 +595,29 @@ mod tomahawk_unit_map_peel_tests {
         assert_eq!(
             primary_weapon_name_for_unit("AmericaVehicleTomahawk"),
             Some(TOMAHAWK_MISSILE_WEAPON)
+        );
+    }
+}
+
+#[cfg(test)]
+mod comanche_unit_map_peel_tests {
+    use super::*;
+
+    /// hq-2qedt.123: C++ resolves PRIMARY/SECONDARY from the authored
+    /// WeaponSet; an unlisted template whose name merely contains "Comanche"
+    /// must not pick up Comanche weapons from a fuzzy name peel.
+    #[test]
+    fn unlisted_comanche_named_template_gets_no_name_peel_defaults() {
+        assert_eq!(primary_weapon_name_for_unit("Boss_VehicleComancheDecoy"), None);
+        assert_eq!(secondary_weapon_name_for_unit("Boss_VehicleComancheDecoy"), None);
+        // Explicit retail table rows stay.
+        assert_eq!(
+            primary_weapon_name_for_unit("AmericaVehicleComanche"),
+            Some(COMANCHE_PRIMARY_WEAPON)
+        );
+        assert_eq!(
+            secondary_weapon_name_for_unit("AmericaVehicleComanche"),
+            Some(COMANCHE_ANTITANK_WEAPON)
         );
     }
 }
