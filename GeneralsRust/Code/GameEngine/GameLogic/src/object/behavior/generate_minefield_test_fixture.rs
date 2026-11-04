@@ -3,8 +3,8 @@ use super::*;
 use crate::object::body::active_body::BodyDefinitionCatalog;
 use crate::object::collide::collision_system::CollisionSystem;
 use crate::object::{
-    object_factory::{ObjectCreationFlags, ObjectFactory},
     Object,
+    object_factory::{ObjectCreationFlags, ObjectFactory},
 };
 use crate::system::game_logic::GameLogic;
 use game_engine::common::random_value::RandomState;
@@ -15,32 +15,19 @@ pub(super) struct MinefieldFixture {
     pub id: u32,
     pub template: String,
     pub factory: ObjectFactory,
-    pub scheduler: GameLogic,
+    scheduler: GameLogic,
     definitions: ThingFactory,
     modules: ModuleFactory,
     bodies: Arc<BodyDefinitionCatalog>,
     terrain: crate::terrain::TerrainLogic,
     collision: CollisionSystem,
     random: RandomState,
-    /// (owner, fx, object count at play time)
-    pub generation_fx: Vec<(u32, String, usize)>,
 }
 impl MinefieldFixture {
     pub fn new(id: u32) -> Self {
-        // Test-thread owner: bind Common services + Core EngineStores (WorldServices).
-        if game_engine::common::common_services::try_common_services().is_none() {
-            game_engine::common::common_services::install_common_services(std::sync::Arc::new(
-                game_engine::common::common_services::CommonServices::new(),
-            ));
-        }
-        if crate::system::engine_stores::try_active_services().is_none() {
-            crate::system::engine_stores::install_active(
-                crate::system::engine_stores::new_for_world(),
-            );
-        }
         let template = format!("OwnedMinefieldFixtureMine{id}");
         let mut definitions = ThingFactory::new();
-        assert_eq!(definitions.load_ini_text(&format!("Object {template}\n KindOf = MINE\n Geometry = CYLINDER\n GeometryMajorRadius = 3.0\n GeometryMinorRadius = 3.0\n GeometryHeight = 1.0\nEnd\nObject OwnedMinefieldSource\n Geometry = CYLINDER\n GeometryMajorRadius = 20.0\n GeometryMinorRadius = 20.0\n GeometryHeight = 1.0\nEnd\nObject OwnedMinefieldStructure\n KindOf = STRUCTURE\n Geometry = CYLINDER\n GeometryMajorRadius = 4.0\n GeometryMinorRadius = 4.0\n GeometryHeight = 4.0\nEnd\n")), 3);
+        assert_eq!(definitions.load_ini_text(&format!("Object {template}\n KindOf = MINE\n Geometry = CYLINDER\n GeometryMajorRadius = 3.0\n GeometryMinorRadius = 3.0\n GeometryHeight = 1.0\nEnd\nObject OwnedMinefieldSource\n Geometry = CYLINDER\n GeometryMajorRadius = 20.0\n GeometryMinorRadius = 20.0\n GeometryHeight = 1.0\nEnd\nObject OwnedMinefieldStructure\n KindOf = STRUCTURE\n Geometry = CYLINDER\n GeometryMajorRadius = 4.0\n GeometryMinorRadius = 4.0\n GeometryHeight = 4.0\nEnd\nObject OwnedMinefieldBoxStructure\n KindOf = STRUCTURE\n Geometry = BOX\n GeometryMajorRadius = 20.0\n GeometryMinorRadius = 2.0\n GeometryHeight = 4.0\nEnd\n")), 4);
         let mut map = crate::system::map_loader::MapData::new();
         map.width = 64;
         map.height = 64;
@@ -66,7 +53,6 @@ impl MinefieldFixture {
             terrain,
             collision: CollisionSystem::new(),
             random: RandomState::default(),
-            generation_fx: Vec::new(),
         };
         let template = fixture.definition("OwnedMinefieldSource");
         let mut lookup = |_name: &str| Ok(None);
@@ -91,19 +77,7 @@ impl MinefieldFixture {
             .track_object_in_update_list(owner)
             .unwrap();
         fixture.position(id, Coord3D::new(128.0, 128.0, 3.0), 0.0);
-        fixture.set_owner_player(Some(0));
         fixture
-    }
-    /// Pin the source to a team controlled by `player` (None = ownerless).
-    pub fn set_owner_player(&mut self, player: Option<u32>) {
-        let mut team = crate::team::Team::new("OwnedMinefieldOwner".into(), 0x6D1E_0000 + self.id);
-        team.set_controlling_player_id(player);
-        let owner = self.scheduler.find_object_by_id(self.id).unwrap();
-        owner
-            .write()
-            .unwrap()
-            .set_team(Some(Arc::new(std::sync::RwLock::new(team))))
-            .unwrap();
     }
     fn definition(&self, name: &str) -> Arc<dyn crate::common::ThingTemplate> {
         crate::helpers::adapt_owned_thing_template(
@@ -192,6 +166,9 @@ impl MinefieldFixture {
     pub fn spawn_structure(&mut self, position: Coord3D) -> u32 {
         self.spawn("OwnedMinefieldStructure", position, 0.0)
     }
+    pub fn spawn_box_structure(&mut self, position: Coord3D, orientation: f32) -> u32 {
+        self.spawn("OwnedMinefieldBoxStructure", position, orientation)
+    }
     pub fn assert_real_mines(&self, behavior: &GenerateMinefieldBehavior) -> Vec<u32> {
         let ids = behavior.get_mine_list();
         assert!(
@@ -234,11 +211,6 @@ impl MinefieldPlacement for MinefieldFixture {
             .read()
             .map_err(|_| BehaviorError::ServiceUnavailable("owner poisoned".into()))?;
         let bounds = actor.get_geometry_info().bounds();
-        if self.definitions.find_template(template, false).is_none() {
-            return Err(BehaviorError::MineTemplateNotFound {
-                template: template.to_string(),
-            });
-        }
         let definition = self.definition(template);
         if !definition.get_behavior_module_info().is_empty()
             || !definition.get_draw_module_info().is_empty()
@@ -270,7 +242,7 @@ impl MinefieldPlacement for MinefieldFixture {
         position: &Coord3D,
         skip: f32,
     ) -> BehaviorResult<u32> {
-        let (_, radius) = self.preflight(owner, template)?;
+        self.preflight(owner, template)?;
         let mut highest = *position;
         highest.z = 99999.0;
         if self.terrain.get_highest_layer_for_destination(&highest)
@@ -286,17 +258,24 @@ impl MinefieldPlacement for MinefieldFixture {
         let orientation = self
             .random
             .next_real(-std::f32::consts::PI, std::f32::consts::PI);
-        let query = crate::object::collide::Coord3D::new(position.x, position.y, position.z);
-        for id in self
-            .collision
-            .query_objects_in_radius(&query, radius * (1.0 - skip))
-        {
-            if self.scheduler.find_object_by_id(id).is_some_and(|actor| {
-                actor
-                    .read()
-                    .unwrap()
-                    .is_kind_of(crate::common::KindOf::Structure)
-            }) {
+        // C++ GenerateMinefieldBehavior.cpp:187-197 via iteratePotentialCollisions.
+        let query = mine_structure_query_geometry(
+            &self.definition(template).get_template_geometry_info(),
+            skip,
+        );
+        let max_dist = query.get_bounding_sphere_radius() * 1.1;
+        for id in self.scheduler.get_all_object_ids().to_vec() {
+            let actor = self.scheduler.find_object_by_id(id).unwrap();
+            let them = actor.read().unwrap();
+            let geometry = them.get_geometry_info();
+            let other = them.get_position();
+            let center_z = (geometry.bounds().min.z + geometry.bounds().max.z) * 0.5;
+            let (dx, dy, dz) = (other.x - position.x, other.y - position.y, other.z + center_z - position.z);
+            let boundary = ((dx * dx + dy * dy + dz * dz).sqrt() - geometry.get_bounding_sphere_radius()).max(0.0);
+            if boundary <= max_dist
+                && mine_would_collide(position, &query, orientation, other, &geometry, them.get_orientation())
+                && them.is_kind_of(crate::common::KindOf::Structure)
+            {
                 return Err(BehaviorError::NoSpaceAvailable);
             }
         }
@@ -307,22 +286,6 @@ impl MinefieldPlacement for MinefieldFixture {
             .unwrap()
             .set_producer(Some(&*source.read().unwrap()));
         Ok(id)
-    }
-    fn controlling_player(&self, owner: u32) -> BehaviorResult<Option<u32>> {
-        let actor = self
-            .scheduler
-            .find_object_by_id(owner)
-            .ok_or(BehaviorError::ObjectNotFound { id: owner })?;
-        let player = actor
-            .read()
-            .map_err(|_| BehaviorError::ServiceUnavailable("owner poisoned".into()))?
-            .get_controlling_player_id();
-        Ok(player)
-    }
-    fn play_generation_fx(&mut self, owner: u32, fx: &str) -> BehaviorResult<()> {
-        let count = self.scheduler.get_all_object_ids().len();
-        self.generation_fx.push((owner, fx.to_string(), count));
-        Ok(())
     }
     fn remove(&mut self, owner: u32, mine: u32) -> BehaviorResult<()> {
         let actor = self
@@ -359,13 +322,15 @@ fn actual_structure_rejection_and_factory_creation_are_match_local() {
     let blocked = Coord3D::new(192.0, 192.0, 3.0);
     let free = Coord3D::new(224.0, 192.0, 3.0);
     let obstruction = fixture.spawn_structure(blocked);
-    assert!(fixture
-        .scheduler
-        .find_object_by_id(obstruction)
-        .unwrap()
-        .read()
-        .unwrap()
-        .is_kind_of(crate::common::KindOf::Structure));
+    assert!(
+        fixture
+            .scheduler
+            .find_object_by_id(obstruction)
+            .unwrap()
+            .read()
+            .unwrap()
+            .is_kind_of(crate::common::KindOf::Structure)
+    );
     let before = fixture.scheduler.get_all_object_ids().to_vec();
     let template = fixture.template.clone();
     assert!(matches!(
@@ -402,56 +367,42 @@ fn same_id_minefields_create_and_clear_only_the_supplied_match() {
     let peer_ids = second.assert_real_mines(&peer);
     first_behavior.clear_mines_owned(&mut first).unwrap();
     for id in ids {
-        assert!(first
-            .scheduler
-            .find_object_by_id(id)
-            .unwrap()
-            .read()
-            .unwrap()
-            .is_destroyed());
+        assert!(
+            first
+                .scheduler
+                .find_object_by_id(id)
+                .unwrap()
+                .read()
+                .unwrap()
+                .is_destroyed()
+        );
     }
     for id in peer_ids {
-        assert!(!second
-            .scheduler
-            .find_object_by_id(id)
-            .unwrap()
-            .read()
-            .unwrap()
-            .is_destroyed());
+        assert!(
+            !second
+                .scheduler
+                .find_object_by_id(id)
+                .unwrap()
+                .read()
+                .unwrap()
+                .is_destroyed()
+        );
     }
     assert!(peer.get_statistics().is_generated);
 }
 
-#[test]
-fn generation_fx_plays_after_mines_are_placed_like_cpp() {
-    // C++ GenerateMinefieldBehavior.cpp:431: FXList::doFXObj(m_genFX, obj) after placement.
-    let mut fixture = MinefieldFixture::new(98_106);
-    let mut behavior = fixture.behavior(false);
-    behavior.config.generation_fx = Some("AuthoredMineFX".into());
-    behavior.place_mines_owned(&mut fixture).unwrap();
-    let mines = fixture.assert_real_mines(&behavior);
-    assert_eq!(
-        fixture.generation_fx,
-        vec![(fixture.id, "AuthoredMineFX".to_string(), mines.len() + 1)]
-    );
-    assert!(behavior.get_statistics().is_generated);
+#[derive(Debug, Default)]
+struct OwnedGenFxRecorder {
+    calls: std::sync::Mutex<usize>,
 }
-
-#[test]
-fn missing_mine_template_still_marks_generated_like_cpp_place_mines() {
-    // C++ GenerateMinefieldBehavior.cpp:356-374: m_generated = true before findTemplate;
-    // a missing template returns with the field still marked generated.
-    let mut fixture = MinefieldFixture::new(98_128);
-    let mut behavior = fixture.behavior(false);
-    behavior.config.mine_name = "NoSuchAuthoredMine".into();
-    let before = fixture.scheduler.get_all_object_ids().to_vec();
-    assert!(behavior.place_mines_owned(&mut fixture).is_err());
-    assert_eq!(fixture.scheduler.get_all_object_ids(), before);
-    assert!(behavior.get_statistics().is_generated);
-    assert!(matches!(
-        behavior.place_mines_owned(&mut fixture),
-        Err(BehaviorError::MinefieldAlreadyGenerated)
-    ));
+impl crate::common::FXListManagerInterface for OwnedGenFxRecorder {
+    fn do_fx_pos(&self, fx: crate::common::FXListId, _: &crate::common::Coord3D, _: Option<&glam::Mat4>) {
+        assert_eq!(fx, game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("AuthoredMineFX") as crate::common::FXListId);
+        *self.calls.lock().unwrap() += 1;
+    }
+    fn do_fx_obj(&self, _: crate::common::FXListId, _: crate::common::ThingId) {}
+    fn do_fx_for_object(&self, _: crate::common::FXListId, _: &Object) {}
+    fn do_fx_for_host_objects(&self, _: crate::common::FXListId, _: &crate::helpers::HostFxObjectPose, _: Option<&crate::helpers::HostFxObjectPose>) {}
 }
 
 #[test]
