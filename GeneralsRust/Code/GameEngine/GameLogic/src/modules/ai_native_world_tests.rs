@@ -1304,6 +1304,9 @@ fn native_hostile_enter_uses_owned_weapon_selector_and_immediate_attack() {
 #[path = "ai_native_world_tests/armed_transport.rs"]
 mod armed_transport_tests;
 
+#[path = "ai_native_world_tests/salvager_bike.rs"]
+mod salvager_bike_tests;
+
 #[path = "ai_native_world_tests/transport_remove.rs"]
 mod transport_remove_tests;
 

@@ -691,9 +691,7 @@ impl TransportContain {
                 if let Some(rider_weapon) =
                     rider.get_weapon_in_slot(WeaponSlotType::Secondary.into())
                 {
-                    let when_we_can_fire_again = rider_weapon.when_we_can_fire_again;
-                    let when_pre_attack_finished = rider_weapon.when_pre_attack_finished;
-                    let when_last_reload_started = rider_weapon.when_last_reload_started;
+                    let stats = rider_weapon.next_shot_stats();
                     drop(rider);
                     if let Some(owner_arc) = self.get_object() {
                         if let Ok(mut owner) = owner_arc.try_write() {
@@ -701,9 +699,7 @@ impl TransportContain {
                                 if let Some(bike_weapon) =
                                     owner.get_weapon_in_slot_mut(WeaponSlotType::Secondary.into())
                                 {
-                                    bike_weapon.when_we_can_fire_again = when_we_can_fire_again;
-                                    bike_weapon.when_pre_attack_finished = when_pre_attack_finished;
-                                    bike_weapon.when_last_reload_started = when_last_reload_started;
+                                    bike_weapon.apply_next_shot_stats(stats);
                                 }
                             }
                         }
@@ -858,13 +854,7 @@ impl TransportContain {
             let bike_secondary = if owner.is_kind_of(KindOf::CliffJumper) {
                 owner
                     .get_weapon_in_slot(WeaponSlotType::Secondary.into())
-                    .map(|w| {
-                        (
-                            w.when_we_can_fire_again,
-                            w.when_pre_attack_finished,
-                            w.when_last_reload_started,
-                        )
-                    })
+                    .map(|w| w.next_shot_stats())
             } else {
                 None
             };
@@ -898,13 +888,11 @@ impl TransportContain {
                     && rider.is_kind_of(KindOf::Hero)
                     && rider.is_kind_of(KindOf::Salvager)
                 {
-                    if let (Some((when_fire, when_pre, when_reload)), Some(rider_weapon)) = (
+                    if let (Some(stats), Some(rider_weapon)) = (
                         bike_secondary,
                         rider.get_weapon_in_slot_mut(WeaponSlotType::Secondary.into()),
                     ) {
-                        rider_weapon.when_we_can_fire_again = when_fire;
-                        rider_weapon.when_pre_attack_finished = when_pre;
-                        rider_weapon.when_last_reload_started = when_reload;
+                        rider_weapon.apply_next_shot_stats(stats);
                     }
                 }
             }

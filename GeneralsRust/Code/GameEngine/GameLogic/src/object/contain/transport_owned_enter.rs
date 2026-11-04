@@ -41,13 +41,7 @@ impl TransportContain {
             if rider.is_kind_of(KindOf::Hero) && rider.is_kind_of(KindOf::Salvager) {
                 rider
                     .get_weapon_in_slot(WeaponSlotType::Secondary.into())
-                    .map(|weapon| {
-                        (
-                            weapon.when_we_can_fire_again,
-                            weapon.when_pre_attack_finished,
-                            weapon.when_last_reload_started,
-                        )
-                    })
+                    .map(|weapon| weapon.next_shot_stats())
             } else {
                 None
             }
@@ -76,13 +70,11 @@ impl TransportContain {
             let mut owner = owner.write().expect("admitted transport owner poisoned");
             owner.set_is_transporting(true);
             if owner.is_kind_of(KindOf::CliffJumper) {
-                if let (Some((shot, preattack, reload)), Some(weapon)) = (
+                if let (Some(stats), Some(weapon)) = (
                     timers,
                     owner.get_weapon_in_slot_mut(WeaponSlotType::Secondary.into()),
                 ) {
-                    weapon.when_we_can_fire_again = shot;
-                    weapon.when_pre_attack_finished = preattack;
-                    weapon.when_last_reload_started = reload;
+                    weapon.apply_next_shot_stats(stats);
                 }
             }
         }

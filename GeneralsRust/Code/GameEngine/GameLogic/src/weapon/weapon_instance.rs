@@ -1316,9 +1316,24 @@ impl Weapon {
 
     /// Transfer next shot stats from another weapon
     pub fn transfer_next_shot_stats_from(&mut self, other: &Weapon) {
-        self.when_we_can_fire_again = other.when_we_can_fire_again;
-        self.when_last_reload_started = other.when_last_reload_started;
-        self.store_status(other.get_status());
+        self.apply_next_shot_stats(other.next_shot_stats());
+    }
+
+    /// C++ Weapon.cpp:3127-3132 source half: next-shot frame, last reload
+    /// frame, and `getStatus()` (not the pre-attack frame).
+    pub fn next_shot_stats(&self) -> (u32, u32, WeaponStatus) {
+        (
+            self.when_we_can_fire_again,
+            self.when_last_reload_started,
+            self.get_status(),
+        )
+    }
+
+    /// C++ Weapon.cpp:3127-3132 destination half.
+    pub fn apply_next_shot_stats(&mut self, stats: (u32, u32, WeaponStatus)) {
+        self.when_we_can_fire_again = stats.0;
+        self.when_last_reload_started = stats.1;
+        self.set_status(stats.2);
     }
 
     /// Update weapon on bonus change
