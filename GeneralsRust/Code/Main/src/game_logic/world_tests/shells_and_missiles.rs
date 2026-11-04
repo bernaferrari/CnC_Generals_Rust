@@ -4021,7 +4021,9 @@ fn technical_create_primary_comes_from_authored_weapon_set() {
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0)
         .set_primary_weapon_name("RangerFlashBangGrenadeWeapon");
-    game_logic.templates.insert("GLAVehicleTechnical".to_string(), tpl);
+    game_logic
+        .templates
+        .insert("GLAVehicleTechnical".to_string(), tpl);
     let id = game_logic
         .create_object("GLAVehicleTechnical", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("technical");
@@ -4049,9 +4051,15 @@ fn battlemaster_create_primary_comes_from_authored_weapon_set() {
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0)
         .set_primary_weapon_name("RangerFlashBangGrenadeWeapon");
-    game_logic.templates.insert("ChinaTankBattleMaster".to_string(), tpl);
+    game_logic
+        .templates
+        .insert("ChinaTankBattleMaster".to_string(), tpl);
     let id = game_logic
-        .create_object("ChinaTankBattleMaster", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .create_object(
+            "ChinaTankBattleMaster",
+            Team::China,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
         .expect("battlemaster");
     let prim = game_logic
         .host_object(id)
@@ -4077,7 +4085,9 @@ fn marauder_create_primary_comes_from_authored_weapon_set() {
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0)
         .set_primary_weapon_name("RangerFlashBangGrenadeWeapon");
-    game_logic.templates.insert("GLATankMarauder".to_string(), tpl);
+    game_logic
+        .templates
+        .insert("GLATankMarauder".to_string(), tpl);
     let id = game_logic
         .create_object("GLATankMarauder", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("marauder");
@@ -4105,16 +4115,23 @@ fn missile_defender_create_primary_comes_from_authored_weapon_set() {
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0)
         .set_primary_weapon_name("RangerFlashBangGrenadeWeapon");
-    game_logic.templates.insert("AmericaInfantryMissileDefender".to_string(), tpl);
+    game_logic
+        .templates
+        .insert("AmericaInfantryMissileDefender".to_string(), tpl);
     let id = game_logic
-        .create_object("AmericaInfantryMissileDefender", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .create_object(
+            "AmericaInfantryMissileDefender",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
         .expect("missile_defender");
     let prim = game_logic
         .host_object(id)
         .and_then(|t| t.weapon.clone())
         .expect("authored primary");
     assert!(
-        (prim.damage - crate::game_logic::host_missile_defender::MISSILE_DEFENDER_DAMAGE).abs() > 0.01,
+        (prim.damage - crate::game_logic::host_missile_defender::MISSILE_DEFENDER_DAMAGE).abs()
+            > 0.01,
         "authored PRIMARY overwritten by missile_defender name peel: {prim:?}"
     );
 }
@@ -4133,7 +4150,9 @@ fn tunnel_network_create_primary_comes_from_authored_weapon_set() {
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0)
         .set_primary_weapon_name("RangerFlashBangGrenadeWeapon");
-    game_logic.templates.insert("GLATunnelNetwork".to_string(), tpl);
+    game_logic
+        .templates
+        .insert("GLATunnelNetwork".to_string(), tpl);
     let id = game_logic
         .create_object("GLATunnelNetwork", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("tunnel_network");
@@ -4142,7 +4161,8 @@ fn tunnel_network_create_primary_comes_from_authored_weapon_set() {
         .and_then(|t| t.weapon.clone())
         .expect("authored primary");
     assert!(
-        (prim.damage - crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_GUN_DAMAGE).abs() > 0.01,
+        (prim.damage - crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_GUN_DAMAGE).abs()
+            > 0.01,
         "authored PRIMARY overwritten by tunnel_network name peel: {prim:?}"
     );
 }
@@ -4161,7 +4181,9 @@ fn combat_cycle_create_primary_comes_from_authored_weapon_set() {
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0)
         .set_primary_weapon_name("RangerFlashBangGrenadeWeapon");
-    game_logic.templates.insert("GLAVehicleCombatBike".to_string(), tpl);
+    game_logic
+        .templates
+        .insert("GLAVehicleCombatBike".to_string(), tpl);
     let id = game_logic
         .create_object("GLAVehicleCombatBike", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("combat_cycle");
@@ -4189,9 +4211,15 @@ fn rpg_trooper_create_primary_comes_from_authored_weapon_set() {
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0)
         .set_primary_weapon_name("RangerFlashBangGrenadeWeapon");
-    game_logic.templates.insert("GLAInfantryTunnelDefender".to_string(), tpl);
+    game_logic
+        .templates
+        .insert("GLAInfantryTunnelDefender".to_string(), tpl);
     let id = game_logic
-        .create_object("GLAInfantryTunnelDefender", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .create_object(
+            "GLAInfantryTunnelDefender",
+            Team::GLA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
         .expect("rpg_trooper");
     let prim = game_logic
         .host_object(id)
@@ -4200,5 +4228,65 @@ fn rpg_trooper_create_primary_comes_from_authored_weapon_set() {
     assert!(
         (prim.damage - crate::game_logic::host_rpg_trooper::RPG_TROOPER_DAMAGE).abs() > 0.01,
         "authored PRIMARY overwritten by rpg_trooper name peel: {prim:?}"
+    );
+}
+
+/// hq-2qedt.173: object_hit routes Technical residual by the authored weapon,
+/// not a template-name gate; a Technical-named unit with a foreign authored weapon
+/// takes the generic path.
+#[test]
+fn technical_object_hit_residual_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("GLAVehicleTechnical");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name("RangerFlashBangGrenadeWeapon");
+    game_logic
+        .templates
+        .insert("GLAVehicleTechnical".to_string(), tpl);
+    let mut victim = crate::game_logic::ThingTemplate::new("A17xVictim");
+    victim
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0);
+    game_logic
+        .templates
+        .insert("A17xVictim".to_string(), victim);
+    let id = game_logic
+        .create_object("GLAVehicleTechnical", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("attacker");
+    let enemy = game_logic
+        .create_object("A17xVictim", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("victim");
+    {
+        let (t, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
+        t.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = t.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.min_range = 0.0;
+        }
+    }
+    for f in 40..70 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    let hp = game_logic
+        .host_object(enemy)
+        .map(|e| e.health.current)
+        .unwrap_or(0.0);
+    assert!(hp < 1000.0, "attacker never hit the victim");
+    assert_eq!(
+        game_logic.technical_residual_fires, 0,
+        "Technical template-name residual fired for a foreign authored weapon"
     );
 }

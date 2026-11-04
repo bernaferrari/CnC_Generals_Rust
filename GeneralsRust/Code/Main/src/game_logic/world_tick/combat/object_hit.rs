@@ -530,40 +530,21 @@ impl GameLogic {
                             effects,
                         )
                     };
-                } else if {
-                    // GLA Technical residual: MG direct or cannon/RPG splash salvage tiers.
-                    use crate::game_logic::host_technical::{
-                        TechnicalWeaponTier, is_technical_template, should_apply_technical_splash,
-                    };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| {
-                            if !is_technical_template(&a.template_name) {
-                                return false;
-                            }
-                            let tier = Self::technical_tier_from_object(a);
-                            // Always apply residual path for technical (MG direct or splash).
-                            let _ = should_apply_technical_splash(true, tier);
-                            true
-                        })
-                        .unwrap_or(false)
-                } {
-                    use crate::game_logic::host_technical::{
-                        TechnicalWeaponTier as TechTier, should_apply_technical_cannon_shell,
-                        should_apply_technical_rpg_missile,
-                    };
+                } else if let Some(tier) = self
+                    .objects
+                    .get(&attacker_id)
+                    .and_then(|a| Self::technical_tier_for_authored_weapon(a, slot))
+                {
+                    // GLA Technical residual keyed on the authored Technical weapon
+                    // (MG / cannon / RPG), not the template name (hq-2qedt.173).
+                    use crate::game_logic::host_technical::TechnicalWeaponTier as TechTier;
                     let impact = target_position;
-                    let tier = self
-                        .objects
-                        .get(&attacker_id)
-                        .map(|a| Self::technical_tier_from_object(a))
-                        .unwrap_or(TechTier::Base);
                     let from = self
                         .objects
                         .get(&attacker_id)
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
-                    let (hits, _destroyed_any) = if should_apply_technical_rpg_missile(true, tier) {
+                    let (hits, _destroyed_any) = if matches!(tier, TechTier::Two) {
                         let spawned = self
                             .spawn_technical_rpg_missile_projectile_with_effects(
                                 attacker_id,
@@ -585,7 +566,7 @@ impl GameLogic {
                                 effects,
                             )
                         }
-                    } else if should_apply_technical_cannon_shell(true, tier) {
+                    } else if matches!(tier, TechTier::One) {
                         let spawned = self
                             .spawn_technical_cannon_shell_projectile_with_effects(
                                 attacker_id,
@@ -1791,7 +1772,8 @@ impl GameLogic {
                                 .objects
                                 .get(&attacker_id)
                                 .map(|a| {
-                                    let bonus = self.receiving_weapon_bonus_fields_for_slot(a, slot);
+                                    let bonus =
+                                        self.receiving_weapon_bonus_fields_for_slot(a, slot);
                                     (
                                         a.weapon_slot(slot)
                                             .map(|w| w.splash_radius.max(0.0))

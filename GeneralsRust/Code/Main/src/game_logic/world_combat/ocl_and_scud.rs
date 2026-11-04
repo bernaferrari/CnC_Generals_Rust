@@ -2252,6 +2252,23 @@ impl GameLogic {
     }
 
     /// Infer Technical salvage tier from residual weapon stats / upgrade tags.
+    /// Technical tier from the authored weapon in `slot`; `None` when the slot
+    /// does not hold a Technical weapon (hq-2qedt.173).
+    pub(in super::super) fn technical_tier_for_authored_weapon(
+        obj: &Object,
+        slot: u8,
+    ) -> Option<crate::game_logic::host_technical::TechnicalWeaponTier> {
+        use crate::game_logic::host_technical::{
+            TECHNICAL_CANNON, TECHNICAL_MACHINE_GUN, TECHNICAL_RPG, TechnicalWeaponTier,
+        };
+        match obj.selected_weapon_name(slot)? {
+            TECHNICAL_MACHINE_GUN => Some(TechnicalWeaponTier::Base),
+            TECHNICAL_CANNON => Some(TechnicalWeaponTier::One),
+            TECHNICAL_RPG => Some(TechnicalWeaponTier::Two),
+            _ => None,
+        }
+    }
+
     pub(in super::super) fn technical_tier_from_object(
         obj: &Object,
     ) -> crate::game_logic::host_technical::TechnicalWeaponTier {
