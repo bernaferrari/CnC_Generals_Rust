@@ -179,8 +179,6 @@ pub fn is_ranger_template(template_name: &str) -> bool {
     n.contains("ranger") || n.contains("infantryranger")
 }
 
-/// Whether residual fire should apply Ranger residual path.
-
 /// Cubic Bezier residual sample for RangerFlashBangGrenade DumbProjectileBehavior.
 pub fn flashbang_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
     let t = t.clamp(0.0, 1.0);
@@ -208,10 +206,6 @@ pub fn flashbang_shell_flight_frames(from: Vec3, to: Vec3) -> u32 {
     let dist = (dx * dx + dz * dz).sqrt().max(1.0);
     let frames = (dist / (FLASHBANG_PROJECTILE_SPEED / RANGER_LOGIC_FPS)).ceil() as u32;
     frames.clamp(4, 180)
-}
-
-pub fn should_apply_ranger_residual(is_ranger: bool) -> bool {
-    is_ranger
 }
 
 /// Whether flashbang secondary is residual-equipped.

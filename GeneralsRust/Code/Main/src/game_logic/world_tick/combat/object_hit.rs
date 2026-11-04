@@ -1231,14 +1231,18 @@ impl GameLogic {
                         effects,
                     );
                 } else if {
-                    // USA Ranger residual: rifle intended-only or FlashBang dual-radius splash.
+                    // USA Ranger residual: RangerAdvancedCombatRifle intended-only or
+                    // RangerFlashBangGrenadeWeapon dual-radius splash, keyed on the fired
+                    // authored weapon (C++ Weapon::fireWeapon; no chassis-name gate).
                     use crate::game_logic::host_ranger::{
-                        is_ranger_template, should_apply_ranger_residual,
+                        RANGER_FLASHBANG_WEAPON, RANGER_RIFLE_WEAPON,
                     };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| should_apply_ranger_residual(is_ranger_template(&a.template_name)))
-                        .unwrap_or(false)
+                    self.objects.get(&attacker_id).is_some_and(|a| {
+                        a.weapon_name_for_slot(slot).is_some_and(|w| {
+                            w.eq_ignore_ascii_case(RANGER_RIFLE_WEAPON)
+                                || w.eq_ignore_ascii_case(RANGER_FLASHBANG_WEAPON)
+                        })
+                    })
                 } {
                     let flash_slot = slot == 1;
                     let impact = target_position;
