@@ -45,6 +45,10 @@ pub struct HostFireWeaponWhenDamagedData {
     pub continuous_really_damaged: Option<String>,
     pub continuous_rubble: Option<String>,
     pub last_reaction_frame: u32,
+    /// C++ FireWeaponWhenDamagedBehavior.cpp:37-72: one reaction Weapon per
+    /// body state, each with its own READY_TO_FIRE. Indexed by HostBodyDamageType.
+    #[serde(default)]
+    pub reaction_role_frames: [u32; 4],
     pub last_continuous_frame: u32,
     pub continuous_reload_frames: u32,
 }
@@ -64,6 +68,7 @@ impl Default for HostFireWeaponWhenDamagedData {
             continuous_really_damaged: None,
             continuous_rubble: None,
             last_reaction_frame: 0,
+            reaction_role_frames: [0; 4],
             last_continuous_frame: 0,
             continuous_reload_frames: FWWDB_CONTINUOUS_RELOAD_FRAMES,
         }
@@ -142,17 +147,26 @@ impl HostFireWeaponWhenDamagedData {
             return None;
         }
         let name = self.weapon_for_state(state, false)?.to_string();
-        // C++ getStatus()==READY_TO_FIRE. DelayBetweenShots 0 stays ready every hit.
+        // C++ getStatus()==READY_TO_FIRE on this role's own Weapon
+        // (FireWeaponWhenDamagedBehavior.cpp:167-191). DelayBetweenShots 0 stays ready.
+        let role = match state {
+            HostBodyDamageType::Pristine => 0,
+            HostBodyDamageType::Damaged => 1,
+            HostBodyDamageType::ReallyDamaged => 2,
+            HostBodyDamageType::Rubble => 3,
+        };
+        let role_last = self.reaction_role_frames[role];
         let reload =
             crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_nominal(&name)
                 .map(|secs| (secs * 30.0).round() as u32)
                 .unwrap_or(0);
         if reload > 0
-            && self.last_reaction_frame != 0
-            && current_frame.saturating_sub(self.last_reaction_frame) < reload
+            && role_last != 0
+            && current_frame.saturating_sub(role_last) < reload
         {
             return None;
         }
+        self.reaction_role_frames[role] = current_frame.max(1);
         self.last_reaction_frame = current_frame.max(1);
         Some(name)
     }
@@ -300,5 +314,40 @@ mod tests {
             .tick_continuous(HostBodyDamageType::Damaged, 1 + reload + reload)
             .unwrap();
         assert!(w2.contains("PoisonField"));
+    }
+
+    #[test]
+    fn reaction_roles_have_independent_weapon_readiness() {
+        // C++ FireWeaponWhenDamagedBehavior.cpp:37-72 allocates one Weapon per
+        // reaction role; onDamage (167-191) checks only that role's
+        // READY_TO_FIRE. A Damaged shot must not put Pristine on cooldown.
+        // WeaponStore is per-world; publish a services bag for the lookup.
+        let services = gamelogic::system::engine_stores::new_world_services();
+        gamelogic::system::engine_stores::with_world_services(&services, || {
+            const NAME: &str = "__RustFwwdPerRoleDelay";
+            let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+            let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+                let mut t = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
+                t.primary_damage = 10.0;
+                t.min_delay_between_shots = 60;
+                t.max_delay_between_shots = 60;
+                store.add_weapon_template(t);
+            });
+            let mut d = HostFireWeaponWhenDamagedData {
+                reaction_pristine: Some(NAME.into()),
+                reaction_damaged: Some(NAME.into()),
+                ..Default::default()
+            };
+            assert!(d.on_damage(5.0, HostBodyDamageType::Damaged, 10, 0).is_some());
+            assert!(
+                d.on_damage(5.0, HostBodyDamageType::Damaged, 11, 0).is_none(),
+                "same role reloading"
+            );
+            assert!(
+                d.on_damage(5.0, HostBodyDamageType::Pristine, 11, 0).is_some(),
+                "other role has its own ready Weapon"
+            );
+            assert!(d.on_damage(5.0, HostBodyDamageType::Damaged, 70, 0).is_some());
+        });
     }
 }
