@@ -2350,3 +2350,75 @@ fn gattling_discharge_fire_lane_routes_on_authored_weapon_not_chassis_name_hq_2q
         );
     }
 }
+
+#[test]
+fn humvee_tow_object_hit_and_unit_map_key_on_authored_weapon_not_chassis_name_hq_2qedt_246() {
+    use crate::game_logic::host_humvee::{
+        HUMVEE_MISSILE_WEAPON, is_humvee_template,
+    };
+    use crate::game_logic::weapon_bootstrap::{
+        ensure_host_weapon_store, primary_weapon_name_for_unit, secondary_weapon_name_for_unit,
+    };
+
+    ensure_host_weapon_store();
+    for name in [
+        "USA_Humvee",
+        "AmericaVehicleHumvee",
+        "TestHumvee",
+        "GoldenHumvee",
+    ] {
+        assert_eq!(primary_weapon_name_for_unit(name), None, "{name}");
+        assert_eq!(secondary_weapon_name_for_unit(name), None, "{name}");
+    }
+
+    let mut game_logic = GameLogic::new();
+    let mut carrier = crate::game_logic::ThingTemplate::new("AuthoredTowCarrier");
+    carrier
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(400.0)
+        .set_primary_weapon_name(crate::game_logic::host_humvee::HUMVEE_GUN_WEAPON)
+        .set_secondary_weapon_name(HUMVEE_MISSILE_WEAPON);
+    assert!(!is_humvee_template(&carrier.name));
+    game_logic.templates.insert(carrier.name.clone(), carrier);
+    let mut victim = crate::game_logic::ThingTemplate::new("TowVictimTank");
+    victim
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(800.0);
+    game_logic.templates.insert(victim.name.clone(), victim);
+
+    let shooter = game_logic
+        .create_object("AuthoredTowCarrier", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let victim_id = game_logic
+        .create_object("TowVictimTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .unwrap();
+    game_logic.frame = 100;
+    {
+        let a = game_logic.host_object_mut(shooter).unwrap();
+        a.target = Some(victim_id);
+        a.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        a.active_weapon_slot = 1;
+        if let Some(w) = a.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.pre_attack_delay = 0.0;
+        }
+        if let Some(w) = a.secondary_weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.pre_attack_delay = 0.0;
+        }
+    }
+    let before = game_logic.humvee_tow_residual_fires;
+    for _ in 0..6 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_combat(&[shooter, victim_id], LOGIC_FRAME_TIMESTEP);
+    }
+    assert!(
+        game_logic.humvee_tow_residual_fires > before,
+        "authored HumveeMissileWeapon hit takes the Humvee TOW residual route regardless of chassis name"
+    );
+}

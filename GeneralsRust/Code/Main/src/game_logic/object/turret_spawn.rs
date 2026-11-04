@@ -265,9 +265,6 @@ fn parse_turret_module(module: &BehaviorModuleDefinition) -> TurretSpawnSpec {
 fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
     use crate::game_logic::host_base_defense::is_patriot_battery_structure;
     use crate::game_logic::host_battlemaster::BATTLE_MASTER_TURRET_TURN_RATE;
-    use crate::game_logic::host_humvee::{
-        HUMVEE_TURRET_RECENTER_FRAMES, HUMVEE_TURRET_TURN_RATE, is_humvee_template,
-    };
     use crate::game_logic::host_neutron_shell::is_nuke_cannon_template;
     use crate::game_logic::host_nuke_cannon::NUKE_CANNON_TURRET_TURN_RATE;
     use crate::game_logic::host_strategy_center::{
@@ -315,12 +312,6 @@ fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
         spec.max_idle_scan_angle_rad = 45.0_f32.to_radians();
         spec.min_idle_scan_interval = 15;
         spec.max_idle_scan_interval = 30;
-        return spec;
-    }
-
-    if is_humvee_template(template_name) {
-        let mut spec = TurretSpawnSpec::enabled_with_turn_rate(HUMVEE_TURRET_TURN_RATE);
-        spec.recenter_frames = HUMVEE_TURRET_RECENTER_FRAMES;
         return spec;
     }
 

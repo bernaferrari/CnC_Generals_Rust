@@ -872,13 +872,19 @@ impl Object {
             target_is_air,
         );
 
-        // Humvee residual: airborne targets prefer air TOW after TOW upgrade.
-        let humvee_prefer_aa = crate::game_logic::host_humvee::humvee_prefer_air_tow(
-            crate::game_logic::host_humvee::is_humvee_template(&self.template_name),
-            self.has_upgrade_tag(crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW)
-                || self.has_upgrade_tag("Upgrade_AmericaTOWMissile"),
-            target_is_air,
-        );
+        // Humvee residual: airborne targets prefer TOW when authored HumveeMissileWeapon(/Air).
+        let humvee_prefer_aa = {
+            use crate::game_logic::host_humvee::{
+                HUMVEE_MISSILE_WEAPON, HUMVEE_MISSILE_WEAPON_AIR,
+            };
+            target_is_air
+                && (self.weapon_name_for_slot(1).is_some_and(|w| {
+                    w.eq_ignore_ascii_case(HUMVEE_MISSILE_WEAPON)
+                        || w.eq_ignore_ascii_case(HUMVEE_MISSILE_WEAPON_AIR)
+                }) || self.weapon_name_for_slot(2).is_some_and(|w| {
+                    w.eq_ignore_ascii_case(HUMVEE_MISSILE_WEAPON_AIR)
+                }))
+        };
 
         if secondary_ok {
             if scud_prefer_toxin || quad_prefer_aa || avenger_prefer_aa || humvee_prefer_aa {

@@ -118,28 +118,14 @@ impl GameLogic {
             if avenger_air {
                 self.avenger.record_air_laser_fire();
             }
-            // Humvee air TOW residual damage boost vs aircraft.
+            // Humvee air TOW residual damage boost: keys on authored HumveeMissileWeaponAir.
             let humvee_air_tow = {
-                use crate::game_logic::host_humvee::{
-                    HUMVEE_AIR_TOW_DAMAGE, humvee_prefer_air_tow, is_humvee_template,
-                };
-                let target_is_air = self
-                    .objects
-                    .get(&target_id)
-                    .map(|t| t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target)
-                    .unwrap_or(false);
-                self.objects
-                    .get(&attacker_id)
-                    .map(|a| {
-                        humvee_prefer_air_tow(
-                            is_humvee_template(&a.template_name),
-                            a.has_upgrade_tag(
-                                crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW,
-                            ) || a.has_upgrade_tag("Upgrade_AmericaTOWMissile"),
-                            target_is_air,
-                        ) && slot == 1
+                use crate::game_logic::host_humvee::HUMVEE_MISSILE_WEAPON_AIR;
+                self.objects.get(&attacker_id).is_some_and(|a| {
+                    a.weapon_name_for_slot(slot).is_some_and(|w| {
+                        w.eq_ignore_ascii_case(HUMVEE_MISSILE_WEAPON_AIR)
                     })
-                    .unwrap_or(false)
+                })
             };
             if humvee_air_tow {
                 weapon_damage = crate::game_logic::host_humvee::HUMVEE_AIR_TOW_DAMAGE;
@@ -1282,23 +1268,17 @@ impl GameLogic {
                         )
                     };
                 } else if {
-                    // USA Humvee TOW residual: HumveeMissile / PatriotMissile flight + splash.
+                    // USA Humvee TOW residual: keys on authored HumveeMissileWeapon(/Air),
+                    // not chassis name + TOW upgrade tag (hq-2qedt.246).
                     use crate::game_logic::host_humvee::{
-                        is_humvee_template, should_apply_humvee_tow_residual,
+                        HUMVEE_MISSILE_WEAPON, HUMVEE_MISSILE_WEAPON_AIR,
                     };
-                    use crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW;
-                    let (is_hv, has_tow) = self
-                        .objects
-                        .get(&attacker_id)
-                        .map(|a| {
-                            (
-                                is_humvee_template(&a.template_name),
-                                a.has_upgrade_tag(UPGRADE_AMERICA_TOW)
-                                    || a.has_upgrade_tag("Upgrade_AmericaTOWMissile"),
-                            )
+                    self.objects.get(&attacker_id).is_some_and(|a| {
+                        a.weapon_name_for_slot(slot).is_some_and(|w| {
+                            w.eq_ignore_ascii_case(HUMVEE_MISSILE_WEAPON)
+                                || w.eq_ignore_ascii_case(HUMVEE_MISSILE_WEAPON_AIR)
                         })
-                        .unwrap_or((false, false));
-                    should_apply_humvee_tow_residual(is_hv, has_tow, slot == 1)
+                    })
                 } {
                     use crate::game_logic::host_humvee::{
                         HUMVEE_TOW_FIRE_AUDIO as HV_TOW_AUDIO, humvee_prefer_air_tow as hv_air_tow,

@@ -117,7 +117,8 @@ fn secondary_weapon_name_for_known_units() {
     );
     assert_eq!(
         secondary_weapon_name_for_unit("USA_Humvee"),
-        Some(HUMVEE_SECONDARY_WEAPON)
+        None,
+        "hq-2qedt.246: Humvee secondary comes from authored WeaponSet"
     );
     assert_eq!(secondary_weapon_name_for_unit("GLA_Soldier"), None);
     assert_eq!(secondary_weapon_name_for_unit("USA_Dozer"), None);

@@ -216,15 +216,6 @@ pub fn is_humvee_template(template_name: &str) -> bool {
 }
 
 /// Prefer air TOW residual when Humvee has TOW upgrade and target is aircraft.
-/// Whether combat should route through Humvee TOW projectile residual (secondary slot + upgrade).
-pub fn should_apply_humvee_tow_residual(
-    is_humvee: bool,
-    has_tow_upgrade: bool,
-    secondary_slot: bool,
-) -> bool {
-    is_humvee && has_tow_upgrade && secondary_slot
-}
-
 /// Per-frame ground TOW missile step speed (dist/frame) after ignition.
 pub fn humvee_ground_tow_missile_step_speed(ignited: bool) -> f32 {
     if ignited {
@@ -610,9 +601,6 @@ mod tests {
     #[test]
     fn tow_missile_projectile_peels() {
         assert!(honesty_humvee_tow_missile_projectile_ok());
-        assert!(should_apply_humvee_tow_residual(true, true, true));
-        assert!(!should_apply_humvee_tow_residual(true, false, true));
-        assert!(!should_apply_humvee_tow_residual(true, true, false));
         assert!(humvee_ground_tow_flight_frames(150.0) >= 1);
         assert!(humvee_air_tow_flight_frames(320.0) >= 1);
     }

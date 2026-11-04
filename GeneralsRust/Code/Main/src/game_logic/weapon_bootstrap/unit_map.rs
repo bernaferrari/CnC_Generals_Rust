@@ -24,9 +24,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "Nuke_ChinaInfantryTankHunter"
         | "Infa_ChinaInfantryTankHunter"
         | "TestTankHunter" => Some(TANK_HUNTER_PRIMARY_WEAPON),
-        "USA_Humvee" | "AmericaVehicleHumvee" | "TestHumvee" | "GoldenHumvee" => {
-            Some(HUMVEE_PRIMARY_WEAPON)
-        }
         "USA_Crusader" | "USA_CrusaderTank" | "AmericaTankCrusader" | "TestCrusader" => {
             Some(CRUSADER_TANK_GUN)
         }
@@ -368,9 +365,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_avenger::is_avenger_template(template_name) {
                 return Some(AVENGER_TARGET_DESIGNATOR);
             }
-            if crate::game_logic::host_humvee::is_humvee_template(template_name) {
-                return Some(HUMVEE_PRIMARY_WEAPON);
-            }
             if crate::game_logic::host_combat_cycle::is_combat_cycle_template(template_name) {
                 return Some(
                     match crate::game_logic::host_combat_cycle::default_spawn_rider_for_template(
@@ -404,9 +398,6 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "AmericaInfantryMissileDefender"
         | "TestMissileDefender"
         | "SupW_AmericaInfantryMissileDefender" => Some(MISSILE_DEFENDER_LASER_GUIDED_WEAPON),
-        "USA_Humvee" | "AmericaVehicleHumvee" | "TestHumvee" | "GoldenHumvee" => {
-            Some(HUMVEE_SECONDARY_WEAPON)
-        }
         "USA_Avenger" | "AmericaTankAvenger" | "AmericaVehicleAvenger" | "TestAvenger" => {
             Some(AVENGER_AIR_LASER)
         }
