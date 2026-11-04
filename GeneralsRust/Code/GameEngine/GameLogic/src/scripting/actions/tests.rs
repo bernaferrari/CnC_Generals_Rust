@@ -1658,3 +1658,12 @@ async fn enable_disable_execute_script_actions_call_live_script_engine() {
         assert!(!is_active, "disable_script must mutate live ScriptEngine");
     }
 }
+
+#[test]
+fn create_explosion_action_is_labelled_non_retail_vfx_only() {
+    // hq-2qedt.14: no C++ ScriptActions counterpart; the `damage` param is a
+    // VFX radius only and must never be described as dealing damage.
+    let desc = CreateExplosionAction.description().to_ascii_lowercase();
+    assert!(desc.contains("non-retail"), "{desc}");
+    assert!(desc.contains("no damage"), "{desc}");
+}
