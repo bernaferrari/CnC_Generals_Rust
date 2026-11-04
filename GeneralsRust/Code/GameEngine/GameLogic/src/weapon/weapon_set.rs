@@ -1034,11 +1034,11 @@ impl WeaponSet {
     /// True when every filled slot is OUT_OF_AMMO. Empty slots do not count.
     /// An all-empty set is true, matching WeaponSet.cpp:968-980.
     pub fn is_out_of_ammo(&self) -> bool {
-        self.is_out_of_ammo_with_status(|weapon| weapon.get_status())
+        self.is_out_of_ammo_with_status(|weapon| weapon.peek_status_at(crate::helpers::TheGameLogic::get_frame()))
     }
 
     pub(crate) fn is_out_of_ammo_at(&self, frame: u32) -> bool {
-        self.is_out_of_ammo_with_status(|weapon| weapon.get_status_at(frame))
+        self.is_out_of_ammo_with_status(|weapon| weapon.peek_status_at(frame))
     }
 
     /// Pure WeaponSet.cpp:968-980 check: never writes stored status.

@@ -402,7 +402,7 @@ impl WeaponSet {
                     let damage = match objects {
                         Some((source, target)) => match world {
                             Some(world) => {
-                                let status = weapon.get_status_at(world.frame());
+                                let status = weapon.peek_status_at(world.frame());
                                 if status == super::WeaponStatus::OutOfAmmo
                                     && !weapon.get_template().get_auto_reloads_clip()
                                 {

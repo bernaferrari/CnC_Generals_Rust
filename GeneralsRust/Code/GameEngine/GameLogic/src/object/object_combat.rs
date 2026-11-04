@@ -2487,7 +2487,7 @@ impl Object {
             } else if !self.test_status(ObjectStatusTypes::IsAttacking) {
                 crate::weapon::WeaponSetConditionType::None
             } else {
-                let weapon_status = weapon.get_status_at(now);
+                let weapon_status = weapon.peek_status_at(now);
                 let mut condition = match weapon_status {
                     WeaponStatus::BetweenFiringShots => {
                         crate::weapon::WeaponSetConditionType::Between
@@ -2565,7 +2565,7 @@ impl Object {
 
         if let Some((weapon, _slot)) = self.weapon_set.get_current_weapon() {
             if matches!(
-                weapon.get_status(),
+                weapon.peek_status_at(crate::helpers::TheGameLogic::get_frame()),
                 crate::weapon::WeaponStatus::PreAttack
                     | crate::weapon::WeaponStatus::BetweenFiringShots
                     | crate::weapon::WeaponStatus::ReloadingClip

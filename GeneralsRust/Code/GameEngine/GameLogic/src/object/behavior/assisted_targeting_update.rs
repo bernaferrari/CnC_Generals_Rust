@@ -472,7 +472,7 @@ mod tests {
             assert_eq!(
                 object_guard
                     .get_current_weapon()
-                    .map(|(weapon, _slot)| weapon.get_status()),
+                    .map(|(weapon, _slot)| weapon.peek_status_at(crate::helpers::TheGameLogic::get_frame())),
                 Some(WeaponStatus::ReadyToFire)
             );
             assert!(

@@ -165,3 +165,35 @@ fn weapon_selection_observes_status_through_mut_owner_and_peeks_in_selector() {
         "&self selector status read is a pure peek"
     );
 }
+
+#[test]
+fn shared_borrow_status_reads_are_pure_and_crc_reads_observed_status() {
+    // hq-2qedt.78: every `&self` status read (get_status_at, estimate,
+    // percent-ready, remaining-ammo, WeaponSet out-of-ammo) is pure. Only the
+    // `&mut` owner (`observe_status_at`) refreshes stored `m_status`, which is
+    // what the CRC/xfer path (crc_snapshot.rs load_status) serialises.
+    let mut template = WeaponTemplate::new("PureSharedReadGun".into());
+    template.clip_size = 1;
+    let mut weapon = Weapon::new_at(Arc::new(template), WeaponSlotType::Primary, 0);
+    weapon.ammo_in_clip = 1;
+    weapon.when_pre_attack_finished = 0;
+    weapon.when_we_can_fire_again = 10;
+    weapon.when_last_reload_started = 0;
+    weapon.store_status(WeaponStatus::ReloadingClip);
+
+    assert_eq!(weapon.get_status_at(10), WeaponStatus::ReadyToFire);
+    let _ = weapon.get_remaining_ammo_at(10);
+    let mut set = WeaponSet::new();
+    set.restore_weapon(WeaponSlotType::Primary, weapon);
+    assert!(!set.is_out_of_ammo_at(10));
+    let weapon = set.get_weapon_in_slot(WeaponSlotType::Primary).unwrap();
+    assert_eq!(
+        weapon.load_status(),
+        WeaponStatus::ReloadingClip,
+        "&self status reads must not write stored status"
+    );
+
+    let weapon = set.get_weapon_in_slot_mut(WeaponSlotType::Primary).unwrap();
+    assert_eq!(weapon.observe_status_at(10), WeaponStatus::ReadyToFire);
+    assert_eq!(weapon.load_status(), WeaponStatus::ReadyToFire, "CRC sees observed status");
+}
