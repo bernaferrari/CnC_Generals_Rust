@@ -208,20 +208,9 @@ impl GameLogic {
             }
         }
 
-        // Host residual: USA Raptor PRIMARY jet missiles (+ Laser Missiles upgrade).
-        // RETURN_TO_BASE ClipReload airfield rearm residual closed (dock + timer).
-        if crate::game_logic::host_raptor::is_raptor_template(template_name) {
-            use crate::game_logic::host_raptor::{
-                has_laser_missiles_upgrade, is_king_raptor_template, raptor_weapon,
-            };
-            let king = is_king_raptor_template(template_name);
-            let laser = has_laser_missiles_upgrade(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
-            object.weapon = Some(raptor_weapon(king, laser));
-        }
+        // USA Raptor PRIMARY binds from the authored WeaponSet (C++
+        // WeaponSet::updateWeaponSet from ThingTemplate), not a name peel
+        // (hq-2qedt.155). King / Laser Missiles upgrade refresh is unchanged.
 
         // Host residual: China MiG PRIMARY napalm / Nuke dual-radius missiles.
         // Fail-closed: not full RETURN_TO_BASE ClipReload / HistoricBonus Firestorm matrix.

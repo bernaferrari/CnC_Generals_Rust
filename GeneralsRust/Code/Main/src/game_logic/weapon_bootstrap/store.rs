@@ -1231,6 +1231,14 @@ pub(super) fn seed_known_host_weapons() -> usize {
             t.primary_damage_radius = 5.0;
             t.minimum_attack_range = 60.0;
         }
+        // Retail Raptor / AirF_Raptor JetMissile MinimumAttackRange 100 / PrimaryDamageRadius 5 /
+        // AntiAirborneVehicle
+        // (authored source for Raptor PRIMARY at create, hq-2qedt.155).
+        if seed.name == RAPTOR_JET_MISSILE_WEAPON || seed.name == AIRF_RAPTOR_JET_MISSILE_WEAPON {
+            t.primary_damage_radius = 5.0;
+            t.minimum_attack_range = 100.0;
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+        }
         if seed.name == DRAGON_TANK_FLAME_WEAPON || seed.name == DRAGON_TANK_FLAME_WEAPON_UPGRADED {
             t.primary_damage_radius = 5.0;
             t.secondary_damage = if seed.name == DRAGON_TANK_FLAME_WEAPON_UPGRADED {
