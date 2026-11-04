@@ -2,6 +2,27 @@
 //! C++ ActiveBody.cpp:641-649,1190-1226; structure updates finish without deletion.
 use super::*;
 
+/// Test-thread owner (hq-2qedt.20): Main worlds allocate entity epochs and
+/// admit templates through WorldServices / CommonServices; bind both on this
+/// thread only, without touching production admission.
+fn bind_test_world() {
+    if game_engine::common::common_services::try_common_services().is_none() {
+        game_engine::common::common_services::install_common_services(std::sync::Arc::new(
+            game_engine::common::common_services::CommonServices::new(),
+        ));
+    }
+    if gamelogic::system::engine_stores::try_active_services().is_none() {
+        gamelogic::system::engine_stores::install_services(
+            gamelogic::system::engine_stores::new_world_services(),
+        );
+    }
+    if crate::main_services::try_main_services().is_none() {
+        crate::main_services::install_main_services(std::sync::Arc::new(
+            crate::main_services::MainServices::new(),
+        ));
+    }
+}
+
 fn collapse_owner_world(delay: u32, initial_fx: &str) -> (GameLogic, ObjectId) {
     let mut parser = crate::assets::IniParser::new();
     parser
@@ -29,6 +50,7 @@ fn collapse_owner_world(delay: u32, initial_fx: &str) -> (GameLogic, ObjectId) {
 
 #[test]
 fn same_id_worlds_begin_collapse_from_their_admitted_definitions() {
+    bind_test_world();
     let (mut first, first_id) = collapse_owner_world(66, "FX_FirstInitial");
     let (mut second, second_id) = collapse_owner_world(132, "FX_SecondInitial");
     assert_eq!(
@@ -190,6 +212,7 @@ fn finished(world: &GameLogic, id: ObjectId, collapse: bool) -> bool {
 }
 
 fn exercise_retained_body(coupled: bool) {
+    bind_test_world();
     for collapse in [false, true] {
         let (mut world, id, victim) = lethal_owner(collapse);
         let mut shadow = crate::gameworld_shadow::GameWorldShadow::new(64);
