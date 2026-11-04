@@ -2848,8 +2848,9 @@ impl GameLogic {
                 crate::game_logic::host_troop_crawler::is_troop_crawler_template(template_name);
             if is_troop_crawler_spawn {
                 object.install_troop_crawler_transport();
-                object.weapon =
-                    Some(crate::game_logic::host_troop_crawler::troop_crawler_assault_weapon());
+                // PRIMARY binds from the authored WeaponSet above (C++
+                // WeaponSet::updateWeaponSet from ThingTemplate), not a
+                // template-name host table (hq-2qedt.141).
                 if crate::game_logic::host_troop_crawler::troop_crawler_spawn_is_detector(
                     template_name,
                 ) {

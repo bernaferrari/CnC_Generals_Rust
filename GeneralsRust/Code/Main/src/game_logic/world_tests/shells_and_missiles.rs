@@ -2540,6 +2540,43 @@ fn humvee_create_primary_comes_from_authored_weapon_set() {
     );
 }
 
+/// hq-2qedt.141: Troop Crawler PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not the
+/// troop_crawler_assault_weapon() name peel.
+#[test]
+fn troop_crawler_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::host_troop_crawler::{
+        TROOP_CRAWLER_ASSAULT_DAMAGE, TROOP_CRAWLER_ASSAULT_RANGE,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaVehicleTroopCrawler");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("ChinaVehicleTroopCrawler".to_string(), tpl);
+    let id = game_logic
+        .create_object(
+            "ChinaVehicleTroopCrawler",
+            Team::China,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("troop crawler");
+    let obj = game_logic.host_object(id).expect("troop crawler");
+    let prim = obj.weapon.clone().expect("authored primary");
+    assert!(
+        (prim.range - TROOP_CRAWLER_ASSAULT_RANGE).abs() > 0.01
+            || (prim.damage - TROOP_CRAWLER_ASSAULT_DAMAGE).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by troop_crawler_assault_weapon() name peel: {prim:?}"
+    );
+}
+
 /// Residual: USA Comanche 20mm intended + anti-tank dual-radius residual.
 #[test]
 fn comanche_residual_cannon_and_antitank() {
