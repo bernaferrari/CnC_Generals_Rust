@@ -566,9 +566,10 @@ impl AIPlayer {
         game_logic: &(impl AiReadSource + ?Sized),
         template_name: &str,
     ) -> bool {
+        // C++ KINDOF_FS_POWER && !KINDOF_CASH_GENERATOR — no name peel.
         let game_logic = &AiWorldView::new(game_logic);
         let Some(template) = game_logic.template(template_name) else {
-            return template_name.contains("PowerPlant");
+            return false;
         };
         let is_power =
             template.is_kind_of(KindOf::FSPower) || template.is_kind_of(KindOf::PowerPlant);
@@ -722,10 +723,7 @@ impl AIPlayer {
         let game_logic = &AiWorldView::new(game_logic);
         let is_cash = game_logic
             .template(thing_name)
-            .map(|t| t.is_kind_of(KindOf::SupplyCenter) || t.is_kind_of(KindOf::FSSupplyCenter))
-            .unwrap_or_else(|| {
-                thing_name.contains("SupplyCenter") || thing_name.contains("SupplyStash")
-            });
+            .is_some_and(|t| t.is_kind_of(KindOf::SupplyCenter) || t.is_kind_of(KindOf::FSSupplyCenter));
         // C++ always findSupplyCenter first; non-cash may then use m_curWarehouseID.
         let mut warehouse_id = self.find_supply_center_in_view(game_logic, minimum_cash);
         if !is_cash {

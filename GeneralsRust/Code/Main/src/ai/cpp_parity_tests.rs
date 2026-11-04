@@ -1190,6 +1190,37 @@ fn empty_dozer_catalog_queues_nothing() {
 }
 
 #[test]
+fn ai_kindof_gates_fail_closed_without_name_peel() {
+    // Invent triage: missing catalog entries must not classify by substring.
+    let logic = crate::game_logic::GameLogic::new();
+    assert!(
+        !AIPlayer::template_is_command_center(&logic, "FakeCommandCenterHut"),
+        "name-contains CommandCenter is invent"
+    );
+    assert!(
+        !AIPlayer::template_is_power_plan(&logic, "AmericaPowerPlant"),
+        "missing template must not invent PowerPlant from name"
+    );
+
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut cc = crate::game_logic::ThingTemplate::new("AmericaCommandCenter");
+    cc.add_kind_of(crate::game_logic::KindOf::CommandCenter);
+    logic.templates.insert("AmericaCommandCenter".into(), cc);
+    assert!(AIPlayer::template_is_command_center(
+        &logic,
+        "AmericaCommandCenter"
+    ));
+
+    let mut plant = crate::game_logic::ThingTemplate::new("AmericaPowerPlant");
+    plant
+        .add_kind_of(crate::game_logic::KindOf::FSPower)
+        .add_kind_of(crate::game_logic::KindOf::PowerPlant);
+    logic.templates.insert("AmericaPowerPlant".into(), plant);
+    assert!(AIPlayer::template_is_power_plan(&logic, "AmericaPowerPlant"));
+}
+
+
+#[test]
 fn aidata_rebuild_delay_gates_destroyed_structure() {
     assert!((AIPlayer::REBUILD_DELAY_SECONDS - 30.0).abs() < 1e-5);
     let b = AIBuildingInfo::new("USA_Barracks".into(), Vec3::ZERO, 2);
