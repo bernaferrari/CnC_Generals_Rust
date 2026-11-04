@@ -383,3 +383,45 @@ fn unavailable_shock_module_rejects_before_body_and_restored_impulse_uses_receiv
     assert!(receiver_physics.installed_is_stunned().unwrap());
     assert_eq!(health(&peer.source), 100.0);
 }
+
+fn attacked_state(game: &NativeMatch, victim: i32, attacker: i32) -> (bool, u32) {
+    let player = game.players.get_player(victim).unwrap();
+    let player = player.read().unwrap();
+    (player.get_attacked_by(attacker), player.get_attacked_frame())
+}
+
+#[test]
+fn attacked_by_same_id_two_worlds_records_only_receiving_player_in_delivery_order() {
+    // CPP ActiveBody::attemptDamage -> victim controller Player::setAttackedBy(srcIndex),
+    // m_attackedFrame = TheGameLogic->getFrame(); per-Player, no process-global log.
+    let services = crate::system::engine_stores::new_world_services();
+    crate::system::engine_stores::with_world_services(&services, || {
+    let mut game =
+        super::lethal_damage::native_world_with_templates(damage_actor(false), damage_actor(false));
+    let peer =
+        super::lethal_damage::native_world_with_templates(damage_actor(false), damage_actor(false));
+    let source = game.source.read().unwrap().get_id();
+    assert_eq!(source, peer.source.read().unwrap().get_id());
+    let target = Arc::clone(&game.target);
+    assert_eq!(target.read().unwrap().get_id(), peer.target.read().unwrap().get_id());
+    let peer_victim = peer.players.get_player(1).unwrap();
+    let peer_guard = peer_victim.write().unwrap();
+    game.operate(40, |world| {
+        assert_eq!(world.attempt_damage_owned(&target, &mut hit(source, 10.0)).unwrap(), 10.0)
+    });
+    assert_eq!(attacked_state(&game, 1, 0), (true, 40));
+    assert_eq!(attacked_state(&game, 0, 1), (false, 0));
+    game.operate(47, |world| {
+        world.attempt_damage_owned(&target, &mut hit(source, 5.0)).unwrap()
+    });
+    assert_eq!(attacked_state(&game, 1, 0), (true, 47), "later delivery restamps frame");
+    drop(peer_guard);
+    assert_eq!(attacked_state(&peer, 1, 0), (false, 0));
+    assert_eq!(health(&peer.target), 100.0);
+    // A zero-amount delivery never reaches setAttackedBy (amount > 0 gate).
+    game.operate(52, |world| {
+        world.attempt_damage_owned(&target, &mut hit(source, 0.0)).unwrap()
+    });
+    assert_eq!(attacked_state(&game, 1, 0), (true, 47));
+    });
+}
