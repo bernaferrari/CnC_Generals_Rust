@@ -386,9 +386,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             {
                 return Some(MISSILE_DEFENDER_MISSILE_WEAPON);
             }
-            if crate::game_logic::host_battlemaster::is_battlemaster_template(template_name) {
-                return Some(BATTLE_MASTER_TANK_GUN);
-            }
             if crate::game_logic::host_dragon_tank::is_dragon_tank_template(template_name) {
                 return Some(DRAGON_TANK_FLAME_WEAPON);
             }
@@ -587,6 +584,15 @@ mod name_peel_tests {
         assert_unmapped(
             "FixtureBattleDroneVariant",
             gl::host_slave_drones::is_battle_drone_template,
+        );
+    }
+
+    /// hq-2qedt.227
+    #[test]
+    fn battlemaster_variant_name_has_no_unit_map_weapon() {
+        assert_unmapped(
+            "FixtureBattleMasterVariant",
+            gl::host_battlemaster::is_battlemaster_template,
         );
     }
 }
