@@ -2733,9 +2733,12 @@ fn patriot_assisted_targeting_request_assist_range_residual() {
         game_logic.patriot_assist_residual_accepts() >= 1,
         "near assistant must accept assist residual"
     );
-    assert!(
-        game_logic.patriot_assist_residual_fires() >= 1,
-        "assist residual must fire at least one assist-weapon shot same frame"
+    // hq-2qedt.32.5: assist fires count at fire commit, so the same-frame
+    // evidence is the AssistedTargetingUpdate TEMP lock on the assist slot.
+    assert_eq!(
+        game_logic.host_object(assistant_id).map(|a| (a.weapon_lock_type, a.weapon_lock_slot)),
+        Some((crate::game_logic::WeaponLockType::LockedTemporarily, 1)),
+        "accepted assistant must TEMP-lock AssistingWeaponSlot = SECONDARY"
     );
 
     // Advance AssistingClipSize shots (DelayBetweenShots 8 frames).
@@ -2765,10 +2768,8 @@ fn patriot_assisted_targeting_request_assist_range_residual() {
         damage_dealt >= PATRIOT_ASSIST_DAMAGE,
         "assist residual must contribute damage (dealt={damage_dealt}, before={enemy_hp_before}, after={enemy_hp_after})"
     );
-    assert!(
-        game_logic.honesty_patriot_assist_ok(),
-        "patriot assist honesty must record request + accept + fire"
-    );
+    // Fire-commit honesty (request + accept + fire) is proven via update() in
+    // patriot_assist_clip_counts_exactly_four_fire_commits_via_update.
     // BinaryDataStream laser residual honesty (LaserFromAssisted + LaserToTarget).
     assert!(
         game_logic.honesty_patriot_assist_laser_ok(),
@@ -2781,18 +2782,6 @@ fn patriot_assisted_targeting_request_assist_range_residual() {
     assert!(
         game_logic.patriot_assist_laser_to_target() >= 1,
         "LaserToTarget residual must fire"
-    );
-    // Full clip residual honesty: 4 assist shots when victim survives.
-    assert!(
-        game_logic.patriot_assist_residual_fires() >= PATRIOT_ASSISTING_CLIP_SIZE
-            || enemy_hp_after <= 0.0
-            || !game_logic
-                .host_object(enemy_id)
-                .map(|e| e.is_alive())
-                .unwrap_or(false),
-        "expected AssistingClipSize={} assist fires or victim dead (got {})",
-        PATRIOT_ASSISTING_CLIP_SIZE,
-        game_logic.patriot_assist_residual_fires()
     );
     // Far patriot never accepted.
     assert!(
@@ -3021,5 +3010,91 @@ fn patriot_temp_locked_assistant_does_not_re_request_assist() {
             .iter()
             .any(|p| p.assistant_id == free_id),
         "no new assistant may be recruited by an assisting Patriot"
+    );
+}
+
+/// C++ AssistedTargetingUpdate::assistAttack (AssistedTargetingUpdate.cpp:74-75)
+/// TEMP-locks AssistingWeaponSlot (retail SECONDARY PatriotMissileAssistWeapon)
+/// and aiAttackObject(victim, AssistingClipSize=4); the nested attack machine
+/// fires exactly four real shots (Object::fireCurrentWeapon --m_maxShotCount)
+/// then releases the TEMP lock. Assist fires are counted at fire commit, not
+/// per assist command. Driven by full `update()`.
+#[test]
+fn patriot_assist_clip_counts_exactly_four_fire_commits_via_update() {
+    use crate::game_logic::WeaponLockType;
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_ASSIST_WEAPON, PATRIOT_ASSISTING_CLIP_SIZE, PATRIOT_PRIMARY_WEAPON,
+        PATRIOT_SECONDARY_WEAPON,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+    patriot_tpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(600.0)
+        .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(PATRIOT_ASSIST_WEAPON)
+        .set_tertiary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+    game_logic
+        .templates
+        .insert("USA_Patriot".to_string(), patriot_tpl);
+
+    // Requester at origin; enemy 200 west (inside requester PRIMARY 225);
+    // assistant 190 east (inside RequestAssistRange 200) -> 390 from enemy:
+    // outside its own PRIMARY, inside assist range.
+    let _requester_id = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("requester");
+    let assistant_id = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(190.0, 0.0, 0.0))
+        .expect("assistant");
+    let enemy_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(-200.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let e = game_logic.host_object_mut(enemy_id).unwrap();
+        e.health.current = 1.0e6;
+        e.health.maximum = 1.0e6;
+        e.max_health = 1.0e6;
+        e.movement.max_speed = 0.0;
+    }
+
+    let mut saw_temp_lock = false;
+    let mut released = false;
+    for _ in 0..240 {
+        game_logic.update();
+        let a = game_logic.host_object(assistant_id).unwrap();
+        if std::env::var("PROBE_325").is_ok() {
+            eprintln!(
+                "f={} fires={} lock={:?}/{} max={} tgt={:?}",
+                game_logic.frame,
+                game_logic.patriot_assist_residual_fires(),
+                a.weapon_lock_type,
+                a.weapon_lock_slot,
+                a.max_shots_to_fire,
+                a.target
+            );
+        }
+        if a.weapon_lock_type == WeaponLockType::LockedTemporarily {
+            assert_eq!(a.weapon_lock_slot, 1, "assist lock on SECONDARY");
+            saw_temp_lock = true;
+        } else if saw_temp_lock {
+            released = true;
+            break;
+        }
+    }
+    assert!(game_logic.patriot_assist_residual_accepts() >= 1);
+    assert!(saw_temp_lock, "assist must take TEMP lock on SECONDARY");
+    assert!(released, "TEMP lock must release when the assist clip empties");
+    assert_eq!(
+        game_logic.patriot_assist_residual_fires(),
+        PATRIOT_ASSISTING_CLIP_SIZE,
+        "exactly AssistingClipSize assist fire commits"
     );
 }

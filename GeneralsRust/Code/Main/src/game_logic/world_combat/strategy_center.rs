@@ -1200,8 +1200,8 @@ impl GameLogic {
                 )
                 .unwrap_or(false);
             if attacked {
-                self.patriot_assist_residual_fires =
-                    self.patriot_assist_residual_fires.saturating_add(1);
+                // Assist fires are counted at fire commit
+                // (Object::assist_clip_fire_commits), not per assist command.
                 self.base_defense_residual_fires =
                     self.base_defense_residual_fires.saturating_add(1);
             }

@@ -1574,6 +1574,10 @@ pub struct Object {
     /// Host residual: cumulative successful fire_at discharges this match.
     #[serde(default)]
     pub fire_intent_count: u32,
+    /// AssistedTargetingUpdate clip shots committed while TEMP-locked on the
+    /// assist slot (Object::fireCurrentWeapon --m_maxShotCount residual).
+    #[serde(default)]
+    pub assist_clip_fire_commits: u32,
 
     /// Last real accepted WeaponSet discharge. This survives save/load as a
     /// v4 ObjectSnapshot tail; it must never be reconstructed from AI intent.

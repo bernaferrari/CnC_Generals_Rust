@@ -2288,7 +2288,9 @@ impl HostAssistedTargetingData {
     /// Retail AmericaPatriotBattery ModuleTag_07 residual for unadmitted templates.
     pub const RETAIL_PATRIOT: Self = Self {
         clip_size: PATRIOT_ASSISTING_CLIP_SIZE,
-        weapon_slot: 0,
+        // FactionBuilding.ini ModuleTag_07: AssistingWeaponSlot = SECONDARY
+        // (PatriotMissileAssistWeapon, retail slots from hq-2qedt.32.2).
+        weapon_slot: 1,
     };
 
     /// Bind from the Object's admitted module declarations; `None` when the

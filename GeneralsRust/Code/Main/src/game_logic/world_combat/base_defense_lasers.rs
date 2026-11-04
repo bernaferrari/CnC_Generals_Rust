@@ -990,7 +990,7 @@ impl GameLogic {
     pub fn honesty_patriot_assist_ok(&self) -> bool {
         self.patriot_assist_residual_requests > 0
             && self.patriot_assist_residual_accepts > 0
-            && self.patriot_assist_residual_fires > 0
+            && self.patriot_assist_residual_fires() > 0
     }
 
     /// Residual honesty: BinaryDataStream LaserFromAssisted + LaserToTarget spawned.
@@ -1002,8 +1002,13 @@ impl GameLogic {
         self.patriot_assist_residual_requests
     }
 
+    /// AssistingClipSize residual: real assist shots committed (fire commit,
+    /// not command enqueue) plus legacy residual count.
     pub fn patriot_assist_residual_fires(&self) -> u32 {
-        self.patriot_assist_residual_fires
+        self.objects
+            .registered_values()
+            .map(|o| o.assist_clip_fire_commits)
+            .fold(self.patriot_assist_residual_fires, u32::saturating_add)
     }
 
     pub fn patriot_assist_residual_accepts(&self) -> u32 {
