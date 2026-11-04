@@ -4620,3 +4620,51 @@ fn overlord_named_non_overlord_gun_skips_overlord_object_hit_residual() {
         "Overlord residual chosen by template-name peel instead of authored weapon"
     );
 }
+
+/// Spawn `template` as Infantry authoring HumveeGun PRIMARY and let it fire at
+/// a TestTank for a few frames (object_hit residual gate fixtures).
+fn fire_named_template_with_humvee_gun(template: &str, team: Team) -> GameLogic {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new(template);
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert(template.to_string(), tpl);
+    let id = game_logic
+        .create_object(template, team, Vec3::new(0.0, 0.0, 0.0))
+        .expect("attacker");
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let (t, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
+        t.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = t.weapon.as_mut() {
+            w.last_fire_time = -20.0;
+            w.reload_time = 0.1;
+        }
+    }
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    game_logic
+}
+
+/// hq-2qedt.182: Jarmen Kell-named template authoring a non-sniper PRIMARY
+/// must not route through the Jarmen Kell sniper residual on object hit.
+#[test]
+fn jarmen_kell_named_non_sniper_weapon_skips_jarmen_object_hit_residual() {
+    let gl = fire_named_template_with_humvee_gun("GLAInfantryJarmenKell", Team::USA);
+    assert_eq!(gl.jarmen_kell_residual_fires(), 0, "Jarmen residual chosen by template-name peel");
+}

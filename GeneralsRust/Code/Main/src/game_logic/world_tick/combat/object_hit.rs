@@ -973,17 +973,13 @@ impl GameLogic {
                     };
                 } else if {
                     // GLA Jarmen Kell residual: primary sniper (intended-only).
-                    use crate::game_logic::host_jarmen_kell::{
-                        is_jarmen_kell_template, should_apply_jarmen_kell_residual,
-                    };
+                    // Keyed on the authored WeaponSet weapon for this slot, not
+                    // the template name (hq-2qedt.182).
+                    use crate::game_logic::host_jarmen_kell::{JARMEN_KELL_RIFLE};
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_jarmen_kell_residual(is_jarmen_kell_template(
-                                &a.template_name,
-                            ))
-                        })
-                        .unwrap_or(false)
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .is_some_and(|n| n == JARMEN_KELL_RIFLE)
                 } {
                     let impact = target_position;
                     let (hits, _destroyed_any) = self.apply_jarmen_kell_residual_at_with_effects(
