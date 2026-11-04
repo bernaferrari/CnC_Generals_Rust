@@ -33,12 +33,13 @@ fn live_hit_context_selects_slave_nearest_to_shooter() {
         &mut health_events,
         None,
     ));
-    assert_eq!(
-        site.hive_slaves[0].hp, initial[0],
-        "must not pick first alive slave"
-    );
-    assert_eq!(site.hive_slaves[1].hp, initial[1]);
-    assert_eq!(site.hive_slaves[2].hp, initial[2] - 5.0);
+    // OLD synthetic control (.97): the Object-local [ResidualHiveSlave; 3]
+    // mirror is no longer a damage owner. HiveStructureBody forwarding lives
+    // only in the receiving world's real slave/rider Body owners
+    // (GameLogic::try_owned_hive_structure_damage), so a bare Object hit
+    // reaches its own body and leaves the synthetic roster untouched.
+    assert_eq!(site.hive_slaves.map(|slave| slave.hp), initial);
+    assert!(site.health.current < 200.0, "hull takes the hit");
 }
 
 #[test]
@@ -155,12 +156,13 @@ fn prepared_hive_context_keeps_pose_across_same_id_world_capture_and_generic_hit
                 Some(&mut a.ownership_events),
             )
     );
-    assert_eq!(a.objects[&victim_a].hive_slaves[2].hp, roster[2].hp - 5.0);
-    assert_eq!(a.objects[&victim_a].hive_slaves[1].hp, roster[1].hp);
-    assert_eq!(
-        b.objects[&victim_b].hive_slaves.map(|s| s.hp),
-        roster.map(|s| s.hp)
-    );
+    // OLD synthetic control (.97): neither world's Object-local synthetic
+    // roster absorbs the hit; real forwarding is world-owned only.
+    let untouched = roster.map(|s| s.hp);
+    assert_eq!(a.objects[&victim_a].hive_slaves.map(|s| s.hp), untouched);
+    let hull_a = a.objects[&victim_a].health.current;
+    assert!(hull_a < 200.0, "A's hull takes the hit");
+    assert_eq!(b.objects[&victim_b].health.current, 200.0);
     assert!(
         !b.objects
             .get_mut(&victim_b)
@@ -177,26 +179,12 @@ fn prepared_hive_context_keeps_pose_across_same_id_world_capture_and_generic_hit
                 Some(&mut b.ownership_events),
             )
     );
-    assert_eq!(b.objects[&victim_b].hive_slaves[1].hp, roster[1].hp - 7.0);
-    assert_eq!(b.objects[&victim_b].hive_slaves[2].hp, roster[2].hp);
-    // The source-free public wrapper intentionally retains first-alive Hive
-    // fallback. Neither prepared source may become an ambient current hit.
-    assert!(
-        !a.objects
-            .get_mut(&victim_a)
-            .unwrap()
-            .take_damage_from_typed_death_at_frame(
-                3.0,
-                Some(source_a),
-                DamageType::Bullet,
-                death,
-                43,
-                &mut a.health_events
-            )
+    assert_eq!(b.objects[&victim_b].hive_slaves.map(|s| s.hp), untouched);
+    assert!(b.objects[&victim_b].health.current < 200.0);
+    assert_eq!(
+        a.objects[&victim_a].health.current, hull_a,
+        "B's hit stays in B"
     );
-    assert_eq!(a.objects[&victim_a].hive_slaves[0].hp, roster[0].hp - 3.0);
-    assert_eq!(a.objects[&victim_a].hive_slaves[1].hp, roster[1].hp);
-    assert_eq!(a.objects[&victim_a].hive_slaves[2].hp, roster[2].hp - 5.0);
 }
 
 #[test]

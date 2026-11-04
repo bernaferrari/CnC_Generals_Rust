@@ -1400,9 +1400,6 @@ impl GameLogic {
                 parent.team,
             )
         };
-        if !is_stinger_site_structure(&template_name) {
-            return None;
-        }
         // HiveStructureBody delegates to SpawnBehavior only when the receiving
         // object actually has that interface. Name similarity alone is not
         // enough: otherwise this path would swallow damage C++ sends to the
@@ -1431,8 +1428,19 @@ impl GameLogic {
             // object definition. Preserve their legacy name-based fallback;
             // once a receiving definition exists, its effective Body class is
             // authoritative and an ActiveBody Stinger is not a HiveBody.
-            .unwrap_or(true);
-        if !authored_hive_body || !GameLogic::supports_spawn_behavior_child_roster(parent) {
+            // Programmatic templates keep the legacy Stinger-name gate; an
+            // admitted definition selects HiveStructureBody by its Body only.
+            .unwrap_or_else(|| is_stinger_site_structure(&template_name));
+        if !authored_hive_body {
+            return None;
+        }
+        // C++ HiveStructureBody.cpp:55-100: SpawnBehavior interface first,
+        // else the Contain module's riders; neither means ordinary Body.
+        let spawn_roster = GameLogic::supports_spawn_behavior_child_roster(parent);
+        if !spawn_roster
+            && parent.thing().template.contain_module.kind
+                == crate::game_logic::ContainModuleKind::None
+        {
             return None;
         }
         // The effective typed body belongs to this receiving template. A
@@ -1498,12 +1506,36 @@ impl GameLogic {
             return None;
         };
         let source_position = source.get_position();
-        let children = self
-            .objects
-            .get(&victim_id)
-            .map(|parent| parent.spawn_behavior_children())
-            .unwrap_or_default();
         let mut closest: Option<(ObjectId, f32)> = None;
+        if !spawn_roster {
+            // OpenContain::getClosestRider: FROM_CENTER_2D over m_containList,
+            // replacing only on a strictly closer rider.
+            let riders = self
+                .objects
+                .get(&victim_id)
+                .map(|parent| parent.contained_units())
+                .unwrap_or_default();
+            for rider_id in riders {
+                let Some(rider) = self.objects.get(&rider_id) else {
+                    continue;
+                };
+                let p = rider.get_position();
+                let dx = p.x - source_position.x;
+                let dz = p.z - source_position.z;
+                let distance = dx * dx + dz * dz;
+                if closest.is_none_or(|(_, best)| distance < best) {
+                    closest = Some((rider_id, distance));
+                }
+            }
+        }
+        let children = if spawn_roster {
+            self.objects
+                .get(&victim_id)
+                .map(|parent| parent.spawn_behavior_children())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         for (child_id, birth) in &children {
             let Some(child) = self.objects.get(child_id) else {
                 continue;
