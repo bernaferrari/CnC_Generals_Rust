@@ -449,7 +449,8 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "ChinaInfantryMiniGunner" => Some(MINIGUNNER_GUN_AIR),
         _ => {
             // Nuke Cannon neutron secondary is upgrade-gated — see comment above.
- else if crate::game_logic::host_base_defense::is_patriot_battery_structure(
+            // Quad Cannon / Comanche: explicit retail rows above only (combat4 peels).
+            if crate::game_logic::host_base_defense::is_patriot_battery_structure(
                 template_name,
             ) {
                 Some(
@@ -465,8 +466,7 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
                 template_name,
             ) {
                 Some(MISSILE_DEFENDER_LASER_GUIDED_WEAPON)
-            }
- else if crate::game_logic::host_gattling_tank::is_gattling_tank_template(
+            } else if crate::game_logic::host_gattling_tank::is_gattling_tank_template(
                 template_name,
             ) {
                 Some(GATTLING_TANK_GUN_AIR)
