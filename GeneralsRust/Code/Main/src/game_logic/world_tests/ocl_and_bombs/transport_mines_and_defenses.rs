@@ -3098,3 +3098,93 @@ fn patriot_assist_clip_counts_exactly_four_fire_commits_via_update() {
         "exactly AssistingClipSize assist fire commits"
     );
 }
+
+/// hq-2qedt.113: C++ makeAssistanceRequest (Weapon.cpp:2865-2893) gates helpers
+/// only on self / isEquivalentTo / RequestAssistRange from the requester /
+/// AssistedTargetingUpdate present / isFreeToAssist (AssistedTargetingUpdate.cpp:61-70:
+/// isAbleToAttack + READY_TO_FIRE). No helper-to-victim weapon-range gate and no
+/// "already assisting" gate.
+#[test]
+fn patriot_assist_request_ignores_helper_victim_range_and_already_assisting() {
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
+        PendingPatriotAssist,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+    patriot_tpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(600.0)
+        .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+    game_logic
+        .templates
+        .insert("USA_Patriot".to_string(), patriot_tpl);
+    let requester_id = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("requester");
+    // Helper inside RequestAssistRange of the requester, but victim far beyond
+    // the helper's 450 assist-weapon range.
+    let far_helper = game_logic
+        .create_object(
+            "USA_Patriot",
+            Team::USA,
+            Vec3::new(-PATRIOT_REQUEST_ASSIST_RANGE * 0.5, 0.0, 0.0),
+        )
+        .expect("far helper");
+    // Helper already holding a live pending assist.
+    let busy_helper = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 50.0))
+        .expect("busy helper");
+    let victim_far = PATRIOT_REQUEST_ASSIST_RANGE * 0.5 + 600.0;
+    let enemy_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(victim_far, 0.0, 0.0))
+        .expect("enemy");
+    for id in [requester_id, far_helper, busy_helper] {
+        let o = game_logic.host_object_mut(id).unwrap();
+        if let Some(w) = o.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+        }
+        for slot in 0..3u8 {
+            if let Some(w) = o.weapon_slot_mut(slot) {
+                w.last_fire_time = -10.0;
+            }
+        }
+    }
+    let assist = game_logic
+        .host_object(busy_helper)
+        .unwrap()
+        .assisted_targeting
+        .expect("assist module");
+    game_logic.pending_patriot_assists.push(PendingPatriotAssist::new(
+        busy_helper,
+        enemy_id,
+        requester_id,
+        0,
+        "USA_Patriot",
+        assist,
+    ));
+    game_logic.frame = 1;
+    game_logic.process_patriot_assist_request(requester_id, enemy_id, 0);
+
+    let accepted: Vec<_> = game_logic
+        .pending_patriot_assists
+        .iter()
+        .map(|p| p.assistant_id)
+        .collect();
+    assert!(
+        accepted.contains(&far_helper),
+        "helper beyond assist-weapon range of victim must still accept: {accepted:?}"
+    );
+    assert!(
+        accepted.iter().filter(|&&a| a == busy_helper).count() == 2,
+        "already-assisting but ready helper must still accept: {accepted:?}"
+    );
+}

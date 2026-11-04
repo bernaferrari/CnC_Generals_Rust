@@ -899,7 +899,7 @@ impl GameLogic {
         use crate::game_logic::host_base_defense::{
             PATRIOT_ASSIST_LASER_AUDIO, PatriotAssistLaserKind, PendingPatriotAssist,
             is_patriot_battery_structure, is_patriot_free_to_assist,
-            is_within_patriot_assist_weapon_range, is_within_patriot_request_assist_range,
+            is_within_patriot_request_assist_range,
             make_patriot_assist_lasers, patriot_request_assist_range_for_template,
             patriots_are_assist_equivalent,
         };
@@ -956,10 +956,9 @@ impl GameLogic {
                 // C++ Weapon::processRequestAssistance: only Objects with an
                 // AssistedTargetingUpdate module can assist.
                 let assist = obj.assisted_targeting?;
-                let already_assisting = self
-                    .pending_patriot_assists
-                    .iter()
-                    .any(|p| p.assistant_id == id && p.shots_remaining > 0);
+                // C++ isFreeToAssist (AssistedTargetingUpdate.cpp:61-70) only checks
+                // isAbleToAttack + READY_TO_FIRE: no already-assisting gate.
+                let already_assisting = false;
                 let weapon_ready = obj
                     .weapon
                     .as_ref()
@@ -974,15 +973,9 @@ impl GameLogic {
                 ) {
                     return None;
                 }
+                // C++ makeAssistanceRequest (Weapon.cpp:2865-2893) has no
+                // assistant-to-victim range check.
                 let assistant_pos = obj.get_position();
-                let vdist = {
-                    let dx = assistant_pos.x - victim_pos.x;
-                    let dz = assistant_pos.z - victim_pos.z;
-                    (dx * dx + dz * dz).sqrt()
-                };
-                if !is_within_patriot_assist_weapon_range(vdist) {
-                    return None;
-                }
                 Some((
                     crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
                         id,
