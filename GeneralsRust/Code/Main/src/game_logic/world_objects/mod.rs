@@ -52,6 +52,9 @@ mod bridge_body_callback_tests;
 mod fog_ghost_tests;
 
 #[cfg(test)]
+mod spawn_veterancy_notify_tests;
+
+#[cfg(test)]
 mod pilot_locomotor_owner_tests;
 
 #[cfg(test)]
