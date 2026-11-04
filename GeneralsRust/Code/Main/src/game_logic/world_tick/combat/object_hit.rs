@@ -839,20 +839,15 @@ impl GameLogic {
                             effects,
                         )
                     };
-                } else if {
-                    // USA Stealth Fighter residual: jet missiles splash + bunker-buster structure path.
-                    use crate::game_logic::host_stealth_fighter::{
-                        is_stealth_fighter_template, should_apply_stealth_fighter_residual,
-                    };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_stealth_fighter_residual(is_stealth_fighter_template(
-                                &a.template_name,
-                            ))
-                        })
-                        .unwrap_or(false)
-                } {
+                } else if self.objects.get(&attacker_id).is_some_and(|a| {
+                    // USA Stealth Fighter residual keyed on the authored weapon, not the template name
+                    // (hq-2qedt.214).
+                    use crate::game_logic::host_stealth_fighter::STEALTH_JET_MISSILE_WEAPON;
+                    matches!(
+                        a.selected_weapon_name(slot),
+                        Some(STEALTH_JET_MISSILE_WEAPON)
+                    )
+                }) {
                     let impact = target_position;
                     let from = self
                         .objects
