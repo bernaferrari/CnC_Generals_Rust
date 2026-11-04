@@ -1836,7 +1836,7 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_point_defense::{
-            PDL_INTERCEPT_AUDIO, intercept_priority, is_point_defense_carrier,
+            PDL_INTERCEPT_AUDIO, intercept_priority, is_live_point_defense_carrier,
             is_primary_intercept_target, is_secondary_intercept_target, pdl_damage,
             pdl_delay_frames, pdl_fire_range, pdl_module_count,
         };
@@ -1855,7 +1855,7 @@ impl GameLogic {
                 if !obj.is_alive() || obj.is_disabled() {
                     return None;
                 }
-                if !is_point_defense_carrier(&obj.template_name) {
+                if !is_live_point_defense_carrier(obj) {
                     return None;
                 }
                 // Under construction / unmanned residual: no laser.

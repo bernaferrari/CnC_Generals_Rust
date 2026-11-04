@@ -2841,3 +2841,74 @@ fn technical_rpg_missile_projectile_flies_and_impacts() {
         "rpg missile should detonate"
     );
 }
+
+/// hq-2qedt.285: Combat Chinook PDL carrier keyed on authored
+/// `PointDefenseLaserUpdate` module, not the `AirF_AmericaVehicleChinook` name.
+fn combat_chinook_pdl_world(author_pdl: bool) -> GameLogic {
+    let mut game_logic = GameLogic::new();
+    let mut chinook = crate::game_logic::ThingTemplate::new("AirF_AmericaVehicleChinook");
+    chinook
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(350.0);
+    crate::game_logic::host_combat_chinook::author_combat_chinook_contain(&mut chinook);
+    let pdl = if author_pdl {
+        "  Behavior = PointDefenseLaserUpdate ModuleTag_PDL\n    WeaponTemplate = AirF_PointDefenseLaser\n  End\n"
+    } else {
+        ""
+    };
+    let mut parser = crate::assets::IniParser::new();
+    parser
+        .parse_ini_content(
+            &format!("Object AirF_AmericaVehicleChinook\n  KindOf = VEHICLE AIRCRAFT\n{pdl}End\n"),
+            "combat-chinook-pdl.ini",
+        )
+        .unwrap();
+    let definition = parser
+        .get_definition("AirF_AmericaVehicleChinook")
+        .unwrap()
+        .clone();
+    game_logic
+        .templates
+        .insert("AirF_AmericaVehicleChinook".to_string(), chinook);
+    let mut missile_tpl = crate::game_logic::ThingTemplate::new("TestMissile");
+    missile_tpl
+        .add_kind_of(KindOf::Projectile)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(50.0);
+    game_logic
+        .templates
+        .insert("TestMissile".to_string(), missile_tpl);
+    let chinook_id = game_logic
+        .create_object("AirF_AmericaVehicleChinook", Team::USA, Vec3::ZERO)
+        .expect("combat chinook");
+    game_logic
+        .host_object_mut(chinook_id)
+        .expect("combat chinook")
+        .template_mut()
+        .receiving_object_definition = Some(std::sync::Arc::new(definition));
+    game_logic
+        .create_object("TestMissile", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
+        .expect("missile");
+    game_logic
+}
+
+#[test]
+fn combat_chinook_pdl_carrier_requires_authored_point_defense_module() {
+    let mut without = combat_chinook_pdl_world(false);
+    without.frame = 1;
+    without.update_point_defense_intercept();
+    assert!(
+        !without.honesty_point_defense_intercept_ok(),
+        "AirF_AmericaVehicleChinook name without PointDefenseLaserUpdate must not intercept"
+    );
+
+    let mut with = combat_chinook_pdl_world(true);
+    with.frame = 1;
+    with.update_point_defense_intercept();
+    assert!(
+        with.honesty_point_defense_intercept_ok(),
+        "authored PointDefenseLaserUpdate Combat Chinook must intercept"
+    );
+}
