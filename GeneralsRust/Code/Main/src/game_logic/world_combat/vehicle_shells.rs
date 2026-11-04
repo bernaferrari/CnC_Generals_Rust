@@ -161,8 +161,9 @@ impl GameLogic {
         use crate::game_logic::host_scorpion::{
             SCORPION_GUN_DAMAGE_TYPE, SCORPION_GUN_DEATH_TYPE, SCORPION_GUN_FIRE_AUDIO,
             SCORPION_GUN_SPLASH_RADIUS, SCORPION_MISSILE_DAMAGE_TYPE, SCORPION_MISSILE_DEATH_TYPE,
-            SCORPION_MISSILE_FIRE_AUDIO, SCORPION_MISSILE_SECONDARY_RADIUS, has_ap_rockets_upgrade,
-            is_legal_scorpion_splash_target, is_scorpion_template, salvage_tier_from_upgrades,
+            SCORPION_MISSILE_FIRE_AUDIO, SCORPION_MISSILE_SECONDARY_RADIUS,
+            SCORPION_MISSILE_WEAPON, SCORPION_TANK_GUN, has_ap_rockets_upgrade,
+            is_legal_scorpion_splash_target, salvage_tier_from_upgrades,
             scorpion_gun_splash_damage_at, scorpion_missile_damage_at, scorpion_scatter_aim,
             scorpion_scatter_misses_infantry,
         };
@@ -174,7 +175,15 @@ impl GameLogic {
             let Some(obj) = self.objects.get(&sid) else {
                 return (0, false);
             };
-            if !is_scorpion_template(&obj.template_name) {
+            // C++ splash is a property of the fired Weapon template
+            // (Weapon::fireWeapon); key on the slot's authored weapon, not the
+            // firing template's name.
+            let authored_scorpion_weapon = obj.weapon_name_for_slot(slot).is_some_and(|w| {
+                let w = w.to_ascii_lowercase();
+                w.starts_with(&SCORPION_TANK_GUN.to_ascii_lowercase())
+                    || w.starts_with(&SCORPION_MISSILE_WEAPON.to_ascii_lowercase())
+            });
+            if !authored_scorpion_weapon {
                 return (0, false);
             }
             let tier = salvage_tier_from_upgrades(&obj.applied_upgrades);

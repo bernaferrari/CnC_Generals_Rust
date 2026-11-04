@@ -2583,7 +2583,10 @@ fn scorpion_missile_projectile_flies_and_impacts() {
 
     let mut logic = GameLogic::new();
     let mut sc = ThingTemplate::new("GLATankScorpion");
-    sc.add_kind_of(KindOf::Vehicle).set_health(200.0);
+    // hq-2qedt.180: splash keys on the authored slot weapon, not the name.
+    sc.add_kind_of(KindOf::Vehicle)
+        .set_health(200.0)
+        .set_secondary_weapon_name(crate::game_logic::host_scorpion::SCORPION_MISSILE_WEAPON);
     logic.templates.insert("GLATankScorpion".into(), sc);
     let mut tank = ThingTemplate::new("TestTank");
     tank.add_kind_of(KindOf::Vehicle)

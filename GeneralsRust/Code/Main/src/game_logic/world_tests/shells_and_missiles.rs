@@ -4380,3 +4380,51 @@ fn scorpion_refresh_keys_on_authored_gun_not_template_name() {
     assert!(gl.host_object(authored).unwrap().secondary_weapon.is_some());
     assert!(gl.apply_scorpion_ap_rockets_upgrade(authored));
 }
+
+/// hq-2qedt.180: vehicle_shells Scorpion splash keys on the fired slot's
+/// authored weapon (ScorpionTankGun), not an is_scorpion_template sniff.
+/// C++ splash comes from the Weapon template (Weapon::fireWeapon / dealDamageInternal).
+#[test]
+fn scorpion_splash_residual_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_scorpion::SCORPION_TANK_GUN;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    fn splash(name: &str, weapon: &str) -> u32 {
+        ensure_host_weapon_store();
+        let mut gl = GameLogic::new();
+        ensure_test_tank_template(&mut gl);
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(weapon);
+        gl.templates.insert(name.to_string(), tpl);
+        let shooter = gl
+            .create_object(name, Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let enemy = gl
+            .create_object("TestTank", Team::USA, Vec3::new(45.0, 0.0, 0.0))
+            .expect("enemy");
+        let pos = gl.objects.get(&enemy).unwrap().get_position();
+        gl.apply_scorpion_residual_at(pos, Some(shooter), Some(enemy), 0)
+            .0
+    }
+
+    assert!(
+        splash("TestAuthoredGunCarrier", SCORPION_TANK_GUN) > 0,
+        "authored ScorpionTankGun must take the splash residual"
+    );
+    assert_eq!(
+        splash("GLATankScorpion", "RaptorJetMissileWeapon"),
+        0,
+        "scorpion-named template with a different authored weapon must not"
+    );
+}
+
+/// hq-2qedt.180: vehicle_shells has no Scorpion template-name sniff.
+#[test]
+fn scorpion_vehicle_shells_has_no_template_name_sniff() {
+    let src = include_str!("../world_combat/vehicle_shells.rs");
+    assert!(!src.contains("is_scorpion_template"));
+}
