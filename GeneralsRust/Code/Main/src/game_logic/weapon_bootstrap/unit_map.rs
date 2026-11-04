@@ -359,9 +359,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_gattling_tank::is_gattling_tank_template(template_name) {
                 return Some(GATTLING_TANK_GUN);
             }
-            if crate::game_logic::host_rpg_trooper::is_rpg_trooper_template(template_name) {
-                return Some(TUNNEL_DEFENDER_ROCKET_WEAPON);
-            }
             if let Some(w) =
                 crate::game_logic::host_usa_tanks::primary_weapon_name_for_usa_tank(template_name)
             {
@@ -598,6 +595,15 @@ mod name_peel_tests {
         assert_unmapped(
             "FixtureMiniGunnerVariant",
             gl::host_minigunner::is_minigunner_template,
+        );
+    }
+
+    /// hq-2qedt.264
+    #[test]
+    fn rpg_trooper_variant_name_has_no_unit_map_weapon() {
+        assert_unmapped(
+            "FixtureTunnelDefenderVariant",
+            gl::host_rpg_trooper::is_rpg_trooper_template,
         );
     }
 }
