@@ -136,6 +136,26 @@ impl HostFireWeaponWhenDamagedData {
         }
     }
 
+    /// C++ FireWeaponWhenDamagedBehavior ctor (FireWeaponWhenDamagedBehavior.cpp:50-73)
+    /// calls reloadAmmo on each reaction weapon. Weapon ctor leaves
+    /// m_ammoInClip = 0 (Weapon.cpp:1730-1732), so reloadWithBonus
+    /// (Weapon.cpp:1877-1891) never early-returns and sets
+    /// m_whenWeCanFireAgain = now + ClipReloadTime: the first shot waits.
+    pub fn apply_ctor_reload_ammo(&mut self, creation_frame: u32) {
+        let roles = [
+            self.reaction_pristine.clone(),
+            self.reaction_damaged.clone(),
+            self.reaction_really_damaged.clone(),
+            self.reaction_rubble.clone(),
+        ];
+        for (role, name) in roles.iter().enumerate() {
+            let Some(name) = name else { continue };
+            let (_, clip_reload, _) = reaction_clip_params(name);
+            self.reaction_role_clip_used[role] = 0;
+            self.reaction_role_ready_frames[role] = creation_frame + clip_reload;
+        }
+    }
+
     /// C++ onDamage residual. Returns weapon name to force-fire at self position.
     /// Leftover/C++ gate only on READY_TO_FIRE (weapon DelayBetweenShots). There
     /// is no extra 1-frame reaction debounce — a second qualifying hit on the
@@ -432,6 +452,42 @@ mod tests {
             assert!(d.on_damage(5.0, dm, 10, 0).is_some());
             assert!(d.on_damage(5.0, dm, 10, 0).is_some());
             assert!(d.on_damage(5.0, dm, 1000, 0).is_none(), "OUT_OF_AMMO");
+        });
+    }
+
+    #[test]
+    fn ctor_reload_ammo_delays_first_reaction_by_clip_reload_time() {
+        // C++ ctor reloadAmmo (FireWeaponWhenDamagedBehavior.cpp:50-73,
+        // Weapon.cpp:1877-1891): m_whenWeCanFireAgain = ctor frame + ClipReloadTime,
+        // so getStatus (2736-2751) is not READY_TO_FIRE until then.
+        let services = gamelogic::system::engine_stores::new_world_services();
+        gamelogic::system::engine_stores::with_world_services(&services, || {
+            const W: &str = "__RustFwwdCtorReload";
+            let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+            let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+                let mut t = gamelogic::weapon::WeaponTemplate::new(W.to_string());
+                t.primary_damage = 10.0;
+                t.clip_size = 2;
+                t.clip_reload_time = 60;
+                t.reload_type = gamelogic::weapon::WeaponReloadType::AutoReload;
+                store.add_weapon_template(t);
+            });
+            let mut d = HostFireWeaponWhenDamagedData {
+                reaction_pristine: Some(W.into()),
+                reaction_damaged: Some(W.into()),
+                ..Default::default()
+            };
+            d.apply_ctor_reload_ammo(100);
+            let p = HostBodyDamageType::Pristine;
+            assert!(d.on_damage(5.0, p, 100, 0).is_none(), "ctor ClipReloadTime pending");
+            assert!(d.on_damage(5.0, p, 159, 0).is_none(), "ctor ClipReloadTime pending");
+            assert!(d.on_damage(5.0, p, 160, 0).is_some(), "ready at ctor + ClipReloadTime");
+            // Clip was filled by ctor reload: second round still in clip.
+            assert!(d.on_damage(5.0, p, 160, 0).is_some(), "full clip after ctor reload");
+            // Each role's Weapon reloads independently in the ctor.
+            let dm = HostBodyDamageType::Damaged;
+            assert!(d.on_damage(5.0, dm, 120, 0).is_none());
+            assert!(d.on_damage(5.0, dm, 160, 0).is_some());
         });
     }
 }

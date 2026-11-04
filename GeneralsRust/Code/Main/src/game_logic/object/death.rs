@@ -1014,6 +1014,17 @@ impl Object {
         }
     }
 
+    /// Object creation: attach FWWD and run its ctor reloadAmmo at `frame`.
+    pub fn ensure_fire_weapon_when_damaged_at(&mut self, frame: u32) {
+        let fresh = self.fire_weapon_when_damaged.is_none();
+        self.ensure_fire_weapon_when_damaged();
+        if fresh {
+            if let Some(fw) = self.fire_weapon_when_damaged.as_mut() {
+                fw.apply_ctor_reload_ammo(frame);
+            }
+        }
+    }
+
     /// C++ FireWeaponWhenDamagedBehavior::onDamage residual.
     /// Returns weapon name to force-fire at self position.
     pub fn take_pending_fire_when_damaged_weapon(&mut self) -> Option<String> {

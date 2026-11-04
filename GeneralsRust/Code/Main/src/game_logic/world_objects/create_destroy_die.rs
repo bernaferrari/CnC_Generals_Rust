@@ -3187,7 +3187,7 @@ impl GameLogic {
                 );
             }
 
-            object.ensure_fire_weapon_when_damaged();
+            object.ensure_fire_weapon_when_damaged_at(self.frame);
             object.ensure_transition_damage_fx();
             object.ensure_fx_list_die();
             object.ensure_create_object_die();
