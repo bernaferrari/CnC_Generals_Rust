@@ -110,6 +110,8 @@ pub(crate) use attack_machine::seed_team_target_if_attack_common;
 #[cfg(test)]
 #[path = "tests.rs"]
 mod ai_state_machine_parity_tests;
+#[cfg(test)]
+mod ammo_observe_tests;
 
 #[cfg(test)]
 mod machine_snapshot_tests;
