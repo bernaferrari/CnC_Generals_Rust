@@ -4341,3 +4341,42 @@ fn comanche_object_hit_residual_has_no_template_name_sniff() {
     assert!(!src.contains("should_apply_comanche"));
     assert!(!src.contains("should_apply_rocket_pod_area_attack"));
 }
+
+/// hq-2qedt.179: Scorpion gun/rocket refresh (salvage tier / rocket / AP)
+/// keys on the authored PRIMARY (ScorpionTankGun family), not an
+/// is_scorpion_template name sniff. C++ WeaponSetUpgrade/crate paths flip
+/// WeaponSet conditions on whatever object authored that set.
+#[test]
+fn scorpion_refresh_keys_on_authored_gun_not_template_name() {
+    use crate::game_logic::host_scorpion::{
+        SCORPION_GUN_DAMAGE_PLUS, SCORPION_TANK_GUN, ScorpionSalvageTier,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    fn mk(gl: &mut GameLogic, name: &str, weapon: &str) -> ObjectId {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(weapon);
+        gl.templates.insert(name.to_string(), tpl);
+        gl.create_object(name, Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("obj")
+    }
+
+    ensure_host_weapon_store();
+    let mut gl = GameLogic::new();
+    let named = mk(&mut gl, "GLATankScorpion", "HumveeGun");
+    assert!(!gl.apply_scorpion_salvage_tier(named, ScorpionSalvageTier::One));
+    assert!(!gl.apply_scorpion_rocket_upgrade(named));
+    assert!(!gl.apply_scorpion_ap_rockets_upgrade(named));
+
+    let authored = mk(&mut gl, "GLAModTankAlpha", SCORPION_TANK_GUN);
+    assert!(gl.apply_scorpion_salvage_tier(authored, ScorpionSalvageTier::One));
+    let prim = gl.host_object(authored).unwrap().weapon.clone().unwrap();
+    assert!((prim.damage - SCORPION_GUN_DAMAGE_PLUS).abs() < 0.01);
+    assert!(gl.apply_scorpion_rocket_upgrade(authored));
+    assert!(gl.host_object(authored).unwrap().secondary_weapon.is_some());
+    assert!(gl.apply_scorpion_ap_rockets_upgrade(authored));
+}

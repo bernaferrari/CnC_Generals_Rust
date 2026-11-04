@@ -3619,13 +3619,13 @@ impl GameLogic {
     ) -> bool {
         use crate::game_logic::host_scorpion::{
             ScorpionSalvageTier, has_ap_rockets_upgrade, has_scorpion_rocket_upgrade,
-            is_scorpion_template, scorpion_gun_weapon, scorpion_missile_weapon,
+            scorpion_gun_weapon, scorpion_missile_weapon,
         };
 
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_scorpion_template(&obj.template_name) {
+        if !authored_scorpion_gun(obj) {
             return false;
         }
 
@@ -3672,14 +3672,14 @@ impl GameLogic {
     /// Equip Scorpion Rocket secondary residual (Upgrade_GLAScorpionRocket).
     pub fn apply_scorpion_rocket_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_scorpion::{
-            UPGRADE_GLA_SCORPION_ROCKET, has_ap_rockets_upgrade, is_scorpion_template,
-            salvage_tier_from_upgrades, scorpion_missile_weapon,
+            UPGRADE_GLA_SCORPION_ROCKET, has_ap_rockets_upgrade, salvage_tier_from_upgrades,
+            scorpion_missile_weapon,
         };
 
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_scorpion_template(&obj.template_name) {
+        if !authored_scorpion_gun(obj) {
             return false;
         }
         obj.applied_upgrades
@@ -3698,14 +3698,14 @@ impl GameLogic {
     /// Apply AP Rockets residual damage mult to Scorpion missile secondary.
     pub fn apply_scorpion_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_scorpion::{
-            UPGRADE_GLA_AP_ROCKETS, has_scorpion_rocket_upgrade, is_scorpion_template,
-            salvage_tier_from_upgrades, scorpion_missile_weapon,
+            UPGRADE_GLA_AP_ROCKETS, has_scorpion_rocket_upgrade, salvage_tier_from_upgrades,
+            scorpion_missile_weapon,
         };
 
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_scorpion_template(&obj.template_name) {
+        if !authored_scorpion_gun(obj) {
             return false;
         }
         obj.applied_upgrades
@@ -4629,4 +4629,15 @@ End
             Some(payload)
         );
     }
+}
+
+/// hq-2qedt.179: Scorpion gun/rocket refresh keys on the authored PRIMARY
+/// (ScorpionTankGun family) rather than a template-name sniff; C++ crate /
+/// WeaponSetUpgrade paths only flip WeaponSet conditions on the authored set.
+fn authored_scorpion_gun(obj: &crate::game_logic::Object) -> bool {
+    use crate::game_logic::host_scorpion::{SCORPION_TANK_GUN, SCORPION_TANK_GUN_PLUS_ONE};
+    obj.authored_weapon_name_for_slot(0).is_some_and(|w| {
+        w.eq_ignore_ascii_case(SCORPION_TANK_GUN)
+            || w.eq_ignore_ascii_case(SCORPION_TANK_GUN_PLUS_ONE)
+    })
 }
