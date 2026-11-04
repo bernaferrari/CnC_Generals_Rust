@@ -241,39 +241,31 @@ impl GameLogic {
                 }
             } else {
                 // Nuke Cannon primary residual: area shell + medium radiation field.
-                let nuke_primary = {
-                    use crate::game_logic::host_nuke_cannon::{
-                        is_nuke_cannon_template, should_apply_nuke_cannon_primary,
-                    };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_nuke_cannon_primary(
-                                is_nuke_cannon_template(&a.template_name),
-                                slot,
-                            )
-                        })
-                        .unwrap_or(false)
-                };
-
-                // Neutron shell residual: Nuke Cannon secondary applies blast
-                // (kill infantry / unman vehicles) instead of HP take_damage.
+                // Nuke Cannon primary / neutron shell keyed on the authored weapon,
+                // not the template name (hq-2qedt.199). The neutron weapon is only
+                // selected once Upgrade_ChinaNeutronShells swaps the weapon set.
+                let authored = self
+                    .objects
+                    .get(&attacker_id)
+                    .and_then(|a| a.selected_weapon_name(slot));
+                let nuke_primary = matches!(
+                    authored,
+                    Some(crate::game_logic::host_neutron_shell::NUKE_CANNON_PRIMARY_WEAPON)
+                );
+                // Neutron shell residual: blast (kill infantry / unman vehicles)
+                // instead of HP take_damage. Upgrade_ChinaNeutronShells equips the
+                // secondary at runtime without rewriting the authored row, so an
+                // authored NukeCannonGun primary + equipped slot-1 secondary counts.
                 let neutron_blast = {
                     use crate::game_logic::host_neutron_shell::{
-                        UPGRADE_CHINA_NEUTRON_SHELLS, is_nuke_cannon_template,
-                        should_apply_neutron_blast,
+                        NUKE_CANNON_NEUTRON_WEAPON, NUKE_CANNON_PRIMARY_WEAPON,
                     };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_neutron_blast(
-                                a.has_upgrade_tag(UPGRADE_CHINA_NEUTRON_SHELLS)
-                                    || a.has_upgrade_tag("Upgrade_ChinaNeutronShells"),
-                                slot,
-                                is_nuke_cannon_template(&a.template_name),
-                            )
-                        })
-                        .unwrap_or(false)
+                    matches!(authored, Some(NUKE_CANNON_NEUTRON_WEAPON))
+                        || (slot == 1
+                            && self.objects.get(&attacker_id).is_some_and(|a| {
+                                a.secondary_weapon.is_some()
+                                    && a.selected_weapon_name(0) == Some(NUKE_CANNON_PRIMARY_WEAPON)
+                            }))
                 };
 
                 if nuke_primary {
