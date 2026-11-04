@@ -1043,20 +1043,12 @@ impl GameLogic {
                         }
                     }
                     let _ = hits;
-                } else if {
-                    // China Battlemaster residual: tank gun splash + Uranium damage residual.
-                    use crate::game_logic::host_battlemaster::{
-                        is_battlemaster_template, should_apply_battlemaster_residual,
-                    };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_battlemaster_residual(is_battlemaster_template(
-                                &a.template_name,
-                            ))
-                        })
-                        .unwrap_or(false)
-                } {
+                } else if self.objects.get(&attacker_id).is_some_and(|a| {
+                    // China Battlemaster residual keyed on the authored tank gun,
+                    // not the template name (hq-2qedt.174).
+                    a.selected_weapon_name(slot)
+                        == Some(crate::game_logic::host_battlemaster::BATTLE_MASTER_TANK_GUN)
+                }) {
                     let impact = target_position;
                     let from = self
                         .objects
