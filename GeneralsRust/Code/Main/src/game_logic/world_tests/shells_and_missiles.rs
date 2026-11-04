@@ -4175,3 +4175,30 @@ fn combat_cycle_create_primary_comes_from_authored_weapon_set() {
     );
 }
 
+/// hq-2qedt.149: GLA RPG Trooper PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
+#[test]
+fn rpg_trooper_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("GLAInfantryTunnelDefender");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name("RangerFlashBangGrenadeWeapon");
+    game_logic.templates.insert("GLAInfantryTunnelDefender".to_string(), tpl);
+    let id = game_logic
+        .create_object("GLAInfantryTunnelDefender", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("rpg_trooper");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - crate::game_logic::host_rpg_trooper::RPG_TROOPER_DAMAGE).abs() > 0.01,
+        "authored PRIMARY overwritten by rpg_trooper name peel: {prim:?}"
+    );
+}

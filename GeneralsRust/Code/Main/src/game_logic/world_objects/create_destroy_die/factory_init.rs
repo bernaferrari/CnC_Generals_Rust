@@ -407,15 +407,9 @@ impl GameLogic {
 
         // Host residual: GLA RPG Trooper / Tunnel Defender PRIMARY rocket residual.
         // Fail-closed: not full ScatterRadiusVsInfantry / projectile exhaust FX matrix.
-        if crate::game_logic::host_rpg_trooper::is_rpg_trooper_template(template_name) {
-            use crate::game_logic::host_rpg_trooper::{has_ap_rockets_upgrade, rpg_trooper_weapon};
-            let ap = has_ap_rockets_upgrade(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
-            object.weapon = Some(rpg_trooper_weapon(ap));
-        }
+        // RPG Trooper PRIMARY binds from the authored WeaponSet (C++
+        // WeaponSet::updateWeaponSet), not a template-name peel (hq-2qedt.149).
+        // AP Rockets stay on refresh_rpg_trooper_weapon.
 
         // Host residual: GLA Terrorist PRIMARY TerroristSuicideWeapon residual.
         // Chem Beta/Gamma + Demo death-weapon residual profiles.
