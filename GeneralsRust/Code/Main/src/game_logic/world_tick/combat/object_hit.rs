@@ -1190,20 +1190,19 @@ impl GameLogic {
                         Some(target_id),
                         effects,
                     );
-                } else if {
-                    // USA Missile Defender residual: missile splash + laser guided secondary.
+                } else if self.objects.get(&attacker_id).is_some_and(|a| {
+                    // USA Missile Defender residual keyed on the authored missile /
+                    // laser-guided weapon, not the template name (hq-2qedt.176).
                     use crate::game_logic::host_missile_defender::{
-                        is_missile_defender_template, should_apply_missile_defender_residual,
+                        MISSILE_DEFENDER_LASER_GUIDED_WEAPON, MISSILE_DEFENDER_MISSILE_WEAPON,
                     };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_missile_defender_residual(is_missile_defender_template(
-                                &a.template_name,
-                            ))
-                        })
-                        .unwrap_or(false)
-                } {
+                    matches!(
+                        a.selected_weapon_name(slot),
+                        Some(
+                            MISSILE_DEFENDER_MISSILE_WEAPON | MISSILE_DEFENDER_LASER_GUIDED_WEAPON
+                        )
+                    )
+                }) {
                     let impact = target_position;
                     let laser_slot = self
                         .objects
