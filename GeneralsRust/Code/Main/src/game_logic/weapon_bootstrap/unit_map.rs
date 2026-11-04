@@ -380,10 +380,8 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             }
             // Tomahawk: explicit retail rows above only; no fuzzy name peel
             // (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.119).
-            if crate::game_logic::host_raptor::is_raptor_template(template_name) {
-                let king = crate::game_logic::host_raptor::is_king_raptor_template(template_name);
-                return Some(crate::game_logic::host_raptor::raptor_weapon_name(king));
-            }
+            // Raptor / King Raptor: explicit retail rows above only; no fuzzy
+            // name peel (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.220).
             if crate::game_logic::host_slave_drones::is_battle_drone_template(template_name) {
                 return Some(BATTLE_DRONE_MACHINE_GUN);
             }
@@ -673,6 +671,29 @@ mod pathfinder_unit_map_peel_tests {
         assert_eq!(
             primary_weapon_name_for_unit("AmericaInfantryPathfinder"),
             Some(PATHFINDER_SNIPER_WEAPON)
+        );
+    }
+}
+
+#[cfg(test)]
+mod raptor_unit_map_peel_tests {
+    use super::*;
+
+    /// hq-2qedt.220: C++ resolves PRIMARY from the authored WeaponSet; an
+    /// unlisted template whose name merely contains "Raptor" must not pick up
+    /// RaptorJetMissileWeapon / AirF_RaptorJetMissileWeapon from a name peel.
+    #[test]
+    fn unlisted_raptor_named_template_gets_no_name_peel_primary() {
+        assert_eq!(primary_weapon_name_for_unit("Boss_AmericaJetRaptorDecoy"), None);
+        assert_eq!(primary_weapon_name_for_unit("AirF_AmericaJetRaptorDecoy"), None);
+        // Explicit retail table rows stay.
+        assert_eq!(
+            primary_weapon_name_for_unit("AmericaJetRaptor"),
+            Some(RAPTOR_JET_MISSILE_WEAPON)
+        );
+        assert_eq!(
+            primary_weapon_name_for_unit("AirF_AmericaJetRaptor"),
+            Some(AIRF_RAPTOR_JET_MISSILE_WEAPON)
         );
     }
 }
