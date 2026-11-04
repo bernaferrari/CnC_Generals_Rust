@@ -1505,16 +1505,25 @@ impl GameLogic {
                         Some(target_id),
                         effects,
                     );
-                } else if {
-                    // GLA Toxin Tractor residual: poison stream primary or contaminate spray.
-                    use crate::game_logic::host_toxin_tractor::is_toxin_tractor_template;
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| is_toxin_tractor_template(&a.template_name))
-                        .unwrap_or(false)
-                } {
+                } else if let Some(spray) = self.objects.get(&attacker_id).and_then(|a| {
+                    // GLA Toxin Tractor residual keyed on the authored stream/sprayer weapon,
+                    // not the template name (hq-2qedt.198).
+                    use crate::game_logic::host_toxin_tractor::{
+                        TOXIN_TRUCK_GUN, TOXIN_TRUCK_GUN_GAMMA, TOXIN_TRUCK_GUN_UPGRADED,
+                        TOXIN_TRUCK_SPRAYER, TOXIN_TRUCK_SPRAYER_GAMMA,
+                        TOXIN_TRUCK_SPRAYER_UPGRADED,
+                    };
+                    match a.selected_weapon_name(slot)? {
+                        TOXIN_TRUCK_GUN | TOXIN_TRUCK_GUN_UPGRADED | TOXIN_TRUCK_GUN_GAMMA => {
+                            Some(false)
+                        }
+                        TOXIN_TRUCK_SPRAYER
+                        | TOXIN_TRUCK_SPRAYER_UPGRADED
+                        | TOXIN_TRUCK_SPRAYER_GAMMA => Some(true),
+                        _ => None,
+                    }
+                }) {
                     let impact = target_position;
-                    let spray = slot == 1;
                     let (hits, _destroyed_any) = if spray {
                         self.apply_toxin_tractor_spray_at_with_effects(
                             impact,
