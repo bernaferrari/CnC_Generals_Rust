@@ -3,8 +3,8 @@ use super::*;
 use crate::object::body::active_body::BodyDefinitionCatalog;
 use crate::object::collide::collision_system::CollisionSystem;
 use crate::object::{
-    Object,
     object_factory::{ObjectCreationFlags, ObjectFactory},
+    Object,
 };
 use crate::system::game_logic::GameLogic;
 use game_engine::common::random_value::RandomState;
@@ -25,6 +25,17 @@ pub(super) struct MinefieldFixture {
 }
 impl MinefieldFixture {
     pub fn new(id: u32) -> Self {
+        // Test-thread owner: bind Common services + Core EngineStores (WorldServices).
+        if game_engine::common::common_services::try_common_services().is_none() {
+            game_engine::common::common_services::install_common_services(std::sync::Arc::new(
+                game_engine::common::common_services::CommonServices::new(),
+            ));
+        }
+        if crate::system::engine_stores::try_active_services().is_none() {
+            crate::system::engine_stores::install_active(
+                crate::system::engine_stores::new_for_world(),
+            );
+        }
         let template = format!("OwnedMinefieldFixtureMine{id}");
         let mut definitions = ThingFactory::new();
         assert_eq!(definitions.load_ini_text(&format!("Object {template}\n KindOf = MINE\n Geometry = CYLINDER\n GeometryMajorRadius = 3.0\n GeometryMinorRadius = 3.0\n GeometryHeight = 1.0\nEnd\nObject OwnedMinefieldSource\n Geometry = CYLINDER\n GeometryMajorRadius = 20.0\n GeometryMinorRadius = 20.0\n GeometryHeight = 1.0\nEnd\nObject OwnedMinefieldStructure\n KindOf = STRUCTURE\n Geometry = CYLINDER\n GeometryMajorRadius = 4.0\n GeometryMinorRadius = 4.0\n GeometryHeight = 4.0\nEnd\n")), 3);
@@ -208,6 +219,11 @@ impl MinefieldPlacement for MinefieldFixture {
             .read()
             .map_err(|_| BehaviorError::ServiceUnavailable("owner poisoned".into()))?;
         let bounds = actor.get_geometry_info().bounds();
+        if self.definitions.find_template(template, false).is_none() {
+            return Err(BehaviorError::MineTemplateNotFound {
+                template: template.to_string(),
+            });
+        }
         let definition = self.definition(template);
         if !definition.get_behavior_module_info().is_empty()
             || !definition.get_draw_module_info().is_empty()
@@ -312,15 +328,13 @@ fn actual_structure_rejection_and_factory_creation_are_match_local() {
     let blocked = Coord3D::new(192.0, 192.0, 3.0);
     let free = Coord3D::new(224.0, 192.0, 3.0);
     let obstruction = fixture.spawn_structure(blocked);
-    assert!(
-        fixture
-            .scheduler
-            .find_object_by_id(obstruction)
-            .unwrap()
-            .read()
-            .unwrap()
-            .is_kind_of(crate::common::KindOf::Structure)
-    );
+    assert!(fixture
+        .scheduler
+        .find_object_by_id(obstruction)
+        .unwrap()
+        .read()
+        .unwrap()
+        .is_kind_of(crate::common::KindOf::Structure));
     let before = fixture.scheduler.get_all_object_ids().to_vec();
     let template = fixture.template.clone();
     assert!(matches!(
@@ -357,26 +371,22 @@ fn same_id_minefields_create_and_clear_only_the_supplied_match() {
     let peer_ids = second.assert_real_mines(&peer);
     first_behavior.clear_mines_owned(&mut first).unwrap();
     for id in ids {
-        assert!(
-            first
-                .scheduler
-                .find_object_by_id(id)
-                .unwrap()
-                .read()
-                .unwrap()
-                .is_destroyed()
-        );
+        assert!(first
+            .scheduler
+            .find_object_by_id(id)
+            .unwrap()
+            .read()
+            .unwrap()
+            .is_destroyed());
     }
     for id in peer_ids {
-        assert!(
-            !second
-                .scheduler
-                .find_object_by_id(id)
-                .unwrap()
-                .read()
-                .unwrap()
-                .is_destroyed()
-        );
+        assert!(!second
+            .scheduler
+            .find_object_by_id(id)
+            .unwrap()
+            .read()
+            .unwrap()
+            .is_destroyed());
     }
     assert!(peer.get_statistics().is_generated);
 }
@@ -394,4 +404,21 @@ fn unsupported_generation_fx_rejects_before_creation_or_generation() {
     assert_eq!(fixture.scheduler.get_all_object_ids(), before);
     assert!(!behavior.get_statistics().is_generated);
     assert_eq!(behavior.get_statistics().mine_count, 0);
+}
+
+#[test]
+fn missing_mine_template_still_marks_generated_like_cpp_place_mines() {
+    // C++ GenerateMinefieldBehavior.cpp:356-374: m_generated = true before findTemplate;
+    // a missing template returns with the field still marked generated.
+    let mut fixture = MinefieldFixture::new(98_128);
+    let mut behavior = fixture.behavior(false);
+    behavior.config.mine_name = "NoSuchAuthoredMine".into();
+    let before = fixture.scheduler.get_all_object_ids().to_vec();
+    assert!(behavior.place_mines_owned(&mut fixture).is_err());
+    assert_eq!(fixture.scheduler.get_all_object_ids(), before);
+    assert!(behavior.get_statistics().is_generated);
+    assert!(matches!(
+        behavior.place_mines_owned(&mut fixture),
+        Err(BehaviorError::MinefieldAlreadyGenerated)
+    ));
 }

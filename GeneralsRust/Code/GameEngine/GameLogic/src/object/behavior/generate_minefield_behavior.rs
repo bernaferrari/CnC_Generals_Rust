@@ -592,6 +592,9 @@ impl GenerateMinefieldBehavior {
                 "owned minefield admits normal circular border without generation FX".into(),
             ));
         }
+        // C++ GenerateMinefieldBehavior.cpp:359: m_generated = true before findTemplate,
+        // so a missing template / failed placement never re-arms the field.
+        self.state.generated = true;
         let (mut geometry, mine_radius) =
             services.preflight(self.object_id, &self.config.mine_name)?;
         if let Some(target) = self.state.target {
@@ -619,7 +622,6 @@ impl GenerateMinefieldBehavior {
                 Err(error) => return Err(error),
             }
         }
-        self.state.generated = true;
         self.state.current_mine_template = self.config.mine_name.clone();
         Ok(())
     }
