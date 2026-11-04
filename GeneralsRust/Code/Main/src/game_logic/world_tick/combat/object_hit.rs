@@ -596,18 +596,20 @@ impl GameLogic {
                             effects,
                         )
                     };
-                } else if {
-                    // GLA Marauder residual: salvage fire-rate tiers + small splash.
+                } else if let Some(tier) = self.objects.get(&attacker_id).and_then(|a| {
+                    // GLA Marauder residual keyed on the authored tank gun tier,
+                    // not the template name (hq-2qedt.175).
                     use crate::game_logic::host_marauder::{
-                        is_marauder_template, should_apply_marauder_residual,
+                        MARAUDER_TANK_GUN, MARAUDER_TANK_GUN_UPGRADE_ONE,
+                        MARAUDER_TANK_GUN_UPGRADE_TWO, MarauderWeaponTier,
                     };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_marauder_residual(is_marauder_template(&a.template_name))
-                        })
-                        .unwrap_or(false)
-                } {
+                    match a.selected_weapon_name(slot)? {
+                        MARAUDER_TANK_GUN => Some(MarauderWeaponTier::Base),
+                        MARAUDER_TANK_GUN_UPGRADE_ONE => Some(MarauderWeaponTier::One),
+                        MARAUDER_TANK_GUN_UPGRADE_TWO => Some(MarauderWeaponTier::Two),
+                        _ => None,
+                    }
+                }) {
                     use crate::game_logic::host_marauder::{
                         MARAUDER_SPEED_TIER0, MARAUDER_SPEED_TIER1, MARAUDER_SPEED_TIER2,
                         MarauderWeaponTier,
@@ -618,20 +620,17 @@ impl GameLogic {
                         .get(&attacker_id)
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
-                    let speed = self
-                        .objects
-                        .get(&attacker_id)
-                        .map(|a| match Self::marauder_tier_from_object(a) {
-                            MarauderWeaponTier::Two => MARAUDER_SPEED_TIER2,
-                            MarauderWeaponTier::One => MARAUDER_SPEED_TIER1,
-                            MarauderWeaponTier::Base => a
-                                .weapon
-                                .as_ref()
-                                .map(|w| w.projectile_speed)
-                                .filter(|s| *s > 1.0)
-                                .unwrap_or(MARAUDER_SPEED_TIER0),
-                        })
-                        .unwrap_or(MARAUDER_SPEED_TIER0);
+                    let speed = match tier {
+                        MarauderWeaponTier::Two => MARAUDER_SPEED_TIER2,
+                        MarauderWeaponTier::One => MARAUDER_SPEED_TIER1,
+                        MarauderWeaponTier::Base => self
+                            .objects
+                            .get(&attacker_id)
+                            .and_then(|a| a.weapon.as_ref())
+                            .map(|w| w.projectile_speed)
+                            .filter(|s| *s > 1.0)
+                            .unwrap_or(MARAUDER_SPEED_TIER0),
+                    };
                     let spawned = self
                         .spawn_marauder_shell_projectile_with_effects(
                             attacker_id,
