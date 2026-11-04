@@ -212,7 +212,9 @@ impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
         let Some(me_arc) = self.owner.upgrade() else {
             return false;
         };
-        let Ok(me) = me_arc.read() else {
+        // C++ Weapon::getStatus writes mutable m_status; own it via &mut
+        // observe_status under the write guard (hq-2qedt.81).
+        let Ok(mut me) = me_arc.write() else {
             return false;
         };
 
@@ -222,8 +224,9 @@ impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
 
         // C++ checks the current weapon because assisted reload state is shared
         // across this object's weapons.
-        me.get_current_weapon()
-            .map(|(weapon, _slot)| weapon.get_status() == WeaponStatus::ReadyToFire)
+        me.weapon_set
+            .get_current_weapon_mut()
+            .map(|weapon| weapon.observe_status() == WeaponStatus::ReadyToFire)
             .unwrap_or(false)
     }
 
@@ -493,5 +496,20 @@ mod tests {
             !assisted.is_free_to_assist(),
             "retired owner cannot bind to the same-ID peer"
         );
+    }
+
+    #[test]
+    fn assisted_targeting_is_free_to_assist_observes_status_under_write_guard() {
+        // hq-2qedt.81: C++ isFreeToAssist calls Weapon::getStatus, which writes
+        // mutable m_status; Rust must own that write via &mut observe_status,
+        // not a read-lock get_status AtomicU8 side-effect.
+        let src = include_str!("assisted_targeting_update.rs");
+        let body_start = src.find("fn is_free_to_assist(&self) -> bool {").unwrap();
+        let body_end = body_start + src[body_start..].find("fn assist_attack").unwrap();
+        let body = &src[body_start..body_end];
+        assert!(body.contains("me_arc.write()"), "must take write guard");
+        assert!(!body.contains("me_arc.read()"), "must not use read guard");
+        assert!(body.contains("observe_status"), "must observe via &mut owner");
+        assert!(!body.contains(".get_status()"), "must not use legacy &self get_status");
     }
 }
