@@ -574,7 +574,13 @@ impl GameLogic {
         // America Fire Base residual: dual-radius howitzer splash owns damage.
         // ScatterRadiusVsInfantry residual closed via shell aim offset / instant impact.
         // Fail-closed: not full ScaleWeaponSpeed lob matrix.
-        let is_fire_base = crate::game_logic::host_fire_base::is_fire_base_template(&template_name);
+        // Keyed on the authored WeaponSet weapon for this slot, not the
+        // template name (hq-2qedt.162; C++ fires whatever weapon is authored).
+        let is_fire_base = self
+            .objects
+            .get(&defense_id)
+            .and_then(|a| a.authored_weapon_name_for_slot(slot))
+            .is_some_and(|n| n == crate::game_logic::host_fire_base::FIRE_BASE_HOWITZER_WEAPON);
         let mut destroyed = false;
         if is_fire_base {
             let impact = self

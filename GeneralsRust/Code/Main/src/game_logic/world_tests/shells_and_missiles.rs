@@ -4405,3 +4405,40 @@ fn fire_base_named_non_howitzer_weapon_skips_fire_base_object_hit_residual() {
         "Fire Base residual chosen by template-name peel instead of authored weapon"
     );
 }
+
+/// hq-2qedt.162: strategy_center base-defense path must key the Fire Base
+/// howitzer residual on the authored WeaponSet slot weapon, not template name.
+#[test]
+fn fire_base_named_structure_non_howitzer_weapon_skips_base_defense_howitzer() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaFireBase");
+    tpl.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("AmericaFireBase".to_string(), tpl);
+    let fb_id = game_logic
+        .create_object("AmericaFireBase", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("fire base");
+    let _enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("enemy");
+    if let Some(w) = game_logic.objects.get_mut(&fb_id).and_then(|o| o.weapon.as_mut()) {
+        w.last_fire_time = -20.0;
+        w.reload_time = 0.1;
+    }
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.try_base_defense_residual_fire(fb_id);
+    }
+    assert_eq!(
+        game_logic.fire_base_residual_fires(),
+        0,
+        "base-defense Fire Base howitzer chosen by template-name peel instead of authored weapon"
+    );
+}
