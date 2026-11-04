@@ -51,3 +51,55 @@ fn primary_only_turret_unchanged_by_alt_ticking() {
     assert!(obj.turret_ai.turret_angle_deg < 40.0);
     assert!(obj.alt_turret_ai.is_none() && obj.alt_turret_runtime.is_none());
 }
+
+/// hq-2qedt.2.3.4: setTurretTarget* lands on the TurretAI that controls the
+/// active weapon slot (AIStates getWhichTurretForCurWeapon).
+fn alt_tank(logic: &mut GameLogic, id: ObjectId, active_slot: u8) {
+    let mut unit = Object::new(ThingTemplate::new("AltTank"), id, Team::USA);
+    let mut main = TurretAiState::default();
+    main.turret_enabled = true;
+    main.turret_substate = TurretSubState::Idle;
+    unit.turret_ai = main.clone();
+    unit.turret_runtime.has_authored_turret = true;
+    unit.turret_runtime.controlled_weapon_slots = 1 << 0;
+    unit.alt_turret_ai = Some(main);
+    let mut alt_rt = HostTurretExtra::default();
+    alt_rt.has_authored_turret = true;
+    alt_rt.controlled_weapon_slots = 1 << 1;
+    unit.alt_turret_runtime = Some(alt_rt);
+    unit.active_weapon_slot = active_slot;
+    logic.objects.insert(id, unit);
+}
+
+#[test]
+fn set_turret_target_position_routes_to_alt_for_alt_slot() {
+    let mut logic = GameLogic::new();
+    let id = ObjectId(9733);
+    alt_tank(&mut logic, id, 1);
+    let p = glam::Vec3::new(10.0, 20.0, 0.0);
+    logic.set_turret_target_position(id, Some(p));
+    let obj = logic.objects.get(&id).unwrap();
+    assert_eq!(obj.alt_turret_runtime.as_ref().unwrap().target_pos, Some(p));
+    assert_eq!(obj.alt_turret_ai.as_ref().unwrap().turret_substate, TurretSubState::Aim);
+    assert_eq!(obj.turret_runtime.target_pos, None, "primary untouched");
+    assert_ne!(obj.turret_ai.turret_substate, TurretSubState::Aim);
+}
+
+#[test]
+fn set_turret_target_object_routes_by_active_slot() {
+    let mut logic = GameLogic::new();
+    let id = ObjectId(9734);
+    let victim = ObjectId(9735);
+    logic.objects.insert(victim, Object::new(ThingTemplate::new("Target"), victim, Team::China));
+    alt_tank(&mut logic, id, 1);
+    logic.set_turret_target_object(id, Some(victim), false);
+    {
+        let obj = logic.objects.get(&id).unwrap();
+        assert_eq!(obj.alt_turret_ai.as_ref().unwrap().turret_target_id, Some(victim));
+        assert_eq!(obj.turret_ai.turret_target_id, None, "primary untouched");
+    }
+    // Primary slot still drives TURRET_MAIN.
+    logic.objects.get_mut(&id).unwrap().active_weapon_slot = 0;
+    logic.set_turret_target_object(id, Some(victim), false);
+    assert_eq!(logic.objects.get(&id).unwrap().turret_ai.turret_target_id, Some(victim));
+}
