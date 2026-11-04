@@ -2637,6 +2637,46 @@ fn tensile_formation_avalanche_damage_slide_and_rubble() {
     );
 }
 
+/// hq-2qedt.37: CPP TensileFormationUpdate.cpp:~243 life>300 →
+/// `body->setDamageState(BODY_RUBBLE)` (ActiveBody.cpp:216-239 → internalChangeHealth
+/// → effectivelyDead) with NO onDie / destroyObject. Drives the host tensile
+/// update, not a bare internal_change_health call.
+#[test]
+fn tensile_update_rubble_sets_body_rubble_without_destroy_object() {
+    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use crate::game_logic::host_tensile_formation::TENSILE_LIFE_MAX;
+
+    let mut logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("AvalancheChunk");
+    tpl.set_health(100.0);
+    logic.templates.insert("AvalancheChunk".to_string(), tpl);
+    let a = logic
+        .create_object("AvalancheChunk", Team::Neutral, Vec3::new(0.0, 10.0, 0.0))
+        .expect("chunk");
+    {
+        let o = logic.host_object_mut(a).unwrap();
+        assert_ne!(o.body_damage_state, HostBodyDamageType::Rubble);
+        let tf = o.tensile_formation.as_mut().expect("tensile module");
+        tf.enabled = true;
+        tf.life = TENSILE_LIFE_MAX;
+    }
+    logic.set_current_frame(400);
+    logic.update_tensile_formations();
+
+    let o = logic.host_object(a).expect("rubble object must remain present");
+    assert!(o.tensile_formation.as_ref().unwrap().rubble, "life>300 must rubble");
+    assert_eq!(
+        o.body_damage_state,
+        HostBodyDamageType::Rubble,
+        "tensile rubble must setDamageState(BODY_RUBBLE)"
+    );
+    assert_eq!(o.health.current, 0.0);
+    assert!(o.status.effectively_dead, "BODY_RUBBLE → effectivelyDead");
+    assert!(!o.status.destroyed, "rubble is not destroyObject");
+    assert!(!o.status.on_die_started, "rubble does not run onDie");
+    assert!(!logic.has_pending_destroy_work());
+}
+
 #[test]
 fn toxin_fire_ocl_spawns_field_after_min_shots_and_coast() {
     use crate::game_logic::host_toxin_tractor::{
