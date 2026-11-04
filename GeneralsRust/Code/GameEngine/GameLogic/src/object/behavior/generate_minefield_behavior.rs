@@ -571,6 +571,8 @@ pub(crate) trait MinefieldPlacement {
         position: &Coord3D,
         skip: f32,
     ) -> BehaviorResult<ObjectId>;
+    /// C++ `FXList::doFXObj(m_genFX, obj)` (GenerateMinefieldBehavior.cpp:431).
+    fn play_generation_fx(&mut self, owner: ObjectId, fx: &str) -> BehaviorResult<()>;
     fn remove(&mut self, owner: ObjectId, mine: ObjectId) -> BehaviorResult<()>;
 }
 
@@ -585,11 +587,10 @@ impl GenerateMinefieldBehavior {
         if self.config.smart_border
             || !self.config.border_only
             || !self.config.always_circular
-            || self.config.generation_fx.is_some()
             || self.state.upgraded
         {
             return Err(BehaviorError::ServiceUnavailable(
-                "owned minefield admits normal circular border without generation FX".into(),
+                "owned minefield admits normal circular border".into(),
             ));
         }
         // C++ GenerateMinefieldBehavior.cpp:359: m_generated = true before findTemplate,
@@ -621,6 +622,10 @@ impl GenerateMinefieldBehavior {
                 Err(BehaviorError::NoSpaceAvailable | BehaviorError::InvalidPosition) => {}
                 Err(error) => return Err(error),
             }
+        }
+        // C++ GenerateMinefieldBehavior.cpp:431: generation FX after the mines exist.
+        if let Some(fx) = self.config.generation_fx.clone() {
+            services.play_generation_fx(self.object_id, &fx)?;
         }
         self.state.current_mine_template = self.config.mine_name.clone();
         Ok(())

@@ -22,6 +22,8 @@ pub(super) struct MinefieldFixture {
     terrain: crate::terrain::TerrainLogic,
     collision: CollisionSystem,
     random: RandomState,
+    /// (owner, fx, object count at play time)
+    pub generation_fx: Vec<(u32, String, usize)>,
 }
 impl MinefieldFixture {
     pub fn new(id: u32) -> Self {
@@ -64,6 +66,7 @@ impl MinefieldFixture {
             terrain,
             collision: CollisionSystem::new(),
             random: RandomState::default(),
+            generation_fx: Vec::new(),
         };
         let template = fixture.definition("OwnedMinefieldSource");
         let mut lookup = |_name: &str| Ok(None);
@@ -293,6 +296,11 @@ impl MinefieldPlacement for MinefieldFixture {
             .set_producer(Some(&*source.read().unwrap()));
         Ok(id)
     }
+    fn play_generation_fx(&mut self, owner: u32, fx: &str) -> BehaviorResult<()> {
+        let count = self.scheduler.get_all_object_ids().len();
+        self.generation_fx.push((owner, fx.to_string(), count));
+        Ok(())
+    }
     fn remove(&mut self, owner: u32, mine: u32) -> BehaviorResult<()> {
         let actor = self
             .scheduler
@@ -392,18 +400,18 @@ fn same_id_minefields_create_and_clear_only_the_supplied_match() {
 }
 
 #[test]
-fn unsupported_generation_fx_rejects_before_creation_or_generation() {
+fn generation_fx_plays_after_mines_are_placed_like_cpp() {
+    // C++ GenerateMinefieldBehavior.cpp:431: FXList::doFXObj(m_genFX, obj) after placement.
     let mut fixture = MinefieldFixture::new(98_106);
     let mut behavior = fixture.behavior(false);
     behavior.config.generation_fx = Some("AuthoredMineFX".into());
-    let before = fixture.scheduler.get_all_object_ids().to_vec();
-    assert!(matches!(
-        behavior.place_mines_owned(&mut fixture),
-        Err(BehaviorError::ServiceUnavailable(_))
-    ));
-    assert_eq!(fixture.scheduler.get_all_object_ids(), before);
-    assert!(!behavior.get_statistics().is_generated);
-    assert_eq!(behavior.get_statistics().mine_count, 0);
+    behavior.place_mines_owned(&mut fixture).unwrap();
+    let mines = fixture.assert_real_mines(&behavior);
+    assert_eq!(
+        fixture.generation_fx,
+        vec![(fixture.id, "AuthoredMineFX".to_string(), mines.len() + 1)]
+    );
+    assert!(behavior.get_statistics().is_generated);
 }
 
 #[test]
