@@ -4504,3 +4504,32 @@ fn overlord_create_primary_comes_from_authored_weapon_set() {
         "authored HumveeGun PRIMARY overwritten by overlord name peel: {prim:?}"
     );
 }
+
+/// hq-2qedt.165: Jarmen Kell PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
+#[test]
+fn jarmen_kell_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let peel = crate::game_logic::host_jarmen_kell::jarmen_kell_weapon(false);
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("GLAInfantryJarmenKell");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(500.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("GLAInfantryJarmenKell".to_string(), tpl);
+    let id = game_logic
+        .create_object("GLAInfantryJarmenKell", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("jarmen_kell");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - peel.damage).abs() > 0.01 || (prim.range - peel.range).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by jarmen_kell name peel: {prim:?}"
+    );
+}

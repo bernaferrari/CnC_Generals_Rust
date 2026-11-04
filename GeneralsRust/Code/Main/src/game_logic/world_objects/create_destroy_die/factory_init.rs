@@ -257,16 +257,11 @@ impl GameLogic {
         // (C++ WeaponSet::updateWeaponSet), not a template-name peel
         // (hq-2qedt.164). Uranium refresh stays on the upgrade path.
 
-        // Host residual: GLA Jarmen Kell PRIMARY sniper residual.
+        // GLA Jarmen Kell PRIMARY binds from the authored WeaponSet
+        // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+        // (hq-2qedt.165). AP refresh stays on the upgrade path.
         // Pilot-snipe is AutoChooseSources SECONDARY NONE (button/special only).
         if crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(template_name) {
-            use crate::game_logic::host_jarmen_kell::{has_ap_bullets_upgrade, jarmen_kell_weapon};
-            let ap = has_ap_bullets_upgrade(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
-            object.weapon = Some(jarmen_kell_weapon(ap));
             object.template_mut().apply_retail_button_only_auto_choose();
         }
 
