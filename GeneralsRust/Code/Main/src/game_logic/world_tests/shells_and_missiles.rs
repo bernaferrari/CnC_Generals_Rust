@@ -4090,3 +4090,31 @@ fn marauder_create_primary_comes_from_authored_weapon_set() {
         "authored PRIMARY overwritten by marauder name peel: {prim:?}"
     );
 }
+
+/// hq-2qedt.146: USA Missile Defender PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
+#[test]
+fn missile_defender_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaInfantryMissileDefender");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name("RangerFlashBangGrenadeWeapon");
+    game_logic.templates.insert("AmericaInfantryMissileDefender".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaInfantryMissileDefender", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("missile_defender");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - crate::game_logic::host_missile_defender::MISSILE_DEFENDER_DAMAGE).abs() > 0.01,
+        "authored PRIMARY overwritten by missile_defender name peel: {prim:?}"
+    );
+}

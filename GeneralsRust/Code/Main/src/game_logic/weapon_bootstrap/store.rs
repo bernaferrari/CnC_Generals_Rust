@@ -1262,6 +1262,13 @@ pub(super) fn seed_known_host_weapons() -> usize {
             t.clip_reload_time = DOZER_MINE_CLEAR_CLIP_RELOAD_FRAMES as i32;
             t.anti_mask.insert(WeaponAntiMask::MINE);
         }
+        // Weapon.ini MissileDefenderMissileWeapon: AntiAirborneVehicle /
+        // AntiAirborneInfantry Yes alongside AntiGround (hq-2qedt.146: the
+        // create-time name peel that carried these flags is gone).
+        if seed.name == crate::game_logic::host_missile_defender::MISSILE_DEFENDER_MISSILE_WEAPON {
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
+        }
         // Avenger designator can paint air + ground residual.
         if seed.name == AVENGER_TARGET_DESIGNATOR {
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);

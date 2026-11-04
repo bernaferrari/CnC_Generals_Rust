@@ -3134,10 +3134,9 @@ impl GameLogic {
             // Laser is AutoChooseSources SECONDARY NONE (special-only).
             if crate::game_logic::host_missile_defender::is_missile_defender_template(template_name)
             {
-                use crate::game_logic::host_missile_defender::{
-                    missile_defender_laser_guided_weapon, missile_defender_primary_weapon,
-                };
-                object.weapon = Some(missile_defender_primary_weapon());
+                // PRIMARY binds from the authored WeaponSet above (C++
+                // WeaponSet::updateWeaponSet), not a template-name peel (hq-2qedt.146).
+                use crate::game_logic::host_missile_defender::missile_defender_laser_guided_weapon;
                 object.secondary_weapon = Some(missile_defender_laser_guided_weapon());
                 object.template_mut().apply_retail_button_only_auto_choose();
             }
