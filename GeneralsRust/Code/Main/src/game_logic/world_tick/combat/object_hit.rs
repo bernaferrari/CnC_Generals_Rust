@@ -1199,15 +1199,13 @@ impl GameLogic {
                     };
                 } else if {
                     // GLA Terrorist residual: SuicideDynamitePack self-detonation.
-                    use crate::game_logic::host_terrorist::{
-                        is_terrorist_template, should_apply_terrorist_residual,
-                    };
+                    // Keyed on the authored WeaponSet weapon for this slot, not
+                    // the template name (hq-2qedt.216).
+                    use crate::game_logic::host_terrorist::TERRORIST_SUICIDE_WEAPON;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_terrorist_residual(is_terrorist_template(&a.template_name))
-                        })
-                        .unwrap_or(false)
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .is_some_and(|n| n == TERRORIST_SUICIDE_WEAPON)
                 } {
                     let (hits, _destroyed_any) = self.apply_terrorist_residual_at_with_effects(
                         Some(attacker_id),

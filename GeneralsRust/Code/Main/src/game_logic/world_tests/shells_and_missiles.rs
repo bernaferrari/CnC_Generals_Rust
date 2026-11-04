@@ -4872,3 +4872,51 @@ fn raptor_named_non_jet_missile_weapon_skips_raptor_object_hit_residual() {
         "Raptor jet-missile residual chosen by template-name peel"
     );
 }
+
+/// hq-2qedt.216: Terrorist-named infantry authoring a non-suicide PRIMARY must
+/// not route through the SuicideDynamitePack residual on object hit.
+#[test]
+fn terrorist_named_non_suicide_weapon_skips_terrorist_object_hit_residual() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new("GLAInfantryTerrorist");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("GLAInfantryTerrorist".to_string(), tpl);
+    let id = game_logic
+        .create_object("GLAInfantryTerrorist", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("terrorist");
+    // Inside any create-peeled suicide trigger range so either weapon fires.
+    let enemy = game_logic
+        .create_object("TestTank", Team::USA, Vec3::new(3.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let (c, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
+        c.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = c.weapon.as_mut() {
+            w.last_fire_time = -20.0;
+            w.reload_time = 0.1;
+        }
+    }
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    assert_eq!(
+        game_logic.terrorist_residual_detonations(),
+        0,
+        "Terrorist suicide residual chosen by template-name peel"
+    );
+}
