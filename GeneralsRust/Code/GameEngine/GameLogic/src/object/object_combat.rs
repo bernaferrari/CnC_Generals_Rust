@@ -467,15 +467,19 @@ impl Object {
             if let Some(audio) = crate::helpers::TheAudio::get() {
                 audio.add_audio_event_for_owner(&sound, self);
             }
-            let __player_list_arc = crate::player::player_list();
-                let selected = __player_list_arc.read()
-                .ok()
-                .and_then(|list| {
-                    let index = list.get_local_player_index();
+        }
+        // C++ ActiveBody.cpp:1414-1438 — markUIDirty is outside the
+        // provideFeedback gate: quiet promotions still refresh the ControlBar.
+        if new_level > old_level {
+            // Unpublished worlds have no selection/UI to refresh.
+            let selected = crate::player::try_player_list()
+                .and_then(|players| {
+                    let index = players.read().ok()?.get_local_player_index();
                     if index < 0 {
                         return None;
                     }
-                    let manager = crate::commands::selection::get_selection_manager();
+                    let services = crate::system::engine_stores::try_active_services()?;
+                    let manager = crate::commands::selection::get_selection_manager_on(&services);
                     let manager = manager.read().ok()?;
                     let selection = manager.get_player_selection_ref(index)?;
                     Some(selection.get_selected_objects())
