@@ -169,6 +169,7 @@ pub(crate) fn default_turret_turn_rate() -> f32 {
 
 mod open_contain_rally;
 pub(crate) mod parachute_contain;
+pub(crate) mod turret_ai_state;
 pub(crate) mod turret_runtime;
 pub(crate) mod turret_runtime_persist;
 mod turret_spawn;
@@ -2785,10 +2786,10 @@ pub struct Object {
     #[serde(default)]
     pub hive_slaves: [crate::game_logic::host_base_defense::ResidualHiveSlave; 3],
 
-    /// Host residual: TurretAI yaw (deg). Defaults **0**; Strategy Center
-    /// authors NaturalTurretAngle **-90**.
+    /// C++ TurretAI pose / state-machine residual (primary turret, index 0).
+    /// Bincode-identical to the former inline fields (contiguous, same order).
     #[serde(default)]
-    pub turret_angle_deg: f32,
+    pub turret_ai: turret_ai_state::TurretAiState,
     #[serde(skip)]
     pub(crate) turret_runtime: turret_runtime::HostTurretExtra,
     /// C++ `AIUpdateInterface::m_turretAI[TURRET_ALT]` (AIUpdate.cpp:112-113):
@@ -2797,63 +2798,6 @@ pub struct Object {
     /// slot pick / aim / draw land in hq-2qedt.2.2-.2.4.
     #[serde(skip)]
     pub(crate) alt_turret_runtime: Option<turret_runtime::HostTurretExtra>,
-    /// Host residual: TurretAI pitch (deg). Defaults **0**; Strategy Center
-    /// authors NaturalTurretPitch **45**.
-    #[serde(default)]
-    pub turret_pitch_deg: f32,
-    /// TurretAI idle-scan residual: absolute frame when next idle scan may start.
-    /// 0 = not scheduled (or just completed without reschedule).
-    #[serde(default)]
-    pub turret_idle_scan_next_frame: u32,
-    /// TurretAI idle-scan residual: true while rotating toward desired angle.
-    #[serde(default)]
-    pub turret_idle_scanning: bool,
-    /// TurretAI idle-scan residual: desired absolute yaw while scanning.
-    #[serde(default)]
-    pub turret_idle_scan_desired_angle_deg: f32,
-    /// TurretAI idle-scan residual: deterministic scan index (interval/offset seed).
-    #[serde(default)]
-    pub turret_idle_scan_index: u32,
-    /// TurretAI HoldTurret residual: true while holding after idle-scan complete.
-    #[serde(default)]
-    pub turret_holding: bool,
-    /// TurretAI HoldTurret residual: absolute frame when hold ends (0 = none).
-    #[serde(default)]
-    pub turret_hold_until_frame: u32,
-    /// TurretAI idle-recenter residual: true while recentering after Hold (not pack).
-    #[serde(default)]
-    pub turret_idle_recentering: bool,
-    /// TurretAI idle mood-target residual: target was set by friend_checkForIdleMoodTarget.
-    /// Cleared when mood target leaves range / dies (C++ m_targetWasSetByIdleMood).
-    #[serde(default)]
-    pub turret_mood_target: bool,
-    /// C++ TurretAI goal object residual.
-    #[serde(default)]
-    pub turret_target_id: Option<ObjectId>,
-    /// C++ TurretAI m_target forceAttacking residual.
-    #[serde(default)]
-    pub turret_force_attacking: bool,
-    /// C++ TurretAI enabled residual (false until unit has a turret slot).
-    #[serde(default)]
-    pub turret_enabled: bool,
-    /// C++ TurretAIData::m_turnRate residual (radians per logic frame).
-    #[serde(default = "default_turret_turn_rate")]
-    pub turret_turn_rate_rad: f32,
-    /// C++ TurretAI state machine residual.
-    #[serde(default)]
-    pub turret_substate: TurretSubState,
-    /// C++ MODELCONDITION_TURRET_ROTATE residual.
-    #[serde(default)]
-    pub turret_rotating: bool,
-    /// C++ TurretAIData NaturalTurretAngle residual (deg).
-    #[serde(default)]
-    pub turret_natural_angle_deg: f32,
-    /// C++ TurretAIData NaturalTurretPitch residual (deg).
-    #[serde(default)]
-    pub turret_natural_pitch_deg: f32,
-    /// C++ TurretAIData::m_recenterTime residual (logic frames).
-    #[serde(default = "default_turret_recenter_frames")]
-    pub turret_recenter_frames: u32,
 
     /// C++ AIUpdateInterface AttitudeType residual (AI_SLEEP..AI_AGGRESSIVE).
     /// Host residual for TurretAI mood matrix Sleep/Passive gates.

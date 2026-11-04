@@ -294,7 +294,7 @@ fn guard_exits_old_hunt_and_attack_submachine() {
     unit.status.attacking = true;
     unit.status.ignoring_stealth = true;
     unit.leech_range_active_primary = true;
-    unit.turret_enabled = true;
+    unit.turret_ai.turret_enabled = true;
     unit.set_turret_target_object(Some(target), true);
     guard(&mut world, "NamedUnit");
     let unit = world.host_object(id).unwrap();
@@ -305,7 +305,7 @@ fn guard_exits_old_hunt_and_attack_submachine() {
     assert!(!unit.status.attacking);
     assert!(!unit.status.ignoring_stealth);
     assert!(!unit.leech_range_active_primary);
-    assert_eq!(unit.turret_target_id, None);
+    assert_eq!(unit.turret_ai.turret_target_id, None);
 }
 
 #[test]

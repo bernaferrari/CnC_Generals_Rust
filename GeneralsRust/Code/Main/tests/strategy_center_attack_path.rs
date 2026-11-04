@@ -107,7 +107,7 @@ End
     );
     assert_eq!(source.owner_player_id, Some(0));
     assert_eq!(source.selected_weapon_slot(), Some(0));
-    assert!(source.is_weapon_slot_on_turret(0) && source.turret_turn_rate_rad > 0.0);
+    assert!(source.is_weapon_slot_on_turret(0) && source.turret_ai.turret_turn_rate_rad > 0.0);
     assert_eq!(source.weapon.as_ref().unwrap().range, 150.0);
     assert!(Object::weapon_ready(
         source.weapon.as_ref().unwrap(),

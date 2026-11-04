@@ -371,7 +371,7 @@ fn battleship_object_target_locks_object_not_position() {
         .create_object_for_player("HqFwovsTarget", 1, Vec3::new(80.0, 0.0, 0.0))
         .expect("tgt");
     if let Some(o) = logic.host_object_mut(ship_id) {
-        o.turret_enabled = true;
+        o.turret_ai.turret_enabled = true;
     }
     // C++ ctor arms the pre-built module (SpecialPowerModule.cpp:86-101);
     // simulate the authored reload having elapsed before the click.
@@ -391,7 +391,7 @@ fn battleship_object_target_locks_object_not_position() {
     let ship = logic.host_object(ship_id).expect("ship after fire");
     assert_eq!(ship.target, Some(tgt_id));
     assert!(ship.target_location.is_none());
-    assert_eq!(ship.turret_target_id, Some(tgt_id));
+    assert_eq!(ship.turret_ai.turret_target_id, Some(tgt_id));
     assert!(
         ship.fire_weapon_power
             .as_ref()

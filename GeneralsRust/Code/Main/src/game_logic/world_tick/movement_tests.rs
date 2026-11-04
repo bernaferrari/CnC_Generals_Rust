@@ -2026,17 +2026,17 @@ fn emp_unit_does_not_move_its_turret() {
     let mut logic = GameLogic::new();
     let id = ObjectId(9630);
     let mut unit = Object::new(ThingTemplate::new("Tank"), id, Team::USA);
-    unit.turret_enabled = true;
-    unit.turret_substate = TurretSubState::Recenter;
-    unit.turret_angle_deg = 40.0;
-    unit.turret_natural_angle_deg = 0.0;
-    unit.turret_turn_rate_rad = 1.0;
+    unit.turret_ai.turret_enabled = true;
+    unit.turret_ai.turret_substate = TurretSubState::Recenter;
+    unit.turret_ai.turret_angle_deg = 40.0;
+    unit.turret_ai.turret_natural_angle_deg = 0.0;
+    unit.turret_ai.turret_turn_rate_rad = 1.0;
     unit.status.disabled_emp = true;
     logic.objects.insert(id, unit);
     logic.tick_all_turret_state_machines(&[id], 0.0, 1);
     let obj = logic.objects.get(&id).expect("tank");
     assert!(
-        (obj.turret_angle_deg - 40.0).abs() < 0.01,
+        (obj.turret_ai.turret_angle_deg - 40.0).abs() < 0.01,
         "DISABLED_EMP must not run the turret"
     );
 }

@@ -248,13 +248,13 @@ impl GameLogic {
                     .as_ref()
                     .is_some_and(|ds| ds.is_ready_to_move())
                 {
-                    let has_turret = unit.turret_enabled || unit.turret_turn_rate_rad > 0.0;
+                    let has_turret = unit.turret_ai.turret_enabled || unit.turret_ai.turret_turn_rate_rad > 0.0;
                     let turret_natural = crate::game_logic::host_deploy_style::leftover_host_turret_is_in_natural_position(
                         unit.status.under_construction,
-                        unit.turret_angle_deg,
-                        unit.turret_pitch_deg,
-                        unit.turret_natural_angle_deg,
-                        unit.turret_natural_pitch_deg,
+                        unit.turret_ai.turret_angle_deg,
+                        unit.turret_ai.turret_pitch_deg,
+                        unit.turret_ai.turret_natural_angle_deg,
+                        unit.turret_ai.turret_natural_pitch_deg,
                     );
                     let outcome = unit.deploy_style.as_mut().map(|ds| {
                         let started = ds.begin_undeploy_with_weapon_turret(
@@ -266,13 +266,13 @@ impl GameLogic {
                     });
                     if let Some((started, now_aligning)) = outcome {
                         if started && now_aligning {
-                            unit.turret_substate =
+                            unit.turret_ai.turret_substate =
                                 crate::game_logic::object::TurretSubState::Recenter;
-                            unit.turret_idle_recentering = true;
-                            unit.turret_target_id = None;
+                            unit.turret_ai.turret_idle_recentering = true;
+                            unit.turret_ai.turret_target_id = None;
                             unit.turret_runtime.target_pos = None;
                             unit.turret_runtime.victim_team = None;
-                            unit.turret_holding = false;
+                            unit.turret_ai.turret_holding = false;
                         } else if started && !now_aligning {
                             started_undeploy = true;
                             unit.set_deployed(

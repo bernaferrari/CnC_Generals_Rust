@@ -1095,15 +1095,15 @@ fn transfer_attack_retargets_attackers() {
             AIState::Attacking,
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
-        o.turret_enabled = true;
-        o.turret_target_id = Some(from);
-        o.turret_substate = TurretSubState::Aim;
+        o.turret_ai.turret_enabled = true;
+        o.turret_ai.turret_target_id = Some(from);
+        o.turret_ai.turret_substate = TurretSubState::Aim;
         o
     });
     let n = logic.transfer_attack(from, to);
     assert!(n >= 1);
     assert_eq!(logic.objects[&atk].target, Some(to));
-    assert_eq!(logic.objects[&atk].turret_target_id, Some(to));
+    assert_eq!(logic.objects[&atk].turret_ai.turret_target_id, Some(to));
 }
 
 #[test]

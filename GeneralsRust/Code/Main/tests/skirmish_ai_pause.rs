@@ -489,7 +489,7 @@ fn specialty(name: &str, paused_owner: Option<u32>) -> (u64, f32) {
         // the fixture exercises admission, not the independent door animation.
         let center = logic.host_object_mut(attacker).unwrap();
         center.weapon = Some(weapon());
-        center.turret_enabled = true;
+        center.turret_ai.turret_enabled = true;
     }
     if let Some(owner) = paused_owner {
         logic.set_ai_active(owner, false);

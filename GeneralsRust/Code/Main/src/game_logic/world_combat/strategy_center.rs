@@ -24,7 +24,7 @@ impl GameLogic {
             && center.is_constructed()
             && center.can_attack()
             && center.weapon.is_some()
-            && center.turret_enabled
+            && center.turret_ai.turret_enabled
             && !self.skirmish_ai_auto_engage_paused(center_id)
             && self.battle_plans.active_plan_for_player(player) == Some(HostBattlePlan::Bombardment)
             && self
@@ -71,12 +71,12 @@ impl GameLogic {
         };
         // FIRE must consume exactly the goal whose AIM succeeded. Never select
         // a new nearest enemy here or use this PRIMARY residual for another slot.
-        let Some(target_id) = attacker.turret_target_id else {
+        let Some(target_id) = attacker.turret_ai.turret_target_id else {
             return AttackFireResult::Failure;
         };
-        if !attacker.turret_mood_target
+        if !attacker.turret_ai.turret_mood_target
             || attacker.target != Some(target_id)
-            || attacker.turret_substate != TurretSubState::Fire
+            || attacker.turret_ai.turret_substate != TurretSubState::Fire
             || attacker.selected_weapon_slot() != Some(0)
             || !attacker.is_weapon_slot_on_turret(0)
         {
@@ -274,11 +274,11 @@ impl GameLogic {
             {}
             // Mood ownership residual: keep mood flag only when fire engages the
             // same mood-acquired target; otherwise fire owns acquisition (clear flag).
-            if attacker.turret_mood_target && attacker.target != Some(target_id) {
-                attacker.turret_mood_target = false;
-            } else if !attacker.turret_mood_target {
+            if attacker.turret_ai.turret_mood_target && attacker.target != Some(target_id) {
+                attacker.turret_ai.turret_mood_target = false;
+            } else if !attacker.turret_ai.turret_mood_target {
                 // Non-mood fire residual: ensure flag stays clear.
-                attacker.turret_mood_target = false;
+                attacker.turret_ai.turret_mood_target = false;
             }
             attacker.note_attack_target_with_operation(
                 target_id,
@@ -299,11 +299,11 @@ impl GameLogic {
             }
             {}
             // Turret already aligned by tick_turret_aim (no snap).
-            attacker.turret_idle_scanning = false;
-            attacker.turret_holding = false;
-            attacker.turret_hold_until_frame = 0;
-            attacker.turret_idle_recentering = false;
-            attacker.turret_idle_scan_next_frame = self.frame.saturating_add(
+            attacker.turret_ai.turret_idle_scanning = false;
+            attacker.turret_ai.turret_holding = false;
+            attacker.turret_ai.turret_hold_until_frame = 0;
+            attacker.turret_ai.turret_idle_recentering = false;
+            attacker.turret_ai.turret_idle_scan_next_frame = self.frame.saturating_add(
                 crate::game_logic::host_strategy_center::BATTLE_PLAN_TURRET_RECENTER_FRAMES,
             );
         }
@@ -543,7 +543,7 @@ impl GameLogic {
         let turret_enabled = self
             .objects
             .get(&defense_id)
-            .map(|o| o.turret_enabled)
+            .map(|o| o.turret_ai.turret_enabled)
             .unwrap_or(false);
         if turret_enabled {
             self.set_turret_target_object(defense_id, Some(target_id), false);

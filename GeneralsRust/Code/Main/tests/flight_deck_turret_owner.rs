@@ -32,10 +32,10 @@ fn flight_deck_inherited_turrets_belong_to_receiving_session() {
     let b = peer.create_object(OBJECT, Team::USA, Vec3::ZERO).unwrap();
     assert_eq!(a, b);
     let obj = first.host_object(a).unwrap();
-    assert!((obj.turret_natural_angle_deg + 30.0).abs() < 1e-5);
+    assert!((obj.turret_ai.turret_natural_angle_deg + 30.0).abs() < 1e-5);
     assert!(obj.is_weapon_slot_on_turret(0));
     let peer_obj = peer.host_object(b).unwrap();
-    assert!((peer_obj.turret_natural_angle_deg - 45.0).abs() < 1e-5);
+    assert!((peer_obj.turret_ai.turret_natural_angle_deg - 45.0).abs() < 1e-5);
     assert!(peer_obj.is_weapon_slot_on_turret(1));
     let snapshot = SnapshotBuilder::new()
         .create_world_snapshot(&first)
@@ -49,7 +49,7 @@ fn flight_deck_inherited_turrets_belong_to_receiving_session() {
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
     let obj = restored.host_object(a).unwrap();
-    assert!((obj.turret_natural_angle_deg + 30.0).abs() < 1e-5);
+    assert!((obj.turret_ai.turret_natural_angle_deg + 30.0).abs() < 1e-5);
     assert!(obj.is_weapon_slot_on_turret(0));
 }
 

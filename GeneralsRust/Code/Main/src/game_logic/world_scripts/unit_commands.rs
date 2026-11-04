@@ -2102,14 +2102,14 @@ impl GameLogic {
                         | crate::game_logic::host_deploy_style::HostDeployStyleState::Undeploying
                 )
             );
-            let has_turret = unit.turret_enabled || unit.turret_turn_rate_rad > 0.0;
+            let has_turret = unit.turret_ai.turret_enabled || unit.turret_ai.turret_turn_rate_rad > 0.0;
             let turret_natural =
                 crate::game_logic::host_deploy_style::leftover_host_turret_is_in_natural_position(
                     unit.status.under_construction,
-                    unit.turret_angle_deg,
-                    unit.turret_pitch_deg,
-                    unit.turret_natural_angle_deg,
-                    unit.turret_natural_pitch_deg,
+                    unit.turret_ai.turret_angle_deg,
+                    unit.turret_ai.turret_pitch_deg,
+                    unit.turret_ai.turret_natural_angle_deg,
+                    unit.turret_ai.turret_natural_pitch_deg,
                 );
             let transitioned = {
                 let Some(style) = unit.deploy_style.as_mut() else {
@@ -2152,12 +2152,12 @@ impl GameLogic {
                     .as_ref()
                     .is_some_and(|ds| ds.is_aligning_turrets());
                 if aligning {
-                    unit.turret_substate = crate::game_logic::object::TurretSubState::Recenter;
-                    unit.turret_idle_recentering = true;
-                    unit.turret_target_id = None;
+                    unit.turret_ai.turret_substate = crate::game_logic::object::TurretSubState::Recenter;
+                    unit.turret_ai.turret_idle_recentering = true;
+                    unit.turret_ai.turret_target_id = None;
                     unit.turret_runtime.target_pos = None;
                     unit.turret_runtime.victim_team = None;
-                    unit.turret_holding = false;
+                    unit.turret_ai.turret_holding = false;
                 } else {
                     // C++ setMyState(UNDEPLOY) clears OBJECT_STATUS_DEPLOYED
                     // before the pack timer elapses.
