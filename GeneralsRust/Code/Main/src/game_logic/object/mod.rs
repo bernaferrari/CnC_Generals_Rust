@@ -2578,6 +2578,8 @@ pub struct Object {
     /// (C++ Object::m_visionSpiedBy / setVisionSpied for CIA Intelligence SpyVision).
     /// Fail-closed: not full looking_mask partition maintenance.
     pub vision_spied_mask: u32,
+    /// C++ `Object::m_visionSpiedBy[MAX_PLAYER_COUNT]` per-player refcount (Object.cpp:5220-5250).
+    pub vision_spied_by: [i32; gamelogic::common::MAX_PLAYER_COUNT],
 
     /// Host residual weapon-bonus flags from PropagandaTowerBehavior.
     /// C++ WEAPONBONUSCONDITION_ENTHUSIASTIC / SUBLIMINAL (rate-of-fire buff near speaker tower).

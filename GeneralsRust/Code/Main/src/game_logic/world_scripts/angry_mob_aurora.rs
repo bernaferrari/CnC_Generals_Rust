@@ -301,6 +301,7 @@ impl GameLogic {
             if let Some(obj) = self.objects.get_mut(&obj_id) {
                 // Clear all spy player bits that no longer have an active residual.
                 // Residual simplification: clear full mask when no active spy covers unit.
+                obj.vision_spied_by = [0; gamelogic::common::MAX_PLAYER_COUNT];
                 obj.vision_spied_mask = 0;
             }
         }

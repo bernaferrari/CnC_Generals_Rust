@@ -606,7 +606,7 @@ impl Object {
         last_fire_slot == 0 && last_fire_sim_time > 0.0
     }
 
-    /// C++ Object::setVisionSpied residual (refcounted mask simplified to bitmask).
+    /// C++ Object::setVisionSpied (Object.cpp:5220-5250) per-player refcount.
     /// When on, spying player treats this unit as a temporary looker / revealed target.
     pub fn set_vision_spied_by_player(&mut self, player_id: u32, on: bool) {
         self.set_vision_spied_with_partition_context(player_id, on, None);
@@ -626,24 +626,38 @@ impl Object {
         partition: Option<&mut crate::game_logic::partition_manager::PartitionManager>,
     ) {
         self.require_partition_owner(partition.as_deref());
-        let old_mask = self.vision_spied_mask;
-        let bit = 1u32 << player_id.min(31);
-        if on {
-            self.vision_spied_mask |= bit;
-        } else {
-            self.vision_spied_mask &= !bit;
+        // C++ Object.cpp:5220-5250: refcount per player; rebuild mask only on 0<->1 edge.
+        let idx = player_id as usize;
+        if idx >= self.vision_spied_by.len() {
+            return;
         }
-        if old_mask != self.vision_spied_mask {
+        let count = &mut self.vision_spied_by[idx];
+        *count = if on { count.wrapping_add(1) } else { count.wrapping_sub(1) };
+        let edge = if on { *count == 1 } else { *count == 0 };
+        if edge {
+            self.rebuild_vision_spied_mask();
             if let Some(partition) = partition {
                 self.handle_partition_cell_maintenance_with_partition_owner(partition);
             }
         }
     }
 
-    /// True if `player_id` currently has vision-spied residual on this unit.
+    /// Derive `vision_spied_mask` from `vision_spied_by` counts (Object.cpp:5232-5240).
+    pub fn rebuild_vision_spied_mask(&mut self) {
+        let mut mask = 0u32;
+        for (i, count) in self.vision_spied_by.iter().enumerate() {
+            if *count > 0 {
+                mask |= 1u32 << i;
+            }
+        }
+        self.vision_spied_mask = mask;
+    }
+
+    /// True if `player_id` currently spies this unit (`m_visionSpiedBy[i] > 0`).
     pub fn is_vision_spied_by_player(&self, player_id: u32) -> bool {
-        let bit = 1u32 << player_id.min(31);
-        (self.vision_spied_mask & bit) != 0
+        self.vision_spied_by
+            .get(player_id as usize)
+            .is_some_and(|count| *count > 0)
     }
 
     /// C++ `Object::getShroudClearingRange` (Object.cpp:5128-5140).
@@ -1730,5 +1744,24 @@ mod detector_material_tests {
             Some(0.375),
             "excluded scans are inert"
         );
+    }
+}
+
+#[cfg(test)]
+mod vision_spied_refcount_tests {
+    use crate::game_logic::{Object, ObjectId, Team, ThingTemplate};
+
+    #[test]
+    fn vision_spied_two_sources_one_off_keeps_vision_like_cpp_refcount() {
+        // C++ Object.cpp:5220-5250 m_visionSpiedBy[] refcount; mask rebuilt only on 0<->1.
+        let mut obj = Object::new(ThingTemplate::new("SpiedTank"), ObjectId(9), Team::GLA);
+        obj.set_vision_spied_by_player(2, true);
+        obj.set_vision_spied_by_player(2, true);
+        obj.set_vision_spied_by_player(2, false);
+        assert!(obj.is_vision_spied_by_player(2), "one spy source still on");
+        assert_eq!(obj.vision_spied_mask, 1 << 2);
+        obj.set_vision_spied_by_player(2, false);
+        assert!(!obj.is_vision_spied_by_player(2));
+        assert_eq!(obj.vision_spied_mask, 0);
     }
 }

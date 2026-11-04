@@ -245,6 +245,7 @@ impl Snapshot for WorldSnapshot {
             ObjectVisionSpiedSnapshot {
                 object_id: ObjectId(0),
                 vision_spied_mask: 0,
+                vision_spied_by: Vec::new(),
             },
         )?;
         xfer.xfer_marker_label("BuilderTasks")?;

@@ -846,6 +846,13 @@ impl XferData for ObjectVisionSpiedSnapshot {
         self.object_id.xfer(xfer)?;
         xfer.xfer_marker_label("VisionSpiedMask")?;
         xfer.xfer_u32(&mut self.vision_spied_mask)?;
+        xfer.xfer_marker_label("VisionSpiedBy")?;
+        let mut len = self.vision_spied_by.len() as u32;
+        xfer.xfer_u32(&mut len)?;
+        self.vision_spied_by.resize(len as usize, 0);
+        for count in &mut self.vision_spied_by {
+            xfer.xfer_i32(count)?;
+        }
         Ok(())
     }
 }
