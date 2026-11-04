@@ -179,19 +179,20 @@ impl GameLogic {
             object.secondary_weapon = Some(stinger_air_weapon(ap));
         }
 
-        // Host residual: GLA Scorpion PRIMARY gun (+ secondary rocket if unlocked).
+        // GLA Scorpion PRIMARY binds from the authored WeaponSet (C++
+        // WeaponSet::updateWeaponSet from ThingTemplate), not a name peel
+        // (hq-2qedt.154). Residual: PLAYER_UPGRADE rocket SECONDARY only.
         // Fail-closed: not full SalvageCrate missile-rack W3D subobject matrix.
         if crate::game_logic::host_scorpion::is_scorpion_template(template_name) {
             use crate::game_logic::host_scorpion::{
                 has_ap_rockets_upgrade, has_scorpion_rocket_upgrade, salvage_tier_from_upgrades,
-                scorpion_gun_weapon, scorpion_missile_weapon,
+                scorpion_missile_weapon,
             };
             let tier = salvage_tier_from_upgrades(if allow_upgrades {
                 &object.applied_upgrades
             } else {
                 &no_upgrade_mask
             });
-            object.weapon = Some(scorpion_gun_weapon(tier));
             if has_scorpion_rocket_upgrade(if allow_upgrades {
                 &object.applied_upgrades
             } else {
