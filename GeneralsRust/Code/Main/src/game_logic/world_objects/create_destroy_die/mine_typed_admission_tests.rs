@@ -56,3 +56,29 @@ fn mine_name_without_mine_module_stays_inert() {
     );
     assert!(world.host_object(id).unwrap().mine_data.is_none());
 }
+
+// hq-2qedt.36: StickyBombUpdate.cpp:83-104 — timed vs remote is decided by
+// whether the Object declares a LifetimeUpdate module, not by its name.
+const STICKY_BODY: &str = " KindOf = IMMOBILE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\nBehavior = StickyBombUpdate StickyTag\nEnd\n";
+
+#[test]
+fn sticky_without_lifetime_update_is_remote_even_with_timed_name() {
+    let src = format!("Object AuthoredTimedC4\n{STICKY_BODY}End\n");
+    let (world, id) = spawn(&src, "AuthoredTimedC4");
+    let data = world.host_object(id).unwrap().mine_data.as_ref().expect("admitted StickyBombUpdate");
+    assert_eq!(data.kind, HostMineKind::RemoteDemoCharge);
+    assert_eq!(data.detonate_at_frame, None);
+}
+
+#[test]
+fn sticky_with_lifetime_update_is_timed_even_with_remote_name() {
+    let src = format!(
+        "Object AuthoredRemoteC4\n{STICKY_BODY}Behavior = LifetimeUpdate LifeTag\n MinLifetime = 5000\n MaxLifetime = 5000\nEnd\nEnd\n"
+    );
+    let (world, id) = spawn(&src, "AuthoredRemoteC4");
+    let data = world.host_object(id).unwrap().mine_data.as_ref().expect("admitted StickyBombUpdate");
+    assert_eq!(data.kind, HostMineKind::TimedDemoCharge);
+    let at = data.detonate_at_frame.expect("timed die frame");
+    assert_eq!(at % 150, 0, "5000 ms authored lifetime → 150 frames, got {at}");
+    assert!(at >= 150 && at < 300, "authored lifetime not default 300: {at}");
+}

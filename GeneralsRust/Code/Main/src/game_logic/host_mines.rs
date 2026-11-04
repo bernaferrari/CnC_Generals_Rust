@@ -1459,8 +1459,8 @@ pub fn residual_data_for_template(
 /// C++ MinefieldBehavior.cpp:59-69 / DemoTrapUpdate.cpp:46-55 / StickyBombUpdate:
 /// the module class selects the runtime; the module's own INI fields set
 /// its data. Returns `None` when no mine module is declared, even if the
-/// name looks like a mine. StickyBombUpdate carries no timed/remote field,
-/// so that split (and curated weapon profiles) still use the name residual.
+/// name looks like a mine. StickyBomb timed vs remote follows LifetimeUpdate
+/// presence (StickyBombUpdate.cpp:83-104); curated weapon profiles remain name residual.
 pub fn admitted_data_for_modules(
     modules: &[crate::assets::ini_parser::BehaviorModuleDefinition],
     template_name: &str,
@@ -1508,12 +1508,19 @@ pub fn admitted_data_for_modules(
         return Some(data);
     }
     if has("StickyBombUpdate").is_some() {
-        if is_remote_demo_charge_template(template_name) {
+        // StickyBombUpdate.cpp:83-104: a LifetimeUpdate module makes this a
+        // timer bomb (die frame from that module); otherwise it is remote.
+        let Some(lifetime) = has("LifetimeUpdate") else {
             let mut data = HostMineData::remote_demo_charge();
             data.next_ping_frame = Some(current_frame.saturating_add(UNIT_BOMB_PING_FRAMES));
             return Some(data);
-        }
-        return Some(HostMineData::timed_demo_charge(current_frame));
+        };
+        let ms = |key: &str| lifetime.attribute(key).and_then(|v| v.trim().parse::<u32>().ok());
+        let data = HostMineData::timed_demo_charge(current_frame);
+        return Some(match ms("MinLifetime").or(ms("MaxLifetime")) {
+            Some(v) => data.with_lifetime_frames(current_frame, mine_ms_to_frames(v)),
+            None => data,
+        });
     }
     None
 }
