@@ -459,7 +459,7 @@ pub use super::host_supply_drop_zone::{
 };
 pub use super::host_tank_hunter::{
     TANK_HUNTER_DAMAGE, TANK_HUNTER_MISSILE_WEAPON, TANK_HUNTER_RANGE, is_tank_hunter_template,
-    should_apply_tank_hunter_residual, tank_hunter_weapon,
+    is_tank_hunter_weapon_name, tank_hunter_weapon,
 };
 pub use super::host_terrain_bridge_water_road_residual_wave108::honesty_heightmap_residual_deepen_pack_wave108;
 pub use super::host_terrorist::{

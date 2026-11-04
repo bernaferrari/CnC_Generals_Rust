@@ -1101,16 +1101,14 @@ impl GameLogic {
                     };
                 } else if {
                     // China Tank Hunter residual: RPG splash + AA capable residual.
-                    use crate::game_logic::host_tank_hunter::{
-                        is_tank_hunter_template, should_apply_tank_hunter_residual,
-                    };
+                    // Keyed on the authored weapon fired from this slot
+                    // (Weapon::fireWeapon uses the WeaponTemplate, not the
+                    // firer's template name).
+                    use crate::game_logic::host_tank_hunter::is_tank_hunter_weapon_name;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_tank_hunter_residual(is_tank_hunter_template(
-                                &a.template_name,
-                            ))
-                        })
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .map(is_tank_hunter_weapon_name)
                         .unwrap_or(false)
                 } {
                     let impact = target_position;
