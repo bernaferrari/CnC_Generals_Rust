@@ -11,6 +11,13 @@ fn isolated(test: &str, run: impl FnOnce()) {
     let module = module_path!().split_once("::").expect("crate prefix").1;
     let exact = format!("{module}::{test}");
     if std::env::var(CHILD).ok().as_deref() == Some(exact.as_str()) {
+        // The child runs on libtest's main thread with no owning WorldServices;
+        // WeaponStore has no process bag, so bind one for the witness (hq-2qedt.151).
+        if gamelogic::system::engine_stores::try_active_services().is_none() {
+            gamelogic::system::engine_stores::install_services(
+                gamelogic::system::engine_stores::new_world_services(),
+            );
+        }
         run();
         return;
     }

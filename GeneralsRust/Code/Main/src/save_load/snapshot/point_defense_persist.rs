@@ -173,13 +173,21 @@ mod tests {
             restored.point_defense_next_ready_frame.get(&ObjectId(5)),
             Some(&77)
         );
-        assert!(!restored
-            .point_defense_next_ready_frame
-            .contains_key(&ObjectId(99)));
+        assert!(
+            !restored
+                .point_defense_next_ready_frame
+                .contains_key(&ObjectId(99))
+        );
     }
 
     #[test]
     fn snapshot_round_trips_avenger_second_laser_clock() {
+        // create_world_snapshot reads CommonServices, which has no thread fallback (hq-2qedt.151).
+        if game_engine::common::common_services::try_common_services().is_none() {
+            game_engine::common::common_services::install_common_services(std::sync::Arc::new(
+                game_engine::common::common_services::CommonServices::new(),
+            ));
+        }
         let mut source = GameLogic::new();
         source
             .point_defense_next_ready_frame
@@ -207,9 +215,11 @@ mod tests {
             restored.point_defense_next_ready_frame_1.get(&ObjectId(8)),
             Some(&55)
         );
-        assert!(!restored
-            .point_defense_next_ready_frame_1
-            .contains_key(&ObjectId(3)));
+        assert!(
+            !restored
+                .point_defense_next_ready_frame_1
+                .contains_key(&ObjectId(3))
+        );
     }
 
     #[test]
