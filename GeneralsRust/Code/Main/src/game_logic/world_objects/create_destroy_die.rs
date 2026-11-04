@@ -3062,12 +3062,9 @@ impl GameLogic {
             // (C++ WeaponSet::updateWeaponSet), not a template-name peel
             // (hq-2qedt.132).
 
-            // Host residual: Colonel Burton PRIMARY sniper residual.
-            // Fail-closed: knife residual applied at fire-time for close infantry.
-            if crate::game_logic::host_colonel_burton::is_colonel_burton_template(template_name) {
-                use crate::game_logic::host_colonel_burton::burton_sniper_weapon;
-                object.weapon = Some(burton_sniper_weapon());
-            }
+            // Colonel Burton PRIMARY binds from the authored WeaponSet above
+            // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+            // (hq-2qedt.133). Knife residual stays at fire-time.
 
             // C++ VeterancyGainCreate.cpp:68-71 — IsPilot companion StartingLevel
             // still goes through ExperienceTracker::setMinVeterancyLevel (trainable

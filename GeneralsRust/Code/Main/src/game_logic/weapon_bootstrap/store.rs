@@ -707,6 +707,17 @@ pub(super) fn seed_known_host_weapons() -> usize {
             clip_size: 0,
             weapon_speed: crate::game_logic::host_tank_hunter::TANK_HUNTER_PROJECTILE_SPEED,
         },
+        // ColonelBurtonSniperRifleWeapon — PrimaryDamage 40, AttackRange 125,
+        // DelayBetweenShots 100ms → 3f, ClipSize 3, ClipReloadTime 500ms → 15f
+        // (hq-2qedt.133: authored source for Burton PRIMARY at create).
+        SeedWeapon {
+            name: crate::game_logic::host_colonel_burton::BURTON_SNIPER_WEAPON,
+            primary_damage: crate::game_logic::host_colonel_burton::BURTON_SNIPER_DAMAGE,
+            attack_range: crate::game_logic::host_colonel_burton::BURTON_SNIPER_RANGE,
+            delay_frames: crate::game_logic::host_colonel_burton::BURTON_SNIPER_BASE_DELAY_FRAMES as i32,
+            clip_size: crate::game_logic::host_colonel_burton::BURTON_CLIP_SIZE as i32,
+            weapon_speed: 999_999.0,
+        },
         // MicrowaveTankBuildingClearer — PrimaryDamage 1 (kills 1 garrisoned unit),
         // AttackRange 125, DelayBetweenShots 100ms → 3 frames @ 30 FPS.
         // KILL_GARRISONED residual via host combat path.
@@ -1245,6 +1256,11 @@ pub(super) fn seed_known_host_weapons() -> usize {
         if seed.name == STEALTH_JET_MISSILE_WEAPON {
             t.primary_damage_radius = 5.0;
             t.minimum_attack_range = 60.0;
+        }
+        // Retail ColonelBurtonSniperRifleWeapon ClipReloadTime 500ms → 15f (hq-2qedt.133).
+        if seed.name == crate::game_logic::host_colonel_burton::BURTON_SNIPER_WEAPON {
+            t.clip_reload_time =
+                crate::game_logic::host_colonel_burton::BURTON_CLIP_RELOAD_FRAMES as i32;
         }
         // Retail ChinaInfantryTankHunterMissileLauncher MinimumAttackRange 5 /
         // PrimaryDamageRadius 5 / AntiAirborneVehicle+Infantry (hq-2qedt.132).

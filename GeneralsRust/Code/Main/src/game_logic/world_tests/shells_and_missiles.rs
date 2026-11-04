@@ -4327,3 +4327,31 @@ fn tank_hunter_create_primary_comes_from_authored_weapon_set() {
         "authored HumveeGun PRIMARY overwritten by tank_hunter name peel: {prim:?}"
     );
 }
+
+/// hq-2qedt.133: Colonel Burton PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
+#[test]
+fn colonel_burton_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaInfantryColonelBurton");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("AmericaInfantryColonelBurton".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaInfantryColonelBurton", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("colonel_burton");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - crate::game_logic::host_colonel_burton::BURTON_SNIPER_DAMAGE).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by colonel_burton name peel: {prim:?}"
+    );
+}
