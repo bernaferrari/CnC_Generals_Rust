@@ -2522,6 +2522,10 @@ pub struct Object {
     #[serde(default)]
     pub jet_slow_death: Option<crate::game_logic::host_jet_slow_death::HostJetSlowDeathData>,
     pub mine_data: Option<crate::game_logic::host_mines::HostMineData>,
+    /// C++ AssistedTargetingUpdate module data (AssistingClipSize / AssistingWeaponSlot).
+    #[serde(default)]
+    pub assisted_targeting:
+        Option<crate::game_logic::host_base_defense::HostAssistedTargetingData>,
 
     /// Host residual: unit can detect stealthed enemies (C++ StealthDetectorUpdate).
     pub is_detector: bool,

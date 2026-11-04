@@ -951,6 +951,9 @@ impl GameLogic {
                 if !patriots_are_assist_equivalent(&requester_template, &obj.template_name) {
                     return None;
                 }
+                // C++ Weapon::processRequestAssistance: only Objects with an
+                // AssistedTargetingUpdate module can assist.
+                let assist = obj.assisted_targeting?;
                 let already_assisting = self
                     .pending_patriot_assists
                     .iter()
@@ -993,6 +996,7 @@ impl GameLogic {
                     },
                     obj.template_name.clone(),
                     assistant_pos,
+                    assist,
                 ))
             })
             .collect();
@@ -1000,7 +1004,7 @@ impl GameLogic {
             Some(requester_id),
             (requester_pos.x, requester_pos.z),
             request_range,
-            cand_snap.iter().map(|(c, _, _)| c.clone()),
+            cand_snap.iter().map(|(c, _, _, _)| c.clone()),
             |c| {
                 // Distance already gated by filter; keep request-assist helper for parity.
                 let dist = {
@@ -1011,23 +1015,24 @@ impl GameLogic {
                 is_within_patriot_request_assist_range(dist, request_range)
             },
         );
-        let candidates: Vec<(ObjectId, String, Vec3)> = filtered
+        let candidates: Vec<(ObjectId, String, Vec3, _)> = filtered
             .into_iter()
             .filter_map(|(id, _, _)| {
                 cand_snap
                     .iter()
-                    .find(|(c, _, _)| c.id == id)
-                    .map(|(_, tmpl, pos)| (id, tmpl.clone(), *pos))
+                    .find(|(c, _, _, _)| c.id == id)
+                    .map(|(_, tmpl, pos, assist)| (id, tmpl.clone(), *pos, *assist))
             })
             .collect();
 
-        for (assistant_id, assistant_template, assistant_pos) in candidates {
+        for (assistant_id, assistant_template, assistant_pos, assist) in candidates {
             self.pending_patriot_assists.push(PendingPatriotAssist::new(
                 assistant_id,
                 victim_id,
                 requester_id,
                 self.frame,
                 assistant_template,
+                assist,
             ));
             self.patriot_assist_residual_accepts =
                 self.patriot_assist_residual_accepts.saturating_add(1);

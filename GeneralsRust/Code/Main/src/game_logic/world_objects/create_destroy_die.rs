@@ -18,6 +18,9 @@ mod checked_factory_tests;
 #[cfg(test)]
 #[path = "create_destroy_die/mine_typed_admission_tests.rs"]
 mod mine_typed_admission_tests;
+#[cfg(test)]
+#[path = "create_destroy_die/assisted_targeting_admission_tests.rs"]
+mod assisted_targeting_admission_tests;
 mod construction;
 mod death;
 mod factory_init;
@@ -2630,6 +2633,26 @@ impl GameLogic {
             }
 
             // Constructor data precedes player upgrade application in initObject.
+            // C++ AssistedTargetingUpdate.cpp:74-75: authored slot/clip from the
+            // admitted module; retail Patriot residual only when unadmitted.
+            object.assisted_targeting = match object
+                .thing()
+                .template
+                .receiving_object_definition
+                .as_ref()
+            {
+                Some(definition) => {
+                    crate::game_logic::host_base_defense::HostAssistedTargetingData::from_modules(
+                        &definition.behavior_modules,
+                    )
+                }
+                None => crate::game_logic::host_base_defense::is_patriot_battery_structure(
+                    template_name,
+                )
+                .then_some(
+                    crate::game_logic::host_base_defense::HostAssistedTargetingData::RETAIL_PATRIOT,
+                ),
+            };
             // Typed admission: a captured Object's declared mine module selects
             // and parameterizes the runtime; name residual only when unbound.
             let mine_data = match object

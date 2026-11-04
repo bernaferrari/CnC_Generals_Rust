@@ -2243,6 +2243,53 @@ pub fn is_within_patriot_assist_weapon_range(dist_2d: f32) -> bool {
     dist_2d <= PATRIOT_ASSIST_RANGE
 }
 
+/// Authored AssistedTargetingUpdate module data bound onto a Main Object.
+///
+/// C++ AssistedTargetingUpdate.h:26-27 defaults (clip 1, PRIMARY_WEAPON);
+/// AssistedTargetingUpdate.cpp:74-75 locks `m_weaponSlot` and attacks with `m_clipSize`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct HostAssistedTargetingData {
+    pub clip_size: u32,
+    /// 0 = PRIMARY, 1 = SECONDARY, 2 = TERTIARY.
+    pub weapon_slot: u8,
+}
+
+impl HostAssistedTargetingData {
+    /// Retail AmericaPatriotBattery ModuleTag_07 residual for unadmitted templates.
+    pub const RETAIL_PATRIOT: Self = Self {
+        clip_size: PATRIOT_ASSISTING_CLIP_SIZE,
+        weapon_slot: 0,
+    };
+
+    /// Bind from the Object's admitted module declarations; `None` when the
+    /// Object declares no AssistedTargetingUpdate.
+    pub fn from_modules(
+        modules: &[crate::assets::ini_parser::BehaviorModuleDefinition],
+    ) -> Option<Self> {
+        let module = modules
+            .iter()
+            .find(|m| m.class_name.eq_ignore_ascii_case("AssistedTargetingUpdate"))?;
+        let mut data = Self {
+            clip_size: 1,
+            weapon_slot: 0,
+        };
+        if let Some(v) = module
+            .attribute("AssistingClipSize")
+            .and_then(|v| v.trim().parse::<i32>().ok())
+        {
+            data.clip_size = v.max(0) as u32;
+        }
+        if let Some(v) = module.attribute("AssistingWeaponSlot") {
+            data.weapon_slot = match v.trim().to_ascii_uppercase().as_str() {
+                "SECONDARY" | "SECONDARY_WEAPON" => 1,
+                "TERTIARY" | "TERTIARY_WEAPON" => 2,
+                _ => 0,
+            };
+        }
+        Some(data)
+    }
+}
+
 /// Pending assist clip residual (AssistingClipSize shots at DelayBetweenShots).
 #[derive(Debug, Clone, PartialEq)]
 pub struct PendingPatriotAssist {
@@ -2253,6 +2300,8 @@ pub struct PendingPatriotAssist {
     pub next_shot_frame: u32,
     /// Template name snapshot for damage / EMP family residual.
     pub assistant_template: String,
+    /// Authored AssistingWeaponSlot (consumed by weapon lock in hq-2qedt.31).
+    pub weapon_slot: u8,
 }
 
 impl PendingPatriotAssist {
@@ -2262,12 +2311,14 @@ impl PendingPatriotAssist {
         requester_id: ObjectId,
         start_frame: u32,
         assistant_template: impl Into<String>,
+        assist: HostAssistedTargetingData,
     ) -> Self {
         Self {
             assistant_id,
             victim_id,
             requester_id,
-            shots_remaining: PATRIOT_ASSISTING_CLIP_SIZE,
+            shots_remaining: assist.clip_size,
+            weapon_slot: assist.weapon_slot,
             // First shot is immediate (C++ assistAttack locks and fires ASAP).
             next_shot_frame: start_frame,
             assistant_template: assistant_template.into(),
@@ -2939,6 +2990,7 @@ mod tests {
             ObjectId(3),
             10,
             "AmericaPatriotBattery",
+            HostAssistedTargetingData::RETAIL_PATRIOT,
         );
         assert_eq!(pending.shots_remaining, 4);
         assert_eq!(pending.next_shot_frame, 10);
