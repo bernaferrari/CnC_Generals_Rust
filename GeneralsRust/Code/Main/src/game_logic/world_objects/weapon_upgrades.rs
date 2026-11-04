@@ -995,12 +995,16 @@ impl GameLogic {
         recipients: UpgradeRecipients,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_raptor::{UPGRADE_AMERICA_LASER_MISSILES, is_raptor_template};
+        use crate::game_logic::host_raptor::{
+            UPGRADE_AMERICA_LASER_MISSILES, authors_raptor_missile,
+        };
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
             .filter(|(_, o)| {
-                recipients.matches_object(o) && o.is_alive() && is_raptor_template(&o.template_name)
+                recipients.matches_object(o)
+                    && o.is_alive()
+                    && authors_raptor_missile(o.authored_primary_weapon_names(), None)
             })
             .map(|(id, _)| *id)
             .collect();
@@ -2233,5 +2237,52 @@ mod authored_mig_gate_tests {
         assert!(!has(&gl, named_n, UPGRADE_CHINA_TACTICAL_NUKE_MIG));
         assert!(has(&gl, auth_n, UPGRADE_CHINA_TACTICAL_NUKE_MIG));
         assert!(!has(&gl, auth, UPGRADE_CHINA_TACTICAL_NUKE_MIG));
+    }
+
+    /// hq-2qedt.249: Laser Missiles (WeaponSetUpgrade) keys on authored Raptor missile
+    /// PRIMARY, not template-name sniffing (team + direct apply paths).
+    #[test]
+    fn raptor_laser_missiles_keys_on_authored_missile_not_template_name() {
+        use crate::game_logic::host_raptor::{
+            AIRF_RAPTOR_JET_MISSILE_WEAPON, RAPTOR_JET_MISSILE_WEAPON,
+            UPGRADE_AMERICA_LASER_MISSILES,
+        };
+        let mut gl = GameLogic::new();
+        for (tpl_name, primary) in [
+            ("AmericaJetRaptor", "HumveeGun"),
+            ("AuthoredAirframeR", RAPTOR_JET_MISSILE_WEAPON),
+            ("AuthoredAirframeK", AIRF_RAPTOR_JET_MISSILE_WEAPON),
+        ] {
+            let mut tpl = crate::game_logic::ThingTemplate::new(tpl_name);
+            tpl.add_kind_of(KindOf::Aircraft)
+                .set_health(160.0)
+                .set_primary_weapon_name(primary);
+            gl.templates.insert(tpl_name.to_string(), tpl);
+        }
+        let named = gl
+            .create_object("AmericaJetRaptor", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let auth = gl
+            .create_object("AuthoredAirframeR", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let king = gl
+            .create_object("AuthoredAirframeK", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        assert!(!gl.apply_raptor_laser_missiles_upgrade(named));
+        assert!(gl.apply_raptor_laser_missiles_upgrade(king));
+        let n = gl.apply_laser_missiles_to_team(
+            UpgradeRecipients::Team(Team::USA),
+            UPGRADE_AMERICA_LASER_MISSILES,
+        );
+        assert_eq!(n, 2);
+        let has = |gl: &GameLogic, id| {
+            gl.host_object(id)
+                .unwrap()
+                .applied_upgrades
+                .contains(UPGRADE_AMERICA_LASER_MISSILES)
+        };
+        assert!(!has(&gl, named));
+        assert!(has(&gl, auth));
+        assert!(has(&gl, king));
     }
 }

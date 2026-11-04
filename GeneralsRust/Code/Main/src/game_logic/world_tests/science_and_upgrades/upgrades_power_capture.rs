@@ -511,7 +511,10 @@ fn host_upgrade_complete_scorpion_rocket_and_laser_missiles() {
         .set_primary_weapon_name(crate::game_logic::host_scorpion::SCORPION_TANK_GUN);
     logic.templates.insert("GLATankScorpion".into(), scorp);
     let mut raptor = ThingTemplate::new("AmericaJetRaptor");
-    raptor.add_kind_of(KindOf::Aircraft).set_health(200.0);
+    raptor
+        .add_kind_of(KindOf::Aircraft)
+        .set_health(200.0)
+        .set_primary_weapon_name(crate::game_logic::host_raptor::RAPTOR_JET_MISSILE_WEAPON);
     logic.templates.insert("AmericaJetRaptor".into(), raptor);
 
     let sid = logic

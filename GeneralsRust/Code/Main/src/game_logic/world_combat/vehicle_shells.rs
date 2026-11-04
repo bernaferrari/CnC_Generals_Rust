@@ -918,18 +918,19 @@ impl GameLogic {
     /// Apply Laser Missiles residual tag + rebind Raptor jet missile damage.
     pub fn apply_raptor_laser_missiles_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_raptor::{
-            UPGRADE_AMERICA_LASER_MISSILES, has_laser_missiles_upgrade, is_king_raptor_template,
-            is_raptor_template, raptor_weapon,
+            UPGRADE_AMERICA_LASER_MISSILES, authors_raptor_missile, has_laser_missiles_upgrade,
+            raptor_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_raptor_template(&obj.template_name) {
+        // hq-2qedt.249: key on authored Raptor missile PRIMARY (WeaponStore identity).
+        if !authors_raptor_missile(obj.authored_primary_weapon_names(), None) {
             return false;
         }
+        let king = authors_raptor_missile(obj.authored_primary_weapon_names(), Some(true));
         obj.applied_upgrades
             .insert(UPGRADE_AMERICA_LASER_MISSILES.to_string());
-        let king = is_king_raptor_template(&obj.template_name);
         let laser = has_laser_missiles_upgrade(&obj.applied_upgrades);
         let mut w = raptor_weapon(king, laser);
         // Preserve fire clock if already mid-combat.
@@ -1223,8 +1224,8 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_raptor::{
             RAPTOR_DAMAGE_TYPE, RAPTOR_DEATH_TYPE, RAPTOR_FIRE_AUDIO, RAPTOR_PRIMARY_RADIUS,
-            has_laser_missiles_upgrade, is_king_raptor_template, is_legal_raptor_target,
-            is_raptor_template, raptor_damage_at, raptor_scatter_aim,
+            authors_raptor_missile, has_laser_missiles_upgrade, is_legal_raptor_target,
+            raptor_damage_at, raptor_scatter_aim,
             raptor_scatter_misses_infantry,
         };
 
@@ -1233,7 +1234,7 @@ impl GameLogic {
                 if let Some(obj) = self.objects.get(&sid) {
                     (
                         obj.team,
-                        is_king_raptor_template(&obj.template_name),
+                        authors_raptor_missile(obj.authored_primary_weapon_names(), Some(true)),
                         has_laser_missiles_upgrade(&obj.applied_upgrades),
                     )
                 } else {
@@ -1408,13 +1409,6 @@ impl GameLogic {
                 self.frame,
                 sid,
                 intended_target,
-            );
-            let _ = is_raptor_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
             );
         }
 

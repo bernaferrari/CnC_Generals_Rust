@@ -213,6 +213,20 @@ pub fn is_king_raptor_template(template_name: &str) -> bool {
     n.starts_with("airf") || n.contains("kingraptor")
 }
 
+/// hq-2qedt.249: whether authored WeaponSet names (PRIMARY base / PLAYER_UPGRADE row)
+/// carry a Raptor jet missile. `king`: Some(true) = AirF only, Some(false) = standard only.
+pub fn authors_raptor_missile(names: [Option<&str>; 2], king: Option<bool>) -> bool {
+    names.into_iter().flatten().any(|n| {
+        let std = n.eq_ignore_ascii_case(RAPTOR_JET_MISSILE_WEAPON);
+        let k = n.eq_ignore_ascii_case(AIRF_RAPTOR_JET_MISSILE_WEAPON);
+        match king {
+            Some(true) => k,
+            Some(false) => std,
+            None => std || k,
+        }
+    })
+}
+
 /// Whether residual fire should apply Raptor residual path.
 pub fn should_apply_raptor_residual(is_raptor: bool) -> bool {
     is_raptor

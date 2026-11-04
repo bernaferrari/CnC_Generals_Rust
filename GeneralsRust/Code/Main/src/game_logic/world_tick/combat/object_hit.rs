@@ -776,12 +776,11 @@ impl GameLogic {
                     };
                 } else if {
                     // USA Raptor residual: jet missiles + Laser Missiles splash.
-                    use crate::game_logic::host_raptor::{
-                        is_raptor_template, should_apply_raptor_residual,
-                    };
+                    // hq-2qedt.249: attacker authors a Raptor missile PRIMARY (WeaponStore identity).
+                    use crate::game_logic::host_raptor::authors_raptor_missile;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| should_apply_raptor_residual(is_raptor_template(&a.template_name)))
+                        .map(|a| authors_raptor_missile(a.authored_primary_weapon_names(), None))
                         .unwrap_or(false)
                 } {
                     let impact = target_position;

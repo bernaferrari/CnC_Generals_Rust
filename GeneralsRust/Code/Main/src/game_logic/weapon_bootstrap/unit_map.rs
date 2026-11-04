@@ -116,6 +116,11 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         "ChinaJetMIG" | "China_MiG" | "TestMiG" | "Tank_ChinaJetMIG" | "Infa_ChinaJetMIG"
         | "Boss_JetMIG" => Some(NAPALM_MISSILE_WEAPON),
         "Nuke_ChinaJetMIG" => Some(NUKE_MIG_MISSILE_WEAPON),
+        "AmericaJetRaptor" | "USA_Raptor" | "TestRaptor" | "SupW_AmericaJetRaptor"
+        | "Lazr_AmericaJetRaptor" => Some(crate::game_logic::host_raptor::RAPTOR_JET_MISSILE_WEAPON),
+        "AirF_AmericaJetRaptor" => {
+            Some(crate::game_logic::host_raptor::AIRF_RAPTOR_JET_MISSILE_WEAPON)
+        }
         // America Fire Base residual howitzer.
         "AmericaFireBase"
         | "USA_FireBase"
@@ -380,10 +385,8 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_tomahawk::is_tomahawk_template(template_name) {
                 return Some(TOMAHAWK_MISSILE_WEAPON);
             }
-            if crate::game_logic::host_raptor::is_raptor_template(template_name) {
-                let king = crate::game_logic::host_raptor::is_king_raptor_template(template_name);
-                return Some(crate::game_logic::host_raptor::raptor_weapon_name(king));
-            }
+            // Raptor: explicit retail rows above only; no fuzzy name peel
+            // (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.249).
             if crate::game_logic::host_slave_drones::is_battle_drone_template(template_name) {
                 return Some(BATTLE_DRONE_MACHINE_GUN);
             }
