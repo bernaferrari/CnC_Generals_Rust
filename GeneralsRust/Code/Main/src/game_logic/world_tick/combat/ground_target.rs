@@ -55,13 +55,13 @@ impl GameLogic {
 
         let rocket_pod_ground = {
             use crate::game_logic::host_comanche_rocket_pods::{
-                UPGRADE_COMANCHE_ROCKET_PODS, is_comanche_template, rocket_pod_ground_fire_active,
+                COMANCHE_ROCKET_POD_WEAPON, UPGRADE_COMANCHE_ROCKET_PODS, rocket_pod_ground_fire_active,
             };
             self.objects
                 .get(&attacker_id)
                 .map(|a| {
                     rocket_pod_ground_fire_active(
-                        is_comanche_template(&a.template_name),
+                        a.weapon_name_for_slot(2) == Some(COMANCHE_ROCKET_POD_WEAPON),
                         a.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS)
                             || a.has_upgrade_tag("Upgrade_ComancheRocketPods"),
                         a.tertiary_weapon.is_some(),

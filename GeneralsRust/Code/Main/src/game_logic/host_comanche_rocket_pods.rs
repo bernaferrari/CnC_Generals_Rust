@@ -210,6 +210,13 @@ pub fn is_comanche_template(template_name: &str) -> bool {
     n.contains("comanche")
 }
 
+/// Whether an object carries the retail Comanche WeaponSet (authored
+/// PRIMARY `Comanche20mmCannonWeapon`), the C++ WeaponSetUpgrade recipient
+/// for the rocket-pod TERTIARY (hq-2qedt.255).
+pub fn carries_comanche_weapon_set(authored_primary: Option<&str>) -> bool {
+    authored_primary == Some(COMANCHE_PRIMARY_WEAPON)
+}
+
 /// Whether residual fire should apply Comanche combat residual (any slot).
 pub fn should_apply_comanche_residual(is_comanche: bool) -> bool {
     is_comanche

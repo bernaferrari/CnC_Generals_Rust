@@ -5053,3 +5053,41 @@ fn quad_cannon_discharge_counters_key_on_authored_weapon() {
         "Quad-named chassis with authored HumveeGun must not count Quad fires"
     );
 }
+
+/// hq-2qedt.255: Comanche rocket-pod TERTIARY at create keys on the authored
+/// WeaponSet (Comanche20mmCannonWeapon chassis), not the template name.
+#[test]
+fn comanche_rocket_pods_create_key_on_authored_weapon_set() {
+    use crate::game_logic::host_comanche_rocket_pods::{
+        COMANCHE_PRIMARY_WEAPON, UPGRADE_COMANCHE_ROCKET_PODS,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let run = |name: &str, weapon: &str| -> bool {
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.add_completed_upgrade(UPGRADE_COMANCHE_ROCKET_PODS);
+        game_logic.add_player(player);
+        let mut tpl = ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(220.0)
+            .set_primary_weapon_name(weapon);
+        game_logic.templates.insert(name.to_string(), tpl);
+        let id = game_logic
+            .create_object(name, Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("unit");
+        game_logic.host_object(id).unwrap().tertiary_weapon.is_some()
+    };
+    assert!(
+        run("USA_Gunship", COMANCHE_PRIMARY_WEAPON),
+        "authored Comanche WeaponSet must receive rocket pods TERTIARY"
+    );
+    assert!(
+        !run("AmericaVehicleComanche", "HumveeGun"),
+        "Comanche-named chassis with authored HumveeGun must not receive pods"
+    );
+}

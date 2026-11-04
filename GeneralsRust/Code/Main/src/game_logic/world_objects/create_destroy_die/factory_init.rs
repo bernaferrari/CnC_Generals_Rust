@@ -221,7 +221,9 @@ impl GameLogic {
         // (C++ WeaponSet::updateWeaponSet), not this name peel (hq-2qedt.109).
         // Retail rocket pods are a PLAYER_UPGRADE TERTIARY weapon; only expose
         // pods after the team owns the real upgrade.
-        if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(template_name) {
+        if crate::game_logic::host_comanche_rocket_pods::carries_comanche_weapon_set(
+            object.authored_weapon_name_for_slot(0),
+        ) {
             use crate::game_logic::host_comanche_rocket_pods::{
                 UPGRADE_COMANCHE_ROCKET_PODS, comanche_rocket_pod_weapon,
             };
