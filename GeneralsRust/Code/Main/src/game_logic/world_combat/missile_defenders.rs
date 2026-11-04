@@ -518,8 +518,7 @@ impl GameLogic {
         rider: crate::game_logic::host_combat_cycle::CombatCycleRider,
     ) -> bool {
         use crate::game_logic::host_combat_cycle::{
-            CombatCycleRider, combat_cycle_weapon_for_rider, is_combat_cycle_template,
-            is_kell_snipe_transfer_rider, transfer_next_shot_last_fire_time,
+            CombatCycleRider, combat_cycle_weapon_for_rider, is_kell_snipe_transfer_rider, transfer_next_shot_last_fire_time,
         };
         use crate::game_logic::thing::ThingTemplate;
 
@@ -556,11 +555,10 @@ impl GameLogic {
                 .template
                 .contain_module
                 .has_supported_rider_change_roster();
-        if !is_combat_cycle_template(&obj.template_name) && !parsed_rider_change {
-            return false;
-        }
+        // hq-2qedt.275: gate on container state (installed residual transport
+        // or authored RiderChangeContain), never the template basename.
         if !obj.is_combat_cycle_style_container() && !parsed_rider_change {
-            obj.install_combat_cycle_transport();
+            return false;
         }
 
         obj.combat_cycle_rider = rider.as_u8();
@@ -607,8 +605,7 @@ impl GameLogic {
     /// Empty bike → PRIMARY NONE; single rider → rider weapon residual.
     pub fn refresh_combat_cycle_rider_weapon(&mut self, container_id: ObjectId) {
         use crate::game_logic::host_combat_cycle::{
-            CombatCycleRider, combat_cycle_weapon_for_rider, is_combat_cycle_template,
-            rider_from_template_name,
+            CombatCycleRider, combat_cycle_weapon_for_rider, rider_from_template_name,
         };
 
         let Some(container) = self.objects.get(&container_id) else {
@@ -640,9 +637,7 @@ impl GameLogic {
             }
             return;
         }
-        if !is_combat_cycle_template(&container.template_name)
-            && !container.is_combat_cycle_style_container()
-        {
+        if !container.is_combat_cycle_style_container() {
             return;
         }
         let occupants = container.contained_units();

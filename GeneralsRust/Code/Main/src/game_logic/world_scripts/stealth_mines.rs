@@ -622,16 +622,14 @@ impl GameLogic {
             use crate::game_logic::host_combat_cycle::{
                 COMBAT_CYCLE_USE_RIDER_STEALTH, CombatCycleRider,
                 combat_cycle_rider_stealth_desired, combat_cycle_stealth_owner_rider,
-                is_combat_cycle_template, rider_from_template_name, rider_grants_can_stealth,
+                rider_from_template_name, rider_grants_can_stealth,
                 rider_stealth_delay_frames,
             };
             let bike_ids: Vec<ObjectId> = self
                 .objects
                 .registered()
                 .filter(|(_, o)| {
-                    o.is_alive()
-                        && (is_combat_cycle_template(&o.template_name)
-                            || o.is_combat_cycle_style_container())
+                    o.is_alive() && o.is_combat_cycle_style_container()
                 })
                 .map(|(id, _)| *id)
                 .collect();
