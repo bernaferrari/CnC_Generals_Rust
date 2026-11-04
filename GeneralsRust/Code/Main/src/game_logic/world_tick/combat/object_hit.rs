@@ -1446,12 +1446,18 @@ impl GameLogic {
                         )
                     };
                 } else if {
-                    // China Gattling Tank residual: ground gun or AA secondary hit.
-                    use crate::game_logic::host_gattling_tank::is_gattling_tank_template;
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| is_gattling_tank_template(&a.template_name))
-                        .unwrap_or(false)
+                    // Gattling Tank residual: GattlingTankGun ground / GattlingTankGunAir AA hit,
+                    // keyed on the fired authored weapon (C++ Weapon::fireWeapon uses the
+                    // WeaponTemplate; no chassis-name gate).
+                    use crate::game_logic::host_gattling_tank::{
+                        GATTLING_TANK_GUN, GATTLING_TANK_GUN_AIR,
+                    };
+                    self.objects.get(&attacker_id).is_some_and(|a| {
+                        a.weapon_name_for_slot(slot).is_some_and(|w| {
+                            w.eq_ignore_ascii_case(GATTLING_TANK_GUN)
+                                || w.eq_ignore_ascii_case(GATTLING_TANK_GUN_AIR)
+                        })
+                    })
                 } {
                     let impact = target_position;
                     let (hits, _destroyed_any) = self.apply_gattling_tank_residual_at_with_effects(
