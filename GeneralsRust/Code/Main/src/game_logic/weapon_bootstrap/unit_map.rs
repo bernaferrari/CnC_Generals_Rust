@@ -334,9 +334,7 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             {
                 return Some(MISSILE_DEFENDER_MISSILE_WEAPON);
             }
-            if crate::game_logic::host_dragon_tank::is_dragon_tank_template(template_name) {
-                return Some(DRAGON_TANK_FLAME_WEAPON);
-            }
+
             if crate::game_logic::host_gattling_tank::is_gattling_tank_template(template_name) {
                 return Some(GATTLING_TANK_GUN);
             }

@@ -1136,7 +1136,6 @@ impl GameLogic {
         use crate::game_logic::host_gattling_tank::{
             UPGRADE_CHINA_CHAIN_GUNS, is_gattling_tank_template,
         };
-        use crate::game_logic::host_gattling_tank::UPGRADE_CHINA_CHAIN_GUNS;
         use crate::game_logic::host_minigunner::is_minigunner_template;
 
         let ids: Vec<(ObjectId, u8)> = self

@@ -2900,7 +2900,10 @@ impl GameLogic {
             // Helix PRIMARY binds from the authored WeaponSet above (C++
             // WeaponSet::updateWeaponSet from ThingTemplate), not a
             // template-name host table (hq-2qedt.139).
-            if crate::game_logic::host_overlord_addons::is_emperor_template(template_name) {
+            // Emperor innate propaganda keyed on authored PropagandaTowerBehavior
+            // (hq-2qedt.256), not is_emperor_template name peel.
+            let emperor_spawn = object.authors_innate_propaganda_tower();
+            if emperor_spawn {
                 // Innate PropagandaTowerBehavior AffectsSelf residual.
                 object.has_overlord_propaganda_addon = true;
 
