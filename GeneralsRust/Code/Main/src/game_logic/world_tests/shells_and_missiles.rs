@@ -4824,3 +4824,51 @@ fn troop_crawler_named_non_assault_weapon_skips_assault_deploy_object_hit_residu
         "Troop Crawler DEPLOY residual chosen by template-name peel"
     );
 }
+
+/// hq-2qedt.215: Raptor-named jet authoring a non-jet-missile PRIMARY must not
+/// route through the Raptor jet-missile residual on object hit.
+#[test]
+fn raptor_named_non_jet_missile_weapon_skips_raptor_object_hit_residual() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaJetRaptor");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("AmericaJetRaptor".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaJetRaptor", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("raptor");
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
+        .expect("enemy");
+    // Outside RaptorJetMissileWeapon MinRange (100) so a create-peeled jet weapon still fires.
+    {
+        let (c, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
+        c.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = c.weapon.as_mut() {
+            w.last_fire_time = -20.0;
+            w.reload_time = 0.1;
+        }
+    }
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    assert_eq!(
+        game_logic.raptor_residual_fires(),
+        0,
+        "Raptor jet-missile residual chosen by template-name peel"
+    );
+}

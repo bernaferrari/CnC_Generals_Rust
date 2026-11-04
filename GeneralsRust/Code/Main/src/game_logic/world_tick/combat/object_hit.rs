@@ -772,13 +772,17 @@ impl GameLogic {
                     };
                 } else if {
                     // USA Raptor residual: jet missiles + Laser Missiles splash.
+                    // Keyed on the authored WeaponSet weapon for this slot, not
+                    // the template name (hq-2qedt.215).
                     use crate::game_logic::host_raptor::{
-                        is_raptor_template, should_apply_raptor_residual,
+                        AIRF_RAPTOR_JET_MISSILE_WEAPON, RAPTOR_JET_MISSILE_WEAPON,
                     };
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| should_apply_raptor_residual(is_raptor_template(&a.template_name)))
-                        .unwrap_or(false)
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .is_some_and(|n| {
+                            n == RAPTOR_JET_MISSILE_WEAPON || n == AIRF_RAPTOR_JET_MISSILE_WEAPON
+                        })
                 } {
                     let impact = target_position;
                     let from = self
