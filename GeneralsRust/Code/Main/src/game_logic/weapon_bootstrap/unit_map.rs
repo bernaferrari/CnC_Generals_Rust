@@ -299,28 +299,8 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "Boss_VehicleCombatBikeTerrorist" => Some(TERRORIST_SUICIDE_WEAPON),
         _ => {
             // Name residual for Laser/Superweapon general variants + Nuke Cannon.
-            if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
-                return Some(NUKE_CANNON_PRIMARY_WEAPON);
-            }
             if crate::game_logic::host_inferno_cannon::is_inferno_cannon_template(template_name) {
                 return Some(INFERNO_CANNON_PRIMARY_WEAPON);
-            }
-            if crate::game_logic::host_aurora_bomb::is_aurora_aircraft_template(template_name) {
-                return Some(
-                    match crate::game_logic::host_aurora_bomb::aurora_bomb_kind_for_template(
-                        template_name,
-                    ) {
-                        crate::game_logic::host_aurora_bomb::HostAuroraBombKind::FuelAir => {
-                            AIRF_AURORA_BOMB_PRIMARY_WEAPON
-                        }
-                        crate::game_logic::host_aurora_bomb::HostAuroraBombKind::FuelAirSupW => {
-                            SUPW_AURORA_FUEL_BOMB_WEAPON
-                        }
-                        crate::game_logic::host_aurora_bomb::HostAuroraBombKind::Standard => {
-                            AURORA_BOMB_PRIMARY_WEAPON
-                        }
-                    },
-                );
             }
             if crate::game_logic::host_bunker_buster::is_bunker_buster_carrier(template_name) {
                 return Some(STEALTH_JET_MISSILE_WEAPON);
@@ -354,14 +334,8 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
                 return Some(QUAD_CANNON_GUN);
             }
-            if crate::game_logic::host_scud_launcher::is_scud_launcher_template(template_name) {
-                return Some(SCUD_GUN_EXPLOSIVE);
-            }
             if crate::game_logic::host_technical::is_technical_template(template_name) {
                 return Some(TECHNICAL_MACHINE_GUN);
-            }
-            if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name) {
-                return Some(TOXIN_TRUCK_GUN);
             }
             if crate::game_logic::host_scorpion::is_scorpion_template(template_name) {
                 return Some(SCORPION_TANK_GUN);
@@ -512,14 +486,6 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
             // Nuke Cannon neutron secondary is upgrade-gated — see comment above.
             if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
                 Some(QUAD_CANNON_GUN_AIR)
-            } else if crate::game_logic::host_scud_launcher::is_scud_launcher_template(
-                template_name,
-            ) {
-                Some(SCUD_GUN_TOXIN)
-            } else if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(
-                template_name,
-            ) {
-                Some(TOXIN_TRUCK_SPRAYER)
             } else if crate::game_logic::host_base_defense::is_gattling_cannon_structure(
                 template_name,
             ) {
@@ -594,5 +560,29 @@ mod name_peel_tests {
             "FixtureBattleMasterVariant",
             gl::host_battlemaster::is_battlemaster_template,
         );
+    }
+
+    /// hq-2qedt.228
+    #[test]
+    fn aurora_nuke_scud_toxin_variant_names_have_no_unit_map_weapon() {
+        assert_unmapped(
+            "FixtureJetAuroraVariant",
+            gl::host_aurora_bomb::is_aurora_aircraft_template,
+        );
+        assert_unmapped(
+            "FixtureNukeCannonVariant",
+            gl::host_neutron_shell::is_nuke_cannon_template,
+        );
+        assert_unmapped(
+            "FixtureScudLauncherVariant",
+            gl::host_scud_launcher::is_scud_launcher_template,
+        );
+        // Toxin PRIMARY is still shadowed by the separate KILL_GARRISONED
+        // `contains("toxin")` clearer row (own bead); the toxin rows themselves
+        // must be gone.
+        let toxin = "FixtureToxinTractorVariant";
+        assert!(gl::host_toxin_tractor::is_toxin_tractor_template(toxin));
+        assert_ne!(primary_weapon_name_for_unit(toxin), Some(super::TOXIN_TRUCK_GUN));
+        assert_eq!(secondary_weapon_name_for_unit(toxin), None, "{toxin} SECONDARY");
     }
 }
