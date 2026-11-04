@@ -1157,17 +1157,13 @@ impl GameLogic {
                     );
                 } else if {
                     // GLA RPG Trooper residual: rocket splash + AA capable residual.
-                    use crate::game_logic::host_rpg_trooper::{
-                        is_rpg_trooper_template, should_apply_rpg_trooper_residual,
-                    };
+                    // Keyed on the authored WeaponSet weapon for this slot, not
+                    // the template name (hq-2qedt.185).
+                    use crate::game_logic::host_rpg_trooper::{TUNNEL_DEFENDER_ROCKET_WEAPON};
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_rpg_trooper_residual(is_rpg_trooper_template(
-                                &a.template_name,
-                            ))
-                        })
-                        .unwrap_or(false)
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .is_some_and(|n| n == TUNNEL_DEFENDER_ROCKET_WEAPON)
                 } {
                     let impact = target_position;
                     let from = self
