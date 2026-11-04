@@ -182,8 +182,10 @@ impl GameLogic {
         // GLA Scorpion PRIMARY binds from the authored WeaponSet (C++
         // WeaponSet::updateWeaponSet from ThingTemplate), not a name peel
         // (hq-2qedt.154). Residual: PLAYER_UPGRADE rocket SECONDARY only.
+        // Gate keys on authored PRIMARY (ScorpionTankGun family), not a
+        // template-name sniff (hq-2qedt.208; C++ WeaponSetUpgrade).
         // Fail-closed: not full SalvageCrate missile-rack W3D subobject matrix.
-        if crate::game_logic::host_scorpion::is_scorpion_template(template_name) {
+        if super::super::super::world_combat::ocl_and_scud::authored_scorpion_gun(object) {
             use crate::game_logic::host_scorpion::{
                 has_ap_rockets_upgrade, has_scorpion_rocket_upgrade, salvage_tier_from_upgrades,
                 scorpion_missile_weapon,

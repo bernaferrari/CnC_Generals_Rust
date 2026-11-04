@@ -4524,3 +4524,14 @@ fn scorpion_team_upgrades_key_on_authored_gun_not_template_name() {
     let src = include_str!("../world_objects/weapon_upgrades.rs");
     assert!(!src.contains("is_scorpion_template"));
 }
+
+/// hq-2qedt.208: factory_init Scorpion rocket SECONDARY gate keys on the
+/// authored PRIMARY (ScorpionTankGun family), not is_scorpion_template.
+/// C++ WeaponSetUpgrade flips PLAYER_UPGRADE on any object whose authored
+/// modules carry it; WeaponSet::updateWeaponSet then picks the row.
+#[test]
+fn scorpion_factory_init_rocket_gate_keys_on_authored_gun_not_template_name() {
+    let src = include_str!("../world_objects/create_destroy_die/factory_init.rs");
+    assert!(!src.contains("is_scorpion_template"));
+    assert!(src.contains("authored_scorpion_gun"));
+}
