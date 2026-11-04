@@ -263,11 +263,8 @@ fn parse_turret_module(module: &BehaviorModuleDefinition) -> TurretSpawnSpec {
 }
 
 fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
-    use crate::game_logic::host_base_defense::{
-        is_gattling_cannon_structure, is_patriot_battery_structure,
-    };
+    use crate::game_logic::host_base_defense::is_patriot_battery_structure;
     use crate::game_logic::host_battlemaster::BATTLE_MASTER_TURRET_TURN_RATE;
-    use crate::game_logic::host_gattling_tank::is_gattling_tank_template;
     use crate::game_logic::host_humvee::{
         HUMVEE_TURRET_RECENTER_FRAMES, HUMVEE_TURRET_TURN_RATE, is_humvee_template,
     };
@@ -353,13 +350,9 @@ fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
         return TurretSpawnSpec::enabled_with_turn_rate(USA_TANK_TURRET_TURN_RATE);
     }
 
-    if is_gattling_cannon_structure(template_name) || is_gattling_tank_template(template_name) {
-        let mut spec = TurretSpawnSpec::enabled_with_turn_rate(USA_TANK_TURRET_TURN_RATE);
-        let sweep = GATTLING_FIRE_ANGLE_SWEEP_DEG.to_radians();
-        spec.fire_angle_sweep = [sweep, sweep, 0.0];
-        spec.fires_while_turning = true;
-        return spec;
-    }
+    // Gattling Tank / Gattling Cannon TurretAI (sweep, FiresWhileTurning)
+    // comes from authored AIUpdate Turret data via
+    // turret_spawn_for_thing_template, not a chassis-name row (hq-2qedt.240).
 
     if is_quad_cannon_name(template_name) {
         let mut spec = TurretSpawnSpec::enabled_with_turn_rate(USA_TANK_TURRET_TURN_RATE);
@@ -555,6 +548,17 @@ mod tests {
         assert!(!spec.enabled);
         // Explicit honesty path remains available for residual callers.
         assert!(turret_spawn_for_template("AmericaTankCrusader").has_turret);
+    }
+
+    #[test]
+    fn gattling_turret_spawn_not_invented_from_chassis_name_hq_2qedt_240() {
+        for name in ["ChinaTankGattling", "ChinaGattlingCannon"] {
+            let spec = turret_spawn_for_template(name);
+            assert!(
+                !spec.has_turret && !spec.fires_while_turning && spec.fire_angle_sweep == [0.0; 3],
+                "{name}: Gattling TurretAI must come from authored Turret data, not chassis name"
+            );
+        }
     }
 
     #[test]

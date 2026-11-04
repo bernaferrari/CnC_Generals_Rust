@@ -116,21 +116,12 @@ impl GameLogic {
             }
         }
 
-        // China Gattling Tank PRIMARY/SECONDARY bind from the authored WeaponSet
-        // (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a
-        // template-name host table (hq-2qedt.159). Continuous-fire ramp state
-        // still resets at create; chain-guns refresh stays upgrade-time.
-        if crate::game_logic::host_gattling_tank::is_gattling_tank_template(template_name) {
-            reset_continuous_fire_state(object);
-        }
-
-        // China Gattling Cannon structure PRIMARY/SECONDARY bind from the
-        // authored WeaponSet (C++ WeaponSet::updateWeaponSet), not a
-        // template-name host table (hq-2qedt.160). Continuous-fire ramp state
-        // still resets at create; chain-guns refresh stays upgrade-time.
-        if crate::game_logic::host_base_defense::is_gattling_cannon_structure(template_name) {
-            reset_continuous_fire_state(object);
-        }
+        // C++ Object::initObject builds a fresh FiringTracker per object, so
+        // continuous-fire ramp state starts cold for every chassis; Gattling
+        // Tank/Cannon weapons bind from the authored WeaponSet (hq-2qedt.159/
+        // .160), not a template-name gate (hq-2qedt.240). Chain-guns refresh
+        // stays upgrade-time.
+        reset_continuous_fire_state(object);
 
         if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name) {
             use crate::game_logic::host_base_defense::{
