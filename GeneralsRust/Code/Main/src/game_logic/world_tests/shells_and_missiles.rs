@@ -2185,10 +2185,12 @@ fn fire_base_residual_howitzer() {
         let prim = fb.weapon.as_ref().expect("howitzer");
         assert!((prim.damage - FIRE_BASE_DAMAGE).abs() < 0.01);
         assert!((prim.range - FIRE_BASE_RANGE).abs() < 1.0);
-        // hq-2qedt.105: PRIMARY now binds from the authored WeaponSet. The
-        // test seed store has no MinimumAttackRange column, so min_range is
-        // only pinned when the store carries it (INI FireBaseHowitzerGun = 50).
-        assert!(prim.min_range == 0.0 || (prim.min_range - FIRE_BASE_MIN_RANGE).abs() < 1.0);
+        // hq-2qedt.118: seed store authors INI MinimumAttackRange 50.
+        assert!(
+            (prim.min_range - FIRE_BASE_MIN_RANGE).abs() < 1.0,
+            "FireBaseHowitzerGun MinimumAttackRange: {}",
+            prim.min_range
+        );
         assert!(!prim.can_target_air);
         assert!((prim.reload_time - 2.0).abs() < 0.05);
     }

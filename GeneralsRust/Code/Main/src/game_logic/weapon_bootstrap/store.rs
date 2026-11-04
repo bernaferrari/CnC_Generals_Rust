@@ -1218,6 +1218,10 @@ pub(super) fn seed_known_host_weapons() -> usize {
             t.secondary_damage_radius = 25.0;
             t.minimum_attack_range = 40.0;
         }
+        // hq-2qedt.118: Weapon.ini FireBaseHowitzerGun MinimumAttackRange = 50.
+        if seed.name == FIRE_BASE_HOWITZER_WEAPON {
+            t.minimum_attack_range = 50.0;
+        }
         if seed.name == TOMAHAWK_MISSILE_WEAPON {
             t.primary_damage_radius = 10.0;
             t.secondary_damage = 50.0;
