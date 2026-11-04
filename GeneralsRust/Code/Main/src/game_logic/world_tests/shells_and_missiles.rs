@@ -5091,3 +5091,52 @@ fn comanche_rocket_pods_create_key_on_authored_weapon_set() {
         "Comanche-named chassis with authored HumveeGun must not receive pods"
     );
 }
+
+/// hq-2qedt.256: Emperor innate propaganda keys on the authored
+/// PropagandaTowerBehavior + OverlordContain modules, not the template name.
+#[test]
+fn emperor_innate_propaganda_keys_on_authored_modules() {
+    let run = |name: &str, propaganda: bool| -> (bool, bool) {
+        let mut world = GameLogic::new();
+        let tower = if propaganda {
+            "Behavior = PropagandaTowerBehavior ModulePropaganda_04\nRadius = 150.0\nDelayBetweenUpdates = 2000\nHealPercentEachSecond = 1%\nEnd\n"
+        } else {
+            ""
+        };
+        let source = format!(
+            "Object {name}\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = OverlordContain ModuleTag_06\nSlots = 1\nEnd\n{tower}End\n"
+        );
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "emperor.ini".into(),
+                    source,
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        world.add_player(Player::new(1, Team::China, "owner", true));
+        let id = world
+            .create_object_for_player_with_effects_checked(
+                name,
+                1,
+                Vec3::ZERO,
+                None,
+                &mut Default::default(),
+            )
+            .unwrap()
+            .unwrap();
+        let o = world.host_object(id).unwrap();
+        (o.has_overlord_propaganda_addon, o.authors_innate_propaganda_tower())
+    };
+    assert_eq!(
+        run("TestHullWithTower", true),
+        (true, true),
+        "authored innate PropagandaTowerBehavior on OverlordContain host is Emperor-style"
+    );
+    assert_eq!(
+        run("Tank_ChinaTankEmperor", false),
+        (false, false),
+        "Emperor-named hull without authored PropagandaTowerBehavior gets no innate tower"
+    );
+}

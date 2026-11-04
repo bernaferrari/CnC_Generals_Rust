@@ -1641,6 +1641,25 @@ impl Object {
         self.has_overlord_gattling_addon
     }
 
+    /// C++ Emperor shape: innate `PropagandaTowerBehavior` authored on an
+    /// `OverlordContain` host (TankGeneral.ini Tank_ChinaTankEmperor), rather
+    /// than granted by the portable tower addon (hq-2qedt.256).
+    pub fn authors_innate_propaganda_tower(&self) -> bool {
+        self.thing()
+            .template
+            .receiving_object_definition
+            .as_deref()
+            .is_some_and(|definition| {
+                let has = |name: &str| {
+                    definition
+                        .behavior_modules
+                        .iter()
+                        .any(|module| module.class_name.eq_ignore_ascii_case(name))
+                };
+                has("PropagandaTowerBehavior") && has("OverlordContain")
+            })
+    }
+
     /// True when portable / innate propaganda residual is active on this host.
     pub fn has_overlord_propaganda_residual(&self) -> bool {
         self.has_overlord_propaganda_addon

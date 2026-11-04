@@ -1165,33 +1165,40 @@ fn overlord_portable_addon_mirrors_host_body_damage() {
 #[test]
 fn emperor_innate_propaganda_and_helix_transport_residual() {
     use crate::game_logic::host_overlord_addons::{
-        HELIX_TRANSPORT_SLOTS, is_emperor_template, is_helix_template,
+        HELIX_TRANSPORT_SLOTS, is_helix_template,
     };
 
+    // hq-2qedt.256: Emperor innate tower is the authored PropagandaTowerBehavior
+    // on an OverlordContain host (TankGeneral.ini), not a name peel.
     let mut game_logic = GameLogic::new();
-    ensure_test_tank_template(&mut game_logic);
-    ensure_test_infantry_template(&mut game_logic);
-
-    let mut emp_tpl = crate::game_logic::ThingTemplate::new("Tank_ChinaTankEmperor");
-    emp_tpl
-        .add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Selectable)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(1100.0);
     game_logic
-        .templates
-        .insert("Tank_ChinaTankEmperor".to_string(), emp_tpl);
-
-    let emp_id = game_logic
-        .create_object(
-            "Tank_ChinaTankEmperor",
-            Team::China,
-            Vec3::new(0.0, 0.0, 0.0),
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "emperor.ini".into(),
+                "Object Tank_ChinaTankEmperor\nKindOf = VEHICLE SELECTABLE SCORE\nBody = ActiveBody Body\nMaxHealth = 1100\nInitialHealth = 1100\nEnd\nBehavior = OverlordContain ModuleTag_06\nSlots = 1\nEnd\nBehavior = PropagandaTowerBehavior ModulePropaganda_04\nRadius = 150.0\nDelayBetweenUpdates = 2000\nHealPercentEachSecond = 1%\nEnd\nEnd\nObject TestAllyTank\nKindOf = VEHICLE SELECTABLE SCORE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n"
+                    .to_string(),
+            )])
+            .unwrap(),
         )
-        .expect("emperor");
+        .unwrap();
+    game_logic.add_player(Player::new(1, Team::China, "owner", true));
+    let spawn = |game_logic: &mut GameLogic, name: &str, pos: Vec3| {
+        game_logic
+            .create_object_for_player_with_effects_checked(
+                name,
+                1,
+                pos,
+                None,
+                &mut Default::default(),
+            )
+            .unwrap()
+            .unwrap()
+    };
+
+    let emp_id = spawn(&mut game_logic, "Tank_ChinaTankEmperor", Vec3::new(0.0, 0.0, 0.0));
     {
         let e = game_logic.host_object(emp_id).unwrap();
-        assert!(is_emperor_template(&e.template_name));
+        assert!(e.authors_innate_propaganda_tower());
         assert!(e.has_overlord_propaganda_residual());
     }
     assert!(
@@ -1199,9 +1206,7 @@ fn emperor_innate_propaganda_and_helix_transport_residual() {
         "emperor innate propaganda install honesty"
     );
 
-    let ally_id = game_logic
-        .create_object("TestTank", Team::China, Vec3::new(10.0, 0.0, 0.0))
-        .expect("ally");
+    let ally_id = spawn(&mut game_logic, "TestAllyTank", Vec3::new(10.0, 0.0, 0.0));
     {
         let a = game_logic.host_object_mut(ally_id).unwrap();
         a.health.current = a.health.maximum * 0.5;
@@ -1218,6 +1223,7 @@ fn emperor_innate_propaganda_and_helix_transport_residual() {
         "emperor innate propaganda must heal (before={hp_before} after={hp_after})"
     );
 
+    let mut game_logic = GameLogic::new();
     // Helix transport residual.
     let mut helix_tpl = crate::game_logic::ThingTemplate::new("ChinaVehicleHelix");
     helix_tpl

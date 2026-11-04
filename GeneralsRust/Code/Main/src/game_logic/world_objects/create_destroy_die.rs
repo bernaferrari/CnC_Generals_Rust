@@ -2882,14 +2882,13 @@ impl GameLogic {
                 // Fail-closed: not full ChinookAIUpdate / COMANCHE_VULCAN Stinger matrix.
                 object.weapon = Some(crate::game_logic::host_helix_minigun::helix_minigun_weapon());
             }
-            if crate::game_logic::host_overlord_addons::is_emperor_template(template_name) {
+            let emperor_spawn = object.authors_innate_propaganda_tower();
+            if emperor_spawn {
                 // Innate PropagandaTowerBehavior AffectsSelf residual.
                 object.has_overlord_propaganda_addon = true;
 
                 object.overlord_bunker_capacity = Some(0);
             }
-            let emperor_spawn =
-                crate::game_logic::host_overlord_addons::is_emperor_template(template_name);
             let helix_spawn =
                 crate::game_logic::host_overlord_addons::is_helix_template(template_name);
 
