@@ -1192,7 +1192,7 @@ fn marauder_residual_salvage_fire_rate_tiers() {
 fn scorpion_residual_gun_salvage_and_rocket() {
     use crate::game_logic::host_scorpion::{
         SCORPION_GUN_DAMAGE, SCORPION_GUN_DAMAGE_PLUS, SCORPION_RANGE, SCORPION_TANK_GUN,
-        ScorpionSalvageTier, UPGRADE_GLA_SCORPION_ROCKET, is_scorpion_template,
+        ScorpionSalvageTier, UPGRADE_GLA_SCORPION_ROCKET,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -1218,7 +1218,6 @@ fn scorpion_residual_gun_salvage_and_rocket() {
         .expect("scorpion");
     {
         let s = game_logic.host_object(scorp_id).expect("scorpion");
-        assert!(is_scorpion_template(&s.template_name));
         let prim = s.weapon.as_ref().expect("gun");
         assert!((prim.damage - SCORPION_GUN_DAMAGE).abs() < 0.01);
         assert!((prim.range - SCORPION_RANGE).abs() < 1.0);
@@ -4534,4 +4533,65 @@ fn scorpion_factory_init_rocket_gate_keys_on_authored_gun_not_template_name() {
     let src = include_str!("../world_objects/create_destroy_die/factory_init.rs");
     assert!(!src.contains("is_scorpion_template"));
     assert!(src.contains("authored_scorpion_gun"));
+}
+
+/// hq-2qedt.209: object_hit Scorpion residual keys on the fired slot's
+/// authored weapon (ScorpionTankGun*/ScorpionMissileWeapon*), not the firing
+/// template's name. C++ Weapon::fireWeapon has no template-name gate.
+#[test]
+fn scorpion_object_hit_residual_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_scorpion::SCORPION_TANK_GUN;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    fn fire(name: &str, weapon: &str) -> u32 {
+        ensure_host_weapon_store();
+        let mut gl = GameLogic::new();
+        ensure_test_tank_template(&mut gl);
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(weapon);
+        gl.templates.insert(name.to_string(), tpl);
+        let shooter = gl
+            .create_object(name, Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let enemy = gl
+            .create_object("TestTank", Team::USA, Vec3::new(45.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let (f, ev) = gl.host_object_and_attack_events_mut(shooter).unwrap();
+            f.attack_target(
+                enemy,
+                ev,
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+            );
+            if let Some(w) = f.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.reload_time = 0.05;
+            }
+        }
+        gl.set_current_frame(50);
+        gl.update_combat(&[shooter, enemy], LOGIC_FRAME_TIMESTEP);
+        gl.scorpion_residual_fires
+    }
+
+    assert!(
+        fire("TestAuthoredGunCarrier", SCORPION_TANK_GUN) > 0,
+        "authored ScorpionTankGun must take the Scorpion residual"
+    );
+    assert_eq!(
+        fire("GLATankScorpion", "RaptorJetMissileWeapon"),
+        0,
+        "scorpion-named template with a different authored weapon must not"
+    );
+}
+
+/// hq-2qedt.209: object_hit has no Scorpion template-name sniff.
+#[test]
+fn scorpion_object_hit_residual_has_no_template_name_sniff() {
+    let src = include_str!("../world_tick/combat/object_hit.rs");
+    assert!(!src.contains("is_scorpion_template"));
+    assert!(!src.contains("should_apply_scorpion_residual"));
 }

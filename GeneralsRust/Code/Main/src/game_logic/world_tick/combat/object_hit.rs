@@ -676,15 +676,19 @@ impl GameLogic {
                     };
                 } else if {
                     // GLA Scorpion residual: gun splash or rocket dual-radius secondary.
+                    // Keyed on the fired slot's authored weapon (C++ Weapon::fireWeapon;
+                    // no firing-template name branch).
                     use crate::game_logic::host_scorpion::{
-                        is_scorpion_template, should_apply_scorpion_residual,
+                        SCORPION_MISSILE_WEAPON, SCORPION_TANK_GUN,
                     };
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_scorpion_residual(is_scorpion_template(&a.template_name))
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .is_some_and(|w| {
+                            let w = w.to_ascii_lowercase();
+                            w.starts_with(&SCORPION_TANK_GUN.to_ascii_lowercase())
+                                || w.starts_with(&SCORPION_MISSILE_WEAPON.to_ascii_lowercase())
                         })
-                        .unwrap_or(false)
                 } {
                     let impact = target_position;
                     let from = self
