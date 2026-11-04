@@ -585,4 +585,13 @@ mod name_peel_tests {
         assert_ne!(primary_weapon_name_for_unit(toxin), Some(super::TOXIN_TRUCK_GUN));
         assert_eq!(secondary_weapon_name_for_unit(toxin), None, "{toxin} SECONDARY");
     }
+
+    /// hq-2qedt.229
+    #[test]
+    fn overlord_variant_name_has_no_unit_map_weapon() {
+        assert_unmapped(
+            "FixtureTankOverlordVariant",
+            gl::host_overlord_gun::is_overlord_gun_chassis,
+        );
+    }
 }
