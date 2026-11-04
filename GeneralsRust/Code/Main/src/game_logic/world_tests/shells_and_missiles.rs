@@ -4724,3 +4724,55 @@ fn helix_named_non_minigun_weapon_skips_helix_object_hit_residual() {
     let gl = fire_named_template_with_humvee_gun("ChinaVehicleHelix", Team::USA);
     assert_eq!(gl.helix_minigun_residual_fires(), 0, "Helix residual chosen by template-name peel");
 }
+
+/// hq-2qedt.190: Humvee-named template with TOW upgrade firing a non-TOW
+/// authored SECONDARY must not route through the Humvee TOW residual.
+#[test]
+fn humvee_named_non_tow_secondary_skips_humvee_tow_object_hit_residual() {
+    use crate::game_logic::host_upgrades::UPGRADE_AMERICA_TOW;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleHumvee");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun")
+        .set_secondary_weapon_name("BattleMasterTankGun");
+    game_logic
+        .templates
+        .insert("AmericaVehicleHumvee".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("humvee");
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let (h, attack_events) = game_logic.host_object_and_attack_events_mut(id).unwrap();
+        h.apply_upgrade_tag(UPGRADE_AMERICA_TOW);
+        h.active_weapon_slot = 1;
+        h.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = h.secondary_weapon.as_mut() {
+            w.last_fire_time = -100.0;
+            w.reload_time = 0.1;
+            w.min_range = 0.0;
+        }
+    }
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    assert_eq!(
+        game_logic.humvee_tow_residual_fires(),
+        0,
+        "Humvee TOW residual chosen by template-name peel"
+    );
+}
