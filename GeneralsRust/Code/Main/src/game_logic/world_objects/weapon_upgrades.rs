@@ -1027,8 +1027,6 @@ impl GameLogic {
             UPGRADE_NATIONALISM, is_battlemaster_template, is_china_horde_update_unit,
         };
         use crate::game_logic::host_minigunner::is_minigunner_template;
-        use crate::game_logic::host_red_guard::is_red_guard_template;
-        use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
 
         let ids: Vec<(ObjectId, u8)> = self
             .objects
@@ -1037,9 +1035,9 @@ impl GameLogic {
             .filter_map(|(id, o)| {
                 if is_battlemaster_template(&o.template_name) {
                     Some((*id, 0u8))
-                } else if is_red_guard_template(&o.template_name) {
+                } else if o.authors_red_guard_machine_gun() {
                     Some((*id, 1))
-                } else if is_tank_hunter_template(&o.template_name) {
+                } else if o.authors_tank_hunter_missile() {
                     Some((*id, 2))
                 } else if is_minigunner_template(&o.template_name) {
                     Some((*id, 3))

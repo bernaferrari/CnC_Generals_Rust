@@ -462,11 +462,11 @@ impl GameLogic {
         use crate::game_logic::host_battlemaster::{
             has_fanaticism_upgrade, has_nationalism_upgrade, leftover_horde_fanaticism_bonus,
         };
-        use crate::game_logic::host_red_guard::{is_red_guard_template, red_guard_weapon};
+        use crate::game_logic::host_red_guard::red_guard_weapon;
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        if !is_red_guard_template(&obj.template_name) {
+        if !obj.authors_red_guard_machine_gun() {
             return;
         }
         let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
@@ -493,11 +493,11 @@ impl GameLogic {
             has_fanaticism_upgrade, has_nationalism_upgrade, leftover_horde_fanaticism_bonus,
         };
 
-        use crate::game_logic::host_tank_hunter::{is_tank_hunter_template, tank_hunter_weapon};
+        use crate::game_logic::host_tank_hunter::tank_hunter_weapon;
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        if !is_tank_hunter_template(&obj.template_name) {
+        if !obj.authors_tank_hunter_missile() {
             return;
         }
         let nationalism = has_nationalism_upgrade(&obj.applied_upgrades);
@@ -568,11 +568,10 @@ impl GameLogic {
     /// Apply Nationalism residual tag to a Red Guard (ROF stacks with horde when active).
     pub fn apply_red_guard_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
-        use crate::game_logic::host_red_guard::is_red_guard_template;
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_red_guard_template(&obj.template_name) {
+        if !obj.authors_red_guard_machine_gun() {
             return false;
         }
         obj.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
@@ -586,11 +585,10 @@ impl GameLogic {
     /// Apply Nationalism residual tag to a Tank Hunter (ROF stacks with horde when active).
     pub fn apply_tank_hunter_nationalism_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_battlemaster::UPGRADE_NATIONALISM;
-        use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_tank_hunter_template(&obj.template_name) {
+        if !obj.authors_tank_hunter_missile() {
             return false;
         }
         obj.applied_upgrades.insert(UPGRADE_NATIONALISM.to_string());
@@ -651,12 +649,12 @@ impl GameLogic {
         use crate::game_logic::host_red_guard::{
             INFANTRY_HORDE_COUNT, INFANTRY_HORDE_RADIUS, INFANTRY_HORDE_RUB_OFF_RADIUS,
             INFANTRY_HORDE_UPDATE_FRAMES, counts_toward_infantry_horde,
-            is_china_infantry_horde_unit, is_red_guard_template,
-            leftover_infantry_is_horde_neighbor,
+            is_china_infantry_horde_unit, leftover_infantry_is_horde_neighbor,
         };
-        use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
 
-        let horde_units: Vec<(ObjectId, Team, Option<u32>, LeftoverHordeScanUnit, String)> = self
+        // .5: authored nationalism weapon kind (1 Red Guard MG, 2 Tank Hunter launcher, 0 other) — hq-2qedt.262.
+        #[allow(clippy::type_complexity)]
+        let horde_units: Vec<(ObjectId, Team, Option<u32>, LeftoverHordeScanUnit, String, u8)> = self
             .objects
             .registered()
             .filter_map(|(id, o)| {
@@ -681,6 +679,13 @@ impl GameLogic {
                         alive: o.is_alive(),
                     },
                     o.template_name.clone(),
+                    if o.authors_red_guard_machine_gun() {
+                        1u8
+                    } else if o.authors_tank_hunter_missile() {
+                        2
+                    } else {
+                        0
+                    },
                 ))
             })
             .collect();
@@ -717,7 +722,7 @@ impl GameLogic {
         let draw_icon = self.get_draw_icon_ui();
         let frame = self.frame;
 
-        for (idx, (id, _team, _owner, _scan, name)) in horde_units.iter().enumerate() {
+        for (idx, (id, _team, _owner, _scan, name, kind)) in horde_units.iter().enumerate() {
             let scanned = membership[idx].in_horde;
             if let Some(obj) = self.objects.get_mut(id) {
                 let (due, init, last, next) = leftover_horde_take_wake(
@@ -740,18 +745,18 @@ impl GameLogic {
                 apply_evaluate_morale_bonus(obj);
                 obj.apply_horde_terrain_decal(was, now_horde, draw_icon);
                 if now_horde && !was {
-                    if is_red_guard_template(name) {
+                    if *kind == 1 {
                         red_grants = red_grants.saturating_add(1);
-                    } else if is_tank_hunter_template(name) {
+                    } else if *kind == 2 {
                         th_grants = th_grants.saturating_add(1);
                     } else if is_minigunner_template(name) {
                         mg_grants = mg_grants.saturating_add(1);
                     }
                 }
                 if now_horde != was || now_horde {
-                    if is_red_guard_template(name) {
+                    if *kind == 1 {
                         to_refresh_red.push(*id);
-                    } else if is_tank_hunter_template(name) {
+                    } else if *kind == 2 {
                         to_refresh_th.push(*id);
                     } else if is_minigunner_template(name) {
                         to_refresh_mg.push(*id);
@@ -1947,7 +1952,7 @@ impl GameLogic {
         // Seed stream with launch point residual.
         self.projectile_streams.add_projectile(
             source_id,
-             0,
+            0,
             DRAGON_FLAME_STREAM,
             start,
             intended,
@@ -2056,7 +2061,7 @@ impl GameLogic {
         for (sid, pos, intended, aim) in stream_pts {
             self.projectile_streams.add_projectile(
                 sid,
-                 0,
+                0,
                 DRAGON_FLAME_STREAM,
                 pos,
                 intended,
@@ -2179,7 +2184,7 @@ impl GameLogic {
         }
         self.projectile_streams.add_projectile(
             source_id,
-             0,
+            0,
             TOXIN_STREAM_NAME,
             start,
             intended,
@@ -2292,7 +2297,7 @@ impl GameLogic {
         for (sid, pos, intended, aim) in stream_pts {
             self.projectile_streams.add_projectile(
                 sid,
-                 0,
+                0,
                 TOXIN_STREAM_NAME,
                 pos,
                 intended,

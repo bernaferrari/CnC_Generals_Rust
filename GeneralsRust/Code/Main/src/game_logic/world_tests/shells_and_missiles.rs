@@ -5346,3 +5346,47 @@ fn pathfinder_reveal_response_keys_on_authored_sniper_weapon() {
         "Pathfinder-named infantry without the authored sniper does not"
     );
 }
+
+/// hq-2qedt.262: Red Guard / Tank Hunter nationalism residual keys on the
+/// authored PRIMARY weapon (RedguardMachineGun / ChinaInfantryTankHunterMissileLauncher),
+/// not the template name.
+#[test]
+fn red_guard_tank_hunter_nationalism_keys_on_authored_weapon() {
+    let make = |name: &str, weapon: &str| -> (GameLogic, crate::game_logic::ObjectId) {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, crate::game_logic::Player::new(0, Team::China, "China", true));
+        let mut t = crate::game_logic::ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0)
+            .set_primary_weapon_name(weapon);
+        logic.templates.insert(name.into(), t);
+        let id = logic.create_object(name, Team::China, Vec3::ZERO).expect("unit");
+        (logic, id)
+    };
+    use crate::game_logic::host_red_guard::REDGUARD_MACHINE_GUN;
+    use crate::game_logic::host_tank_hunter::TANK_HUNTER_MISSILE_WEAPON;
+
+    let (mut l, id) = make("TestAuthoredRifleman", REDGUARD_MACHINE_GUN);
+    assert!(
+        l.apply_red_guard_nationalism_upgrade(id),
+        "authored RedguardMachineGun receives Red Guard nationalism"
+    );
+    let (mut l, id) = make("ChinaInfantryRedguard", "TestNonRetailRifle");
+    assert!(
+        !l.apply_red_guard_nationalism_upgrade(id),
+        "Red Guard-named infantry without authored machine gun does not"
+    );
+    let (mut l, id) = make("TestAuthoredRocketeer", TANK_HUNTER_MISSILE_WEAPON);
+    assert!(
+        l.apply_tank_hunter_nationalism_upgrade(id),
+        "authored Tank Hunter launcher receives Tank Hunter nationalism"
+    );
+    let (mut l, id) = make("ChinaInfantryTankHunter", "TestNonRetailRifle");
+    assert!(
+        !l.apply_tank_hunter_nationalism_upgrade(id),
+        "Tank Hunter-named infantry without authored launcher does not"
+    );
+}

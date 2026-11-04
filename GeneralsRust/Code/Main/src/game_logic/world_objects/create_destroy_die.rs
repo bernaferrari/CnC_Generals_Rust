@@ -3419,10 +3419,7 @@ impl GameLogic {
                         is_china_vehicle_horde_unit,
                     };
                     use crate::game_logic::host_minigunner::is_minigunner_template;
-                    use crate::game_logic::host_red_guard::{
-                        is_china_infantry_horde_unit, is_red_guard_template,
-                    };
-                    use crate::game_logic::host_tank_hunter::is_tank_hunter_template;
+                    use crate::game_logic::host_red_guard::is_china_infantry_horde_unit;
 
                     let horde_unit = is_china_infantry_horde_unit(template_name)
                         || is_china_vehicle_horde_unit(template_name);
@@ -3449,9 +3446,16 @@ impl GameLogic {
                                     obj.apply_upgrade_tag(UPGRADE_FANATICISM);
                                 }
                             }
-                            if is_red_guard_template(template_name) {
+                            let (authored_rg, authored_th) = self
+                                .objects
+                                .get(&id)
+                                .map(|o| {
+                                    (o.authors_red_guard_machine_gun(), o.authors_tank_hunter_missile())
+                                })
+                                .unwrap_or((false, false));
+                            if authored_rg {
                                 self.refresh_red_guard_weapon(id);
-                            } else if is_tank_hunter_template(template_name) {
+                            } else if authored_th {
                                 self.refresh_tank_hunter_weapon(id);
                             } else if is_minigunner_template(template_name) {
                                 self.refresh_minigunner_weapon(id);

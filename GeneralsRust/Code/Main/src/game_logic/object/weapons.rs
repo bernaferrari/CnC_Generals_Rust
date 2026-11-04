@@ -181,6 +181,24 @@ impl Object {
         })
     }
 
+    /// Whether any authored WeaponSet slot is the Red Guard machine gun
+    /// (hq-2qedt.262 nationalism gate replacing the template-name sniff).
+    pub fn authors_red_guard_machine_gun(&self) -> bool {
+        (0u8..3).any(|slot| {
+            self.authored_weapon_name_for_slot(slot)
+                .is_some_and(crate::game_logic::host_red_guard::is_red_guard_machine_gun_weapon)
+        })
+    }
+
+    /// Whether any authored WeaponSet slot is the Tank Hunter missile launcher
+    /// (hq-2qedt.262 nationalism gate replacing the template-name sniff).
+    pub fn authors_tank_hunter_missile(&self) -> bool {
+        (0u8..3).any(|slot| {
+            self.authored_weapon_name_for_slot(slot)
+                .is_some_and(crate::game_logic::host_tank_hunter::is_tank_hunter_missile_weapon)
+        })
+    }
+
     /// Restore the C++ client-only `Weapon::m_suspendFXFrame` parallel
     /// snapshot tail without exposing slot storage to save/load code.
     pub(crate) fn restore_weapon_suspend_fx_frame_for_slot(
