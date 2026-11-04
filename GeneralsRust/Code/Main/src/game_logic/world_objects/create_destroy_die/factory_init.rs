@@ -269,7 +269,13 @@ impl GameLogic {
         // — parity with neutron shells / rocket pods: residual map may name the weapon,
         // but create strips it unless research is unlocked or template explicitly seeds it.
         // Fail-closed: not full SURRENDER surrender-AI / garrison clear matrix.
-        if crate::game_logic::host_ranger::is_ranger_template(template_name) {
+        // Keys on the authored RangerAdvancedCombatRifle / FlashBang slots, not chassis
+        // name (hq-2qedt.244).
+        if object.authored_weapon_name_for_slot(0).is_some_and(|w| {
+            w.eq_ignore_ascii_case(crate::game_logic::host_ranger::RANGER_RIFLE_WEAPON)
+        }) || object.authored_weapon_name_for_slot(1).is_some_and(|w| {
+            w.eq_ignore_ascii_case(crate::game_logic::host_ranger::RANGER_FLASHBANG_WEAPON)
+        }) {
             use crate::game_logic::host_ranger::{
                 UPGRADE_AMERICA_FLASHBANG, has_flashbang_equipped, ranger_flashbang_weapon,
                 ranger_rifle_weapon,
