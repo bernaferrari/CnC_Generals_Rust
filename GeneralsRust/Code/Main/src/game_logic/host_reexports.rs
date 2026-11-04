@@ -44,7 +44,7 @@ pub use super::host_base_defense::{
     SUPW_PATRIOT_EMP_RADIUS, SUPW_PATRIOT_GROUND_DAMAGE, SUPW_PATRIOT_PRIMARY_WEAPON,
     SUPW_PATRIOT_SECONDARY_WEAPON, gattling_building_air_weapon, gattling_building_ground_weapon,
     is_base_defense_structure, is_dual_slot_base_defense, is_gattling_cannon_structure,
-    is_laser_patriot_template, is_legal_base_defense_target, is_legal_supw_patriot_emp_target,
+    is_legal_base_defense_target, is_legal_supw_patriot_emp_target,
     is_patriot_battery_structure, is_stinger_site_structure, is_supw_patriot_template,
     patriot_air_weapon, patriot_air_weapon_for_template, patriot_ground_weapon,
     patriot_ground_weapon_for_template, preferred_dual_defense_slot,

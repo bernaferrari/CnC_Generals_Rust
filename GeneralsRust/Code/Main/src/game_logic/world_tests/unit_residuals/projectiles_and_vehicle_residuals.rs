@@ -1059,7 +1059,8 @@ fn lazr_tank_residual_laser_guns() {
 #[test]
 fn lazr_patriot_residual_laser_dual_slot() {
     use crate::game_logic::host_base_defense::{
-        LAZR_PATRIOT_AIR_DAMAGE, LAZR_PATRIOT_GROUND_DAMAGE, is_laser_patriot_template,
+        LAZR_PATRIOT_AIR_DAMAGE, LAZR_PATRIOT_GROUND_DAMAGE, LAZR_PATRIOT_PRIMARY_WEAPON,
+        LAZR_PATRIOT_SECONDARY_WEAPON, authors_laser_patriot_weapon_set,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -1072,7 +1073,9 @@ fn lazr_patriot_residual_laser_dual_slot() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .add_kind_of(KindOf::FSBaseDefense)
-        .set_health(1000.0);
+        .set_health(1000.0)
+        .set_primary_weapon_name(LAZR_PATRIOT_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(LAZR_PATRIOT_SECONDARY_WEAPON);
     game_logic
         .templates
         .insert("Lazr_AmericaPatriotBattery".to_string(), pat_tpl);
@@ -1110,7 +1113,7 @@ fn lazr_patriot_residual_laser_dual_slot() {
 
     {
         let p = game_logic.host_object(pat_id).expect("patriot");
-        assert!(is_laser_patriot_template(&p.template_name));
+        assert!(authors_laser_patriot_weapon_set(p));
         let g = p.weapon.as_ref().expect("Lazr ground residual");
         assert!(
             (g.damage - LAZR_PATRIOT_GROUND_DAMAGE).abs() < 0.5,
@@ -1964,5 +1967,69 @@ fn minigunner_residual_gun_ramp_aa_horde_and_chain_guns() {
     assert!(
         game_logic.honesty_minigunner_ok(),
         "minigunner residual host path honesty"
+    );
+}
+
+/// hq-2qedt.270: Laser Patriot family keys on the authored Lazr WeaponSet, not
+/// the `Lazr_` template name.
+#[test]
+fn laser_patriot_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_base_defense::{
+        LAZR_PATRIOT_GROUND_DAMAGE, LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON,
+        PATRIOT_GROUND_DAMAGE, PATRIOT_PRIMARY_WEAPON, PATRIOT_SECONDARY_WEAPON,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    for (name, primary, secondary) in [
+        (
+            "AmericaPatriotBattery",
+            LAZR_PATRIOT_PRIMARY_WEAPON,
+            LAZR_PATRIOT_SECONDARY_WEAPON,
+        ),
+        (
+            "Lazr_AmericaPatriotBattery",
+            PATRIOT_PRIMARY_WEAPON,
+            PATRIOT_SECONDARY_WEAPON,
+        ),
+    ] {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .add_kind_of(KindOf::FSBaseDefense)
+            .set_health(1000.0)
+            .set_primary_weapon_name(primary)
+            .set_secondary_weapon_name(secondary);
+        game_logic.templates.insert(name.to_string(), tpl);
+    }
+    let authored_lazr = game_logic
+        .create_object("AmericaPatriotBattery", Team::USA, Vec3::ZERO)
+        .expect("authored lazr");
+    let named_lazr = game_logic
+        .create_object(
+            "Lazr_AmericaPatriotBattery",
+            Team::USA,
+            Vec3::new(100.0, 0.0, 0.0),
+        )
+        .expect("named lazr");
+    let g = game_logic
+        .host_object(authored_lazr)
+        .and_then(|o| o.weapon.clone())
+        .expect("ground");
+    assert!(
+        (g.damage - LAZR_PATRIOT_GROUND_DAMAGE).abs() < 0.5,
+        "authored Lazr weapon must select laser family, got {}",
+        g.damage
+    );
+    let g = game_logic
+        .host_object(named_lazr)
+        .and_then(|o| o.weapon.clone())
+        .expect("ground");
+    assert!(
+        (g.damage - PATRIOT_GROUND_DAMAGE).abs() < 0.5,
+        "Lazr_ name with stock weapon must stay stock, got {}",
+        g.damage
     );
 }

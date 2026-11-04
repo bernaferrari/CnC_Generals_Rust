@@ -188,7 +188,7 @@ fn patriot_assist_binary_data_stream_laser_residual() {
 fn lazr_patriot_assist_equivalent_family_residual() {
     use crate::game_logic::host_base_defense::{
         LAZR_PATRIOT_ASSIST_DAMAGE, LAZR_PATRIOT_PRIMARY_WEAPON, LAZR_PATRIOT_SECONDARY_WEAPON,
-        PATRIOT_PRIMARY_WEAPON, PATRIOT_SECONDARY_WEAPON, is_laser_patriot_template,
+        PATRIOT_PRIMARY_WEAPON, PATRIOT_SECONDARY_WEAPON, authors_laser_patriot_weapon_set,
         patriots_are_assist_equivalent,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
@@ -236,14 +236,18 @@ fn lazr_patriot_assist_equivalent_family_residual() {
         let a = game_logic.host_object(lazr_a).unwrap();
         let b = game_logic.host_object(lazr_b).unwrap();
         let s = game_logic.host_object(stock).unwrap();
-        assert!(is_laser_patriot_template(&a.template_name));
+        assert!(authors_laser_patriot_weapon_set(a));
         assert!(patriots_are_assist_equivalent(
             &a.template_name,
-            &b.template_name
+            a.authored_weapon_name_for_slot(0),
+            &b.template_name,
+            b.authored_weapon_name_for_slot(0)
         ));
         assert!(!patriots_are_assist_equivalent(
             &a.template_name,
-            &s.template_name
+            a.authored_weapon_name_for_slot(0),
+            &s.template_name,
+            s.authored_weapon_name_for_slot(0)
         ));
     }
 

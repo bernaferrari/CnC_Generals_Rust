@@ -788,8 +788,10 @@ impl GameLogic {
         );
         let is_tunnel =
             crate::game_logic::host_tunnel_network::is_tunnel_network_template(&template_name);
-        let is_laser_patriot =
-            crate::game_logic::host_base_defense::is_laser_patriot_template(&template_name);
+        let is_laser_patriot = self
+            .objects
+            .get(&defense_id)
+            .is_some_and(crate::game_logic::host_base_defense::authors_laser_patriot_weapon_set);
         // C++ base defenses fire their WeaponTemplate's authored FireSound
         // (FiringTracker.cpp:152-155, Weapon.h:678). Known residual kinds keep
         // their authored retail event names; the generic arm resolves the
@@ -921,6 +923,10 @@ impl GameLogic {
         }
         let requester_team = requester.team;
         let requester_template = requester.template_name.clone();
+        let requester_primary = requester.authored_weapon_name_for_slot(0).map(str::to_owned);
+        let requester_slot_weapon = requester
+            .authored_weapon_name_for_slot(if slot == 1 { 1 } else { 0 })
+            .map(str::to_owned);
         let requester_pos = requester.get_position();
 
         let Some(victim) = self.objects.get(&victim_id) else {
@@ -933,7 +939,11 @@ impl GameLogic {
 
         // C++ Weapon.cpp:2477 — only fan out when leftover RequestAssistRange > 0.
         let request_range =
-            patriot_request_assist_range_for_template(&requester_template, slot == 1);
+            patriot_request_assist_range_for_template(
+                &requester_template,
+                slot == 1,
+                requester_slot_weapon.as_deref(),
+            );
         if request_range <= 0.0 {
             return;
         }
@@ -954,7 +964,12 @@ impl GameLogic {
                 if !is_patriot_battery_structure(&obj.template_name) {
                     return None;
                 }
-                if !patriots_are_assist_equivalent(&requester_template, &obj.template_name) {
+                if !patriots_are_assist_equivalent(
+                    &requester_template,
+                    requester_primary.as_deref(),
+                    &obj.template_name,
+                    obj.authored_weapon_name_for_slot(0),
+                ) {
                     return None;
                 }
                 let already_assisting = self
@@ -1028,12 +1043,16 @@ impl GameLogic {
             .collect();
 
         for (assistant_id, assistant_template, assistant_pos) in candidates {
+            let assistant_laser = self.objects.get(&assistant_id).is_some_and(
+                crate::game_logic::host_base_defense::authors_laser_patriot_weapon_set,
+            );
             self.pending_patriot_assists.push(PendingPatriotAssist::new(
                 assistant_id,
                 victim_id,
                 requester_id,
                 self.frame,
                 assistant_template,
+                assistant_laser,
             ));
             self.patriot_assist_residual_accepts =
                 self.patriot_assist_residual_accepts.saturating_add(1);
@@ -1145,9 +1164,8 @@ impl GameLogic {
             let assistant_team = assistant.team;
             let assistant_pos = assistant.get_position();
             let assistant_template = assistant.template_name.clone();
-            let is_laser = crate::game_logic::host_base_defense::is_laser_patriot_template(
-                &assistant_template,
-            );
+            let is_laser =
+                crate::game_logic::host_base_defense::authors_laser_patriot_weapon_set(assistant);
             let is_supw =
                 crate::game_logic::host_base_defense::is_supw_patriot_template(&assistant_template);
 
