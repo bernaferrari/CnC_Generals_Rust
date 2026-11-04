@@ -56,10 +56,8 @@ End
         1
     );
     init_global_damage_fx_store();
-    INI::new()
-        .with_inline_source(
-            &format!(
-                r#"
+    let damage_fx_source = format!(
+        r#"
 DamageFX {rows}
  VeterancyMajorFX = REGULAR SMALL_ARMS FX_{rows}_Regular
  VeterancyMajorFX = VETERAN SMALL_ARMS FX_{rows}_Veteran
@@ -87,12 +85,23 @@ FXList FX_{rows}_Elite
  End
 End
 "#
-            ),
-            |ini| ini.parse_current_file(),
-        )
+    );
+    INI::new()
+        .with_inline_source(&damage_fx_source, |ini| ini.parse_current_file())
         .unwrap();
     let fx = queued_damage_fx::install(&rows);
     let mut world = GameLogic::new();
+    // GameLogic::new owns a fresh WorldServices; admit the parsed rule into
+    // this session (C++ TheWeaponStore is the one store Object creation reads).
+    let weapon = gamelogic::weapon::with_weapon_store(|store| {
+        (**store.find_weapon_template(&rule).expect("authored Direct weapon")).clone()
+    })
+    .expect("real weapon store");
+    assert_eq!(weapon.clip_size, 8);
+    world
+        .admit_receiving_weapon_snapshot(vec![(rule.clone(), weapon)])
+        .unwrap();
+    world.admit_damage_fx_source(&damage_fx_source).unwrap();
     for (id, team) in [(0, Team::USA), (1, Team::China)] {
         let mut player = Player::new(id, team, label, id == 0);
         player.alliance_team = id as i32;
