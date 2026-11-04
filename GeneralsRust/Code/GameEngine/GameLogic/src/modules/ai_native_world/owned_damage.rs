@@ -252,7 +252,17 @@ impl BorrowedAiWorld<'_> {
             }
             object.set_disabled_unmanned();
             object.deselect_all();
-            object.ai_idle();
+            // CPP ActiveBody aiIdle: the AI reads its owner Object, so the
+            // write guard must be released first (else RwLock self-deadlock).
+            let ai = object.get_ai_update_interface();
+            drop(object);
+            if let Some(ai) = ai {
+                ai.try_lock()
+                    .map_err(|_| "damage ai unavailable")?
+                    .ai_idle()
+                    .map_err(|error| error.to_string())?;
+            }
+            let mut object = owner.try_write().map_err(|_| "damage owner unavailable")?;
             object.set_team_to_neutral();
             crate::object::body::active_body::record_neutral_vehicle_sniped();
         }

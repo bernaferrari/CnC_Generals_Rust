@@ -656,3 +656,73 @@ fn shared_fixture_bodies_admit_owned_damage() {
     let dealt = game.operate(1, |world| world.attempt_damage_owned(&owner, &mut damage));
     assert!(dealt.is_ok(), "owned damage must be admitted: {dealt:?}");
 }
+
+/// CPP ActiveBody DAMAGE_KILLPILOT sets DISABLED_UNMANNED without hull damage
+/// (then aiIdle + neutral team). GameLogic.cpp:3678 skips AIUpdate while any
+/// disabled flag outside DISABLED_HELD is set (AIUpdate.h:282), so the unmanned
+/// dozer's primary machine freezes in Fortify with its task intact.
+#[test]
+fn kill_pilot_unmans_acting_dozer_freezing_fortify_without_peer_change() {
+    use crate::common::DisabledType;
+    let mut game = world();
+    let mut peer = world();
+    request(&mut game, 10);
+    request(&mut peer, 10);
+    let mut action_frame = None;
+    for frame in 11..200 {
+        advance(&mut game, frame);
+        advance(&mut peer, frame);
+        if observation(&game).action == 2 {
+            action_frame = Some(frame);
+            break;
+        }
+    }
+    let frame = action_frame.expect("real movement must reach the action state");
+    assert_eq!(
+        game.source.read().unwrap().get_id(),
+        peer.source.read().unwrap().get_id(),
+        "separate worlds reuse the same dozer ID"
+    );
+    let peer_before = observation(&peer);
+    let owner = Arc::clone(&game.source);
+    let source = game.target.read().unwrap().get_id();
+    let mut damage = crate::damage::DamageInfo::default();
+    damage.input.source_id = source;
+    damage.input.damage_type = crate::damage::DamageType::KillPilot;
+    damage.input.amount = 50.0;
+    assert_eq!(
+        game.operate(frame, |world| world
+            .attempt_damage_owned(&owner, &mut damage)),
+        Ok(0.0)
+    );
+    {
+        let dozer = owner.read().unwrap();
+        assert!(dozer.is_disabled_by_type(DisabledType::DisabledUnmanned));
+        assert!(!dozer.is_effectively_dead());
+        assert_eq!(
+            dozer
+                .get_body_module()
+                .unwrap()
+                .lock()
+                .unwrap()
+                .get_health(),
+            100.0
+        );
+    }
+    let frozen = observation(&game);
+    for step in 1..6 {
+        advance(&mut game, frame + step);
+    }
+    let after = observation(&game);
+    assert_eq!(after, frozen, "unmanned AIUpdate is not processed");
+    assert_eq!(after.primary, 3, "primary stays DOZER_PRIMARY_FORTIFY");
+    assert_eq!(after.current_task, DozerTask::Fortify);
+    assert_eq!(observation(&peer), peer_before);
+    assert!(
+        !peer
+            .source
+            .read()
+            .unwrap()
+            .is_disabled_by_type(DisabledType::DisabledUnmanned)
+    );
+}
