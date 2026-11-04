@@ -368,7 +368,11 @@ fn host_upgrade_complete_ap_bullets_and_ap_rockets_team() {
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
 
     let mut rebel = ThingTemplate::new("GLAInfantryRebel");
-    rebel.add_kind_of(KindOf::Infantry).set_health(100.0);
+    // hq-2qedt.243: AP Bullets keys on the authored GLARebelMachineGun.
+    rebel
+        .add_kind_of(KindOf::Infantry)
+        .set_health(100.0)
+        .set_primary_weapon_name(crate::game_logic::host_gla_rebel::REBEL_MACHINE_GUN);
     logic.templates.insert("GLAInfantryRebel".into(), rebel);
     let mut kell = ThingTemplate::new("GLAInfantryJarmenKell");
     kell.add_kind_of(KindOf::Infantry).set_health(120.0);
@@ -3185,4 +3189,46 @@ fn dragon_black_napalm_and_unit_map_key_on_authored_flame_weapon_not_chassis_nam
         .expect("chassis");
     assert!(!logic.apply_dragon_black_napalm_upgrade(id));
     assert_eq!(logic.dragon_tank_residual_black_napalm_upgrades, 0);
+}
+
+#[test]
+fn rebel_gun_and_ap_bullets_key_on_authored_machine_gun_not_chassis_name_hq_2qedt_243() {
+    use crate::game_logic::host_gla_rebel::{REBEL_DAMAGE, REBEL_MACHINE_GUN, UPGRADE_GLA_AP_BULLETS};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    ensure_host_weapon_store();
+    // Authored GLARebelMachineGun carrier with a non-Rebel name: factory_init seeds the
+    // Rebel residual gun (AP-aware), AP Bullets team upgrade applies.
+    let mut logic = GameLogic::new();
+    logic.players.insert(0, Player::new(0, Team::GLA, "GLA", true));
+    let mut t = ThingTemplate::new("AuthoredMachineGunCarrier");
+    t.add_kind_of(KindOf::Infantry)
+        .set_health(120.0)
+        .set_primary_weapon_name(REBEL_MACHINE_GUN);
+    logic.templates.insert("AuthoredMachineGunCarrier".into(), t);
+    let id = logic
+        .create_object("AuthoredMachineGunCarrier", Team::GLA, glam::Vec3::ZERO)
+        .expect("carrier");
+    let dmg = logic.host_object(id).and_then(|o| o.weapon.as_ref()).map(|w| w.damage);
+    assert!(dmg.is_some_and(|d| (d - REBEL_DAMAGE).abs() < 0.05), "seeded gun {dmg:?}");
+    let n = logic.apply_ap_bullets_to_team(Team::GLA.into(), UPGRADE_GLA_AP_BULLETS);
+    assert_eq!(n, 1, "authored GLARebelMachineGun carrier receives AP Bullets");
+    assert_eq!(logic.rebel_residual_ap_upgrades, 1);
+    let dmg = logic.host_object(id).and_then(|o| o.weapon.as_ref()).map(|w| w.damage);
+    assert!(dmg.is_some_and(|d| (d - 6.25).abs() < 0.05), "AP gun {dmg:?}");
+
+    // Rebel chassis name with a non-Rebel authored weapon no longer qualifies.
+    let mut logic = GameLogic::new();
+    logic.players.insert(0, Player::new(0, Team::GLA, "GLA", true));
+    let mut t = ThingTemplate::new("GLAInfantryRebel");
+    t.add_kind_of(KindOf::Infantry)
+        .set_health(120.0)
+        .set_primary_weapon_name(crate::game_logic::host_gattling_tank::GATTLING_TANK_GUN);
+    logic.templates.insert("GLAInfantryRebel".into(), t);
+    let id = logic
+        .create_object("GLAInfantryRebel", Team::GLA, glam::Vec3::ZERO)
+        .expect("chassis");
+    assert!(!logic.apply_rebel_ap_bullets_upgrade(id));
+    assert_eq!(logic.rebel_residual_ap_upgrades, 0);
 }

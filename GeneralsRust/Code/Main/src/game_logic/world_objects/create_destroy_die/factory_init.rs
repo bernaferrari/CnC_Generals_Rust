@@ -251,7 +251,10 @@ impl GameLogic {
 
         // Host residual: GLA Rebel PRIMARY machine gun residual.
         // Fail-closed: not full ClipSize volley / CaptureBuilding / BoobyTrap matrix.
-        if crate::game_logic::host_gla_rebel::is_gla_rebel_template(template_name) {
+        // Keys on the authored GLARebelMachineGun primary, not chassis name (hq-2qedt.243).
+        if object.authored_weapon_name_for_slot(0).is_some_and(|w| {
+            w.eq_ignore_ascii_case(crate::game_logic::host_gla_rebel::REBEL_MACHINE_GUN)
+        }) {
             use crate::game_logic::host_gla_rebel::{has_ap_bullets_upgrade, rebel_weapon};
             let ap = has_ap_bullets_upgrade(if allow_upgrades {
                 &object.applied_upgrades

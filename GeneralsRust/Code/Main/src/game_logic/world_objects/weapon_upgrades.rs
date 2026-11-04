@@ -731,7 +731,6 @@ impl GameLogic {
         recipients: UpgradeRecipients,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_gla_rebel::is_gla_rebel_template;
         use crate::game_logic::host_jarmen_kell::{
             UPGRADE_GLA_AP_BULLETS, is_jarmen_kell_template,
         };
@@ -745,7 +744,7 @@ impl GameLogic {
             .filter_map(|(id, o)| {
                 if is_jarmen_kell_template(&o.template_name) {
                     Some((*id, 0u8))
-                } else if is_gla_rebel_template(&o.template_name) {
+                } else if Self::has_authored_rebel_machine_gun(o) {
                     Some((*id, 1))
                 } else if is_technical_template(&o.template_name) {
                     Some((*id, 2))
