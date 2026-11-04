@@ -2288,3 +2288,67 @@ fn ranger_object_hit_routes_on_authored_weapon_not_chassis_name_hq_2qedt_205() {
         "authored RangerAdvancedCombatRifle hit takes the Ranger residual route regardless of chassis name"
     );
 }
+
+#[test]
+fn gattling_discharge_fire_lane_routes_on_authored_weapon_not_chassis_name_hq_2qedt_239() {
+    use crate::game_logic::host_base_defense::is_gattling_cannon_structure;
+    use crate::game_logic::host_gattling_tank::{GATTLING_TANK_GUN, is_gattling_tank_template};
+    use crate::game_logic::host_overlord_addons::GATTLING_BUILDING_GUN;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    for (carrier_name, weapon) in [
+        ("AuthoredGattlingTankGunCarrier", GATTLING_TANK_GUN),
+        ("AuthoredGattlingBuildingGunCarrier", GATTLING_BUILDING_GUN),
+    ] {
+        let mut game_logic = GameLogic::new();
+        let mut carrier = crate::game_logic::ThingTemplate::new(carrier_name);
+        carrier
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(weapon);
+        assert!(!is_gattling_tank_template(&carrier.name));
+        assert!(!is_gattling_cannon_structure(&carrier.name));
+        game_logic.templates.insert(carrier.name.clone(), carrier);
+        let mut tank = crate::game_logic::ThingTemplate::new("GattlingLaneVictim");
+        tank.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(5000.0);
+        game_logic.templates.insert(tank.name.clone(), tank);
+
+        let shooter = game_logic
+            .create_object(carrier_name, Team::China, Vec3::ZERO)
+            .unwrap();
+        let tank_id = game_logic
+            .create_object("GattlingLaneVictim", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+            .unwrap();
+        game_logic.frame = 100;
+        {
+            let a = game_logic.host_object_mut(shooter).unwrap();
+            a.target = Some(tank_id);
+            a.set_ai_state(
+                AIState::Attacking,
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+            );
+            a.active_weapon_slot = 0;
+            if let Some(w) = a.weapon.as_mut() {
+                w.last_fire_time = -10.0;
+                w.pre_attack_delay = 0.0;
+            }
+        }
+        for _ in 0..4 {
+            game_logic.frame = game_logic.frame.saturating_add(1);
+            game_logic.update_combat(&[shooter, tank_id], LOGIC_FRAME_TIMESTEP);
+        }
+        let lane_fires = if weapon == GATTLING_TANK_GUN {
+            game_logic.gattling_tank_residual_ground_fires
+        } else {
+            game_logic.gattling_building_residual_ground_fires
+        };
+        assert!(
+            lane_fires > 0,
+            "authored {weapon} discharge takes the Gattling FiringTracker lane regardless of chassis name"
+        );
+    }
+}
