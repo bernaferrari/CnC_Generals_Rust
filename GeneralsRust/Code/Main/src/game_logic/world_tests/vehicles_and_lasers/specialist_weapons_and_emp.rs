@@ -787,7 +787,8 @@ fn supw_patriot_emp_residual_dual_slot_and_disable() {
             "SupW ground range 275, got {}",
             g.range
         );
-        let a = p.secondary_weapon.as_ref().expect("SupW AA residual");
+        // hq-2qedt.32.2: retail AA lives in TERTIARY (SECONDARY = assist weapon).
+        let a = p.tertiary_weapon.as_ref().expect("SupW AA residual");
         assert!(
             (a.damage - SUPW_PATRIOT_AIR_DAMAGE).abs() < 0.5,
             "SupW Patriot AA 30, got {}",

@@ -3028,15 +3028,17 @@ impl GameLogic {
                 );
             }
 
-            // Host residual: USA Patriot dual ground/AA secondary.
-            // Laser General residual uses Lazr_Patriot* damage (40/35) via template.
-            // Fail-closed: not full AssistedTargetingModule assist clips / RequestAssistRange.
+            // Retail FactionBuilding.ini Patriot WeaponSet: PRIMARY PatriotMissileWeapon,
+            // SECONDARY PatriotMissileAssistWeapon (AssistingWeaponSlot), TERTIARY
+            // PatriotMissileWeaponAir. Lazr/SupW families use their own damage residuals.
             if crate::game_logic::host_base_defense::is_patriot_battery_structure(template_name) {
                 use crate::game_logic::host_base_defense::{
-                    patriot_air_weapon_for_template, patriot_ground_weapon_for_template,
+                    patriot_air_weapon_for_template, patriot_assist_weapon_for_template,
+                    patriot_ground_weapon_for_template,
                 };
                 object.weapon = Some(patriot_ground_weapon_for_template(template_name));
-                object.secondary_weapon = Some(patriot_air_weapon_for_template(template_name));
+                object.secondary_weapon = Some(patriot_assist_weapon_for_template(template_name));
+                object.tertiary_weapon = Some(patriot_air_weapon_for_template(template_name));
             }
 
             // Host residual: USA Crusader / Paladin PRIMARY tank gun

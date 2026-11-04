@@ -2588,7 +2588,8 @@ fn patriot_residual_aa_secondary_auto_fires() {
         assert!(is_patriot_battery_structure(&p.template_name));
         let prim = p.weapon.as_ref().expect("ground");
         assert!((prim.damage - PATRIOT_GROUND_DAMAGE).abs() < 0.01);
-        let sec = p.secondary_weapon.as_ref().expect("AA");
+        // hq-2qedt.32.2: retail AA lives in TERTIARY (SECONDARY = assist weapon).
+        let sec = p.tertiary_weapon.as_ref().expect("AA");
         assert!((sec.damage - PATRIOT_AIR_DAMAGE).abs() < 0.01);
         assert!((sec.range - PATRIOT_AIR_RANGE).abs() < 1.0);
         assert!(sec.can_target_air);

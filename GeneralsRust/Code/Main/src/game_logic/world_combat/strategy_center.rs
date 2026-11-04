@@ -388,6 +388,12 @@ impl GameLogic {
         let is_stinger = is_stinger_site_structure(&template_name);
         let is_patriot = is_patriot_battery_structure(&template_name);
         let dual_slot = is_dual_slot_base_defense(&template_name);
+        // Retail Patriot WeaponSet: AA lives in TERTIARY (SECONDARY is the assist weapon).
+        let air_slot: u8 = if is_patriot {
+            crate::game_logic::host_base_defense::PATRIOT_AIR_WEAPON_SLOT
+        } else {
+            1
+        };
         // SPAWNS_ARE_THE_WEAPONS residual: Stinger Site cannot fire with 0 soldiers.
         if is_stinger {
             let has_live_spawn = attacker.spawn_behavior_children().into_iter().any(
@@ -420,11 +426,10 @@ impl GameLogic {
             })
             .unwrap_or(0.0);
         let air_range = attacker
-            .secondary_weapon
-            .as_ref()
+            .weapon_slot(air_slot)
             .map(|w| {
                 (attacker.effective_weapon_range_for_slot_with_solo_set(
-                    1,
+                    air_slot,
                     w.range,
                     &self.solo_weapon_bonus_set,
                 ) - under)
@@ -506,7 +511,10 @@ impl GameLogic {
             return Ok(());
         };
         let slot = if dual_slot {
-            preferred_dual_defense_slot(target_is_air)
+            match preferred_dual_defense_slot(target_is_air) {
+                1 => air_slot,
+                other => other,
+            }
         } else {
             0
         };
@@ -526,17 +534,9 @@ impl GameLogic {
             let Some(attacker) = self.objects.get(&defense_id) else {
                 return Ok(());
             };
-            if slot == 1 {
-                attacker
-                    .secondary_weapon
-                    .as_ref()
-                    .is_some_and(|w| Object::weapon_ready(w, current_time))
-            } else {
-                attacker
-                    .weapon
-                    .as_ref()
-                    .is_some_and(|w| Object::weapon_ready(w, current_time))
-            }
+            attacker
+                .weapon_slot(slot)
+                .is_some_and(|w| Object::weapon_ready(w, current_time))
         };
         // C++ TurretAIAimTurretState: do not discharge while the barrel is
         // still traversing. Structures without a Turret block fire immediately.
@@ -557,15 +557,7 @@ impl GameLogic {
             let Some(attacker) = self.objects.get(&defense_id) else {
                 return Ok(());
             };
-            if slot == 1 {
-                attacker
-                    .secondary_weapon
-                    .as_ref()
-                    .map(|w| w.damage)
-                    .unwrap_or(0.0)
-            } else {
-                attacker.weapon.as_ref().map(|w| w.damage).unwrap_or(0.0)
-            }
+            attacker.weapon_slot(slot).map(|w| w.damage).unwrap_or(0.0)
         };
         if damage <= 0.0 {
             return Ok(());
@@ -620,11 +612,7 @@ impl GameLogic {
             let _ = hits;
         } else {
             let weapon_snap = self.objects.get(&defense_id).and_then(|a| {
-                if slot == 1 {
-                    a.secondary_weapon.clone().or_else(|| a.weapon.clone())
-                } else {
-                    a.weapon.clone()
-                }
+                a.weapon_slot(slot).cloned().or_else(|| a.weapon.clone())
             });
             // C++ ScatterRadiusVsInfantry residual: Patriot/Stinger ground fire vs infantry may miss.
             let mut skip_damage = false;
@@ -695,11 +683,7 @@ impl GameLogic {
                 Some(target_id),
                 None,
             );
-            if slot == 1 {
-                if let Some(w) = attacker.secondary_weapon.as_mut() {
-                    crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
-                }
-            } else if let Some(w) = attacker.weapon.as_mut() {
+            if let Some(w) = attacker.weapon_slot_mut(slot) {
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
@@ -865,7 +849,7 @@ impl GameLogic {
             }
         }
         if is_patriot {
-            if slot == 1 {
+            if slot == air_slot {
                 self.patriot_residual_aa_fires = self.patriot_residual_aa_fires.saturating_add(1);
             } else {
                 self.patriot_residual_ground_fires =
@@ -929,7 +913,10 @@ impl GameLogic {
         // C++ Weapon.cpp:2477 — only fan out when leftover RequestAssistRange > 0.
         // Read this world's WeaponStore: an unbound read falls back to 0.
         let request_range = self.with_own_services(|| {
-            patriot_request_assist_range_for_template(&requester_template, slot == 1)
+            patriot_request_assist_range_for_template(
+                &requester_template,
+                slot == crate::game_logic::host_base_defense::PATRIOT_AIR_WEAPON_SLOT,
+            )
         });
         if request_range <= 0.0 {
             return;

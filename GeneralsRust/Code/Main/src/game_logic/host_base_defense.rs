@@ -196,6 +196,8 @@ pub const LAZR_PATRIOT_ASSIST_DAMAGE: f32 = 35.0;
 pub const PATRIOT_ASSIST_DELAY_FRAMES: u32 = 8;
 /// Retail assist ClipReloadTime 1000ms → 30 frames residual honesty.
 pub const PATRIOT_ASSIST_CLIP_RELOAD_FRAMES: u32 = 30;
+/// Retail PatriotMissileAssistWeapon `ClipSize`.
+pub const PATRIOT_ASSIST_WEAPON_CLIP_SIZE: u32 = 4;
 /// Retail assist weapon template names (honesty / docs).
 pub const PATRIOT_ASSIST_WEAPON: &str = "PatriotMissileAssistWeapon";
 pub const LAZR_PATRIOT_ASSIST_WEAPON: &str = "Lazr_PatriotMissileAssistWeapon";
@@ -2153,6 +2155,34 @@ pub fn patriot_air_weapon_for_template(template_name: &str) -> Weapon {
         suspend_fx_frame: 0,
     }
 }
+
+/// Retail Patriot SECONDARY `PatriotMissileAssistWeapon` (Weapon.ini: dmg 25 /
+/// Lazr 35, AttackRange 450, DelayBetweenShots 250, ClipSize 4, ClipReloadTime 1000,
+/// AntiGround + AntiAirborne*). FactionBuilding.ini AssistingWeaponSlot = SECONDARY.
+pub fn patriot_assist_weapon_for_template(template_name: &str) -> Weapon {
+    let laser = is_laser_patriot_template(template_name);
+    Weapon {
+        damage: patriot_assist_damage_for_template(template_name),
+        range: PATRIOT_ASSIST_RANGE,
+        min_range: 0.0,
+        reload_time: delay_frames_to_reload_secs(PATRIOT_ASSIST_DELAY_FRAMES),
+        last_fire_time: 0.0,
+        ammo: Some(PATRIOT_ASSIST_WEAPON_CLIP_SIZE),
+        clip_size: PATRIOT_ASSIST_WEAPON_CLIP_SIZE,
+        clip_reload_time: delay_frames_to_reload_secs(PATRIOT_ASSIST_CLIP_RELOAD_FRAMES),
+        can_target_air: true,
+        can_target_ground: true,
+        projectile_speed: if laser { 999_999.0 } else { 600.0 },
+        pre_attack_delay: 0.0,
+        splash_radius: 0.0,
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+        suspend_fx_frame: 0,
+    }
+}
+
+/// Retail Patriot runtime slot that owns the AA weapon (TERTIARY).
+pub const PATRIOT_AIR_WEAPON_SLOT: u8 = 2;
 
 /// Residual assist damage for a Patriot template family (stock / Lazr / SupW).
 pub fn patriot_assist_damage_for_template(template_name: &str) -> f32 {

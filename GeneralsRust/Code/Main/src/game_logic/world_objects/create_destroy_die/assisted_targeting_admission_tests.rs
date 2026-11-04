@@ -106,3 +106,29 @@ fn pending_assist_locks_authored_slot_and_attacks_with_clip() {
     assert_eq!(w.host_object(victim).unwrap().health.current, hp_before);
     assert!(w.pending_patriot_assists.is_empty(), "clip handed to AI attack");
 }
+
+/// hq-2qedt.32.2: retail FactionBuilding.ini AmericaPatriotBattery WeaponSet is
+/// PRIMARY PatriotMissileWeapon / SECONDARY PatriotMissileAssistWeapon /
+/// TERTIARY PatriotMissileWeaponAir (AssistingWeaponSlot = SECONDARY).
+/// Weapon.ini PatriotMissileAssistWeapon: dmg 25, range 450, ClipSize 4, AntiGround.
+#[test]
+fn patriot_runtime_slots_match_retail_weapon_set() {
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_AIR_DAMAGE, PATRIOT_AIR_RANGE, PATRIOT_ASSIST_DAMAGE, PATRIOT_ASSIST_RANGE,
+    };
+    let mut w = world(&patriot(
+        "Behavior = AssistedTargetingUpdate AssistTag\n AssistingClipSize = 4\n AssistingWeaponSlot = SECONDARY\nEnd\n",
+    ));
+    let id = w.create_object_for_player("AmericaPatriotBattery", 0, Vec3::ZERO).unwrap();
+    let p = w.host_object(id).unwrap();
+    let assist = p.weapon_slot(1).expect("SECONDARY = PatriotMissileAssistWeapon");
+    assert!((assist.damage - PATRIOT_ASSIST_DAMAGE).abs() < 0.01);
+    assert!((assist.range - PATRIOT_ASSIST_RANGE).abs() < 0.01);
+    assert_eq!(assist.clip_size, 4);
+    assert!(assist.can_target_ground, "assist weapon is AntiGround");
+    assert!(assist.can_target_air);
+    let air = p.weapon_slot(2).expect("TERTIARY = PatriotMissileWeaponAir");
+    assert!((air.damage - PATRIOT_AIR_DAMAGE).abs() < 0.01);
+    assert!((air.range - PATRIOT_AIR_RANGE).abs() < 0.01);
+    assert!(air.can_target_air && !air.can_target_ground);
+}
