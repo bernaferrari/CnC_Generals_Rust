@@ -220,12 +220,12 @@ pub fn rocket_pods_auto_choose_allowed() -> bool {
 ///
 /// active_weapon_slot == 2 locks real tertiary fire.
 pub fn rocket_pod_ground_fire_active(
-    is_comanche: bool,
+    tertiary_is_rocket_pod: bool,
     has_upgrade: bool,
     has_tertiary: bool,
     active_weapon_slot: u8,
 ) -> bool {
-    is_comanche && has_upgrade && has_tertiary && active_weapon_slot == 2
+    tertiary_is_rocket_pod && has_upgrade && has_tertiary && active_weapon_slot == 2
 }
 
 /// Reload time seconds residual for delay frames @ 30 FPS.

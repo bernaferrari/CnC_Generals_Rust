@@ -4595,3 +4595,32 @@ fn scorpion_object_hit_residual_has_no_template_name_sniff() {
     assert!(!src.contains("is_scorpion_template"));
     assert!(!src.contains("should_apply_scorpion_residual"));
 }
+
+/// hq-2qedt.172: Comanche ground_target / air_and_mig residuals carry no
+/// is_comanche_template sniff. C++ CommandXlat keys rocket-pod ground fire on
+/// the weapon name "ComancheRocketPodWeapon", not the firing template name.
+#[test]
+fn comanche_rocket_pod_ground_fire_keys_on_authored_tertiary_not_template_name() {
+    use crate::game_logic::host_comanche_rocket_pods::COMANCHE_ROCKET_POD_WEAPON;
+    let gt = include_str!("../world_tick/combat/ground_target.rs");
+    assert!(!gt.contains("is_comanche_template"));
+    assert!(gt.contains("COMANCHE_ROCKET_POD_WEAPON"));
+    let am = include_str!("../world_combat/air_and_mig.rs");
+    assert!(!am.contains("is_comanche_template"));
+
+    let mut gl = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("TestAuthoredPodCarrier");
+    tpl.add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0)
+        .set_tertiary_weapon_name(COMANCHE_ROCKET_POD_WEAPON);
+    gl.templates
+        .insert("TestAuthoredPodCarrier".to_string(), tpl);
+    let id = gl
+        .create_object("TestAuthoredPodCarrier", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("carrier");
+    assert_eq!(
+        gl.host_object(id).unwrap().authored_weapon_name_for_slot(2),
+        Some(COMANCHE_ROCKET_POD_WEAPON)
+    );
+}
