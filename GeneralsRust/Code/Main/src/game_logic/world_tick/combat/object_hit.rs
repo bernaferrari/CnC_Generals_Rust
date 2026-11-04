@@ -838,16 +838,14 @@ impl GameLogic {
                         )
                     };
                 } else if {
-                    // America Fire Base residual: howitzer primary-radius splash.
-                    use crate::game_logic::host_fire_base::{
-                        is_fire_base_template, should_apply_fire_base_residual,
-                    };
+                    // America Fire Base howitzer splash: keyed on the authored
+                    // WeaponSet weapon for this slot, not the template name
+                    // (hq-2qedt.134).
+                    use crate::game_logic::host_fire_base::FIRE_BASE_HOWITZER_WEAPON;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_fire_base_residual(is_fire_base_template(&a.template_name))
-                        })
-                        .unwrap_or(false)
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .is_some_and(|n| n == FIRE_BASE_HOWITZER_WEAPON)
                 } {
                     let impact = target_position;
                     let from = self

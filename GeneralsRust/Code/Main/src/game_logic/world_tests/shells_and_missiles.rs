@@ -4355,3 +4355,53 @@ fn colonel_burton_create_primary_comes_from_authored_weapon_set() {
         "authored HumveeGun PRIMARY overwritten by colonel_burton name peel: {prim:?}"
     );
 }
+
+/// hq-2qedt.134: C++ fires the authored WeaponSet weapon; a Fire Base-named
+/// template authoring a non-howitzer PRIMARY must not route through the
+/// Fire Base howitzer residual on object hit.
+#[test]
+fn fire_base_named_non_howitzer_weapon_skips_fire_base_object_hit_residual() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaFireBase");
+    // Non-structure fixture so the strategy_center base-defense path (out of
+    // scope) does not fire; isolates the object_hit gate.
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("AmericaFireBase".to_string(), tpl);
+    let fb_id = game_logic
+        .create_object("AmericaFireBase", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("fire base");
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let (t, attack_events) = game_logic
+            .host_object_and_attack_events_mut(fb_id)
+            .unwrap();
+        t.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = t.weapon.as_mut() {
+            w.last_fire_time = -20.0;
+            w.reload_time = 0.1;
+        }
+    }
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[fb_id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    assert_eq!(
+        game_logic.fire_base_residual_fires(),
+        0,
+        "Fire Base residual chosen by template-name peel instead of authored weapon"
+    );
+}
