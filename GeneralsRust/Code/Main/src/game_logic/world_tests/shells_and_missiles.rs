@@ -4442,3 +4442,36 @@ fn fire_base_named_structure_non_howitzer_weapon_skips_base_defense_howitzer() {
         "base-defense Fire Base howitzer chosen by template-name peel instead of authored weapon"
     );
 }
+
+/// hq-2qedt.163: Stinger Site PRIMARY/SECONDARY bind from the authored
+/// WeaponSet at create (C++ WeaponSet::updateWeaponSet), not a name peel.
+#[test]
+fn stinger_site_create_weapons_come_from_authored_weapon_set() {
+    use crate::game_logic::host_base_defense::{STINGER_AIR_DAMAGE, STINGER_GROUND_DAMAGE};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("GLAStingerSite");
+    tpl.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun")
+        .set_secondary_weapon_name("HumveeGun");
+    game_logic.templates.insert("GLAStingerSite".to_string(), tpl);
+    let id = game_logic
+        .create_object("GLAStingerSite", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("stinger site");
+    let obj = game_logic.host_object(id).expect("obj");
+    let prim = obj.weapon.clone().expect("authored primary");
+    let sec = obj.secondary_weapon.clone().expect("authored secondary");
+    assert!(
+        (prim.damage - STINGER_GROUND_DAMAGE).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by stinger name peel: {prim:?}"
+    );
+    assert!(
+        (sec.damage - STINGER_AIR_DAMAGE).abs() > 0.01,
+        "authored HumveeGun SECONDARY overwritten by stinger name peel: {sec:?}"
+    );
+}

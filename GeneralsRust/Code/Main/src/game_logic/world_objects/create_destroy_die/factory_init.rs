@@ -166,18 +166,9 @@ impl GameLogic {
             reset_continuous_fire_state(object);
         }
 
-        if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name) {
-            use crate::game_logic::host_base_defense::{
-                stinger_air_weapon, stinger_ground_weapon, stinger_has_ap_rockets,
-            };
-            let ap = stinger_has_ap_rockets(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
-            object.weapon = Some(stinger_ground_weapon(ap));
-            object.secondary_weapon = Some(stinger_air_weapon(ap));
-        }
+        // Stinger Site PRIMARY/SECONDARY bind from the authored WeaponSet
+        // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+        // (hq-2qedt.163). AP rockets refresh stays on the upgrade path.
 
         // Host residual: GLA Scorpion PRIMARY gun (+ secondary rocket if unlocked).
         // Fail-closed: not full SalvageCrate missile-rack W3D subobject matrix.
