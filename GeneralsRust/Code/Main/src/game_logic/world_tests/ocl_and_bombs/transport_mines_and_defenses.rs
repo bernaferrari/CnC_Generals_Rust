@@ -2802,3 +2802,73 @@ fn patriot_assisted_targeting_request_assist_range_residual() {
         "far patriot outside RequestAssistRange must not assist"
     );
 }
+
+/// C++ Weapon::privateFireWeapon (Weapon.cpp:2476-2478) calls
+/// processRequestAssistance before delivering the shot, so a shot that kills
+/// the victim still recruits a free assistant.
+#[test]
+fn patriot_requests_assist_before_fire_even_when_shot_kills() {
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+    patriot_tpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(600.0)
+        .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+    game_logic
+        .templates
+        .insert("USA_Patriot".to_string(), patriot_tpl);
+    let requester_id = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("requester");
+    let assistant_id = game_logic
+        .create_object(
+            "USA_Patriot",
+            Team::USA,
+            Vec3::new(PATRIOT_REQUEST_ASSIST_RANGE * 0.5, 0.0, 0.0),
+        )
+        .expect("assistant");
+    let enemy_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        // One primary hit kills.
+        let e = game_logic.host_object_mut(enemy_id).unwrap();
+        e.health.current = 1.0;
+        e.health.maximum = 1.0;
+        e.max_health = 1.0;
+    }
+    for id in [requester_id, assistant_id] {
+        if let Some(w) = game_logic.host_object_mut(id).unwrap().weapon.as_mut() {
+            w.last_fire_time = -10.0;
+        }
+    }
+    game_logic.frame = 1;
+    game_logic.update_combat(&[requester_id, assistant_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+
+    assert!(
+        !game_logic
+            .host_object(enemy_id)
+            .map(|e| e.is_alive())
+            .unwrap_or(false),
+        "requester shot must kill the victim"
+    );
+    assert!(
+        game_logic.patriot_assist_residual_requests() > 0,
+        "assist must be requested before the killing shot"
+    );
+    assert!(
+        game_logic.patriot_assist_residual_accepts() >= 1,
+        "free assistant must accept the pre-fire request"
+    );
+}

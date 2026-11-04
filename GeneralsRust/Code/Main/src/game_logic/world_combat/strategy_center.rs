@@ -571,6 +571,15 @@ impl GameLogic {
             return Ok(());
         }
 
+        // C++ Weapon::privateFireWeapon (Weapon.cpp:2476-2478) requests assistance
+        // before the shot is delivered, so a killing shot still recruits helpers.
+        // AssistedTargetingUpdate residual: RequestAssistRange → neighboring
+        // equivalent Patriots fire AssistingClipSize assist-weapon shots +
+        // BinaryDataStream LaserFromAssisted / LaserToTarget residual beams.
+        if is_patriot {
+            self.process_patriot_assist_request(defense_id, target_id, slot);
+        }
+
         // America Fire Base residual: dual-radius howitzer splash owns damage.
         // ScatterRadiusVsInfantry residual closed via shell aim offset / instant impact.
         // Fail-closed: not full ScaleWeaponSpeed lob matrix.
@@ -871,14 +880,6 @@ impl GameLogic {
                     Some(target_id),
                     presentation_effects,
                 );
-            }
-            // AssistedTargetingUpdate residual: RequestAssistRange → neighboring
-            // equivalent Patriots fire AssistingClipSize assist-weapon shots +
-            // BinaryDataStream LaserFromAssisted / LaserToTarget residual beams.
-            // Fail-closed: not full W3DLaserDraw texture/arc GPU draw
-            // (endpoint track + draw-param honesty residual closed 2026-07-13).
-            if !destroyed {
-                self.process_patriot_assist_request(defense_id, target_id, slot);
             }
         }
         if is_tunnel {
