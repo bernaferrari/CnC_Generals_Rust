@@ -345,9 +345,8 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_overlord_addons::is_helix_template(template_name) {
                 return Some(HELIX_MINIGUN_WEAPON);
             }
-            if crate::game_logic::host_pathfinder::is_pathfinder_template(template_name) {
-                return Some(PATHFINDER_SNIPER_WEAPON);
-            }
+            // Pathfinder: explicit retail rows above only; no fuzzy name peel
+            // (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.219).
             if crate::game_logic::host_slave_drones::is_hellfire_drone_template(template_name) {
                 return Some(HELLFIRE_MISSILE_WEAPON);
             }
@@ -656,6 +655,24 @@ mod quad_cannon_unit_map_peel_tests {
         assert_eq!(
             secondary_weapon_name_for_unit("GLAVehicleQuadCannon"),
             Some(QUAD_CANNON_GUN_AIR)
+        );
+    }
+}
+
+#[cfg(test)]
+mod pathfinder_unit_map_peel_tests {
+    use super::*;
+
+    /// hq-2qedt.219: C++ resolves PRIMARY from the authored WeaponSet; an
+    /// unlisted template whose name merely contains "Pathfinder" must not
+    /// pick up the Pathfinder sniper rifle from a fuzzy name peel.
+    #[test]
+    fn unlisted_pathfinder_named_template_gets_no_name_peel_primary() {
+        assert_eq!(primary_weapon_name_for_unit("Boss_AmericaInfantryPathfinderDecoy"), None);
+        // Explicit retail table rows stay.
+        assert_eq!(
+            primary_weapon_name_for_unit("AmericaInfantryPathfinder"),
+            Some(PATHFINDER_SNIPER_WEAPON)
         );
     }
 }
