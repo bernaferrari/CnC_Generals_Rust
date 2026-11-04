@@ -237,17 +237,14 @@ impl GameLogic {
             object.weapon = Some(mig_weapon(loadout));
         }
 
-        // Host residual: USA Comanche PRIMARY 20mm + SECONDARY anti-tank.
-        // Retail rocket pods are a PLAYER_UPGRADE TERTIARY weapon; keep
-        // anti-tank bound in SECONDARY and only expose pods after the team
-        // owns the real upgrade.
+        // USA Comanche PRIMARY/SECONDARY bind from the authored WeaponSet
+        // (C++ WeaponSet::updateWeaponSet), not this name peel (hq-2qedt.109).
+        // Retail rocket pods are a PLAYER_UPGRADE TERTIARY weapon; only expose
+        // pods after the team owns the real upgrade.
         if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(template_name) {
             use crate::game_logic::host_comanche_rocket_pods::{
-                UPGRADE_COMANCHE_ROCKET_PODS, comanche_antitank_weapon, comanche_cannon_weapon,
-                comanche_rocket_pod_weapon,
+                UPGRADE_COMANCHE_ROCKET_PODS, comanche_rocket_pod_weapon,
             };
-            object.weapon = Some(comanche_cannon_weapon());
-            object.secondary_weapon = Some(comanche_antitank_weapon());
             let has_pods = (allow_upgrades && object.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS))
                 || (allow_upgrades && object.has_upgrade_tag("Upgrade_ComancheRocketPods"))
                 || players.values().any(|player| {

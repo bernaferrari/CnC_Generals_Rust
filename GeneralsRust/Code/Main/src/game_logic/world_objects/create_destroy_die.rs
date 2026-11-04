@@ -3055,14 +3055,9 @@ impl GameLogic {
                 object.weapon = Some(stealth_fighter_weapon());
             }
 
-            if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(template_name) {
-                use crate::game_logic::host_comanche_rocket_pods::{
-                    comanche_antitank_weapon, comanche_cannon_weapon,
-                };
-                object.weapon = Some(comanche_cannon_weapon());
-                object.secondary_weapon = Some(comanche_antitank_weapon());
-                object.tertiary_weapon = None;
-            }
+            // USA Comanche PRIMARY/SECONDARY bind from the authored WeaponSet
+            // above (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a
+            // template-name host table (hq-2qedt.109).
 
             // Host residual: USA Battle Drone PRIMARY machine gun.
             // Fail-closed: not full SlavedUpdate repair arm weld FX matrix.
