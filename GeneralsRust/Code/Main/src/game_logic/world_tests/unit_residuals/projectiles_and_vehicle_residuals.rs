@@ -2490,3 +2490,72 @@ fn humvee_tow_object_hit_and_unit_map_key_on_authored_weapon_not_chassis_name_hq
         "authored HumveeMissileWeapon hit takes the Humvee TOW residual route regardless of chassis name"
     );
 }
+
+/// hq-2qedt.275: Combat Cycle rider switch / stealth / Kell transfer gates key
+/// on the container state (installed transport or authored RiderChangeContain),
+/// never on the template basename.  A "CombatBike"-named vehicle without that
+/// state must not accept a rider weapon swap.
+#[test]
+fn combat_cycle_gates_key_on_container_not_template_name() {
+    use crate::game_logic::host_combat_cycle::{CombatCycleRider, REBEL_BIKER_MG};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_player_for_team(&mut game_logic, Team::GLA);
+    let mut bike_tpl = crate::game_logic::ThingTemplate::new("GLAVehicleCombatBike");
+    bike_tpl
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0)
+        .set_primary_weapon_name(REBEL_BIKER_MG);
+    game_logic
+        .templates
+        .insert("GLAVehicleCombatBike".to_string(), bike_tpl);
+    let bike_id = game_logic
+        .create_object("GLAVehicleCombatBike", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("bike");
+    game_logic
+        .host_object_mut(bike_id)
+        .expect("bike")
+        .is_combat_cycle_transport = false;
+    assert!(
+        !game_logic.apply_combat_cycle_rider(bike_id, CombatCycleRider::TunnelDefender),
+        "name-only bike (no transport/RiderChangeContain) must not swap rider weapon"
+    );
+}
+
+#[test]
+fn dragon_black_napalm_keys_on_authored_flame_weapon_not_chassis_name() {
+    use crate::game_logic::host_dragon_tank::DRAGON_TANK_FLAME_WEAPON;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    // Dragon-named chassis without the authored flame; neutral name WITH it.
+    for (name, primary) in [
+        ("ChinaTankDragon", None),
+        ("ModdedFlameVehicle", Some(DRAGON_TANK_FLAME_WEAPON)),
+    ] {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(400.0);
+        if let Some(p) = primary {
+            tpl.set_primary_weapon_name(p);
+        }
+        game_logic.templates.insert(name.to_string(), tpl);
+    }
+    let named = game_logic.create_object("ChinaTankDragon", Team::China, Vec3::ZERO).unwrap();
+    let authored = game_logic.create_object("ModdedFlameVehicle", Team::China, Vec3::ZERO).unwrap();
+    assert!(
+        !game_logic.apply_dragon_black_napalm_upgrade(named),
+        "Dragon chassis name without authored flame weapon must not take Black Napalm"
+    );
+    assert!(
+        game_logic.apply_dragon_black_napalm_upgrade(authored),
+        "authored DragonTankFlameWeapon primary must take Black Napalm"
+    );
+}

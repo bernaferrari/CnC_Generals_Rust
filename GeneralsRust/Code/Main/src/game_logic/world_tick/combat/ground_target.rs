@@ -244,14 +244,14 @@ impl GameLogic {
 
             if !aurora_ground_queued {
                 // GLA Rocket Buggy / SCUD residual ground force-fire AOE.
+                // Keyed on the authored weapon fired from this slot
+                // (Weapon::fireWeapon uses the WeaponTemplate, not the firer's
+                // template name).
                 let buggy_ground = self
                     .objects
                     .get(&attacker_id)
-                    .map(|a| {
-                        crate::game_logic::host_rocket_buggy::is_rocket_buggy_template(
-                            &a.template_name,
-                        )
-                    })
+                    .and_then(|a| a.authored_weapon_name_for_slot(ground_slot))
+                    .map(crate::game_logic::host_rocket_buggy::is_rocket_buggy_weapon_name)
                     .unwrap_or(false);
                 let scud_ground = self
                     .objects

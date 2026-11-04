@@ -240,3 +240,52 @@ fn slow_death_final_destroy_keeps_admitted_team_after_source_dies() {
     assert_eq!(source_player.skill_points, 25);
     assert_eq!(world.get_player(2).unwrap().statistics.units_lost(), 1);
 }
+
+/// hq-1ubws: C++ Object::onDie routes every SlowDeathBehavior through its
+/// DieMux (isDieApplicable) and then picks one by ProbabilityModifier weight.
+#[test]
+fn multiple_authored_slow_deaths_select_through_die_mux_and_probability() {
+    let ini = "Object MultiSlowVictim\nKindOf = VEHICLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+Behavior = SlowDeathBehavior CrushOnly\nDeathTypes = NONE +CRUSHED\nDestructionDelay = 9000\nProbabilityModifier = 1000000\nEnd\n\
+Behavior = SlowDeathBehavior RareNormal\nDeathTypes = ALL -CRUSHED\nDestructionDelay = 6000\nProbabilityModifier = 1\nEnd\n\
+Behavior = SlowDeathBehavior CommonNormal\nDeathTypes = ALL -CRUSHED\nDestructionDelay = 3000\nProbabilityModifier = 1000000\nEnd\nEnd\n";
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "multi-slow-death.ini".to_owned(),
+        ini.to_owned(),
+    )])
+    .expect("multi slow-death content");
+    let mut world = GameLogic::new();
+    world.admit_receiving_module_content(content).unwrap();
+    world.add_player(Player::new(2, Team::GLA, "Victim", false));
+    let mut picks = [0u32; 3];
+    for _ in 0..20 {
+        let victim = world
+            .create_object_for_player("MultiSlowVictim", 2, Vec3::ZERO)
+            .unwrap();
+        let frame = world.frame;
+        world
+            .apply_owned_damage(
+                victim,
+                1000.0,
+                None,
+                crate::game_logic::combat::DamageType::Unresistable,
+                crate::game_logic::host_usa_pilot::HostDeathType::Normal,
+                None,
+                &DamageHitContext::default(),
+            )
+            .unwrap();
+        let sd = world.objects[&victim]
+            .slow_death
+            .as_ref()
+            .expect("one authored SlowDeath admitted");
+        match sd.destroy_at_frame - sd.begin_frame.max(frame) {
+            d if d == 270 => picks[0] += 1,
+            d if d == 180 => picks[1] += 1,
+            d if d == 90 => picks[2] += 1,
+            d => panic!("unexpected destruction delay {d}"),
+        }
+        world.objects.remove(&victim);
+    }
+    assert_eq!(picks[0], 0, "DieMux must exclude CRUSHED-only module for NORMAL");
+    assert!(picks[2] >= 19, "ProbabilityModifier weight must dominate: {picks:?}");
+}

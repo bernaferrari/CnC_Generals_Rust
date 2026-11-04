@@ -27,6 +27,9 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     Module, ModuleData as EngineModuleData, NameKeyType, PayloadTargetControlInterface,
 };
+use game_engine::common::thing::update_module::{
+    MinefieldServiceError, OwnedMinefieldServices,
+};
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
@@ -561,6 +564,49 @@ fn circle_positions(
 /// Match-owned mine placement services. Placement includes terrain/layer validation,
 /// the orientation draw, structure rejection, actual creation, producer and scoot.
 /// Implementations must reject unsupported definition/callback families in preflight.
+/// C++ GenerateMinefieldBehavior.cpp:187-190: mine template geometry with
+/// its footprint expanded by `mineRadius * -(1 - SkipIfThisMuchUnderStructure)`.
+pub(crate) fn mine_structure_query_geometry(
+    template_geometry: &crate::common::GeometryInfo,
+    skip: f32,
+) -> crate::object::collide::collision_geometry::GeometryInfo {
+    let mut shape = template_geometry.shape;
+    let mine_radius = template_geometry.get_bounding_circle_radius();
+    shape.expand_footprint(mine_radius * -(1.0 - skip));
+    crate::object::collide::collision_geometry::GeometryInfo::from_engine_geometry(&shape)
+}
+
+/// C++ PartitionFilterWouldCollide::allow (PartitionManager.cpp:5149): one-sided
+/// Z check, then oriented shape-vs-shape test using the other Object's
+/// geometry and orientation.
+pub(crate) fn mine_would_collide(
+    position: &Coord3D,
+    query: &crate::object::collide::collision_geometry::GeometryInfo,
+    angle: f32,
+    other_position: &Coord3D,
+    other_geometry: &crate::common::GeometryInfo,
+    other_angle: f32,
+) -> bool {
+    use crate::object::collide::collision_geometry::{
+        CollideInfo, GeometryInfo as CollisionGeometryInfo, collide_test_dispatch,
+    };
+    let that = CollisionGeometryInfo::from_engine_geometry(&other_geometry.shape);
+    let this_info = CollideInfo::new(*position, *query, angle);
+    let that_info = CollideInfo::new(*other_position, that, other_angle);
+    if this_info.position.z + query.get_max_height_above_position() >= that_info.position.z
+        && this_info.position.z <= that_info.position.z + that.get_max_height_above_position()
+    {
+        return collide_test_dispatch(
+            query.get_geom_type(),
+            that.get_geom_type(),
+            &this_info,
+            &that_info,
+            None,
+        );
+    }
+    false
+}
+
 pub(crate) trait MinefieldPlacement {
     fn preflight(&self, owner: ObjectId, template: &str) -> BehaviorResult<(GeometryInfo, f32)>;
     fn random_real(&mut self, low: f32, high: f32) -> f32;
@@ -576,6 +622,59 @@ pub(crate) trait MinefieldPlacement {
     /// C++ `obj->getControllingPlayer()` (GenerateMinefieldBehavior.cpp:229/291/319/384).
     fn controlling_player(&self, owner: ObjectId) -> BehaviorResult<Option<u32>>;
     fn remove(&mut self, owner: ObjectId, mine: ObjectId) -> BehaviorResult<()>;
+}
+
+fn minefield_service_error(error: MinefieldServiceError) -> BehaviorError {
+    match error {
+        MinefieldServiceError::ObjectNotFound(id) => BehaviorError::ObjectNotFound { id },
+        MinefieldServiceError::NoSpaceAvailable => BehaviorError::NoSpaceAvailable,
+        MinefieldServiceError::InvalidPosition => BehaviorError::InvalidPosition,
+        MinefieldServiceError::Unavailable(reason) => BehaviorError::ServiceUnavailable(reason),
+    }
+}
+
+/// Common schedule hook (`UpdateScheduleContext::owned_minefield_services`)
+/// seen through the behavior's owned-service trait.
+pub(crate) struct ScheduledMinefield<'a>(pub(crate) &'a mut dyn OwnedMinefieldServices);
+
+impl MinefieldPlacement for ScheduledMinefield<'_> {
+    fn preflight(&self, owner: ObjectId, template: &str) -> BehaviorResult<(GeometryInfo, f32)> {
+        let footprint = self.0.preflight( owner, template)
+            .map_err(minefield_service_error)?;
+        let [x, y, z] = footprint.center;
+        Ok((
+            GeometryInfo {
+                center: Coord3D::new(x, y, z),
+                major_radius: footprint.major_radius,
+                minor_radius: footprint.minor_radius,
+                rotation: footprint.rotation,
+                is_circular: footprint.is_circular,
+            },
+            footprint.mine_radius,
+        ))
+    }
+    fn random_real(&mut self, low: f32, high: f32) -> f32 {
+        self.0.random_real( low, high)
+    }
+    fn place(
+        &mut self,
+        owner: ObjectId,
+        template: &str,
+        position: &Coord3D,
+        skip: f32,
+    ) -> BehaviorResult<ObjectId> {
+        self.0
+            .place(
+            owner,
+            template,
+            [position.x, position.y, position.z],
+            skip,
+        )
+        .map_err(minefield_service_error)
+    }
+    fn remove(&mut self, owner: ObjectId, mine: ObjectId) -> BehaviorResult<()> {
+        self.0.remove( owner, mine).map_err(minefield_service_error)
+    }
 }
 
 impl GenerateMinefieldBehavior {
@@ -619,7 +718,7 @@ impl GenerateMinefieldBehavior {
             }
             match services.place(
                 self.object_id,
-                &self.config.mine_name,
+                &mine_name,
                 &position,
                 self.config.skip_if_this_much_under_structure,
             ) {
@@ -638,6 +737,64 @@ impl GenerateMinefieldBehavior {
         }
         self.state.current_mine_template = self.config.mine_name.clone();
         Ok(())
+    }
+
+    /// C++ GenerateMinefieldBehavior::update() 437-475 upgrade branch, match-owned.
+    /// `owner_has_upgrade` is the owner's completed-mask test for Upgrade_ChinaEMPMines.
+    /// Each old mine is destroyed immediately through the owning GameLogic
+    /// (C++ 456-464 `TheGameLogic->destroyObject`), not queued for a later frame.
+    pub(crate) fn update_upgrade_owned(
+        &mut self,
+        owner_has_upgrade: bool,
+        services: &mut dyn MinefieldPlacement,
+    ) -> BehaviorResult<UpdateSleepTime> {
+        if self.state.upgraded || !self.config.upgradable {
+            return Ok(UpdateSleepTime::Forever);
+        }
+        if self.state.generated && owner_has_upgrade {
+            self.state.upgraded = true;
+            for id in std::mem::take(&mut self.state.mine_list) {
+                match services.remove(self.object_id, id) {
+                    // C++ 460-461: a mine no longer found is skipped.
+                    Ok(()) | Err(BehaviorError::ObjectNotFound { .. }) => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            self.state.generated = false;
+            self.place_mines_owned(services)?;
+        }
+        Ok(UpdateSleepTime::None)
+    }
+
+    /// C++ GenerateMinefieldBehavior::update() 437-475 driven by the scheduler
+    /// with match-lent services: resolves the trigger upgrade mask and the
+    /// owner's completed bits through the services, then runs the owned upgrade.
+    pub(crate) fn update_scheduled_owned(
+        &mut self,
+        services: &mut dyn OwnedMinefieldServices,
+    ) -> BehaviorResult<UpdateSleepTime> {
+        if self.state.upgraded || !self.config.upgradable {
+            return Ok(UpdateSleepTime::Forever);
+        }
+        let mut owner_has_upgrade = false;
+        if self.state.generated {
+            let upgrade_name = self
+                .config
+                .mine_upgrade_trigger
+                .as_deref()
+                .unwrap_or("Upgrade_ChinaEMPMines");
+            let mask = get_upgrade_center()
+                .read()
+                .ok()
+                .and_then(|center| center.find_upgrade(upgrade_name))
+                .map(|upgrade| upgrade.mask().bits());
+            if let (Some(mask), Some(completed)) =
+                (mask, services.owner_completed_upgrades(self.object_id))
+            {
+                owner_has_upgrade = mask != 0 && completed & mask == mask;
+            }
+        }
+        self.update_upgrade_owned(owner_has_upgrade, &mut ScheduledMinefield(services))
     }
 
     pub(crate) fn on_die_owned(
@@ -775,8 +932,13 @@ impl GenerateMinefieldBehavior {
         if self.state.generated {
             return Err(BehaviorError::MinefieldAlreadyGenerated);
         }
+        // GenerateMinefieldBehavior.cpp:351-354: mark generated first.
+        self.state.generated = true;
 
-        // Get object geometry information
+        // Owner is required (C++ getObject()); no default-geometry fallback.
+        if crate::helpers::TheGameLogic::find_object_by_id(self.object_id).is_none() {
+            return Err(BehaviorError::ObjectNotFound { id: self.object_id });
+        }
         let geometry = self.get_object_geometry()?;
         // Resolve the host-position fallback here so geometry remains the final fallback.
         let target = self
@@ -797,17 +959,15 @@ impl GenerateMinefieldBehavior {
             self.config.mine_name.clone()
         };
 
-        // Play generation FX if specified
-        if let Some(ref fx_template) = self.config.generation_fx {
-            self.play_fx(fx_template, &geometry.center)?;
-        }
-
         // Place mines based on configuration
         let pattern = self.determine_placement_pattern(&placement_geometry);
         self.place_mines_with_pattern(&placement_geometry, &mine_template, pattern)?;
-
-        self.state.generated = true;
         self.state.current_mine_template = mine_template;
+
+        // GenerateMinefieldBehavior.cpp:431: FXList::doFXObj after placement.
+        if let Some(ref fx_template) = self.config.generation_fx {
+            self.play_fx(fx_template, &geometry.center)?;
+        }
 
         Ok(())
     }
@@ -1144,18 +1304,27 @@ impl GenerateMinefieldBehavior {
         // rejects this candidate; terrain rejection above consumes no draw.
         let orientation = self.random_value(-std::f32::consts::PI, std::f32::consts::PI);
 
-        // C++ lines 187-197: Check for structure overlap using partition manager
-        // Uses ThePartitionManager->iteratePotentialCollisions() and checks KINDOF_STRUCTURE
-        let mine_radius = template
-            .get_template_geometry_info()
-            .get_bounding_circle_radius();
-        let shrink_radius = mine_radius * (1.0 - self.config.skip_if_this_much_under_structure);
+        // C++ lines 187-197: shrink the mine footprint, then reject when the
+        // oriented footprint would collide with any structure
+        // (iteratePotentialCollisions + PartitionFilterWouldCollide).
+        let template_geometry = template.get_template_geometry_info();
+        let query = mine_structure_query_geometry(
+            &template_geometry,
+            self.config.skip_if_this_much_under_structure,
+        );
         if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-            let objects_near = partition.get_objects_in_range(position, shrink_radius.max(0.0));
-            for obj_id in objects_near {
+            let max_dist = query.get_bounding_sphere_radius() * 1.1;
+            for obj_id in partition.get_objects_in_range_boundary_3d(position, max_dist) {
                 if crate::object::registry::OBJECT_REGISTRY
-                    .with_object(obj_id, |obj_guard| {
-                        obj_guard.is_kind_of(crate::common::KindOf::Structure)
+                    .with_object(obj_id, |them| {
+                        mine_would_collide(
+                            position,
+                            &query,
+                            orientation,
+                            them.get_position(),
+                            &them.get_geometry_info(),
+                            them.get_orientation(),
+                        ) && them.is_kind_of(crate::common::KindOf::Structure)
                     })
                     .unwrap_or(false)
                 {

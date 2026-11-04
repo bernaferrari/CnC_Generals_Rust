@@ -126,7 +126,11 @@ impl GameLogic {
         if self
             .objects
             .get(&attacker_id)
-            .map(|a| crate::game_logic::host_minigunner::is_minigunner_template(&a.template_name))
+            .map(|a| {
+                a.authored_weapon_name_for_slot(slot).is_some_and(|n| {
+                    crate::game_logic::host_minigunner::is_minigunner_weapon_name(&n)
+                })
+            })
             .unwrap_or(false)
         {
             self.advance_minigunner_continuous_fire(attacker_id, target_id, slot);

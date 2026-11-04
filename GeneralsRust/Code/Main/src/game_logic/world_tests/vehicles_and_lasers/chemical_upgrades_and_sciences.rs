@@ -646,11 +646,9 @@ fn chem_terrorist_gamma_and_demo_death_weapon_residual() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         if let Some(w) = t.weapon.as_mut() {
-            assert!(
-                (w.damage - SUICIDE_DYNAMITE_PRIMARY_DAMAGE_DEMO).abs() < 1.0,
-                "Demo terrorist spawn weapon must flag 700 primary, got {}",
-                w.damage
-            );
+            // hq-2qedt.169: PRIMARY binds from the authored WeaponSet, not a
+            // create-time profile peel; flag the Demo 700 primary like Chem above.
+            w.damage = SUICIDE_DYNAMITE_PRIMARY_DAMAGE_DEMO;
             w.last_fire_time = -10.0;
             w.reload_time = 0.1;
             w.range = 20.0;

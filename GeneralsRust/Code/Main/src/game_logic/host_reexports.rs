@@ -235,7 +235,7 @@ pub use super::host_satellite_hack::{
 
 pub use super::host_helix_minigun::{
     HELIX_MINIGUN_DAMAGE, HELIX_MINIGUN_DELAY_FRAMES, HELIX_MINIGUN_RANGE, HELIX_MINIGUN_WEAPON,
-    helix_minigun_weapon, is_legal_helix_minigun_target, should_apply_helix_minigun_residual,
+    is_legal_helix_minigun_target,
 };
 pub use super::host_helix_napalm::{
     HELIX_FIRESTORM_DAMAGE_PER_TICK, HELIX_FIRESTORM_DURATION_FRAMES, HELIX_FIRESTORM_RADIUS,
@@ -378,7 +378,7 @@ pub use super::host_rank_ui_residual::{
 };
 pub use super::host_red_guard::{
     REDGUARD_DAMAGE, REDGUARD_MACHINE_GUN, REDGUARD_RANGE, is_red_guard_template, red_guard_weapon,
-    should_apply_bayonet_residual, should_apply_red_guard_residual,
+    is_red_guard_weapon_name, should_apply_bayonet_residual,
 };
 
 pub use super::host_residual_acquire::{
@@ -458,7 +458,7 @@ pub use super::host_supply_drop_zone::{
 };
 pub use super::host_tank_hunter::{
     TANK_HUNTER_DAMAGE, TANK_HUNTER_MISSILE_WEAPON, TANK_HUNTER_RANGE, is_tank_hunter_template,
-    should_apply_tank_hunter_residual, tank_hunter_weapon,
+    is_tank_hunter_weapon_name, tank_hunter_weapon,
 };
 pub use super::host_terrain_bridge_water_road_residual_wave108::honesty_heightmap_residual_deepen_pack_wave108;
 pub use super::host_terrorist::{

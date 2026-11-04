@@ -260,15 +260,16 @@ impl GameLogic {
                     // Helix residual: PRIMARY HelixMinigunWeapon intended-only.
                     // When portable gattling addon is installed, the Overlord/Helix
                     // gattling residual path already applies primary + passenger.
-                    use crate::game_logic::host_helix_minigun::should_apply_helix_minigun_residual;
-                    use crate::game_logic::host_overlord_addons::is_helix_template;
+                    // Keyed on the authored weapon fired from this slot
+                    // (Weapon::fireWeapon uses the WeaponTemplate, not the
+                    // firer's template name).
+                    use crate::game_logic::host_helix_minigun::HELIX_MINIGUN_WEAPON;
                     self.objects
                         .get(&attacker_id)
                         .map(|a| {
-                            should_apply_helix_minigun_residual(
-                                is_helix_template(&a.template_name),
-                                slot,
-                            ) && !a.has_overlord_gattling_residual()
+                            a.authored_weapon_name_for_slot(slot)
+                                .is_some_and(|n| n.eq_ignore_ascii_case(HELIX_MINIGUN_WEAPON))
+                                && !a.has_overlord_gattling_residual()
                         })
                         .unwrap_or(false)
                 } {
@@ -370,16 +371,14 @@ impl GameLogic {
                         };
                 } else if {
                     // GLA Rocket Buggy residual: long-range rocket + splash / scatter.
-                    use crate::game_logic::host_rocket_buggy::{
-                        is_rocket_buggy_template, should_apply_rocket_buggy_residual,
-                    };
+                    // Keyed on the authored weapon fired from this slot
+                    // (Weapon::fireWeapon uses the WeaponTemplate, not the
+                    // firer's template name).
+                    use crate::game_logic::host_rocket_buggy::is_rocket_buggy_weapon_name;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_rocket_buggy_residual(is_rocket_buggy_template(
-                                &a.template_name,
-                            ))
-                        })
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .map(is_rocket_buggy_weapon_name)
                         .unwrap_or(false)
                 } {
                     let impact = target_position;
@@ -864,16 +863,14 @@ impl GameLogic {
                     };
                 } else if {
                     // GLA Jarmen Kell residual: primary sniper (intended-only).
-                    use crate::game_logic::host_jarmen_kell::{
-                        is_jarmen_kell_template, should_apply_jarmen_kell_residual,
-                    };
+                    // Keyed on the authored weapon fired from this slot
+                    // (Weapon::fireWeapon uses the WeaponTemplate, not the
+                    // firer's template name).
+                    use crate::game_logic::host_jarmen_kell::is_jarmen_kell_weapon_name;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_jarmen_kell_residual(is_jarmen_kell_template(
-                                &a.template_name,
-                            ))
-                        })
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .map(is_jarmen_kell_weapon_name)
                         .unwrap_or(false)
                 } {
                     let impact = target_position;
@@ -999,16 +996,14 @@ impl GameLogic {
                     };
                 } else if {
                     // China Tank Hunter residual: RPG splash + AA capable residual.
-                    use crate::game_logic::host_tank_hunter::{
-                        is_tank_hunter_template, should_apply_tank_hunter_residual,
-                    };
+                    // Keyed on the authored weapon fired from this slot
+                    // (Weapon::fireWeapon uses the WeaponTemplate, not the
+                    // firer's template name).
+                    use crate::game_logic::host_tank_hunter::is_tank_hunter_weapon_name;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_tank_hunter_residual(is_tank_hunter_template(
-                                &a.template_name,
-                            ))
-                        })
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .map(is_tank_hunter_weapon_name)
                         .unwrap_or(false)
                 } {
                     let impact = target_position;
@@ -1040,14 +1035,14 @@ impl GameLogic {
                     };
                 } else if {
                     // China Red Guard residual: bayonet one-shot vs close infantry, else gun.
-                    use crate::game_logic::host_red_guard::{
-                        is_red_guard_template, should_apply_red_guard_residual,
-                    };
+                    // Keyed on the authored weapon fired from this slot
+                    // (Weapon::fireWeapon uses the WeaponTemplate, not the
+                    // firer's template name).
+                    use crate::game_logic::host_red_guard::is_red_guard_weapon_name;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_red_guard_residual(is_red_guard_template(&a.template_name))
-                        })
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .map(is_red_guard_weapon_name)
                         .unwrap_or(false)
                 } {
                     let (hits, _destroyed_any) = self.apply_red_guard_residual_at_with_effects(
@@ -1289,15 +1284,14 @@ impl GameLogic {
                     let _ = HV_TOW_AUDIO;
                 } else if {
                     // China MiniGunner residual: ground gun or AA secondary hit.
-                    use crate::game_logic::host_minigunner::{
-                        is_minigunner_template, should_apply_minigunner_residual,
-                    };
+                    // Keyed on the authored weapon fired from this slot
+                    // (Weapon::fireWeapon uses the WeaponTemplate).
+                    use crate::game_logic::host_minigunner::is_minigunner_weapon_name;
                     self.objects
                         .get(&attacker_id)
                         .map(|a| {
-                            should_apply_minigunner_residual(is_minigunner_template(
-                                &a.template_name,
-                            ))
+                            a.authored_weapon_name_for_slot(slot)
+                                .is_some_and(|n| is_minigunner_weapon_name(&n))
                         })
                         .unwrap_or(false)
                 } {
@@ -1745,11 +1739,15 @@ impl GameLogic {
         // Fail-closed: instant FireFieldSmall zone if shell spawn fails.
         // Skipped for Aurora (delayed dive residual already queued).
         if !aurora_queued {
-            use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
+            // Keyed on the authored weapon fired from this slot
+            // (Weapon::fireWeapon uses the WeaponTemplate, not the firer's
+            // template name).
+            use crate::game_logic::host_inferno_cannon::is_inferno_cannon_weapon_name;
             let is_inferno = self
                 .objects
                 .get(&attacker_id)
-                .map(|a| is_inferno_cannon_template(&a.template_name))
+                .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                .map(is_inferno_cannon_weapon_name)
                 .unwrap_or(false);
             if is_inferno {
                 let impact = target_position;

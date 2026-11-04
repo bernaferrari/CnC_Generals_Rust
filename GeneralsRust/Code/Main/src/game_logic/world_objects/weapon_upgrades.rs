@@ -187,8 +187,11 @@ impl GameLogic {
             SlaveDroneKind, is_slave_drone_master_template, slave_drone_conflicts_with_owned,
         };
 
-        let kind = SlaveDroneKind::from_upgrade_name(upgrade_name).unwrap_or(SlaveDroneKind::Scout);
-        let tag = kind.upgrade_name();
+        // C++ ObjectCreationUpgrade is keyed by the granted upgrade itself;
+        // no drone kind for an unknown upgrade (no Scout fallback).
+        let Some(kind) = SlaveDroneKind::from_upgrade_name(upgrade_name) else {
+            return 0;
+        };
 
         let masters: Vec<ObjectId> = self
             .objects
@@ -198,7 +201,6 @@ impl GameLogic {
                     && o.is_alive()
                     && !o.status.under_construction
                     && is_slave_drone_master_template(&o.template_name)
-                    && !o.has_upgrade_tag(tag)
                     && !o.has_upgrade_tag(upgrade_name)
                     && !slave_drone_conflicts_with_owned(
                         upgrade_name,
@@ -210,6 +212,11 @@ impl GameLogic {
 
         let mut n = 0u32;
         for mid in masters {
+            // C++ Object::giveUpgrade sets the bit before ObjectCreationUpgrade
+            // creates the drone (Object.cpp giveUpgrade -> updateUpgradeModules).
+            if let Some(m) = self.objects.get_mut(&mid) {
+                m.apply_upgrade_tag(upgrade_name);
+            }
             if self
                 .residual_attach_slave_drone_with_interpreter_and_effects(
                     mid,
@@ -219,15 +226,11 @@ impl GameLogic {
                 )
                 .is_some()
             {
-                if let Some(m) = self.objects.get_mut(&mid) {
-                    m.apply_upgrade_tag(upgrade_name);
-                    m.apply_upgrade_tag(tag);
-                }
                 n = n.saturating_add(1);
             }
         }
         // Player unlock residual for production UI / late builds.
-        let _ = self.apply_player_unlock_upgrade(recipients, upgrade_name, tag);
+        let _ = self.apply_player_unlock_upgrade(recipients, upgrade_name, upgrade_name);
         n
     }
 
@@ -738,7 +741,7 @@ impl GameLogic {
             UPGRADE_GLA_AP_BULLETS, is_jarmen_kell_template,
         };
         use crate::game_logic::host_quad_cannon::is_quad_cannon_template;
-        use crate::game_logic::host_technical::is_technical_template;
+        use crate::game_logic::host_technical::is_technical_weapon_name;
 
         let ids: Vec<(ObjectId, u8)> = self
             .objects
@@ -749,7 +752,7 @@ impl GameLogic {
                     Some((*id, 0u8))
                 } else if Self::has_authored_rebel_machine_gun(o) {
                     Some((*id, 1))
-                } else if is_technical_template(&o.template_name) {
+                } else if o.authored_weapon_name_for_slot(0).is_some_and(is_technical_weapon_name) {
                     Some((*id, 2))
                 } else if is_quad_cannon_template(&o.template_name) {
                     Some((*id, 3))
@@ -943,7 +946,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_base_defense::is_stinger_site_structure;
-        use crate::game_logic::host_rpg_trooper::is_rpg_trooper_template;
+        use crate::game_logic::host_rpg_trooper::is_rpg_trooper_weapon_name;
         use crate::game_logic::host_scorpion::{UPGRADE_GLA_AP_ROCKETS, is_scorpion_template};
 
         let ids: Vec<(ObjectId, u8)> = self
@@ -953,7 +956,10 @@ impl GameLogic {
             .filter_map(|(id, o)| {
                 if is_scorpion_template(&o.template_name) {
                     Some((*id, 0u8))
-                } else if is_rpg_trooper_template(&o.template_name) {
+                } else if o
+                    .authored_weapon_name_for_slot(0)
+                    .is_some_and(is_rpg_trooper_weapon_name)
+                {
                     Some((*id, 1))
                 } else if is_stinger_site_structure(&o.template_name) {
                     Some((*id, 2))

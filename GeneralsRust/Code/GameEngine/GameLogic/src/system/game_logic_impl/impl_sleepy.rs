@@ -61,6 +61,7 @@ struct UpdateExecutionContext<'a> {
     objects: &'a HashMap<ObjectID, Arc<RwLock<Object>>>,
     owner_id: ObjectID,
     normal_cursor: Option<&'a mut usize>,
+    minefield: Option<MinefieldWindow<'a>>,
 }
 
 fn awaken_registered_update(
@@ -90,6 +91,14 @@ fn awaken_registered_update(
 }
 
 impl UpdateScheduleContext for UpdateExecutionContext<'_> {
+    fn owned_minefield_services(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::update_module::OwnedMinefieldServices> {
+        self.minefield
+            .as_mut()
+            .map(|window| window as &mut dyn game_engine::common::thing::update_module::OwnedMinefieldServices)
+    }
+
     fn upgrade_production_observation(
         &self,
     ) -> Option<game_engine::common::thing::update_module::UpgradeProductionObservation> {
@@ -278,14 +287,16 @@ impl GameLogic {
     }
 
     fn process_sleepy_updates(&mut self, current_frame: UnsignedInt) {
-        self.process_sleepy_updates_with_upgrade_services(current_frame, None);
+        self.process_sleepy_updates_with_upgrade_services(current_frame, None, None);
     }
 
     fn process_sleepy_updates_with_upgrade_services(
         &mut self,
         current_frame: UnsignedInt,
         mut services: Option<&mut dyn UpgradeCompletionServices>,
+        mut minefield: Option<&mut dyn MinefieldPlacementServices>,
     ) {
+        let mut minefield_effects = Vec::new();
         // C++ GameLogic.cpp:3698–3736 keeps a module registered during update,
         // then rebalances it immediately before executing the next callback.
         while let Some((object_id, module)) = self.due_sleepy_candidate(current_frame) {
@@ -321,7 +332,7 @@ impl GameLogic {
             let sleep = if should_process {
                 // Legacy callers still use this bridge; explicit scheduling
                 // callbacks below do not discover it or lock GameLogic again.
-                let _cur = services.is_none().then(|| enter_cur_update_module(&module));
+                let _cur = (services.is_none() && minefield.is_none()).then(|| enter_cur_update_module(&module));
                 match module.write() {
                     Ok(mut update) => {
                         let mut context = UpdateExecutionContext {
@@ -334,6 +345,13 @@ impl GameLogic {
                             objects: &self.objects,
                             owner_id: object_id,
                             normal_cursor: None,
+                            minefield: minefield.as_mut().map(|services| MinefieldWindow {
+                                services: &mut **services,
+                                objects: &self.objects,
+                                next_object_id: &mut self.next_object_id,
+                                effects: &mut minefield_effects,
+                                born: Vec::new(),
+                            }),
                         };
                         let result = update.update_scheduled(&mut context);
                         completed_upgrade = update.take_completed_upgrade();
@@ -359,6 +377,9 @@ impl GameLogic {
             } else {
                 UpdateSleepTime::None
             };
+            if let Some(services) = minefield.as_mut() {
+                self.apply_minefield_effects(&mut minefield_effects, &mut **services);
+            }
             if let (Some(name), Some(services)) = (completed_upgrade, services.as_mut()) {
                 self.finish_scheduled_upgrade(&module, object_id, &name, &mut **services);
             }
@@ -459,13 +480,15 @@ impl GameLogic {
 
     /// Process normal (every-frame) update modules
     fn process_normal_updates(&mut self) {
-        self.process_normal_updates_with_upgrade_services(None);
+        self.process_normal_updates_with_upgrade_services(None, None);
     }
 
     fn process_normal_updates_with_upgrade_services(
         &mut self,
         mut services: Option<&mut dyn UpgradeCompletionServices>,
+        mut minefield: Option<&mut dyn MinefieldPlacementServices>,
     ) {
+        let mut minefield_effects = Vec::new();
         let phases = [
             SleepyUpdatePhase::Initial,
             SleepyUpdatePhase::Physics,
@@ -524,7 +547,7 @@ impl GameLogic {
                     })
                 });
                 let mut completed_upgrade = None;
-                let _cur = services.is_none().then(|| enter_cur_update_module(&handle));
+                let _cur = (services.is_none() && minefield.is_none()).then(|| enter_cur_update_module(&handle));
                 if let Ok(mut module) = handle.write() {
                     let mut context = UpdateExecutionContext {
                         queue: &mut self.sleepy_updates,
@@ -536,6 +559,13 @@ impl GameLogic {
                         objects: &self.objects,
                         owner_id: object_id,
                         normal_cursor: Some(&mut cursor),
+                        minefield: minefield.as_mut().map(|services| MinefieldWindow {
+                            services: &mut **services,
+                            objects: &self.objects,
+                            next_object_id: &mut self.next_object_id,
+                            effects: &mut minefield_effects,
+                            born: Vec::new(),
+                        }),
                     };
                     let result = module.update_scheduled(&mut context);
                     completed_upgrade = module.take_completed_upgrade();
@@ -554,6 +584,9 @@ impl GameLogic {
                             );
                         }
                     }
+                }
+                if let Some(services) = minefield.as_mut() {
+                    self.apply_minefield_effects(&mut minefield_effects, &mut **services);
                 }
                 if let (Some(name), Some(services)) = (completed_upgrade, services.as_mut()) {
                     self.finish_scheduled_upgrade(&handle, object_id, &name, &mut **services);
@@ -599,6 +632,7 @@ impl GameLogic {
             objects: &self.objects,
             owner_id: object_id,
             normal_cursor: None,
+            minefield: None,
         };
         update.resume_completed_upgrade(&mut context);
     }

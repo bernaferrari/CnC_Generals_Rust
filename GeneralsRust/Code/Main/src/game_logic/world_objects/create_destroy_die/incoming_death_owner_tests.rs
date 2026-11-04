@@ -356,3 +356,68 @@ fn authored_highlander_body_binds_from_module_not_template_name() {
         HostDeathType::Normal
     ));
 }
+
+#[test]
+fn authored_body_subclass_binds_immortal_floor_not_template_name() {
+    // CPP ImmortalBody.cpp:31-37: the authored Body subclass owns the floor.
+    // A neutral-name ImmortalBody floors at 1; an ActiveBody whose name merely
+    // contains SupplyWarehouse dies like any ActiveBody.
+    let mut owner = GameLogic::new();
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "authored-immortal-subclass.ini".to_string(),
+        format!(
+            "{}\n{}",
+            authored("NeutralImmortalPeer", "ImmortalBody", "INERT", ""),
+            authored("SupplyWarehouseActivePeer", "ActiveBody", "INERT", "")
+        ),
+    )])
+    .unwrap();
+    owner.admit_receiving_module_content(content).unwrap();
+    let immortal = owner
+        .create_object("NeutralImmortalPeer", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
+    let active = owner
+        .create_object("SupplyWarehouseActivePeer", Team::USA, glam::Vec3::new(200.0, 0.0, 0.0))
+        .unwrap();
+    assert!(!hit(&mut owner, immortal, None, 100.0, DamageType::Unresistable, HostDeathType::Detonated));
+    assert_eq!(owner.host_object(immortal).unwrap().health.current, 1.0);
+    assert!(!owner.host_object(immortal).unwrap().status.on_die_started);
+    assert!(!owner.apply_owned_kill(immortal, DamageType::Unresistable, HostDeathType::Detonated).unwrap().destroyed);
+    assert_eq!(owner.host_object(immortal).unwrap().health.current, 1.0);
+    hit(&mut owner, active, None, 100.0, DamageType::Unresistable, HostDeathType::Detonated);
+    let active_obj = owner.host_object(active);
+    assert!(active_obj.map_or(true, |o| o.health.current <= 0.0 || o.status.on_die_started));
+}
+
+#[test]
+fn authored_highlander_body_subclass_binds_floor_not_template_name() {
+    // CPP HighlanderBody.cpp:33-34: authored HighlanderBody clamps ordinary
+    // damage at 1 HP; DAMAGE_UNRESISTABLE still kills. An ActiveBody whose
+    // name merely looks like a NatureProp tree does not clamp.
+    let mut owner = GameLogic::new();
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "authored-highlander-subclass.ini".to_string(),
+        format!(
+            "{}\n{}",
+            authored("NeutralFloorPeer", "HighlanderBody", "INERT", ""),
+            authored("TreeActivePeer", "ActiveBody", "INERT", "")
+        ),
+    )])
+    .unwrap();
+    owner.admit_receiving_module_content(content).unwrap();
+    let highlander = owner
+        .create_object("NeutralFloorPeer", Team::USA, glam::Vec3::ZERO)
+        .unwrap();
+    let tree = owner
+        .create_object("TreeActivePeer", Team::USA, glam::Vec3::new(200.0, 0.0, 0.0))
+        .unwrap();
+    hit(&mut owner, highlander, None, 10_000.0, DamageType::Flame, HostDeathType::Normal);
+    assert_eq!(owner.host_object(highlander).unwrap().health.current, 1.0);
+    assert!(!owner.host_object(highlander).unwrap().status.on_die_started);
+    hit(&mut owner, highlander, None, 10_000.0, DamageType::Unresistable, HostDeathType::Detonated);
+    let h = owner.host_object(highlander);
+    assert!(h.map_or(true, |o| o.health.current <= 0.0 || o.status.on_die_started));
+    hit(&mut owner, tree, None, 10_000.0, DamageType::Flame, HostDeathType::Normal);
+    let t = owner.host_object(tree);
+    assert!(t.map_or(true, |o| o.health.current <= 0.0 || o.status.on_die_started));
+}

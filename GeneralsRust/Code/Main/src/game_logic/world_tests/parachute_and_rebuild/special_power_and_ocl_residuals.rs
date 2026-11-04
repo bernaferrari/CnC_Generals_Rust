@@ -2407,3 +2407,44 @@ fn ocl_science_tiers_use_controlling_player_not_faction_union() {
         Some(A10StrikeScienceTier::Level3)
     );
 }
+
+#[test]
+fn slave_drone_upgrade_uses_only_real_upgrade_identity() {
+    use crate::game_logic::host_slave_drones::UPGRADE_AMERICA_SCOUT_DRONE;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    super::super::super::world_combat::slaved_update_tests::install_slave_fixture(
+        &mut logic,
+        crate::game_logic::host_slave_drones::SlaveDroneKind::Scout,
+    );
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "USA", true));
+    let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+    humvee.set_primary_weapon_name("HumveeGun");
+    humvee
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaVehicleHumvee".into(), humvee);
+    let mid = logic
+        .create_object("AmericaVehicleHumvee", Team::USA, glam::Vec3::ZERO)
+        .expect("humvee");
+
+    // Unknown upgrade identity: no Scout fallback, no drone, no tag.
+    let n = logic.apply_slave_drone_upgrade_to_team(Team::USA.into(), "Upgrade_NotADrone");
+    assert_eq!(n, 0);
+    let m = logic.host_object(mid).unwrap();
+    assert!(!m.has_upgrade_tag(UPGRADE_AMERICA_SCOUT_DRONE));
+    assert!(!m.has_upgrade_tag("Upgrade_NotADrone"));
+
+    // Alias identity: master carries only the granted name, not kind.upgrade_name().
+    let alias = "Upgrade_ScoutDrone_Alias";
+    let n = logic.apply_slave_drone_upgrade_to_team(Team::USA.into(), alias);
+    assert_eq!(n, 1);
+    let m = logic.host_object(mid).unwrap();
+    assert!(m.has_upgrade_tag(alias));
+    assert!(!m.has_upgrade_tag(UPGRADE_AMERICA_SCOUT_DRONE));
+}

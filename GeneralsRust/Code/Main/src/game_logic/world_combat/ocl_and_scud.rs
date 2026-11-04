@@ -950,10 +950,9 @@ impl GameLogic {
             }
             if generic.contain_inside_source_object
                 && !source_id.is_some_and(|source_id| {
-                    self.objects.get(&source_id).is_some_and(|source| {
-                        source.is_helix_transport
-                            && source.thing().template.contain_module.is_helix_contain
-                    })
+                    self.objects
+                        .get(&source_id)
+                        .is_some_and(|source| source.admits_ocl_portable_structure())
                 })
             {
                 log::warn!(
@@ -963,7 +962,11 @@ impl GameLogic {
             }
             if generic.contain_inside_source_object
                 && !generic.names.iter().all(|name| {
-                    self.templates.get(name.trim()).is_some_and(|template| {
+                    // Resolve this session's admitted payload definition
+                    // before reading its KindOf (creation would do the same).
+                    let name = name.trim();
+                    self.ensure_host_spawn_template(name);
+                    self.templates.get(name).is_some_and(|template| {
                         template.is_kind_of(crate::game_logic::KindOf::PortableStructure)
                     })
                 })
@@ -1330,10 +1333,9 @@ impl GameLogic {
         {
             return false;
         }
-        let Some((is_helix, occupied)) = self.objects.get(&source_id).map(|source| {
+        let Some((admits_portable, occupied)) = self.objects.get(&source_id).map(|source| {
             (
-                source.is_helix_transport
-                    && source.thing().template.contain_module.is_helix_contain,
+                source.admits_ocl_portable_structure(),
                 source.overlord_portable_occupant,
             )
         }) else {
@@ -1344,12 +1346,13 @@ impl GameLogic {
         };
         if !child.is_kind_of(crate::game_logic::KindOf::PortableStructure)
             || occupied.is_some()
-            || !is_helix
+            || !admits_portable
         {
             return false;
         }
         // HelixContain's portable override bypasses normal TransportContain
-        // KindOf, relationship, controller, and slot-count checks.
+        // KindOf, relationship, controller, and slot-count checks; the
+        // OverlordContain (Slots=1, PORTABLE_STRUCTURE) rider uses the same slot.
         self.attach_overlord_portable_occupant(source_id, child_id);
         if self
             .objects
@@ -2287,7 +2290,7 @@ impl GameLogic {
         tier: crate::game_logic::host_technical::TechnicalWeaponTier,
     ) -> bool {
         use crate::game_logic::host_technical::{
-            TECHNICAL_TRANSPORT_SLOTS, delay_frames_to_reload_secs, is_technical_template,
+            TECHNICAL_TRANSPORT_SLOTS, delay_frames_to_reload_secs, is_technical_weapon_name,
             technical_weapon_for_tier, technical_weapon_name_for_tier, technical_weapon_stats,
         };
         use crate::game_logic::thing::ThingTemplate;
@@ -2295,7 +2298,11 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_technical_template(&obj.template_name) {
+        // Salvage tier swaps the authored WeaponSet slot weapon; gate on it.
+        if !obj
+            .authored_weapon_name_for_slot(0)
+            .is_some_and(is_technical_weapon_name)
+        {
             return false;
         }
 
@@ -2363,7 +2370,7 @@ impl GameLogic {
         use crate::game_logic::host_technical::{
             TECH_CANNON_DAMAGE_TYPE, TECH_CANNON_DEATH_TYPE, TECH_FIRE_AUDIO, TECH_MG_DAMAGE_TYPE,
             TECH_MG_DEATH_TYPE, TECH_RPG_DAMAGE_TYPE, TECH_RPG_DEATH_TYPE, TechnicalWeaponTier,
-            is_legal_technical_splash_target, is_technical_template, technical_cannon_scatter_aim,
+            is_legal_technical_splash_target, technical_cannon_scatter_aim,
             technical_cannon_scatter_misses_infantry, technical_splash_damage_at,
             technical_weapon_stats,
         };
@@ -2597,6 +2604,7 @@ impl GameLogic {
     /// Apply BlackNapalm residual to a Dragon Tank (PLAYER_UPGRADE flame residual).
     pub fn apply_dragon_black_napalm_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_dragon_tank::{
+            DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED,
             UPGRADE_CHINA_BLACK_NAPALM, dragon_flame_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
@@ -3136,7 +3144,7 @@ impl GameLogic {
         tier: crate::game_logic::host_marauder::MarauderWeaponTier,
     ) -> bool {
         use crate::game_logic::host_marauder::{
-            delay_frames_to_reload_secs, is_marauder_template, marauder_weapon_for_tier,
+            delay_frames_to_reload_secs, is_marauder_weapon_name, marauder_weapon_for_tier,
             marauder_weapon_name_for_tier, marauder_weapon_stats,
         };
         use crate::game_logic::thing::ThingTemplate;
@@ -3144,7 +3152,11 @@ impl GameLogic {
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_marauder_template(&obj.template_name) {
+        // Salvage tier swaps the authored WeaponSet slot weapon; gate on it.
+        if !obj
+            .authored_weapon_name_for_slot(0)
+            .is_some_and(is_marauder_weapon_name)
+        {
             return false;
         }
 
@@ -3423,7 +3435,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_marauder::{
             MARAUDER_DAMAGE_TYPE, MARAUDER_DEATH_TYPE, MARAUDER_FIRE_AUDIO, MARAUDER_SPLASH_RADIUS,
-            is_legal_marauder_splash_target, is_marauder_template, marauder_scatter_aim,
+            is_legal_marauder_splash_target, marauder_scatter_aim,
             marauder_scatter_misses_infantry, marauder_splash_damage_at,
         };
 
@@ -4449,5 +4461,78 @@ End
         assert!(debris.drawable_fade_frames > 0);
         assert!((debris.drawable_fade_opacity(40) - 0.0).abs() < 1e-5);
         assert!(debris.drawable_fade_opacity(40 + debris.drawable_fade_frames) > 0.99);
+    }
+
+    /// hq-2qedt.1: C++ ObjectCreationUpgrade -> OCL CreateObject
+    /// ContainInsideSourceObject -> OverlordContain (TransportContain)
+    /// addToContain. The retail gattling rider must be admitted, and the
+    /// host_overlord_addons occupant path must reuse it (no double spawn).
+    #[test]
+    fn overlord_contain_admits_retail_gattling_ocl_exactly_once() {
+        // The retail name also drives the native host_overlord_addons occupant
+        // (double-spawn guard); the arbitrary name has only the authored
+        // OverlordContain + ObjectCreationUpgrade, so it proves OCL admission.
+        for host_name in ["ChinaTankOverlord", "ArbitraryAuthoredContainHost"] {
+            overlord_contain_gattling_ocl_case(host_name);
+        }
+    }
+
+    fn overlord_contain_gattling_ocl_case(host_name: &str) {
+        use crate::game_logic::host_overlord_addons::{
+            OCL_OVERLORD_GATTLING, OVERLORD_PAYLOAD_GATTLING, UPGRADE_OVERLORD_GATTLING,
+        };
+        let mut logic = GameLogic::new();
+        logic
+            .admit_object_creation_list_sources([format!(
+                "ObjectCreationList {OCL_OVERLORD_GATTLING}\nCreateObject\nObjectNames = {OVERLORD_PAYLOAD_GATTLING}\nCount = 1\nContainInsideSourceObject = Yes\nEnd\nEnd"
+            )])
+            .expect("retail Overlord addon OCL parses");
+        logic
+            .admit_object_ini_sources([(
+                "OverlordPortable.ini".into(),
+                format!(
+                    "Object {host_name}\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 1100\n InitialHealth = 1100\n End\n Behavior = OverlordContain Contain\n Slots = 1\n AllowInsideKindOf = PORTABLE_STRUCTURE\n End\n Behavior = ObjectCreationUpgrade Gattling\n TriggeredBy = {UPGRADE_OVERLORD_GATTLING}\n UpgradeObject = {OCL_OVERLORD_GATTLING}\n End\nEnd\nObject {OVERLORD_PAYLOAD_GATTLING}\n KindOf = VEHICLE PORTABLE_STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 1100\n InitialHealth = 1100\n End\nEnd\n"
+                ),
+            )])
+            .expect("ini");
+        let mut ini = game_engine::common::ini::INI::new();
+        ini.with_inline_source(
+            &format!("Upgrade {UPGRADE_OVERLORD_GATTLING}\nType = OBJECT\nEnd\n"),
+            |ini| {
+                ini.read_line()?;
+                logic.upgrade_definitions.parse_upgrade_definition(ini)
+            },
+        )
+        .expect("object upgrade definition should admit");
+        logic.players.insert(
+            1,
+            crate::game_logic::Player::new(1, Team::China, "Owner", true),
+        );
+        let overlord = logic
+            .create_object_for_player(host_name, 1, Vec3::ZERO)
+            .expect("overlord");
+        logic.apply_upgrade_to_object(overlord, UPGRADE_OVERLORD_GATTLING);
+
+        let all: Vec<_> = logic
+            .host_objects()
+            .registered_values()
+            .filter(|object| object.template_name == OVERLORD_PAYLOAD_GATTLING)
+            .map(|object| (object.id, object.status.destroyed, object.contained_by))
+            .collect();
+        assert_eq!(
+            all.len(),
+            1,
+            "{host_name}: exactly one gattling payload: {all:?}"
+        );
+        let (payload, destroyed, contained_by) = all[0];
+        assert!(!destroyed);
+        assert_eq!(contained_by, Some(overlord));
+        assert_eq!(
+            logic
+                .host_object(overlord)
+                .unwrap()
+                .overlord_portable_occupant,
+            Some(payload)
+        );
     }
 }

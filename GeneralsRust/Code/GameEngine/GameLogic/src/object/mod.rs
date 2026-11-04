@@ -1695,6 +1695,20 @@ impl UpdateModuleInterface for ModuleUpdateProxy {
                 return Ok(UpdateSleepTime::None);
             }
         }
+        // GenerateMinefieldBehavior.cpp:437-475: with match-lent services the
+        // upgrade swap destroys/places mines mid-update through GameLogic;
+        // scheduling-only contexts keep the legacy update_simple path.
+        if let Some(services) = context.owned_minefield_services() {
+            let minefield = self.entry.with_module(|module| {
+                module
+                    .as_any_mut()
+                    .downcast_mut::<crate::object::behavior::generate_minefield_behavior::GenerateMinefieldBehaviorModule>()
+                    .map(|minefield| minefield.behavior_mut().update_scheduled_owned(services))
+            });
+            if let Some(result) = minefield {
+                return result.map_err(|error| format!("{error:?}").into());
+            }
+        }
         // Radar completion commits under the installed entry borrow, then
         // publishes the model transition through the driving scheduler owner.
         let radar_complete = self.entry.with_module(|module| {

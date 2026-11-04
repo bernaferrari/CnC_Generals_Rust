@@ -1139,7 +1139,7 @@ impl GameLogic {
         let Some(u) = self.objects.get_mut(&unit_id) else {
             return false;
         };
-        if !u.can_move() {
+        if !u.is_mobile_for_ai_command() {
             return false;
         }
         u.is_blocked = false;
@@ -1150,18 +1150,13 @@ impl GameLogic {
         u.set_face_active(true);
         u.set_face_loco_frame(0);
         let _ = u.arm_face_locomotor_goal(target_pos);
-        let faced = !matches!(u.ai_state(), AIState::SpecialAbility | AIState::Capturing);
-        if faced {
-            u.target_location = None;
-
-            u.set_status_attacking(false);
-            u.set_status_force_attack(false);
-            u.set_ai_state(
-                AIState::FacingObject,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            );
-        }
-        {}
+        u.target_location = None;
+        u.set_status_attacking(false);
+        u.set_status_force_attack(false);
+        u.set_ai_state(
+            AIState::FacingObject,
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+        );
         true
     }
 
@@ -1170,7 +1165,7 @@ impl GameLogic {
         let Some(u) = self.objects.get_mut(&unit_id) else {
             return false;
         };
-        if !u.can_move() {
+        if !u.is_mobile_for_ai_command() {
             return false;
         }
         u.is_blocked = false;
@@ -1180,19 +1175,14 @@ impl GameLogic {
         u.set_face_active(true);
         u.set_face_loco_frame(0);
         let _ = u.arm_face_locomotor_goal(pos);
-        let faced = !matches!(u.ai_state(), AIState::SpecialAbility | AIState::Capturing);
-        if faced {
-            u.target = None;
-            u.target_location = None;
-
-            u.set_status_attacking(false);
-            u.set_status_force_attack(false);
-            u.set_ai_state(
-                AIState::FacingPosition,
-                &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
-            );
-        }
-        {}
+        u.target = None;
+        u.target_location = None;
+        u.set_status_attacking(false);
+        u.set_status_force_attack(false);
+        u.set_ai_state(
+            AIState::FacingPosition,
+            &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+        );
         true
     }
 
@@ -1326,6 +1316,18 @@ impl GameLogic {
                     u.turret_ai.turret_target_id == Some(from_id),
                 )
             };
+            // C++ transferAttack (AIUpdate.cpp:4149-4151): the state machine
+            // goal object follows the transfer independently of currentVictim.
+            if self
+                .objects
+                .get(&id)
+                .is_some_and(|u| u.unit_ai_runtime.machine().goals.object == Some(from_id))
+            {
+                let to_pos = self.objects.get(&to_id).map(|o| o.get_position());
+                if let (Some(pos), Some(u)) = (to_pos, self.objects.get_mut(&id)) {
+                    u.unit_ai_runtime.set_machine_goal_object(Some((to_id, pos)));
+                }
+            }
             if !had_target && !had_turret {
                 continue;
             }

@@ -1177,6 +1177,11 @@ impl Object {
         if self.firewall_segment {
             return true;
         }
+        // Authored Body subclass owns the floor; name peel is only the
+        // fallback for unbound host templates.
+        if let Some(kind) = self.thing.template.body_kind {
+            return kind == crate::game_logic::thing::BodyKind::Immortal;
+        }
         let n = self.template_name.to_ascii_lowercase();
         n.contains("supplywarehouse")
             || n.contains("supply_warehouse")

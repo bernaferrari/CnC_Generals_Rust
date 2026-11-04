@@ -289,7 +289,12 @@ fn lazr_patriot_assist_equivalent_family_residual() {
         assert!((clip.damage() - LAZR_PATRIOT_ASSIST_DAMAGE).abs() < 0.01);
     } else {
         // Clip may have completed first shot same frame; still require assist path.
-        assert!(game_logic.patriot_assist_residual_fires() > 0);
+        // hq-2qedt.32.5: fires count at fire commit; accepted assistant
+        // holds the AssistedTargetingUpdate TEMP lock this frame.
+        assert_eq!(
+            game_logic.host_object(lazr_b).map(|o| o.weapon_lock_type),
+            Some(crate::game_logic::WeaponLockType::LockedTemporarily)
+        );
     }
 }
 

@@ -893,9 +893,12 @@ impl Object {
             crate::game_logic::host_quad_cannon::is_quad_cannon_template(&self.template_name)
                 && target_is_air;
 
-        // Avenger residual: airborne targets prefer air laser secondary.
+        // Avenger residual: airborne targets prefer the authored air-laser
+        // SECONDARY (WeaponSet SECONDARY AvengerAirLaserDummy), keyed on the
+        // WeaponTemplate like C++ chooseBestWeaponForTarget, not template name.
         let avenger_prefer_aa = crate::game_logic::host_avenger::avenger_prefer_air_laser(
-            crate::game_logic::host_avenger::is_avenger_template(&self.template_name),
+            self.authored_weapon_name_for_slot(1)
+                == Some(crate::game_logic::host_avenger::AVENGER_AIR_LASER_DUMMY),
             target_is_air,
         );
 

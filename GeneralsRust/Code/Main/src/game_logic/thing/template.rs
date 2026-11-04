@@ -6,17 +6,24 @@ use super::*;
 pub(crate) enum BodyKind {
     Active,
     Inactive,
+    /// ActiveBody-family ImmortalBody (ImmortalBody.cpp:31-37 health floor).
+    Immortal,
+    /// ActiveBody-family HighlanderBody (HighlanderBody.cpp:33-34 floor;
+    /// DAMAGE_UNRESISTABLE still kills).
+    Highlander,
 }
 
 impl BodyKind {
     pub(crate) fn from_module_class(name: &str) -> Option<Self> {
         if name.eq_ignore_ascii_case("InactiveBody") {
             Some(Self::Inactive)
+        } else if name.eq_ignore_ascii_case("ImmortalBody") {
+            Some(Self::Immortal)
+        } else if name.eq_ignore_ascii_case("HighlanderBody") {
+            Some(Self::Highlander)
         } else if [
             "ActiveBody",
             "StructureBody",
-            "HighlanderBody",
-            "ImmortalBody",
             "HiveStructureBody",
             "UndeadBody",
         ]
@@ -200,6 +207,33 @@ impl ReceivingClientTemplate {
                 manual_driving_speed: data.manual_driving_speed,
                 manual_fast_driving_speed: data.manual_fast_driving_speed,
                 double_click_to_fast_drive_delay: data.double_click_to_fast_drive_delay,
+            },
+        ))
+    }
+
+    /// C++ ParticleUplinkCannonUpdate.cpp:112-113 SwathOfDeathDistance/Amplitude
+    /// from this exact authored module data.
+    pub(crate) fn particle_swath_settings(
+        &self,
+    ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleSwathSettings>, ()> {
+        let Some(entry) = self.0.behavior_modules().iter().find(|entry| {
+            entry
+                .name
+                .as_str()
+                .eq_ignore_ascii_case("ParticleUplinkCannonUpdate")
+        }) else {
+            return Ok(None);
+        };
+        let Some(data) = entry
+            .data
+            .downcast_ref::<gamelogic::object::behavior::ParticleUplinkCannonUpdateModuleData>(
+        ) else {
+            return Err(());
+        };
+        Ok(Some(
+            crate::game_logic::special_power_strikes::ParticleSwathSettings {
+                swath_of_death_distance: data.swath_of_death_distance,
+                swath_of_death_amplitude: data.swath_of_death_amplitude,
             },
         ))
     }
@@ -1030,6 +1064,14 @@ impl ThingTemplate {
         )
     }
 
+    pub(crate) fn particle_swath_settings(
+        &self,
+    ) -> Result<Option<crate::game_logic::special_power_strikes::ParticleSwathSettings>, ()> {
+        self.receiving_client_template
+            .as_ref()
+            .map_or(Ok(None), ReceivingClientTemplate::particle_swath_settings)
+    }
+
     /// C++ Object::getObjectExitInterface checks behavior modules in authored
     /// order before falling back to the OpenContain interface.
     pub(crate) fn rally_point_exit_owner(&self) -> RallyPointExitOwner {
@@ -1557,6 +1599,12 @@ impl ThingTemplate {
             // C++ Object.cpp:160-497 arms only ThingTemplate WeaponSet data.
             // AutoChooseSources=PRIMARY NONE must not fall through to a
             // kind-based Weapon::default after a store miss.
+            return None;
+        }
+        // C++ WeaponSet::updateWeaponSet (WeaponSet.cpp:275) arms only the
+        // authored WeaponSet; an unauthored Ranger stays empty, with no name
+        // map or kind-based default (hq-2qedt.192).
+        if crate::game_logic::host_ranger::is_ranger_template(&self.name) {
             return None;
         }
         // Host residual map: templates often omit primary_weapon_name (units.rs /

@@ -2570,7 +2570,8 @@ fn patriot_residual_aa_secondary_auto_fires() {
         .add_kind_of(KindOf::FSBaseDefense)
         .set_health(600.0)
         .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+        .set_secondary_weapon_name(crate::game_logic::host_base_defense::PATRIOT_ASSIST_WEAPON)
+        .set_tertiary_weapon_name(PATRIOT_SECONDARY_WEAPON);
     game_logic
         .templates
         .insert("USA_Patriot".to_string(), patriot_tpl);
@@ -2593,7 +2594,8 @@ fn patriot_residual_aa_secondary_auto_fires() {
         assert!(is_patriot_battery_structure(&p.template_name));
         let prim = p.weapon.as_ref().expect("ground");
         assert!((prim.damage - PATRIOT_GROUND_DAMAGE).abs() < 0.01);
-        let sec = p.secondary_weapon.as_ref().expect("AA");
+        // hq-2qedt.32.2: retail AA lives in TERTIARY (SECONDARY = assist weapon).
+        let sec = p.tertiary_weapon.as_ref().expect("AA");
         assert!((sec.damage - PATRIOT_AIR_DAMAGE).abs() < 0.01);
         assert!((sec.range - PATRIOT_AIR_RANGE).abs() < 1.0);
         assert!(sec.can_target_air);
@@ -2737,9 +2739,12 @@ fn patriot_assisted_targeting_request_assist_range_residual() {
         game_logic.patriot_assist_residual_accepts() >= 1,
         "near assistant must accept assist residual"
     );
-    assert!(
-        game_logic.patriot_assist_residual_fires() >= 1,
-        "assist residual must fire at least one assist-weapon shot same frame"
+    // hq-2qedt.32.5: assist fires count at fire commit, so the same-frame
+    // evidence is the AssistedTargetingUpdate TEMP lock on the assist slot.
+    assert_eq!(
+        game_logic.host_object(assistant_id).map(|a| (a.weapon_lock_type, a.weapon_lock_slot)),
+        Some((crate::game_logic::WeaponLockType::LockedTemporarily, 1)),
+        "accepted assistant must TEMP-lock AssistingWeaponSlot = SECONDARY"
     );
 
     // Advance AssistingClipSize shots (DelayBetweenShots 8 frames).
@@ -2769,10 +2774,8 @@ fn patriot_assisted_targeting_request_assist_range_residual() {
         damage_dealt >= PATRIOT_ASSIST_DAMAGE,
         "assist residual must contribute damage (dealt={damage_dealt}, before={enemy_hp_before}, after={enemy_hp_after})"
     );
-    assert!(
-        game_logic.honesty_patriot_assist_ok(),
-        "patriot assist honesty must record request + accept + fire"
-    );
+    // Fire-commit honesty (request + accept + fire) is proven via update() in
+    // patriot_assist_clip_counts_exactly_four_fire_commits_via_update.
     // BinaryDataStream laser residual honesty (LaserFromAssisted + LaserToTarget).
     assert!(
         game_logic.honesty_patriot_assist_laser_ok(),
@@ -2786,18 +2789,6 @@ fn patriot_assisted_targeting_request_assist_range_residual() {
         game_logic.patriot_assist_laser_to_target() >= 1,
         "LaserToTarget residual must fire"
     );
-    // Full clip residual honesty: 4 assist shots when victim survives.
-    assert!(
-        game_logic.patriot_assist_residual_fires() >= PATRIOT_ASSISTING_CLIP_SIZE
-            || enemy_hp_after <= 0.0
-            || !game_logic
-                .host_object(enemy_id)
-                .map(|e| e.is_alive())
-                .unwrap_or(false),
-        "expected AssistingClipSize={} assist fires or victim dead (got {})",
-        PATRIOT_ASSISTING_CLIP_SIZE,
-        game_logic.patriot_assist_residual_fires()
-    );
     // Far patriot never accepted.
     assert!(
         !game_logic
@@ -2806,4 +2797,477 @@ fn patriot_assisted_targeting_request_assist_range_residual() {
             .any(|p| p.assistant_id == far_id),
         "far patriot outside RequestAssistRange must not assist"
     );
+}
+
+/// C++ Weapon::privateFireWeapon (Weapon.cpp:2476-2478) calls
+/// processRequestAssistance before delivering the shot, so a shot that kills
+/// the victim still recruits a free assistant.
+#[test]
+fn patriot_requests_assist_before_fire_even_when_shot_kills() {
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+    patriot_tpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(600.0)
+        .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+    game_logic
+        .templates
+        .insert("USA_Patriot".to_string(), patriot_tpl);
+    let requester_id = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("requester");
+    let assistant_id = game_logic
+        .create_object(
+            "USA_Patriot",
+            Team::USA,
+            Vec3::new(PATRIOT_REQUEST_ASSIST_RANGE * 0.5, 0.0, 0.0),
+        )
+        .expect("assistant");
+    let enemy_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        // One primary hit kills.
+        let e = game_logic.host_object_mut(enemy_id).unwrap();
+        e.health.current = 1.0;
+        e.health.maximum = 1.0;
+        e.max_health = 1.0;
+    }
+    for id in [requester_id, assistant_id] {
+        if let Some(w) = game_logic.host_object_mut(id).unwrap().weapon.as_mut() {
+            w.last_fire_time = -10.0;
+        }
+    }
+    game_logic.frame = 1;
+    game_logic.update_combat(&[requester_id, assistant_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+
+    assert!(
+        !game_logic
+            .host_object(enemy_id)
+            .map(|e| e.is_alive())
+            .unwrap_or(false),
+        "requester shot must kill the victim"
+    );
+    assert!(
+        game_logic.patriot_assist_residual_requests() > 0,
+        "assist must be requested before the killing shot"
+    );
+    assert!(
+        game_logic.patriot_assist_residual_accepts() >= 1,
+        "free assistant must accept the pre-fire request"
+    );
+}
+
+/// C++ Weapon::fireWeapon only reaches privateFireWeapon (and thus
+/// processRequestAssistance, Weapon.cpp:2476-2478) when the weapon is READY_TO_FIRE
+/// (DelayBetweenShots / clip reload elapsed). A Patriot still reloading must not
+/// request assistance or fire this frame.
+#[test]
+fn patriot_does_not_request_assist_while_weapon_not_ready() {
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+    patriot_tpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(600.0)
+        .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+    game_logic
+        .templates
+        .insert("USA_Patriot".to_string(), patriot_tpl);
+    let requester_id = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("requester");
+    let assistant_id = game_logic
+        .create_object(
+            "USA_Patriot",
+            Team::USA,
+            Vec3::new(PATRIOT_REQUEST_ASSIST_RANGE * 0.5, 0.0, 0.0),
+        )
+        .expect("assistant");
+    let enemy_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let e = game_logic.host_object_mut(enemy_id).unwrap();
+        e.health.current = 1.0e6;
+        e.health.maximum = 1.0e6;
+        e.max_health = 1.0e6;
+    }
+    game_logic.frame = 100;
+    let now = game_logic.frame as f32 * LOGIC_FRAME_TIMESTEP;
+    // Both Patriots just fired: every slot is mid-reload.
+    for id in [requester_id, assistant_id] {
+        let o = game_logic.host_object_mut(id).unwrap();
+        if let Some(w) = o.weapon.as_mut() {
+            w.last_fire_time = now;
+        }
+        for slot in 0..3u8 {
+            if let Some(w) = o.weapon_slot_mut(slot) {
+                w.last_fire_time = now;
+            }
+        }
+    }
+    let hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
+    game_logic.update_combat(&[requester_id, assistant_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+
+    assert_eq!(
+        game_logic.patriot_assist_residual_requests(),
+        0,
+        "not-ready Patriot must not request assistance"
+    );
+    assert_eq!(
+        game_logic.host_object(enemy_id).unwrap().health.current,
+        hp_before,
+        "not-ready Patriot must not fire"
+    );
+}
+
+/// C++ AssistedTargetingUpdate::assistAttack (AssistedTargetingUpdate.cpp:74-75)
+/// TEMP-locks the assist slot; that AssistWeapon has no RequestAssistRange, so
+/// processRequestAssistance (Weapon.cpp:2476-2478) never fans out from an
+/// assisting Patriot. A TEMP-locked assistant must not re-request on its ready shot.
+#[test]
+fn patriot_temp_locked_assistant_does_not_re_request_assist() {
+    use crate::game_logic::WeaponLockType;
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+    patriot_tpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(600.0)
+        .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+    game_logic
+        .templates
+        .insert("USA_Patriot".to_string(), patriot_tpl);
+    let assisting_id = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("assisting patriot");
+    let free_id = game_logic
+        .create_object(
+            "USA_Patriot",
+            Team::USA,
+            Vec3::new(PATRIOT_REQUEST_ASSIST_RANGE * 0.5, 0.0, 0.0),
+        )
+        .expect("free patriot");
+    let enemy_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let e = game_logic.host_object_mut(enemy_id).unwrap();
+        e.health.current = 1.0e6;
+        e.health.maximum = 1.0e6;
+        e.max_health = 1.0e6;
+    }
+    {
+        let o = game_logic.host_object_mut(assisting_id).unwrap();
+        if let Some(w) = o.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+        }
+        for slot in 0..3u8 {
+            if let Some(w) = o.weapon_slot_mut(slot) {
+                w.last_fire_time = -10.0;
+            }
+        }
+        assert!(o.set_weapon_lock(1, WeaponLockType::LockedTemporarily));
+    }
+    game_logic.frame = 1;
+    // Only the TEMP-locked assistant runs base-defense this frame.
+    game_logic.update_combat(&[assisting_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+
+    assert_eq!(
+        game_logic.patriot_assist_residual_requests(),
+        0,
+        "TEMP-locked assisting Patriot must not re-request assistance"
+    );
+    assert!(
+        !game_logic
+            .pending_patriot_assists
+            .iter()
+            .any(|p| p.assistant_id == free_id),
+        "no new assistant may be recruited by an assisting Patriot"
+    );
+}
+
+/// C++ AssistedTargetingUpdate::assistAttack (AssistedTargetingUpdate.cpp:74-75)
+/// TEMP-locks AssistingWeaponSlot (retail SECONDARY PatriotMissileAssistWeapon)
+/// and aiAttackObject(victim, AssistingClipSize=4); the nested attack machine
+/// fires exactly four real shots (Object::fireCurrentWeapon --m_maxShotCount)
+/// then releases the TEMP lock. Assist fires are counted at fire commit, not
+/// per assist command. Driven by full `update()`.
+#[test]
+fn patriot_assist_clip_counts_exactly_four_fire_commits_via_update() {
+    use crate::game_logic::WeaponLockType;
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_ASSIST_WEAPON, PATRIOT_ASSISTING_CLIP_SIZE, PATRIOT_PRIMARY_WEAPON,
+        PATRIOT_SECONDARY_WEAPON,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+    patriot_tpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(600.0)
+        .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(PATRIOT_ASSIST_WEAPON)
+        .set_tertiary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+    game_logic
+        .templates
+        .insert("USA_Patriot".to_string(), patriot_tpl);
+
+    // Requester at origin; enemy 200 west (inside requester PRIMARY 225);
+    // assistant 190 east (inside RequestAssistRange 200) -> 390 from enemy:
+    // outside its own PRIMARY, inside assist range.
+    let _requester_id = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("requester");
+    let assistant_id = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(190.0, 0.0, 0.0))
+        .expect("assistant");
+    let enemy_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(-200.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let e = game_logic.host_object_mut(enemy_id).unwrap();
+        e.health.current = 1.0e6;
+        e.health.maximum = 1.0e6;
+        e.max_health = 1.0e6;
+        e.movement.max_speed = 0.0;
+    }
+
+    let mut saw_temp_lock = false;
+    let mut released = false;
+    for _ in 0..240 {
+        game_logic.update();
+        let a = game_logic.host_object(assistant_id).unwrap();
+        if std::env::var("PROBE_325").is_ok() {
+            eprintln!(
+                "f={} fires={} lock={:?}/{} max={} tgt={:?}",
+                game_logic.frame,
+                game_logic.patriot_assist_residual_fires(),
+                a.weapon_lock_type,
+                a.weapon_lock_slot,
+                a.max_shots_to_fire,
+                a.target
+            );
+        }
+        if a.weapon_lock_type == WeaponLockType::LockedTemporarily {
+            assert_eq!(a.weapon_lock_slot, 1, "assist lock on SECONDARY");
+            saw_temp_lock = true;
+        } else if saw_temp_lock {
+            released = true;
+            break;
+        }
+    }
+    assert!(game_logic.patriot_assist_residual_accepts() >= 1);
+    assert!(saw_temp_lock, "assist must take TEMP lock on SECONDARY");
+    assert!(released, "TEMP lock must release when the assist clip empties");
+    assert_eq!(
+        game_logic.patriot_assist_residual_fires(),
+        PATRIOT_ASSISTING_CLIP_SIZE,
+        "exactly AssistingClipSize assist fire commits"
+    );
+}
+
+/// hq-2qedt.113: C++ makeAssistanceRequest (Weapon.cpp:2865-2893) gates helpers
+/// only on self / isEquivalentTo / RequestAssistRange from the requester /
+/// AssistedTargetingUpdate present / isFreeToAssist (AssistedTargetingUpdate.cpp:61-70:
+/// isAbleToAttack + READY_TO_FIRE). No helper-to-victim weapon-range gate and no
+/// "already assisting" gate.
+#[test]
+fn patriot_assist_request_ignores_helper_victim_range_and_already_assisting() {
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
+        PendingPatriotAssist,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+    patriot_tpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(600.0)
+        .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+    game_logic
+        .templates
+        .insert("USA_Patriot".to_string(), patriot_tpl);
+    let requester_id = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("requester");
+    // Helper inside RequestAssistRange of the requester, but victim far beyond
+    // the helper's 450 assist-weapon range.
+    let far_helper = game_logic
+        .create_object(
+            "USA_Patriot",
+            Team::USA,
+            Vec3::new(-PATRIOT_REQUEST_ASSIST_RANGE * 0.5, 0.0, 0.0),
+        )
+        .expect("far helper");
+    // Helper already holding a live pending assist.
+    let busy_helper = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 50.0))
+        .expect("busy helper");
+    let victim_far = PATRIOT_REQUEST_ASSIST_RANGE * 0.5 + 600.0;
+    let enemy_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(victim_far, 0.0, 0.0))
+        .expect("enemy");
+    for id in [requester_id, far_helper, busy_helper] {
+        let o = game_logic.host_object_mut(id).unwrap();
+        if let Some(w) = o.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+        }
+        for slot in 0..3u8 {
+            if let Some(w) = o.weapon_slot_mut(slot) {
+                w.last_fire_time = -10.0;
+            }
+        }
+    }
+    let assist = game_logic
+        .host_object(busy_helper)
+        .unwrap()
+        .assisted_targeting
+        .expect("assist module");
+    game_logic.pending_patriot_assists.push(PendingPatriotAssist::new(
+        busy_helper,
+        enemy_id,
+        requester_id,
+        0,
+        "USA_Patriot",
+        assist,
+    ));
+    game_logic.frame = 1;
+    game_logic.process_patriot_assist_request(requester_id, enemy_id, 0);
+
+    let accepted: Vec<_> = game_logic
+        .pending_patriot_assists
+        .iter()
+        .map(|p| p.assistant_id)
+        .collect();
+    assert!(
+        accepted.contains(&far_helper),
+        "helper beyond assist-weapon range of victim must still accept: {accepted:?}"
+    );
+    assert!(
+        accepted.iter().filter(|&&a| a == busy_helper).count() == 1,
+        "already-assisting but ready helper must still accept (replacing, hq-2qedt.114): {accepted:?}"
+    );
+}
+
+/// hq-2qedt.114: C++ assistAttack on an already-assisting helper calls
+/// aiAttackObject(victim, m_clipSize) again (AssistedTargetingUpdate.cpp:74-75),
+/// which re-targets and resets setMaxShotCount to the full clip
+/// (AIUpdate.cpp:3417). The helper has one attack state, so a re-ask must
+/// replace its pending assist, not stack a duplicate.
+#[test]
+fn patriot_re_ask_replaces_pending_assist_and_resets_clip() {
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_PRIMARY_WEAPON, PATRIOT_SECONDARY_WEAPON, PendingPatriotAssist,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+    patriot_tpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(600.0)
+        .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+    game_logic
+        .templates
+        .insert("USA_Patriot".to_string(), patriot_tpl);
+    let old_requester = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, -50.0))
+        .expect("old requester");
+    let requester_id = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("requester");
+    let helper = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 50.0))
+        .expect("helper");
+    let old_victim = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, -50.0))
+        .expect("old victim");
+    let new_victim = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
+        .expect("new victim");
+    for id in [old_requester, requester_id, helper] {
+        let o = game_logic.host_object_mut(id).unwrap();
+        if let Some(w) = o.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+        }
+        for slot in 0..3u8 {
+            if let Some(w) = o.weapon_slot_mut(slot) {
+                w.last_fire_time = -10.0;
+            }
+        }
+    }
+    let assist = game_logic
+        .host_object(helper)
+        .unwrap()
+        .assisted_targeting
+        .expect("assist module");
+    // Mid-clip: one shot left on the old victim.
+    let mut mid = PendingPatriotAssist::new(helper, old_victim, old_requester, 0, "USA_Patriot", assist);
+    mid.shots_remaining = 1;
+    game_logic.pending_patriot_assists.push(mid);
+    game_logic.frame = 1;
+    game_logic.process_patriot_assist_request(requester_id, new_victim, 0);
+
+    let mine: Vec<_> = game_logic
+        .pending_patriot_assists
+        .iter()
+        .filter(|p| p.assistant_id == helper)
+        .cloned()
+        .collect();
+    assert_eq!(mine.len(), 1, "re-ask must replace, not stack: {mine:?}");
+    assert_eq!(mine[0].victim_id, new_victim);
+    assert_eq!(mine[0].requester_id, requester_id);
+    assert_eq!(mine[0].shots_remaining, assist.clip_size, "clip reset to full");
 }

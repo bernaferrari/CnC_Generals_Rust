@@ -3243,3 +3243,429 @@ fn rpg_trooper_object_hit_keys_on_authored_weapon_not_template_name() {
         "authored TunnelDefenderRocketWeapon must take the RPG Trooper object_hit path"
     );
 }
+
+/// hq-2qedt.278: AP Rockets (WeaponBonusUpgrade) keys on the authored
+/// TunnelDefenderRocketWeapon, not the template name.
+#[test]
+fn rpg_trooper_ap_rockets_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_rpg_trooper::{
+        TUNNEL_DEFENDER_ROCKET_WEAPON, UPGRADE_GLA_AP_ROCKETS, is_rpg_trooper_template,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("GLAInfantryRocketCloneTrooper");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0)
+        .set_primary_weapon_name(TUNNEL_DEFENDER_ROCKET_WEAPON);
+    game_logic
+        .templates
+        .insert("GLAInfantryRocketCloneTrooper".to_string(), tpl);
+    let mut bare = crate::game_logic::ThingTemplate::new("TestRPGTrooper");
+    bare.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    game_logic
+        .templates
+        .insert("TestRPGTrooper".to_string(), bare);
+
+    let authored = game_logic
+        .create_object("GLAInfantryRocketCloneTrooper", Team::GLA, Vec3::ZERO)
+        .expect("authored");
+    let named = game_logic
+        .create_object("TestRPGTrooper", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+        .expect("named");
+    assert!(!is_rpg_trooper_template("GLAInfantryRocketCloneTrooper"));
+    assert!(is_rpg_trooper_template("TestRPGTrooper"));
+
+    assert!(
+        game_logic.apply_rpg_trooper_ap_rockets_upgrade(authored),
+        "authored TunnelDefenderRocketWeapon must take AP Rockets"
+    );
+    assert!(
+        game_logic
+            .host_object(authored)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS)
+    );
+    assert!(
+        !game_logic.apply_rpg_trooper_ap_rockets_upgrade(named),
+        "name-matching template without authored weapon must not take AP Rockets"
+    );
+}
+
+/// hq-2qedt.234: Jarmen Kell object_hit residual keys on the authored weapon
+/// fired from the slot (Weapon::fireWeapon / WeaponTemplate), not on the
+/// firer's template name.
+#[test]
+fn jarmen_kell_object_hit_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_jarmen_kell::{JARMEN_KELL_RIFLE, is_jarmen_kell_template};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+
+    let mut tpl = crate::game_logic::ThingTemplate::new("GLAInfantrySniperCloneHero");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0)
+        .set_primary_weapon_name(JARMEN_KELL_RIFLE);
+    game_logic
+        .templates
+        .insert("GLAInfantrySniperCloneHero".to_string(), tpl);
+    let shooter = game_logic
+        .create_object("GLAInfantrySniperCloneHero", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("shooter");
+    assert!(!is_jarmen_kell_template(
+        &game_logic.host_object(shooter).unwrap().template_name
+    ));
+    let target_id = game_logic
+        .create_object("GLAInfantrySniperCloneHero", Team::USA, Vec3::new(60.0, 0.0, 0.0))
+        .expect("infantry target");
+    {
+        let (b, attack_events, _a, part) = game_logic
+            .host_object_attack_audio_partition_mut(shooter)
+            .unwrap();
+        b.set_position_with_partition_owner(Vec3::ZERO, 0, &mut Default::default(), part);
+        b.attack_target(
+            target_id,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = b.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.reload_time = 0.1;
+            w.min_range = 0.0;
+        }
+    }
+    game_logic.set_current_frame(30);
+    game_logic.update_combat(&[shooter, target_id], LOGIC_FRAME_TIMESTEP);
+    assert!(
+        game_logic.jarmen_kell_residual_fires() >= 1,
+        "authored GLAJarmenKellRifle must take the Jarmen Kell object_hit path"
+    );
+}
+
+/// hq-2qedt.235: Helix minigun object_hit residual keys on the authored
+/// HelixMinigunWeapon fired from the slot (Weapon::fireWeapon /
+/// WeaponTemplate), not on the firer's template name.
+#[test]
+fn helix_minigun_object_hit_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_helix_minigun::HELIX_MINIGUN_WEAPON;
+    use crate::game_logic::host_overlord_addons::is_helix_template;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaVehicleRotorcraftClone");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name(HELIX_MINIGUN_WEAPON);
+    game_logic
+        .templates
+        .insert("ChinaVehicleRotorcraftClone".to_string(), tpl);
+    let shooter = game_logic
+        .create_object("ChinaVehicleRotorcraftClone", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("shooter");
+    assert!(!is_helix_template(
+        &game_logic.host_object(shooter).unwrap().template_name
+    ));
+    let target_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("target");
+    {
+        let (b, attack_events, _a, part) = game_logic
+            .host_object_attack_audio_partition_mut(shooter)
+            .unwrap();
+        b.set_position_with_partition_owner(Vec3::ZERO, 0, &mut Default::default(), part);
+        b.attack_target(
+            target_id,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = b.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.reload_time = 0.1;
+            w.min_range = 0.0;
+        }
+    }
+    game_logic.set_current_frame(30);
+    game_logic.update_combat(&[shooter, target_id], LOGIC_FRAME_TIMESTEP);
+    assert!(
+        game_logic.helix_minigun_residual_fires() >= 1,
+        "authored HelixMinigunWeapon must take the Helix minigun object_hit path"
+    );
+}
+
+/// hq-2qedt.236: MiniGunner object_hit residual + continuous-fire lane key on
+/// the authored Infa_MiniGunnerGun fired from the slot (Weapon::fireWeapon /
+/// WeaponTemplate), not on the firer's template name.
+#[test]
+fn minigunner_object_hit_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_minigunner::{MINIGUNNER_GUN, is_minigunner_template};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaInfantryGatlingClone");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0)
+        .set_primary_weapon_name(MINIGUNNER_GUN);
+    game_logic
+        .templates
+        .insert("ChinaInfantryGatlingClone".to_string(), tpl);
+    let shooter = game_logic
+        .create_object("ChinaInfantryGatlingClone", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("shooter");
+    assert!(!is_minigunner_template(
+        &game_logic.host_object(shooter).unwrap().template_name
+    ));
+    let target_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("target");
+    {
+        let (b, attack_events, _a, part) = game_logic
+            .host_object_attack_audio_partition_mut(shooter)
+            .unwrap();
+        b.set_position_with_partition_owner(Vec3::ZERO, 0, &mut Default::default(), part);
+        b.attack_target(
+            target_id,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = b.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.reload_time = 0.1;
+            w.min_range = 0.0;
+        }
+    }
+    game_logic.set_current_frame(30);
+    game_logic.update_combat(&[shooter, target_id], LOGIC_FRAME_TIMESTEP);
+    assert!(
+        game_logic.honesty_minigunner_ok(),
+        "authored Infa_MiniGunnerGun must take the MiniGunner object_hit path"
+    );
+}
+
+/// hq-2qedt.237: Technical / Marauder salvage-tier + object_hit residual key on
+/// the authored WeaponSet weapon (Weapon::fireWeapon / WeaponTemplate), not on
+/// the chassis template name.
+#[test]
+fn technical_marauder_key_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_marauder::{
+        MARAUDER_TANK_GUN, MarauderWeaponTier, is_marauder_template,
+    };
+    use crate::game_logic::host_technical::{
+        TECHNICAL_MACHINE_GUN, TechnicalWeaponTier, is_technical_template,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+
+    for (name, weapon) in [
+        ("GLAPickupCloneGun", TECHNICAL_MACHINE_GUN),
+        ("GLAHeavyCloneTank", MARAUDER_TANK_GUN),
+    ] {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(weapon);
+        game_logic.templates.insert(name.to_string(), tpl);
+    }
+    let tech = game_logic
+        .create_object("GLAPickupCloneGun", Team::GLA, Vec3::ZERO)
+        .expect("tech");
+    let mara = game_logic
+        .create_object("GLAHeavyCloneTank", Team::GLA, Vec3::new(0.0, 40.0, 0.0))
+        .expect("mara");
+    assert!(!is_technical_template("GLAPickupCloneGun"));
+    assert!(!is_marauder_template("GLAHeavyCloneTank"));
+    assert!(
+        game_logic.apply_marauder_weapon_tier(mara, MarauderWeaponTier::One),
+        "authored MarauderTankGun must accept the salvage tier"
+    );
+
+    let target_id = game_logic
+        .create_object("GLAHeavyCloneTank", Team::USA, Vec3::new(60.0, 0.0, 0.0))
+        .expect("target");
+    {
+        let (b, attack_events, _a, part) = game_logic
+            .host_object_attack_audio_partition_mut(tech)
+            .unwrap();
+        b.set_position_with_partition_owner(Vec3::ZERO, 0, &mut Default::default(), part);
+        b.attack_target(
+            target_id,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = b.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.reload_time = 0.1;
+            w.min_range = 0.0;
+            w.range = 200.0;
+        }
+    }
+    game_logic.set_current_frame(30);
+    game_logic.update_combat(&[tech, target_id], LOGIC_FRAME_TIMESTEP);
+    assert!(
+        game_logic.technical_residual_fires() >= 1,
+        "authored TechnicalMachineGunWeapon must take the Technical object_hit path"
+    );
+    assert!(
+        game_logic.apply_technical_weapon_tier(tech, TechnicalWeaponTier::One),
+        "authored TechnicalMachineGunWeapon must accept the salvage tier"
+    );
+}
+
+/// hq-2qedt.238: Missile Defender object_hit residual keys on the authored
+/// WeaponSet weapon (Weapon::fireWeapon / WeaponTemplate), not the template name.
+#[test]
+fn missile_defender_object_hit_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_missile_defender::{
+        MISSILE_DEFENDER_MISSILE_WEAPON, is_missile_defender_template,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let name = "AmericaInfantryCloneRocketeer";
+    let mut tpl = crate::game_logic::ThingTemplate::new(name);
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name(MISSILE_DEFENDER_MISSILE_WEAPON);
+    game_logic.templates.insert(name.to_string(), tpl);
+    assert!(!is_missile_defender_template(name));
+    let md = game_logic
+        .create_object(name, Team::USA, Vec3::ZERO)
+        .expect("md");
+    let target_id = game_logic
+        .create_object(name, Team::GLA, Vec3::new(60.0, 0.0, 0.0))
+        .expect("target");
+    {
+        let (b, attack_events, _a, part) = game_logic
+            .host_object_attack_audio_partition_mut(md)
+            .unwrap();
+        b.set_position_with_partition_owner(Vec3::ZERO, 0, &mut Default::default(), part);
+        b.attack_target(
+            target_id,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = b.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.reload_time = 0.1;
+            w.min_range = 0.0;
+            w.range = 200.0;
+        }
+    }
+    game_logic.set_current_frame(30);
+    game_logic.update_combat(&[md, target_id], LOGIC_FRAME_TIMESTEP);
+    assert!(
+        game_logic.missile_defender_residual_fires() >= 1,
+        "authored MissileDefenderMissileWeapon must take the Missile Defender object_hit path"
+    );
+}
+
+#[test]
+fn technical_ap_bullets_and_training_key_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_jarmen_kell::UPGRADE_GLA_AP_BULLETS;
+    use crate::game_logic::host_technical::{TECHNICAL_MACHINE_GUN, is_technical_template};
+    use crate::game_logic::host_unit_training::{
+        SCIENCE_TECHNICAL_TRAINING, UnitTrainingScience, unit_training_level_for_object,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let name = "GLAPickupCloneGun";
+    let mut tpl = crate::game_logic::ThingTemplate::new(name);
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name(TECHNICAL_MACHINE_GUN);
+    game_logic.templates.insert(name.to_string(), tpl);
+    let tech = game_logic
+        .create_object(name, Team::GLA, Vec3::ZERO)
+        .expect("tech");
+    assert!(!is_technical_template(name));
+
+    let n = game_logic.apply_ap_bullets_to_team(Team::GLA.into(), UPGRADE_GLA_AP_BULLETS);
+    assert!(n >= 1, "authored TechnicalMachineGunWeapon must take AP Bullets");
+    assert!(
+        game_logic
+            .host_object(tech)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_AP_BULLETS)
+    );
+
+    let primary = game_logic
+        .host_object(tech)
+        .unwrap()
+        .authored_weapon_name_for_slot(0)
+        .map(str::to_string);
+    let sciences = vec![SCIENCE_TECHNICAL_TRAINING.to_string()];
+    assert_eq!(
+        unit_training_level_for_object(name, primary.as_deref(), &sciences).map(|(k, _)| k),
+        Some(UnitTrainingScience::Technical),
+        "Technical training keys on authored weapon, not template name"
+    );
+    // Template name alone (no authored Technical weapon) must not train.
+    assert!(unit_training_level_for_object("GLAVehicleTechnical", None, &sciences).is_none());
+}
+
+#[test]
+fn red_guard_bayonet_keys_on_authored_bayonet_slot_not_hardcoded() {
+    use crate::game_logic::host_red_guard::{BAYONET_DAMAGE, REDGUARD_BAYONET, REDGUARD_MACHINE_GUN};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    for (name, secondary) in [("GunOnlyGuard", None), ("BayonetGuard", Some(REDGUARD_BAYONET)), ("VictimInf", None)] {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(BAYONET_DAMAGE * 2.0)
+            .set_primary_weapon_name(REDGUARD_MACHINE_GUN);
+        if let Some(s) = secondary {
+            tpl.set_secondary_weapon_name(s);
+        }
+        game_logic.templates.insert(name.to_string(), tpl);
+    }
+    let gun_only = game_logic.create_object("GunOnlyGuard", Team::China, Vec3::ZERO).unwrap();
+    let bayonet = game_logic.create_object("BayonetGuard", Team::China, Vec3::ZERO).unwrap();
+    let v1 = game_logic.create_object("VictimInf", Team::USA, Vec3::new(1.0, 0.0, 0.0)).unwrap();
+    let v2 = game_logic.create_object("VictimInf", Team::USA, Vec3::new(1.0, 0.0, 0.0)).unwrap();
+    let full = game_logic.host_object(v1).unwrap().health.current;
+
+    game_logic.apply_red_guard_residual_at(Vec3::new(1.0, 0.0, 0.0), Some(gun_only), Some(v1));
+    let lost_gun = full - game_logic.host_object(v1).unwrap().health.current;
+    assert!(lost_gun < BAYONET_DAMAGE, "no authored bayonet => no bayonet residual (lost {lost_gun})");
+
+    game_logic.apply_red_guard_residual_at(Vec3::new(1.0, 0.0, 0.0), Some(bayonet), Some(v2));
+    let lost_bay = full - game_logic.host_object(v2).unwrap().health.current;
+    assert!(lost_bay >= BAYONET_DAMAGE * 0.5, "authored bayonet slot => bayonet residual (lost {lost_bay})");
+}

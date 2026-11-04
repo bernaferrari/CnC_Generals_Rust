@@ -161,3 +161,8 @@ mod live_ghost_grid_owner_tests;
 
 mod radar_upgrade_completion;
 pub use radar_upgrade_completion::{OwnedUpgradeCompletionServices, UpgradeCompletionServices};
+mod minefield_placement;
+pub use minefield_placement::{
+    MinefieldPlacementServices, MinefieldView, OwnedMinefieldPlacementServices,
+};
+use minefield_placement::{MinefieldEffect, MinefieldWindow};

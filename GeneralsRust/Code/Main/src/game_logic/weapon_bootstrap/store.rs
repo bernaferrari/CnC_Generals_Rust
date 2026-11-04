@@ -366,6 +366,34 @@ pub(super) fn seed_known_host_weapons() -> usize {
             clip_size: 4,
             weapon_speed: 600.0,
         },
+        // Weapon.ini PatriotMissileAssistWeapon (+Lazr/SupW): PrimaryDamage
+        // 25/35/25, AttackRange 450, DelayBetweenShots 250ms -> 8f, ClipSize 4,
+        // ClipReloadTime 1000ms, AntiAirborne + AntiGround. Authored SECONDARY
+        // slot of the retail Patriot WeaponSet (hq-2qedt.136).
+        SeedWeapon {
+            name: crate::game_logic::host_base_defense::PATRIOT_ASSIST_WEAPON,
+            primary_damage: 25.0,
+            attack_range: 450.0,
+            delay_frames: 8,
+            clip_size: 4,
+            weapon_speed: 600.0,
+        },
+        SeedWeapon {
+            name: crate::game_logic::host_base_defense::LAZR_PATRIOT_ASSIST_WEAPON,
+            primary_damage: 35.0,
+            attack_range: 450.0,
+            delay_frames: 8,
+            clip_size: 4,
+            weapon_speed: 999999.0,
+        },
+        SeedWeapon {
+            name: crate::game_logic::host_base_defense::SUPW_PATRIOT_ASSIST_WEAPON,
+            primary_damage: 25.0,
+            attack_range: 450.0,
+            delay_frames: 8,
+            clip_size: 4,
+            weapon_speed: 600.0,
+        },
         // GLA Stinger Site residual (soldier PRIMARY) — PrimaryDamage 20, range 225,
         // ClipReload 2000ms → 60 frames. SPAWNS_ARE_THE_WEAPONS structure residual.
         SeedWeapon {
@@ -1340,6 +1368,16 @@ pub(super) fn seed_known_host_weapons() -> usize {
             || seed.name == GATTLING_BUILDING_SECONDARY_WEAPON
         {
             t.anti_mask = WeaponAntiMask::new(0);
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+            t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
+        }
+        if seed.name == crate::game_logic::host_base_defense::PATRIOT_ASSIST_WEAPON
+            || seed.name == crate::game_logic::host_base_defense::LAZR_PATRIOT_ASSIST_WEAPON
+            || seed.name == crate::game_logic::host_base_defense::SUPW_PATRIOT_ASSIST_WEAPON
+        {
+            t.clip_reload_time =
+                crate::game_logic::host_base_defense::PATRIOT_ASSIST_CLIP_RELOAD_FRAMES as i32;
+            t.anti_mask.insert(WeaponAntiMask::GROUND);
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
             t.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
         }

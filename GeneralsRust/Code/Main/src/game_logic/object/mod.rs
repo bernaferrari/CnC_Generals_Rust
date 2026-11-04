@@ -1576,6 +1576,10 @@ pub struct Object {
     /// Host residual: cumulative successful fire_at discharges this match.
     #[serde(default)]
     pub fire_intent_count: u32,
+    /// AssistedTargetingUpdate clip shots committed while TEMP-locked on the
+    /// assist slot (Object::fireCurrentWeapon --m_maxShotCount residual).
+    #[serde(default)]
+    pub assist_clip_fire_commits: u32,
 
     /// Last real accepted WeaponSet discharge. This survives save/load as a
     /// v4 ObjectSnapshot tail; it must never be reconstructed from AI intent.
@@ -2524,6 +2528,10 @@ pub struct Object {
     #[serde(default)]
     pub jet_slow_death: Option<crate::game_logic::host_jet_slow_death::HostJetSlowDeathData>,
     pub mine_data: Option<crate::game_logic::host_mines::HostMineData>,
+    /// C++ AssistedTargetingUpdate module data (AssistingClipSize / AssistingWeaponSlot).
+    #[serde(default)]
+    pub assisted_targeting:
+        Option<crate::game_logic::host_base_defense::HostAssistedTargetingData>,
 
     /// Host residual: unit can detect stealthed enemies (C++ StealthDetectorUpdate).
     pub is_detector: bool,

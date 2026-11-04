@@ -2835,9 +2835,7 @@ impl GameLogic {
             is_kell_snipe_transfer_rider, transfer_next_shot_last_fire_time,
         };
         let Some(bike_fire) = self.objects.get(&container_id).and_then(|c| {
-            if !c.is_combat_cycle_style_container()
-                && !crate::game_logic::host_combat_cycle::is_combat_cycle_template(&c.template_name)
-            {
+            if !c.is_combat_cycle_style_container() {
                 return None;
             }
             c.secondary_weapon

@@ -15,6 +15,12 @@ mod incoming_death_owner_tests;
 #[cfg(test)]
 #[path = "create_destroy_die/checked_factory_tests.rs"]
 mod checked_factory_tests;
+#[cfg(test)]
+#[path = "create_destroy_die/mine_typed_admission_tests.rs"]
+mod mine_typed_admission_tests;
+#[cfg(test)]
+#[path = "create_destroy_die/assisted_targeting_admission_tests.rs"]
+mod assisted_targeting_admission_tests;
 mod construction;
 mod death;
 mod factory_init;
@@ -2661,39 +2667,48 @@ impl GameLogic {
             }
 
             // Constructor data precedes player upgrade application in initObject.
-            if let Some(mine_data) = crate::game_logic::host_mines::residual_data_for_template(
-                template_name,
-                self.frame,
-                false,
-            ) {
-                // A captured Object's declared modules are authoritative. A
-                // name containing "mine" does not install an unrequested module.
-                let authored = object
-                    .thing()
-                    .template
-                    .receiving_object_definition
-                    .as_ref()
-                    .is_none_or(|definition| {
-                        let class = match mine_data.kind {
-                            crate::game_logic::host_mines::HostMineKind::LandMine => {
-                                "MinefieldBehavior"
-                            }
-                            crate::game_logic::host_mines::HostMineKind::DemoTrap => {
-                                "DemoTrapUpdate"
-                            }
-                            crate::game_logic::host_mines::HostMineKind::TimedDemoCharge
-                            | crate::game_logic::host_mines::HostMineKind::RemoteDemoCharge => {
-                                "StickyBombUpdate"
-                            }
-                        };
-                        definition
-                            .behavior_modules
-                            .iter()
-                            .any(|module| module.class_name.eq_ignore_ascii_case(class))
-                    });
-                if authored {
-                    object.mine_data = Some(mine_data);
+            // C++ AssistedTargetingUpdate.cpp:74-75: authored slot/clip from the
+            // admitted module; retail Patriot residual only when unadmitted.
+            object.assisted_targeting = match object
+                .thing()
+                .template
+                .receiving_object_definition
+                .as_ref()
+            {
+                Some(definition) => {
+                    crate::game_logic::host_base_defense::HostAssistedTargetingData::from_modules(
+                        &definition.behavior_modules,
+                    )
                 }
+                None => crate::game_logic::host_base_defense::is_patriot_battery_structure(
+                    template_name,
+                )
+                .then_some(
+                    crate::game_logic::host_base_defense::HostAssistedTargetingData::RETAIL_PATRIOT,
+                ),
+            };
+            // Typed admission: a captured Object's declared mine module selects
+            // and parameterizes the runtime; name residual only when unbound.
+            let mine_data = match object
+                .thing()
+                .template
+                .receiving_object_definition
+                .as_ref()
+            {
+                Some(definition) => crate::game_logic::host_mines::admitted_data_for_modules(
+                    &definition.behavior_modules,
+                    template_name,
+                    self.frame,
+                    false,
+                ),
+                None => crate::game_logic::host_mines::residual_data_for_template(
+                    template_name,
+                    self.frame,
+                    false,
+                ),
+            };
+            if let Some(mine_data) = mine_data {
+                object.mine_data = Some(mine_data);
             }
 
             // Host residual: GLA Battle Bus TransportContain Slots=8 + passenger fire.
@@ -3292,7 +3307,7 @@ impl GameLogic {
             // another same-team player's units.
             {
                 use crate::game_logic::host_unit_training::{
-                    normalize_identity, unit_training_level_for_template, veterancy_rank,
+                    normalize_identity, unit_training_level_for_object, veterancy_rank,
                 };
                 let sciences: Vec<String> = owner_player_id
                     .and_then(|player_id| self.players.get(&player_id))
@@ -3330,7 +3345,11 @@ impl GameLogic {
                                     locomotors,
                                 );
                             } else if let Some((kind, level)) =
-                                unit_training_level_for_template(template_name, &sciences)
+                                unit_training_level_for_object(
+                                    template_name,
+                                    obj.authored_weapon_name_for_slot(0),
+                                    &sciences,
+                                )
                             {
                                 if obj.set_min_veterancy_level_with_health_bonus_table(
                                     level,

@@ -633,9 +633,7 @@ impl GameLogic {
                 .objects
                 .registered()
                 .filter(|(_, o)| {
-                    o.is_alive()
-                        && (is_combat_cycle_template(&o.template_name)
-                            || o.is_combat_cycle_style_container())
+                    o.is_alive() && o.is_combat_cycle_style_container()
                 })
                 .map(|(id, _)| *id)
                 .collect();
@@ -2005,8 +2003,10 @@ impl GameLogic {
                     }
                 })
                 .collect();
+            // C++ GenerateMinefieldBehavior::update (GenerateMinefieldBehavior.cpp:455-465):
+            // TheGameLogic->destroyObject per old mine — DESTROYED latch, no onDie.
             for id in old {
-                self.mark_object_for_destruction_with_effects(id, None, effects);
+                let _ = self.destroy_object_with_effects(id, effects);
                 if let Some(o) = self.objects.get_mut(&id) {
                     if let Some(md) = o.mine_data.as_mut() {
                         md.detonated = true;

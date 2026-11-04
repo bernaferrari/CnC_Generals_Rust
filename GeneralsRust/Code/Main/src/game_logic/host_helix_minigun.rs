@@ -23,7 +23,6 @@
 //! - Not full Helix gattling addon dual-stream simultaneous fire matrix
 //! - Not network Helix minigun replication (network deferred)
 
-use super::Weapon;
 
 /// Logic frames per second (host fixed step).
 pub const HELIX_LOGIC_FPS: f32 = 30.0;
@@ -86,36 +85,6 @@ pub fn delay_frames_to_reload_secs(delay_frames: u32) -> f32 {
     (delay_frames.max(1) as f32) / 30.0
 }
 
-/// Whether residual fire should apply Helix minigun intended-only residual.
-///
-/// Slot 0 = primary minigun (addons use separate residual paths).
-pub fn should_apply_helix_minigun_residual(is_helix: bool, fired_slot: u8) -> bool {
-    is_helix && fired_slot == 0
-}
-
-/// Build residual Helix PRIMARY minigun Weapon.
-pub fn helix_minigun_weapon() -> Weapon {
-    Weapon {
-        damage: HELIX_MINIGUN_DAMAGE,
-        range: HELIX_MINIGUN_RANGE,
-        min_range: 0.0,
-        reload_time: delay_frames_to_reload_secs(HELIX_MINIGUN_DELAY_FRAMES),
-        last_fire_time: 0.0,
-        ammo: None,
-        clip_size: 0,
-        clip_reload_time: 0.0,
-        // AntiAirborneInfantry = Yes, AntiAirborneVehicle = No residual honesty.
-        can_target_air: true,
-        can_target_ground: true,
-        projectile_speed: 999_999.0,
-        pre_attack_delay: 0.0,
-        splash_radius: 0.0,
-        suspend_fx_frame: 0,
-        reloading_clip: false,
-        last_bonus_rof: 0.0,
-    }
-}
-
 /// Legal residual minigun target.
 pub fn is_legal_helix_minigun_target(
     is_alive: bool,
@@ -145,14 +114,6 @@ pub fn honesty_helix_minigun_weapon_residual_ok() -> bool {
         && HELIX_MINIGUN_FIRE_AUDIO == "HelixWeaponMachineGun"
         && !HELIX_MINIGUN_ANTI_AIRBORNE_VEHICLE
         && HELIX_MINIGUN_ANTI_AIRBORNE_INFANTRY
-        && {
-            let w = helix_minigun_weapon();
-            (w.damage - 6.0).abs() < 0.01
-                && (w.range - 115.0).abs() < 0.01
-                && w.can_target_air
-                && w.can_target_ground
-                && (w.reload_time - (3.0 / 30.0)).abs() < 0.001
-        }
 }
 
 /// Wave 63 residual honesty: Helix chassis body residual peel.
@@ -164,8 +125,6 @@ pub fn honesty_helix_minigun_body_residual_ok() -> bool {
         && (HELIX_BUILD_TIME_SEC - 20.0).abs() < 0.01
         && HELIX_BUILD_TIME_FRAMES == ((HELIX_BUILD_TIME_SEC * HELIX_LOGIC_FPS).round() as u32)
         && HELIX_BUILD_TIME_FRAMES == 600
-        && should_apply_helix_minigun_residual(true, 0)
-        && !should_apply_helix_minigun_residual(true, 1)
 }
 
 /// Combined Wave 63 Helix minigun residual honesty pack.
@@ -187,23 +146,6 @@ mod tests {
         assert!(!is_helix_template("HelixMinigunWeapon"));
         assert!(!is_helix_template("Upgrade_HelixNapalmBomb"));
         assert!(!is_helix_template("ChinaTankOverlord"));
-    }
-
-    #[test]
-    fn minigun_weapon_stats() {
-        let w = helix_minigun_weapon();
-        assert!((w.damage - HELIX_MINIGUN_DAMAGE).abs() < 0.01);
-        assert!((w.range - HELIX_MINIGUN_RANGE).abs() < 0.01);
-        assert!((w.reload_time - (3.0 / 30.0)).abs() < 0.001);
-        assert!(w.can_target_air);
-        assert!(w.can_target_ground);
-    }
-
-    #[test]
-    fn residual_slot_gate() {
-        assert!(should_apply_helix_minigun_residual(true, 0));
-        assert!(!should_apply_helix_minigun_residual(true, 1));
-        assert!(!should_apply_helix_minigun_residual(false, 0));
     }
 
     #[test]

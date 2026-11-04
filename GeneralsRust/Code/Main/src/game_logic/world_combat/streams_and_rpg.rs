@@ -1062,7 +1062,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_colonel_burton::{
             BURTON_KNIFE_DAMAGE, BURTON_KNIFE_DAMAGE_TYPE, BURTON_KNIFE_DEATH_TYPE,
-            BURTON_KNIFE_FIRE_AUDIO, BURTON_SNIPER_DAMAGE, BURTON_SNIPER_DAMAGE_TYPE,
+            BURTON_KNIFE_FIRE_AUDIO, BURTON_KNIFE_WEAPON, BURTON_SNIPER_DAMAGE, BURTON_SNIPER_DAMAGE_TYPE,
             BURTON_SNIPER_DEATH_TYPE, BURTON_SNIPER_FIRE_AUDIO, distance_2d,
             is_legal_burton_target, should_apply_burton_knife_residual,
         };
@@ -1096,7 +1096,14 @@ impl GameLogic {
         let target_pos = target.get_position();
         let dist = distance_2d(source_pos.x, source_pos.z, target_pos.x, target_pos.z);
         let target_is_infantry = target.is_kind_of(KindOf::Infantry);
-        let knife = should_apply_burton_knife_residual(true, target_is_infantry, true, dist);
+        // Knife only when the firer's authored WeaponSet carries the knife weapon.
+        let has_knife = source.and_then(|sid| self.objects.get(&sid)).is_some_and(|o| {
+            (0..3u8).any(|slot| {
+                o.authored_weapon_name_for_slot(slot)
+                    .is_some_and(|n| n.eq_ignore_ascii_case(BURTON_KNIFE_WEAPON))
+            })
+        });
+        let knife = should_apply_burton_knife_residual(has_knife, target_is_infantry, true, dist);
         let damage = if knife {
             BURTON_KNIFE_DAMAGE
         } else {
@@ -1164,12 +1171,15 @@ impl GameLogic {
     /// Refresh RPG Trooper residual from current AP Rockets upgrade tag.
     pub(in super::super) fn refresh_rpg_trooper_weapon(&mut self, object_id: ObjectId) {
         use crate::game_logic::host_rpg_trooper::{
-            has_ap_rockets_upgrade, is_rpg_trooper_template, rpg_trooper_weapon,
+            has_ap_rockets_upgrade, is_rpg_trooper_weapon_name, rpg_trooper_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        if !is_rpg_trooper_template(&obj.template_name) {
+        if !obj
+            .authored_weapon_name_for_slot(0)
+            .is_some_and(is_rpg_trooper_weapon_name)
+        {
             return;
         }
         let ap = has_ap_rockets_upgrade(&obj.applied_upgrades);
@@ -1184,12 +1194,15 @@ impl GameLogic {
     /// Apply AP Rockets residual tag to an RPG Trooper (damage × 1.25).
     pub fn apply_rpg_trooper_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_rpg_trooper::{
-            UPGRADE_GLA_AP_ROCKETS, is_rpg_trooper_template,
+            UPGRADE_GLA_AP_ROCKETS, is_rpg_trooper_weapon_name,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_rpg_trooper_template(&obj.template_name) {
+        if !obj
+            .authored_weapon_name_for_slot(0)
+            .is_some_and(is_rpg_trooper_weapon_name)
+        {
             return false;
         }
         obj.applied_upgrades

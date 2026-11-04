@@ -1269,6 +1269,15 @@ impl Object {
         } else {
             self.record_shot_at_target(Some(target_id), logic_frame, possible_next_shot_frame);
         }
+        // AssistingClipSize residual: count one assist fire per real shot
+        // committed while TEMP-locked on the AssistingWeaponSlot.
+        if self.weapon_lock_type == WeaponLockType::LockedTemporarily
+            && self
+                .assisted_targeting
+                .is_some_and(|assist| assist.weapon_slot == slot)
+        {
+            self.assist_clip_fire_commits = self.assist_clip_fire_commits.saturating_add(1);
+        }
         // C++ --m_maxShotCount residual.
         self.consume_max_shot_count();
         if let Some(rates) = owned_rof {
