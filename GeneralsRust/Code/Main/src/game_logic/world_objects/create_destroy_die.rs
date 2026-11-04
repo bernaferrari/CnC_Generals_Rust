@@ -3054,12 +3054,9 @@ impl GameLogic {
             // (C++ WeaponSet::updateWeaponSet), not a template-name peel
             // (hq-2qedt.130).
 
-            // Host residual: China Red Guard PRIMARY machine gun residual.
-            // Fail-closed: bayonet residual applied at fire-time for close infantry.
-            if crate::game_logic::host_red_guard::is_red_guard_template(template_name) {
-                use crate::game_logic::host_red_guard::red_guard_weapon;
-                object.weapon = Some(red_guard_weapon(false, false));
-            }
+            // China Red Guard PRIMARY binds from the authored WeaponSet above
+            // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+            // (hq-2qedt.131).
 
             // Host residual: China Tank Hunter PRIMARY RPG residual (AA + ground + splash).
             // Fail-closed: not full ScatterRadiusVsInfantry / projectile exhaust FX matrix.
