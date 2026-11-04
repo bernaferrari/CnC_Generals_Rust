@@ -281,10 +281,8 @@ impl GameLogic {
                 let tomahawk_ground = self
                     .objects
                     .get(&attacker_id)
-                    .map(|a| {
-                        crate::game_logic::host_tomahawk::is_tomahawk_template(&a.template_name)
-                    })
-                    .unwrap_or(false);
+                    .and_then(|a| a.authored_weapon_name_for_slot(ground_slot))
+                    .is_some_and(|n| n == crate::game_logic::host_tomahawk::TOMAHAWK_MISSILE_WEAPON);
 
                 if rocket_pod_ground {
                     // Retail FIRE_WEAPON tertiary at position → scatter projectile + area.

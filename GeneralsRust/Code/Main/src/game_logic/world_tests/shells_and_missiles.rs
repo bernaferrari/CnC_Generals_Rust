@@ -1543,6 +1543,59 @@ fn crusader_paladin_create_primary_comes_from_authored_weapon_set() {
     }
 }
 
+/// hq-2qedt.122: C++ fires the authored WeaponSet weapon; a Tomahawk-named
+/// template authoring a non-Tomahawk PRIMARY must not route through the
+/// Tomahawk residual missile path on object hit.
+#[test]
+fn tomahawk_named_non_tomahawk_weapon_skips_tomahawk_object_hit_residual() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleTomahawk");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(180.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("AmericaVehicleTomahawk".to_string(), tpl);
+    let tom_id = game_logic
+        .create_object("AmericaVehicleTomahawk", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("tomahawk");
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let (t, attack_events) = game_logic
+            .host_object_and_attack_events_mut(tom_id)
+            .unwrap();
+        t.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = t.weapon.as_mut() {
+            w.last_fire_time = -20.0;
+            w.reload_time = 0.1;
+        }
+    }
+    let hp_before = game_logic.host_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[tom_id, enemy], LOGIC_FRAME_TIMESTEP);
+    }
+    let hp_after = game_logic.host_object(enemy).map(|e| e.health.current).unwrap_or(0.0);
+    assert_eq!(
+        game_logic.tomahawk_residual_fires(),
+        0,
+        "Tomahawk residual chosen by template-name peel instead of authored weapon"
+    );
+    assert!(hp_after < hp_before, "authored HumveeGun must land (before={hp_before} after={hp_after})");
+}
+
 /// Residual: USA Tomahawk dual-radius long-range missile.
 #[test]
 fn tomahawk_residual_dual_radius_missile() {
