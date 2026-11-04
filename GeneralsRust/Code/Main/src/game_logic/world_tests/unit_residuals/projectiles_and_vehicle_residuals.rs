@@ -1966,3 +1966,108 @@ fn minigunner_residual_gun_ramp_aa_horde_and_chain_guns() {
         "minigunner residual host path honesty"
     );
 }
+
+/// hq-2qedt.161: object_hit Avenger designator paint / air laser route on the
+/// authored fired weapon (C++ Weapon::fireWeapon -> DamageInfo from the
+/// WeaponTemplate), not on an `is_avenger_template` chassis-name gate.
+#[test]
+fn avenger_object_hit_routes_on_authored_weapon_not_chassis_name_hq_2qedt_161() {
+    use crate::game_logic::host_avenger::{
+        AVENGER_AIR_LASER, AVENGER_FAERIE_FIRE_DURATION_FRAMES, AVENGER_TARGET_DESIGNATOR,
+        is_avenger_template,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut carrier = crate::game_logic::ThingTemplate::new("AuthoredDesignatorCarrier");
+    carrier
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name(AVENGER_TARGET_DESIGNATOR)
+        .set_secondary_weapon_name(AVENGER_AIR_LASER);
+    assert!(!is_avenger_template(&carrier.name));
+    game_logic
+        .templates
+        .insert(carrier.name.clone(), carrier);
+    let mut tank = crate::game_logic::ThingTemplate::new("PaintVictimTank");
+    tank.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    game_logic.templates.insert(tank.name.clone(), tank);
+    let mut jet = crate::game_logic::ThingTemplate::new("AirLaserVictimJet");
+    jet.add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    game_logic.templates.insert(jet.name.clone(), jet);
+
+    // Primary designator vs ground: authored FAERIE_FIRE owns the paint.
+    let shooter = game_logic
+        .create_object("AuthoredDesignatorCarrier", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let tank_id = game_logic
+        .create_object("PaintVictimTank", Team::China, Vec3::new(60.0, 0.0, 0.0))
+        .unwrap();
+    game_logic.frame = 100;
+    {
+        let a = game_logic.host_object_mut(shooter).unwrap();
+        a.target = Some(tank_id);
+        a.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        a.active_weapon_slot = 0;
+        if let Some(w) = a.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.pre_attack_delay = 0.0;
+        }
+    }
+    let mut painted_at = None;
+    for _ in 0..4 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_combat(&[shooter, tank_id], LOGIC_FRAME_TIMESTEP);
+        if painted_at.is_none() && game_logic.host_object(tank_id).unwrap().is_faerie_fire() {
+            painted_at = Some(game_logic.frame);
+        }
+    }
+    let painted_at = painted_at.expect("authored designator paints FAERIE_FIRE");
+    assert!(
+        game_logic.honesty_avenger_paint_ok(),
+        "authored designator hit takes the designator paint route regardless of chassis name"
+    );
+    assert_eq!(
+        game_logic.host_object(tank_id).unwrap().faerie_fire_until_frame,
+        painted_at + AVENGER_FAERIE_FIRE_DURATION_FRAMES
+    );
+    assert_eq!(game_logic.host_object(tank_id).unwrap().health.current, 100.0);
+
+    // Secondary air laser vs aircraft: authored identity counts the shot and
+    // deals authored damage through the generic hit path.
+    let jet_id = game_logic
+        .create_object("AirLaserVictimJet", Team::China, Vec3::new(80.0, 0.0, 0.0))
+        .unwrap();
+    let hp_before = game_logic.host_object(jet_id).unwrap().health.current;
+    {
+        let a = game_logic.host_object_mut(shooter).unwrap();
+        a.target = Some(jet_id);
+        a.status.airborne_target = false;
+        a.active_weapon_slot = 1;
+        if let Some(w) = a.secondary_weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.reload_time = 0.05;
+            w.pre_attack_delay = 0.0;
+        }
+    }
+    game_logic.host_object_mut(jet_id).unwrap().status.airborne_target = true;
+    for _ in 0..4 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_combat(&[shooter, jet_id], LOGIC_FRAME_TIMESTEP);
+    }
+    assert!(
+        game_logic.honesty_avenger_air_laser_ok(),
+        "authored air laser hit counts regardless of chassis name"
+    );
+    assert!(game_logic.host_object(jet_id).unwrap().health.current < hp_before);
+}
