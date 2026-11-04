@@ -324,10 +324,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_sentry_drone::is_sentry_drone_template(template_name) {
                 return None;
             }
-            // Angry Mob nexus residual aggregate fire weapon (AI range residual).
-            if crate::game_logic::host_angry_mob::is_angry_mob_nexus_template(template_name) {
-                return Some(ANGRY_MOB_RESIDUAL_WEAPON);
-            }
             if crate::game_logic::host_rocket_buggy::is_rocket_buggy_template(template_name) {
                 return Some(BUGGY_ROCKET_WEAPON);
             }
@@ -343,9 +339,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_raptor::is_raptor_template(template_name) {
                 let king = crate::game_logic::host_raptor::is_king_raptor_template(template_name);
                 return Some(crate::game_logic::host_raptor::raptor_weapon_name(king));
-            }
-            if crate::game_logic::host_overlord_gun::is_overlord_gun_chassis(template_name) {
-                return Some(OVERLORD_TANK_GUN);
             }
             if crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(template_name) {
                 return Some(JARMEN_KELL_RIFLE);
