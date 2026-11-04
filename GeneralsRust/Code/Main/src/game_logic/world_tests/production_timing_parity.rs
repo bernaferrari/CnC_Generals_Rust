@@ -248,6 +248,13 @@ fn main_power_factors_follow_configured_bounds_and_cpp_order() {
 // completion -> Object creation. Process isolation protects the existing
 // immutable Common store without a new fixture mutex or namespace publication.
 #[cfg(not(target_arch = "wasm32"))]
+thread_local! {
+    static WORKER_DEFINITIONS: std::cell::RefCell<
+        Option<game_engine::common::rts::player_template::PlayerTemplateStore>,
+    > = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn worker_production_definition() -> game_engine::common::rts::player_template::PlayerTemplate {
     use game_engine::common::ini::INI;
     use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -255,7 +262,13 @@ fn worker_production_definition() -> game_engine::common::rts::player_template::
     NameKeyGenerator::reset();
     let driving_key = NameKeyGenerator::name_to_key("TestInfantry");
     crate::skirmish_config::lobby_definition_tests::admit_slot_definitions();
-    let (template, worker_key) = std::thread::spawn(|| {
+    // Worker thread owns its own CommonServices (separate NameKey namespace +
+    // INI stores) so the INI parse is isolated from Main's driving namespace.
+    let (template, foreign, worker_key) = std::thread::spawn(|| {
+        let worker_services =
+            std::sync::Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&worker_services, || {
+        worker_services.finish_bootstrap_after_publish();
         for index in 0..1_000 {
             NameKeyGenerator::name_to_key(&format!("main_worker_padding_{index}"));
         }
@@ -272,13 +285,24 @@ fn worker_production_definition() -> game_engine::common::rts::player_template::
              ProductionVeterancyLevel = TestInfantry VETERAN\nEnd\n",
             |ini| ini.parse_current_file(),
         ).unwrap();
-        let template = get_player_template_store().find_template("Owner48WorkerGeneral").unwrap().clone();
-        (template, NameKeyGenerator::name_to_key("TestInfantry"))
+        let store = get_player_template_store();
+        let template = store.find_template("Owner48WorkerGeneral").unwrap().clone();
+        let foreign = store.find_template("Owner48ForeignGeneral").unwrap().clone();
+        drop(store);
+        (template, foreign, NameKeyGenerator::name_to_key("TestInfantry"))
+        })
     }).join().unwrap();
     assert_ne!(
         worker_key, driving_key,
         "actual INI parse and Main consumption use different namespaces"
     );
+    // Hand the worker-parsed records (keys from the worker namespace) to
+    // each production_world as application definitions; Main resolves them
+    // by exact authored name in the world's own CommonServices.
+    let mut definitions = game_engine::common::rts::player_template::PlayerTemplateStore::new_owned();
+    definitions.add_template(template.clone());
+    definitions.add_template(foreign);
+    WORKER_DEFINITIONS.with(|slot| *slot.borrow_mut() = Some(definitions));
     template
 }
 
@@ -296,6 +320,10 @@ fn admit_production_fixture_content(world: &mut GameLogic) {
 fn production_restore_receiver(source: &GameLogic) -> GameLogic {
     let mut receiving = GameLogic::new();
     admit_production_fixture_content(&mut receiving);
+    // Application PlayerTemplate definitions are content input too.
+    if let Some(definitions) = source.player_template_definitions.clone() {
+        receiving.admit_player_template_definitions(definitions).unwrap();
+    }
     // Admit the same authored default-team definitions in original order.
     // Restore still owns runtime players, their identities, queues and wallet.
     let mut ids: Vec<_> = source.players.keys().copied().collect();
@@ -320,11 +348,12 @@ fn production_world(identity: &str) -> (GameLogic, ObjectId) {
         template.build_cost.supplies = 101;
         template.build_time = 2.099;
     }
+    if let Some(definitions) = WORKER_DEFINITIONS.with(|slot| slot.borrow().clone()) {
+        world.admit_player_template_definitions(definitions).unwrap();
+    }
     world.add_player(Player::new(0, Team::USA, "production owner", true));
-    assert!(world.bind_player_template_identity(
-        0,
-        PlayerTemplateIdentity::from_exact_name(identity).unwrap()
-    ));
+    let selected = world.player_template_identity_from_name(identity).unwrap();
+    assert!(world.bind_player_template_identity(0, selected));
     world.players.get_mut(&0).unwrap().power_produced = 10;
     let producer = world
         .create_object_for_player("TestBarracks", 0, glam::Vec3::ZERO)
@@ -410,23 +439,26 @@ fn worker_modifier_handoff_charges_ticks_and_spawns_through_main_production() {
         "worker_modifier_handoff_charges_ticks_and_spawns_through_main_production",
         || {
             let definition = worker_production_definition();
-            let mut core = gamelogic::player::Player::new(0);
-            core.init(std::sync::Arc::new(
-                gamelogic::player::PlayerTemplate::from_common(&definition),
-            ));
-            assert_eq!(
-                core.get_production_cost_change_percent("TestInfantry"),
-                -0.20
-            );
-            assert_eq!(
-                core.get_production_time_change_percent("TestInfantry"),
-                0.25
-            );
-            assert_eq!(
-                core.get_production_veterancy_level("TestInfantry"),
-                gamelogic::common::VeterancyLevel::Elite
-            );
             let (mut world, producer) = production_world("Owner48WorkerGeneral");
+            // GameLogic core Player reads RankInfo from World services.
+            gamelogic::system::engine_stores::with_world_services(&world.world_services, || {
+                let mut core = gamelogic::player::Player::new(0);
+                core.init(std::sync::Arc::new(
+                    gamelogic::player::PlayerTemplate::from_common(&definition),
+                ));
+                assert_eq!(
+                    core.get_production_cost_change_percent("TestInfantry"),
+                    -0.20
+                );
+                assert_eq!(
+                    core.get_production_time_change_percent("TestInfantry"),
+                    0.25
+                );
+                assert_eq!(
+                    core.get_production_veterancy_level("TestInfantry"),
+                    gamelogic::common::VeterancyLevel::Elite
+                );
+            });
             assert_eq!(
                 world.modified_build_cost_supplies(0, "testinfantry", 101),
                 50
