@@ -4082,3 +4082,58 @@ fn stealth_fighter_air_and_mig_residual_has_no_template_name_sniff() {
     let src = include_str!("../world_combat/air_and_mig.rs");
     assert!(!src.contains("is_stealth_fighter_template"));
 }
+
+/// hq-2qedt.128: object_hit Stealth residual keys on the fired slot's authored
+/// weapon (StealthJetMissileWeapon), not a template-name sniff. C++
+/// Weapon::fireWeapon spawns the weapon's ProjectileObject regardless of the
+/// firing object's template name.
+#[test]
+fn stealth_jet_missile_object_hit_residual_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_stealth_fighter::STEALTH_JET_MISSILE_WEAPON;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    fn fire(name: &str, weapon: &str) -> u32 {
+        ensure_host_weapon_store();
+        let mut gl = GameLogic::new();
+        ensure_test_tank_template(&mut gl);
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(160.0)
+            .set_primary_weapon_name(weapon);
+        gl.templates.insert(name.to_string(), tpl);
+        let shooter = gl
+            .create_object(name, Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let enemy = gl
+            .create_object("TestTank", Team::GLA, Vec3::new(150.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let (f, ev) = gl.host_object_and_attack_events_mut(shooter).unwrap();
+            f.attack_target(
+                enemy,
+                ev,
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+            );
+            if let Some(w) = f.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.reload_time = 0.05;
+            }
+        }
+        gl.set_current_frame(50);
+        gl.update_combat(&[shooter, enemy], LOGIC_FRAME_TIMESTEP);
+        gl.stealth_fighter_residual_fires()
+    }
+
+    assert!(
+        fire("TestAuthoredJetCarrier", STEALTH_JET_MISSILE_WEAPON) > 0,
+        "authored StealthJetMissileWeapon must take the stealth missile residual"
+    );
+    assert_eq!(
+        fire("AmericaJetStealthFighter", "RaptorJetMissileWeapon"),
+        0,
+        "stealth-named template with a different authored weapon must not"
+    );
+}
