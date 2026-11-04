@@ -978,3 +978,63 @@ fn authored_upgrade_die_removes_each_modules_upgrade_from_producer_like_cpp() {
     assert!(!p.has_object_upgrade_complete("Upgrade_FixtureA"), "DieA removes its upgrade");
     assert!(!p.has_object_upgrade_complete("Upgrade_FixtureB"), "DieB removes its upgrade");
 }
+
+#[test]
+fn authored_upgrade_die_diemux_skips_module_and_isolates_same_id_peer_like_cpp() {
+    // C++ UpgradeDie::onDie: DieModule::isDieApplicable (DieMuxData
+    // DeathTypes) gates each module before producer->removeUpgrade.
+    // DieA only applies to CRUSHED, so a normal death leaves Upgrade_FixtureA.
+    // A same-ID peer world is untouched.
+    fn world() -> (GameLogic, ObjectId, ObjectId) {
+        let mut logic = GameLogic::new();
+        for upgrade in ["Upgrade_FixtureA", "Upgrade_FixtureB"] {
+            let mut ini = game_engine::common::ini::INI::new();
+            ini.with_inline_source(&format!("Upgrade {upgrade}\nType = OBJECT\nEnd\n"), |ini| {
+                ini.read_line()?;
+                logic.upgrade_definitions.parse_upgrade_definition(ini)
+            })
+            .expect("upgrade def");
+        }
+        logic
+            .admit_object_ini_sources([(
+                "AuthoredUpgradeDieMux.ini".into(),
+                "Object FixtureProducer\n KindOf = STRUCTURE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 500\n InitialHealth = 500\n End\nEnd\nObject FixtureMuxChild\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = UpgradeDie DieA\n DeathTypes = NONE +CRUSHED\n UpgradeToRemove = Upgrade_FixtureA\n End\n Behavior = UpgradeDie DieB\n DeathTypes = ALL\n UpgradeToRemove = Upgrade_FixtureB\n End\nEnd\n"
+                    .into(),
+            )])
+            .expect("ini");
+        logic.players.insert(
+            1,
+            crate::game_logic::Player::new(1, Team::USA, "Owner", true),
+        );
+        let producer = logic
+            .create_object_for_player("FixtureProducer", 1, Vec3::ZERO)
+            .expect("producer");
+        logic.apply_upgrade_to_object(producer, "Upgrade_FixtureA");
+        logic.apply_upgrade_to_object(producer, "Upgrade_FixtureB");
+        let child = logic
+            .create_object_for_player("FixtureMuxChild", 1, Vec3::new(20.0, 0.0, 0.0))
+            .expect("child");
+        logic.host_object_mut(child).unwrap().producer_id = Some(producer);
+        (logic, producer, child)
+    }
+    let (mut logic, producer, child) = world();
+    let (peer, peer_producer, peer_child) = world();
+    assert_eq!((producer, child), (peer_producer, peer_child), "same-ID worlds");
+
+    logic.apply_host_damage(child, 1000.0);
+    // Repeat death must not re-run modules.
+    logic.apply_host_damage(child, 1000.0);
+
+    let p = logic.host_object(producer).unwrap();
+    assert!(
+        p.has_object_upgrade_complete("Upgrade_FixtureA"),
+        "DieMux DeathTypes=CRUSHED skips DieA on normal death"
+    );
+    assert!(
+        !p.has_object_upgrade_complete("Upgrade_FixtureB"),
+        "DieB removes its own UpgradeToRemove"
+    );
+    let pp = peer.host_object(peer_producer).unwrap();
+    assert!(pp.has_object_upgrade_complete("Upgrade_FixtureA"));
+    assert!(pp.has_object_upgrade_complete("Upgrade_FixtureB"), "peer world isolated");
+}
