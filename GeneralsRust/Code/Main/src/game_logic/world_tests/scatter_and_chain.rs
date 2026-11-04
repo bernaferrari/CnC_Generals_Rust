@@ -3851,3 +3851,50 @@ fn ocl_tanks_lasers_residual_impact_spawns_no_muzzle_hq_2qedt_87_4() {
         "impact residuals spawned a second muzzle at the shooter (C++ FireFX is fire-time only): {failures:?}"
     );
 }
+
+/// hq-2qedt.87.5: C++ Weapon.cpp FireFX plays at fire time only; impact uses
+/// ProjectileDetonateFX. Neutron shell blast and infantry SCUD area impact
+/// residuals must not spawn any WeaponMuzzleFlash (shooter or impact point).
+#[test]
+fn neutron_scud_residual_impact_spawns_no_muzzle_hq_2qedt_87_5() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut failures = Vec::new();
+    for case in ["neutron", "scud", "scud_toxin"] {
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let src = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(45.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic.objects.get(&tank).unwrap().get_position();
+        let count = |l: &GameLogic| {
+            l.combat_particles()
+                .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+                .len()
+        };
+        let before = count(&logic);
+        match case {
+            "neutron" => {
+                let _ = logic.apply_neutron_blast_at(impact, Team::USA, Some(src), false);
+            }
+            "scud" => {
+                let _ = logic.apply_scud_area_at(impact, Some(src), Team::USA, false);
+            }
+            _ => {
+                let _ = logic.apply_scud_area_at(impact, Some(src), Team::USA, true);
+            }
+        }
+        if count(&logic) != before {
+            failures.push(case);
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "impact residuals spawned a muzzle (C++ FireFX is fire-time only): {failures:?}"
+    );
+}
