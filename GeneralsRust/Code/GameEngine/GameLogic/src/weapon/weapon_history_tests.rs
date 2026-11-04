@@ -96,3 +96,24 @@ fn original_window_expiration_and_inclusive_radius_use_supplied_frame() {
         "CPP removes frame <= current-limit"
     );
 }
+
+#[test]
+fn peek_status_is_pure_and_observe_status_is_the_mutable_owner_write() {
+    // hq-2qedt.15: C++ Weapon::getStatus (Weapon.cpp:2736) writes the
+    // `mutable m_status`. Rust splits that into a pure `peek_status_at(&self)`
+    // and a mutable-owner `observe_status_at(&mut self)`.
+    let mut template = WeaponTemplate::new("ObserveStatusGun".into());
+    template.clip_size = 1;
+    let mut weapon = Weapon::new_at(Arc::new(template), WeaponSlotType::Primary, 0);
+    weapon.ammo_in_clip = 1;
+    weapon.when_pre_attack_finished = 0;
+    weapon.when_we_can_fire_again = 10;
+    weapon.store_status(WeaponStatus::ReloadingClip);
+
+    assert_eq!(weapon.peek_status_at(5), WeaponStatus::ReloadingClip);
+    assert_eq!(weapon.peek_status_at(10), WeaponStatus::ReadyToFire);
+    assert_eq!(weapon.load_status(), WeaponStatus::ReloadingClip, "peek must not write");
+
+    assert_eq!(weapon.observe_status_at(10), WeaponStatus::ReadyToFire);
+    assert_eq!(weapon.load_status(), WeaponStatus::ReadyToFire, "observe writes like C++");
+}
