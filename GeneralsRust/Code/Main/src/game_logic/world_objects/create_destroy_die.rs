@@ -3058,12 +3058,9 @@ impl GameLogic {
             // (C++ WeaponSet::updateWeaponSet), not a template-name peel
             // (hq-2qedt.131).
 
-            // Host residual: China Tank Hunter PRIMARY RPG residual (AA + ground + splash).
-            // Fail-closed: not full ScatterRadiusVsInfantry / projectile exhaust FX matrix.
-            if crate::game_logic::host_tank_hunter::is_tank_hunter_template(template_name) {
-                use crate::game_logic::host_tank_hunter::tank_hunter_weapon;
-                object.weapon = Some(tank_hunter_weapon(false, false));
-            }
+            // China Tank Hunter PRIMARY binds from the authored WeaponSet above
+            // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+            // (hq-2qedt.132).
 
             // Host residual: Colonel Burton PRIMARY sniper residual.
             // Fail-closed: knife residual applied at fire-time for close infantry.
