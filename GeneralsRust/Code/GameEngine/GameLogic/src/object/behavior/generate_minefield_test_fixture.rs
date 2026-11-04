@@ -27,7 +27,7 @@ impl MinefieldFixture {
     pub fn new(id: u32) -> Self {
         let template = format!("OwnedMinefieldFixtureMine{id}");
         let mut definitions = ThingFactory::new();
-        assert_eq!(definitions.load_ini_text(&format!("Object {template}\n KindOf = MINE\n Geometry = CYLINDER\n GeometryMajorRadius = 3.0\n GeometryMinorRadius = 3.0\n GeometryHeight = 1.0\nEnd\nObject OwnedMinefieldSource\n Geometry = CYLINDER\n GeometryMajorRadius = 20.0\n GeometryMinorRadius = 20.0\n GeometryHeight = 1.0\nEnd\nObject OwnedMinefieldStructure\n KindOf = STRUCTURE\n Geometry = CYLINDER\n GeometryMajorRadius = 4.0\n GeometryMinorRadius = 4.0\n GeometryHeight = 4.0\nEnd\n")), 3);
+        assert_eq!(definitions.load_ini_text(&format!("Object {template}\n KindOf = MINE\n Geometry = CYLINDER\n GeometryMajorRadius = 3.0\n GeometryMinorRadius = 3.0\n GeometryHeight = 1.0\nEnd\nObject OwnedMinefieldSource\n Geometry = CYLINDER\n GeometryMajorRadius = 20.0\n GeometryMinorRadius = 20.0\n GeometryHeight = 1.0\nEnd\nObject OwnedMinefieldStructure\n KindOf = STRUCTURE\n Geometry = CYLINDER\n GeometryMajorRadius = 4.0\n GeometryMinorRadius = 4.0\n GeometryHeight = 4.0\nEnd\nObject OwnedMinefieldBoxStructure\n KindOf = STRUCTURE\n Geometry = BOX\n GeometryMajorRadius = 20.0\n GeometryMinorRadius = 2.0\n GeometryHeight = 4.0\nEnd\n")), 4);
         let mut map = crate::system::map_loader::MapData::new();
         map.width = 64;
         map.height = 64;
@@ -166,6 +166,9 @@ impl MinefieldFixture {
     pub fn spawn_structure(&mut self, position: Coord3D) -> u32 {
         self.spawn("OwnedMinefieldStructure", position, 0.0)
     }
+    pub fn spawn_box_structure(&mut self, position: Coord3D, orientation: f32) -> u32 {
+        self.spawn("OwnedMinefieldBoxStructure", position, orientation)
+    }
     pub fn assert_real_mines(&self, behavior: &GenerateMinefieldBehavior) -> Vec<u32> {
         let ids = behavior.get_mine_list();
         assert!(
@@ -239,7 +242,7 @@ impl MinefieldPlacement for MinefieldFixture {
         position: &Coord3D,
         skip: f32,
     ) -> BehaviorResult<u32> {
-        let (_, radius) = self.preflight(owner, template)?;
+        self.preflight(owner, template)?;
         let mut highest = *position;
         highest.z = 99999.0;
         if self.terrain.get_highest_layer_for_destination(&highest)
@@ -255,17 +258,24 @@ impl MinefieldPlacement for MinefieldFixture {
         let orientation = self
             .random
             .next_real(-std::f32::consts::PI, std::f32::consts::PI);
-        let query = crate::object::collide::Coord3D::new(position.x, position.y, position.z);
-        for id in self
-            .collision
-            .query_objects_in_radius(&query, radius * (1.0 - skip))
-        {
-            if self.scheduler.find_object_by_id(id).is_some_and(|actor| {
-                actor
-                    .read()
-                    .unwrap()
-                    .is_kind_of(crate::common::KindOf::Structure)
-            }) {
+        // C++ GenerateMinefieldBehavior.cpp:187-197 via iteratePotentialCollisions.
+        let query = mine_structure_query_geometry(
+            &self.definition(template).get_template_geometry_info(),
+            skip,
+        );
+        let max_dist = query.get_bounding_sphere_radius() * 1.1;
+        for id in self.scheduler.get_all_object_ids().to_vec() {
+            let actor = self.scheduler.find_object_by_id(id).unwrap();
+            let them = actor.read().unwrap();
+            let geometry = them.get_geometry_info();
+            let other = them.get_position();
+            let center_z = (geometry.bounds().min.z + geometry.bounds().max.z) * 0.5;
+            let (dx, dy, dz) = (other.x - position.x, other.y - position.y, other.z + center_z - position.z);
+            let boundary = ((dx * dx + dy * dy + dz * dz).sqrt() - geometry.get_bounding_sphere_radius()).max(0.0);
+            if boundary <= max_dist
+                && mine_would_collide(position, &query, orientation, other, &geometry, them.get_orientation())
+                && them.is_kind_of(crate::common::KindOf::Structure)
+            {
                 return Err(BehaviorError::NoSpaceAvailable);
             }
         }
@@ -463,5 +473,36 @@ fn emp_upgrade_body() {
     assert_eq!(
         behavior.update_upgrade_owned(true, &mut fixture).unwrap(),
         UpdateSleepTime::Forever
+    );
+}
+
+#[test]
+fn oriented_structure_footprint_rejects_mine_off_structure_center() {
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+        crate::system::engine_stores::with_active_stores(&stores, oriented_footprint_body)
+    });
+}
+
+fn oriented_footprint_body() {
+    // GenerateMinefieldBehavior.cpp:183-197: oriented, shrunk mine footprint
+    // vs the structure's oriented box, not structure-center-in-radius.
+    let mut fixture = MinefieldFixture::new(98_134);
+    let template = fixture.template.clone();
+    let along = Coord3D::new(192.0, 192.0, 3.0);
+    fixture.spawn_box_structure(along, 0.0);
+    // 15 ft from the box center along its 20 ft half-length: under the box.
+    assert!(matches!(
+        fixture.place(fixture.id, &template, &Coord3D::new(207.0, 192.0, 3.0), 0.33),
+        Err(BehaviorError::NoSpaceAvailable)
+    ));
+    // Same offset across a box rotated 90 degrees: clear of the footprint.
+    let across = Coord3D::new(192.0, 320.0, 3.0);
+    fixture.spawn_box_structure(across, std::f32::consts::FRAC_PI_2);
+    assert!(
+        fixture
+            .place(fixture.id, &template, &Coord3D::new(207.0, 320.0, 3.0), 0.33)
+            .is_ok()
     );
 }

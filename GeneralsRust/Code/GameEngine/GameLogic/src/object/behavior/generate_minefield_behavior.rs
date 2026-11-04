@@ -561,6 +561,49 @@ fn circle_positions(
 /// Match-owned mine placement services. Placement includes terrain/layer validation,
 /// the orientation draw, structure rejection, actual creation, producer and scoot.
 /// Implementations must reject unsupported definition/callback families in preflight.
+/// C++ GenerateMinefieldBehavior.cpp:187-190: mine template geometry with
+/// its footprint expanded by `mineRadius * -(1 - SkipIfThisMuchUnderStructure)`.
+pub(crate) fn mine_structure_query_geometry(
+    template_geometry: &crate::common::GeometryInfo,
+    skip: f32,
+) -> crate::object::collide::collision_geometry::GeometryInfo {
+    let mut shape = template_geometry.shape;
+    let mine_radius = template_geometry.get_bounding_circle_radius();
+    shape.expand_footprint(mine_radius * -(1.0 - skip));
+    crate::object::collide::collision_geometry::GeometryInfo::from_engine_geometry(&shape)
+}
+
+/// C++ PartitionFilterWouldCollide::allow (PartitionManager.cpp:5149): one-sided
+/// Z check, then oriented shape-vs-shape test using the other Object's
+/// geometry and orientation.
+pub(crate) fn mine_would_collide(
+    position: &Coord3D,
+    query: &crate::object::collide::collision_geometry::GeometryInfo,
+    angle: f32,
+    other_position: &Coord3D,
+    other_geometry: &crate::common::GeometryInfo,
+    other_angle: f32,
+) -> bool {
+    use crate::object::collide::collision_geometry::{
+        CollideInfo, GeometryInfo as CollisionGeometryInfo, collide_test_dispatch,
+    };
+    let that = CollisionGeometryInfo::from_engine_geometry(&other_geometry.shape);
+    let this_info = CollideInfo::new(*position, *query, angle);
+    let that_info = CollideInfo::new(*other_position, that, other_angle);
+    if this_info.position.z + query.get_max_height_above_position() >= that_info.position.z
+        && this_info.position.z <= that_info.position.z + that.get_max_height_above_position()
+    {
+        return collide_test_dispatch(
+            query.get_geom_type(),
+            that.get_geom_type(),
+            &this_info,
+            &that_info,
+            None,
+        );
+    }
+    false
+}
+
 pub(crate) trait MinefieldPlacement {
     fn preflight(&self, owner: ObjectId, template: &str) -> BehaviorResult<(GeometryInfo, f32)>;
     fn random_real(&mut self, low: f32, high: f32) -> f32;
@@ -1168,18 +1211,27 @@ impl GenerateMinefieldBehavior {
         // rejects this candidate; terrain rejection above consumes no draw.
         let orientation = self.random_value(-std::f32::consts::PI, std::f32::consts::PI);
 
-        // C++ lines 187-197: Check for structure overlap using partition manager
-        // Uses ThePartitionManager->iteratePotentialCollisions() and checks KINDOF_STRUCTURE
-        let mine_radius = template
-            .get_template_geometry_info()
-            .get_bounding_circle_radius();
-        let shrink_radius = mine_radius * (1.0 - self.config.skip_if_this_much_under_structure);
+        // C++ lines 187-197: shrink the mine footprint, then reject when the
+        // oriented footprint would collide with any structure
+        // (iteratePotentialCollisions + PartitionFilterWouldCollide).
+        let template_geometry = template.get_template_geometry_info();
+        let query = mine_structure_query_geometry(
+            &template_geometry,
+            self.config.skip_if_this_much_under_structure,
+        );
         if let Some(partition) = crate::helpers::ThePartitionManager::get() {
-            let objects_near = partition.get_objects_in_range(position, shrink_radius.max(0.0));
-            for obj_id in objects_near {
+            let max_dist = query.get_bounding_sphere_radius() * 1.1;
+            for obj_id in partition.get_objects_in_range_boundary_3d(position, max_dist) {
                 if crate::object::registry::OBJECT_REGISTRY
-                    .with_object(obj_id, |obj_guard| {
-                        obj_guard.is_kind_of(crate::common::KindOf::Structure)
+                    .with_object(obj_id, |them| {
+                        mine_would_collide(
+                            position,
+                            &query,
+                            orientation,
+                            them.get_position(),
+                            &them.get_geometry_info(),
+                            them.get_orientation(),
+                        ) && them.is_kind_of(crate::common::KindOf::Structure)
                     })
                     .unwrap_or(false)
                 {
