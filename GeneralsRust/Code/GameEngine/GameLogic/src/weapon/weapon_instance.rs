@@ -1353,9 +1353,6 @@ impl Weapon {
         self.when_we_can_fire_again = stats.0;
         self.when_last_reload_started = stats.1;
         self.set_status(stats.2);
-        self.when_we_can_fire_again = other.when_we_can_fire_again;
-        self.when_last_reload_started = other.when_last_reload_started;
-        self.store_status(other.peek_status_at(TheGameLogic::get_frame()));
     }
 
     /// Update weapon on bonus change
