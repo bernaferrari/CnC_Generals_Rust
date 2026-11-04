@@ -2771,8 +2771,8 @@ impl GameLogic {
                     template_name,
                 );
                 object.combat_cycle_rider = rider.as_u8();
-                object.weapon =
-                    crate::game_logic::host_combat_cycle::combat_cycle_weapon_for_rider(rider);
+                // PRIMARY binds from the authored WeaponSet above (C++
+                // WeaponSet::updateWeaponSet), not a rider name peel (hq-2qedt.148).
             }
 
             // Host residual: GLA Tunnel Network TunnelContain (shared MaxTunnelCapacity=10)
