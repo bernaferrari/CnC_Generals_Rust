@@ -3184,7 +3184,84 @@ fn patriot_assist_request_ignores_helper_victim_range_and_already_assisting() {
         "helper beyond assist-weapon range of victim must still accept: {accepted:?}"
     );
     assert!(
-        accepted.iter().filter(|&&a| a == busy_helper).count() == 2,
-        "already-assisting but ready helper must still accept: {accepted:?}"
+        accepted.iter().filter(|&&a| a == busy_helper).count() == 1,
+        "already-assisting but ready helper must still accept (replacing, hq-2qedt.114): {accepted:?}"
     );
+}
+
+/// hq-2qedt.114: C++ assistAttack on an already-assisting helper calls
+/// aiAttackObject(victim, m_clipSize) again (AssistedTargetingUpdate.cpp:74-75),
+/// which re-targets and resets setMaxShotCount to the full clip
+/// (AIUpdate.cpp:3417). The helper has one attack state, so a re-ask must
+/// replace its pending assist, not stack a duplicate.
+#[test]
+fn patriot_re_ask_replaces_pending_assist_and_resets_clip() {
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_PRIMARY_WEAPON, PATRIOT_SECONDARY_WEAPON, PendingPatriotAssist,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+    patriot_tpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(600.0)
+        .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+    game_logic
+        .templates
+        .insert("USA_Patriot".to_string(), patriot_tpl);
+    let old_requester = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, -50.0))
+        .expect("old requester");
+    let requester_id = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("requester");
+    let helper = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 50.0))
+        .expect("helper");
+    let old_victim = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, -50.0))
+        .expect("old victim");
+    let new_victim = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
+        .expect("new victim");
+    for id in [old_requester, requester_id, helper] {
+        let o = game_logic.host_object_mut(id).unwrap();
+        if let Some(w) = o.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+        }
+        for slot in 0..3u8 {
+            if let Some(w) = o.weapon_slot_mut(slot) {
+                w.last_fire_time = -10.0;
+            }
+        }
+    }
+    let assist = game_logic
+        .host_object(helper)
+        .unwrap()
+        .assisted_targeting
+        .expect("assist module");
+    // Mid-clip: one shot left on the old victim.
+    let mut mid = PendingPatriotAssist::new(helper, old_victim, old_requester, 0, "USA_Patriot", assist);
+    mid.shots_remaining = 1;
+    game_logic.pending_patriot_assists.push(mid);
+    game_logic.frame = 1;
+    game_logic.process_patriot_assist_request(requester_id, new_victim, 0);
+
+    let mine: Vec<_> = game_logic
+        .pending_patriot_assists
+        .iter()
+        .filter(|p| p.assistant_id == helper)
+        .cloned()
+        .collect();
+    assert_eq!(mine.len(), 1, "re-ask must replace, not stack: {mine:?}");
+    assert_eq!(mine[0].victim_id, new_victim);
+    assert_eq!(mine[0].requester_id, requester_id);
+    assert_eq!(mine[0].shots_remaining, assist.clip_size, "clip reset to full");
 }

@@ -1021,6 +1021,10 @@ impl GameLogic {
             .collect();
 
         for (assistant_id, assistant_template, assistant_pos, assist) in candidates {
+            // C++ re-assistAttack -> aiAttackObject(victim, clip) retargets and
+            // resets max shots (AIUpdate.cpp:3417): replace, never stack.
+            self.pending_patriot_assists
+                .retain(|p| p.assistant_id != assistant_id);
             self.pending_patriot_assists.push(PendingPatriotAssist::new(
                 assistant_id,
                 victim_id,
