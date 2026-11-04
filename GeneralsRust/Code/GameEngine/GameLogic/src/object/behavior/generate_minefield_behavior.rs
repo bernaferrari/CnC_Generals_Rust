@@ -573,6 +573,8 @@ pub(crate) trait MinefieldPlacement {
     ) -> BehaviorResult<ObjectId>;
     /// C++ `FXList::doFXObj(m_genFX, obj)` (GenerateMinefieldBehavior.cpp:431).
     fn play_generation_fx(&mut self, owner: ObjectId, fx: &str) -> BehaviorResult<()>;
+    /// C++ `obj->getControllingPlayer()` (GenerateMinefieldBehavior.cpp:229/291/319/384).
+    fn controlling_player(&self, owner: ObjectId) -> BehaviorResult<Option<u32>>;
     fn remove(&mut self, owner: ObjectId, mine: ObjectId) -> BehaviorResult<()>;
 }
 
@@ -598,6 +600,13 @@ impl GenerateMinefieldBehavior {
         self.state.generated = true;
         let (mut geometry, mine_radius) =
             services.preflight(self.object_id, &self.config.mine_name)?;
+        // C++ dereferences obj->getControllingPlayer()->getDefaultTeam() for every
+        // placement; an ownerless source never creates neutral mines.
+        if services.controlling_player(self.object_id)?.is_none() {
+            return Err(BehaviorError::ServiceUnavailable(
+                "minefield source has no controlling player".into(),
+            ));
+        }
         if let Some(target) = self.state.target {
             geometry.center = target;
         }
@@ -2131,5 +2140,19 @@ mod tests {
             retained.into_iter().all(|present| present),
             "mine remains owned until deletion boundary"
         );
+    }
+
+    #[test]
+    fn owned_minefield_requires_controlling_player_before_placing() {
+        // C++ GenerateMinefieldBehavior.cpp:229/384: placement uses
+        // obj->getControllingPlayer()->getDefaultTeam(); no owner, no mines.
+        let mut fixture = super::test_fixture::MinefieldFixture::new(98_109);
+        fixture.set_owner_player(None);
+        let before = fixture.scheduler.get_all_object_ids().len();
+        let mut behavior = fixture.behavior(false);
+        assert!(behavior.place_mines_owned(&mut fixture).is_err());
+        assert!(behavior.get_statistics().is_generated);
+        assert!(behavior.get_mine_list().is_empty());
+        assert_eq!(fixture.scheduler.get_all_object_ids().len(), before);
     }
 }

@@ -15,7 +15,7 @@ pub(super) struct MinefieldFixture {
     pub id: u32,
     pub template: String,
     pub factory: ObjectFactory,
-    scheduler: GameLogic,
+    pub scheduler: GameLogic,
     definitions: ThingFactory,
     modules: ModuleFactory,
     bodies: Arc<BodyDefinitionCatalog>,
@@ -91,7 +91,19 @@ impl MinefieldFixture {
             .track_object_in_update_list(owner)
             .unwrap();
         fixture.position(id, Coord3D::new(128.0, 128.0, 3.0), 0.0);
+        fixture.set_owner_player(Some(0));
         fixture
+    }
+    /// Pin the source to a team controlled by `player` (None = ownerless).
+    pub fn set_owner_player(&mut self, player: Option<u32>) {
+        let mut team = crate::team::Team::new("OwnedMinefieldOwner".into(), 0x6D1E_0000 + self.id);
+        team.set_controlling_player_id(player);
+        let owner = self.scheduler.find_object_by_id(self.id).unwrap();
+        owner
+            .write()
+            .unwrap()
+            .set_team(Some(Arc::new(std::sync::RwLock::new(team))))
+            .unwrap();
     }
     fn definition(&self, name: &str) -> Arc<dyn crate::common::ThingTemplate> {
         crate::helpers::adapt_owned_thing_template(
@@ -295,6 +307,17 @@ impl MinefieldPlacement for MinefieldFixture {
             .unwrap()
             .set_producer(Some(&*source.read().unwrap()));
         Ok(id)
+    }
+    fn controlling_player(&self, owner: u32) -> BehaviorResult<Option<u32>> {
+        let actor = self
+            .scheduler
+            .find_object_by_id(owner)
+            .ok_or(BehaviorError::ObjectNotFound { id: owner })?;
+        let player = actor
+            .read()
+            .map_err(|_| BehaviorError::ServiceUnavailable("owner poisoned".into()))?
+            .get_controlling_player_id();
+        Ok(player)
     }
     fn play_generation_fx(&mut self, owner: u32, fx: &str) -> BehaviorResult<()> {
         let count = self.scheduler.get_all_object_ids().len();
