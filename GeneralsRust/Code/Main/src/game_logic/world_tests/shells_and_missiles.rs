@@ -4668,3 +4668,15 @@ fn jarmen_kell_named_non_sniper_weapon_skips_jarmen_object_hit_residual() {
     let gl = fire_named_template_with_humvee_gun("GLAInfantryJarmenKell", Team::USA);
     assert_eq!(gl.jarmen_kell_residual_fires(), 0, "Jarmen residual chosen by template-name peel");
 }
+
+/// hq-2qedt.183: MiniGunner-named template authoring a non-minigun PRIMARY
+/// must not route through the MiniGunner residual on object hit.
+#[test]
+fn minigunner_named_non_minigun_weapon_skips_minigunner_object_hit_residual() {
+    let gl = fire_named_template_with_humvee_gun("ChinaInfantryMiniGunner", Team::USA);
+    assert_eq!(
+        gl.minigunner_residual_ground_fires() + gl.minigunner_residual_aa_fires(),
+        0,
+        "MiniGunner residual chosen by template-name peel"
+    );
+}
