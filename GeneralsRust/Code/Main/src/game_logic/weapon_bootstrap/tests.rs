@@ -1649,3 +1649,19 @@ fn aurora_seed_damage_type_is_aurora_bomb_not_explosion() {
 
 #[path = "bootstrap_owner_tests.rs"]
 mod bootstrap_owner_tests;
+
+/// hq-2qedt.157: C++ ThingTemplate WeaponSet (ChinaVehicleTroopCrawler PRIMARY
+/// TroopCrawlerAssault) is the sole primary authority; the bootstrap name map
+/// must not hard-code a Troop Crawler primary.
+#[test]
+fn troop_crawler_has_no_unit_map_primary_name_hq_2qedt_157() {
+    for name in [
+        "ChinaVehicleTroopCrawler",
+        "China_TroopCrawler",
+        "Tank_ChinaVehicleTroopCrawler",
+        "Nuke_ChinaVehicleTroopCrawler",
+        "TestTroopCrawler",
+    ] {
+        assert_eq!(primary_weapon_name_for_unit(name), None, "{name}");
+    }
+}

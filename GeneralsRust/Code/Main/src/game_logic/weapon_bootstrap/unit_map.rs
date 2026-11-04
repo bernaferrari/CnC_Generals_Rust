@@ -24,11 +24,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "Nuke_ChinaInfantryTankHunter"
         | "Infa_ChinaInfantryTankHunter"
         | "TestTankHunter" => Some(TANK_HUNTER_PRIMARY_WEAPON),
-        "ChinaVehicleTroopCrawler"
-        | "China_TroopCrawler"
-        | "Tank_ChinaVehicleTroopCrawler"
-        | "Nuke_ChinaVehicleTroopCrawler"
-        | "TestTroopCrawler" => Some(TROOP_CRAWLER_ASSAULT_WEAPON),
         "USA_Humvee" | "AmericaVehicleHumvee" | "TestHumvee" | "GoldenHumvee" => {
             Some(HUMVEE_PRIMARY_WEAPON)
         }
