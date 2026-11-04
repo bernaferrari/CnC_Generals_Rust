@@ -370,9 +370,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
                 let king = crate::game_logic::host_raptor::is_king_raptor_template(template_name);
                 return Some(crate::game_logic::host_raptor::raptor_weapon_name(king));
             }
-            if crate::game_logic::host_slave_drones::is_battle_drone_template(template_name) {
-                return Some(BATTLE_DRONE_MACHINE_GUN);
-            }
             if crate::game_logic::host_overlord_gun::is_overlord_gun_chassis(template_name) {
                 return Some(OVERLORD_TANK_GUN);
             }
@@ -582,5 +579,14 @@ mod name_peel_tests {
     #[test]
     fn tomahawk_variant_name_has_no_unit_map_weapon() {
         assert_unmapped("FixtureTomahawkVariant", gl::host_tomahawk::is_tomahawk_template);
+    }
+
+    /// hq-2qedt.226
+    #[test]
+    fn battle_drone_variant_name_has_no_unit_map_weapon() {
+        assert_unmapped(
+            "FixtureBattleDroneVariant",
+            gl::host_slave_drones::is_battle_drone_template,
+        );
     }
 }
