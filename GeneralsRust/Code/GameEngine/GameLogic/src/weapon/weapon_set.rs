@@ -816,6 +816,10 @@ impl WeaponSet {
             return Ok(false);
         }
 
+        self.observe_selection_statuses_at(
+            crate::helpers::TheGameLogic::get_frame(),
+            command_source,
+        );
         let selection = self
             .select_weapon_inner(source_obj, target_obj, criteria, command_source, None, None)
             .expect("registry selector has no fallible supplied world observations");
@@ -1557,12 +1561,16 @@ mod tests {
 
             assert!(!set.peek_out_of_ammo_at(100));
             assert_eq!(
-                set.get_weapon_in_slot(WeaponSlotType::Primary).unwrap().load_status(),
+                set.get_weapon_in_slot(WeaponSlotType::Primary)
+                    .unwrap()
+                    .load_status(),
                 WeaponStatus::ReloadingClip,
             );
             assert!(!set.observe_out_of_ammo_at(100));
             assert_eq!(
-                set.get_weapon_in_slot(WeaponSlotType::Primary).unwrap().load_status(),
+                set.get_weapon_in_slot(WeaponSlotType::Primary)
+                    .unwrap()
+                    .load_status(),
                 WeaponStatus::ReadyToFire,
             );
         });

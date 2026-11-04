@@ -468,7 +468,8 @@ impl Object {
                 audio.add_audio_event_for_owner(&sound, self);
             }
             let __player_list_arc = crate::player::player_list();
-                let selected = __player_list_arc.read()
+            let selected = __player_list_arc
+                .read()
                 .ok()
                 .and_then(|list| {
                     let index = list.get_local_player_index();
@@ -1243,6 +1244,11 @@ impl Object {
         cmd_source: CommandSourceType,
         ai: &dyn crate::modules::ai_state_runtime::AiStateRuntime,
     ) -> Result<bool, String> {
+        let frame = ai
+            .world()
+            .map_or_else(crate::helpers::TheGameLogic::get_frame, |w| w.frame());
+        self.weapon_set
+            .observe_selection_statuses_at(frame, cmd_source);
         let selection = self.weapon_set.select_weapon_for_objects(
             self,
             target,

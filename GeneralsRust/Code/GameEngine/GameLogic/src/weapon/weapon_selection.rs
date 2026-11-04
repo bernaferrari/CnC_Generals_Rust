@@ -33,6 +33,57 @@ impl WeaponSet {
         selection.1
     }
 
+    /// hq-2qedt.80: mutable-owner half of C++ chooseBestWeaponForTarget's
+    /// `Weapon::getStatus` calls. Observes exactly the slots C++ reaches
+    /// (not locked; passes the auto-choose mask) so the `mutable m_status`
+    /// write lands on the owner, letting the selector itself stay a pure peek.
+    pub(crate) fn observe_selection_statuses_at(
+        &mut self,
+        current_frame: u32,
+        command_source: CommandSourceType,
+    ) {
+        if self.is_current_weapon_locked() {
+            return;
+        }
+        for slot in [
+            WeaponSlotType::Tertiary,
+            WeaponSlotType::Secondary,
+            WeaponSlotType::Primary,
+        ] {
+            if !self.slot_passes_auto_choose(slot, command_source) {
+                continue;
+            }
+            if let Some(weapon) = self.get_weapon_in_slot_mut(slot) {
+                weapon.observe_status_at(current_frame);
+            }
+        }
+    }
+
+    /// Pure status read for the `&self` selector.
+    pub(crate) fn peek_selection_status_at(
+        &self,
+        slot: WeaponSlotType,
+        current_frame: u32,
+    ) -> Option<WeaponStatus> {
+        self.get_weapon_in_slot(slot)
+            .map(|weapon| weapon.peek_status_at(current_frame))
+    }
+
+    fn slot_passes_auto_choose(
+        &self,
+        slot: WeaponSlotType,
+        command_source: CommandSourceType,
+    ) -> bool {
+        match &self.current_weapon_template_set {
+            Some(template_set) => {
+                let ok_sources = template_set.get_auto_choose_mask(slot);
+                let source_bit = 1_u32 << (command_source as i32);
+                (ok_sources & source_bit) != 0 || (ok_sources & 4) != 0
+            }
+            None => true,
+        }
+    }
+
     pub(super) fn select_weapon_inner(
         &self,
         source_obj: ObjectID,
@@ -50,6 +101,7 @@ impl WeaponSet {
         }
 
         let world = ai.and_then(|ai| ai.world());
+        let frame = world.map_or_else(crate::helpers::TheGameLogic::get_frame, |w| w.frame());
 
         let mut found = false;
         let mut found_backup = false;
@@ -71,17 +123,11 @@ impl WeaponSet {
                 continue;
             };
 
-            if let Some(template_set) = &self.current_weapon_template_set {
-                let ok_sources = template_set.get_auto_choose_mask(slot);
-                let source_bit = 1_u32 << (command_source as i32);
-                if (ok_sources & source_bit) == 0 && (ok_sources & 4) == 0 {
-                    continue;
-                }
+            if !self.slot_passes_auto_choose(slot, command_source) {
+                continue;
             }
-            let status = || match world {
-                Some(world) => weapon.get_status_at(world.frame()),
-                None => weapon.get_status(),
-            };
+            // Pure peek: the &mut owner already observed (hq-2qedt.80).
+            let status = || weapon.peek_status_at(frame);
             if status() == WeaponStatus::OutOfAmmo && !weapon.get_template().get_auto_reloads_clip()
             {
                 continue;

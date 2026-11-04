@@ -112,8 +112,56 @@ fn peek_status_is_pure_and_observe_status_is_the_mutable_owner_write() {
 
     assert_eq!(weapon.peek_status_at(5), WeaponStatus::ReloadingClip);
     assert_eq!(weapon.peek_status_at(10), WeaponStatus::ReadyToFire);
-    assert_eq!(weapon.load_status(), WeaponStatus::ReloadingClip, "peek must not write");
+    assert_eq!(
+        weapon.load_status(),
+        WeaponStatus::ReloadingClip,
+        "peek must not write"
+    );
 
     assert_eq!(weapon.observe_status_at(10), WeaponStatus::ReadyToFire);
-    assert_eq!(weapon.load_status(), WeaponStatus::ReadyToFire, "observe writes like C++");
+    assert_eq!(
+        weapon.load_status(),
+        WeaponStatus::ReadyToFire,
+        "observe writes like C++"
+    );
+}
+
+#[test]
+fn weapon_selection_observes_status_through_mut_owner_and_peeks_in_selector() {
+    // hq-2qedt.80: C++ WeaponSet::chooseBestWeaponForTarget calls
+    // Weapon::getStatus (writes `mutable m_status`) on every slot that passes
+    // the auto-choose mask. Rust: the &mut owner observes, the selector peeks.
+    let mut template = WeaponTemplate::new("SelectObserveGun".into());
+    template.clip_size = 1;
+    let mut weapon = Weapon::new_at(Arc::new(template), WeaponSlotType::Primary, 0);
+    weapon.ammo_in_clip = 1;
+    weapon.when_pre_attack_finished = 0;
+    weapon.when_we_can_fire_again = 10;
+    weapon.store_status(WeaponStatus::ReloadingClip);
+    let mut set = WeaponSet::new();
+    set.restore_weapon(WeaponSlotType::Primary, weapon);
+
+    set.observe_selection_statuses_at(10, crate::common::CommandSourceType::FromAi);
+    assert_eq!(
+        set.get_weapon_in_slot(WeaponSlotType::Primary)
+            .unwrap()
+            .load_status(),
+        WeaponStatus::ReadyToFire,
+        "&mut selection observe writes stored status like C++ getStatus"
+    );
+
+    set.get_weapon_in_slot_mut(WeaponSlotType::Primary)
+        .unwrap()
+        .store_status(WeaponStatus::ReloadingClip);
+    assert_eq!(
+        set.peek_selection_status_at(WeaponSlotType::Primary, 10),
+        Some(WeaponStatus::ReadyToFire)
+    );
+    assert_eq!(
+        set.get_weapon_in_slot(WeaponSlotType::Primary)
+            .unwrap()
+            .load_status(),
+        WeaponStatus::ReloadingClip,
+        "&self selector status read is a pure peek"
+    );
 }
