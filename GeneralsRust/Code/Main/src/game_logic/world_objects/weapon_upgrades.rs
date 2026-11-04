@@ -210,6 +210,12 @@ impl GameLogic {
 
         let mut n = 0u32;
         for mid in masters {
+            // C++ Object::giveUpgrade sets the bit before ObjectCreationUpgrade
+            // creates the drone (Object.cpp giveUpgrade -> updateUpgradeModules).
+            if let Some(m) = self.objects.get_mut(&mid) {
+                m.apply_upgrade_tag(upgrade_name);
+                m.apply_upgrade_tag(tag);
+            }
             if self
                 .residual_attach_slave_drone_with_interpreter_and_effects(
                     mid,
@@ -219,10 +225,6 @@ impl GameLogic {
                 )
                 .is_some()
             {
-                if let Some(m) = self.objects.get_mut(&mid) {
-                    m.apply_upgrade_tag(upgrade_name);
-                    m.apply_upgrade_tag(tag);
-                }
                 n = n.saturating_add(1);
             }
         }

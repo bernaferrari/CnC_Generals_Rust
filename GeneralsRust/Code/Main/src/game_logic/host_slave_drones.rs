@@ -1289,6 +1289,22 @@ End
             "SlavedUpdate has no XP synchronization; SpawnBehavior aggregateHealth owns it"
         );
     }
+
+    #[test]
+    fn slave_drone_attach_does_not_grant_master_upgrade() {
+        // C++ ObjectCreationUpgrade::upgradeImplementation only creates the
+        // drone; the master bit comes from Object::giveUpgrade beforehand.
+        let (mut logic, mid) = receiving_drone_world();
+        let tag = SlaveDroneKind::Scout.upgrade_name();
+        assert!(!logic.objects[&mid].has_upgrade_tag(tag));
+        logic
+            .residual_attach_slave_drone(mid, SlaveDroneKind::Scout)
+            .expect("scout attach");
+        assert!(
+            !logic.objects[&mid].has_upgrade_tag(tag),
+            "attach must not apply_upgrade_tag; the upgrade grant owns the bit"
+        );
+    }
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]

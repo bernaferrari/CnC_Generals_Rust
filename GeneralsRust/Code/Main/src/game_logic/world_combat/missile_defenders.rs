@@ -1867,8 +1867,8 @@ impl GameLogic {
 
     /// Residual: attach Scout or Hellfire drone to a master vehicle (Humvee residual).
     ///
-    /// Spawns the drone near the master, tags the master with the object-upgrade
-    /// residual name, and records attach honesty.
+    /// Spawns the drone near the master and records attach honesty. Does not
+    /// grant the master upgrade (callers grant first, like Object::giveUpgrade).
     /// Fail-closed: not full ObjectCreationUpgrade ConflictsWith / ProductionUpdate.
     pub fn residual_attach_slave_drone(
         &mut self,
@@ -2081,10 +2081,8 @@ impl GameLogic {
             return Err(gamelogic::GameLogicError::InvalidObject(drone_id.0));
         }
 
-        if let Some(master) = self.objects.get_mut(&master_id) {
-            master.apply_upgrade_tag(kind.upgrade_name());
-        }
-
+        // C++ ObjectCreationUpgrade never sets the master upgrade bit; that is
+        // Object::giveUpgrade's job before the creation module fires.
         match kind {
             SlaveDroneKind::Scout => {
                 self.scout_drone_residual_attaches =

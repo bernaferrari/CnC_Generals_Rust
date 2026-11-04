@@ -2702,6 +2702,12 @@ fn upgrade_die_removes_producer_drone_upgrade() {
     let master_id = game_logic
         .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("humvee");
+    // C++ Object::giveUpgrade sets the master bit before ObjectCreationUpgrade.
+    game_logic
+        .objects
+        .get_mut(&master_id)
+        .unwrap()
+        .apply_upgrade_tag(crate::game_logic::host_slave_drones::UPGRADE_AMERICA_SCOUT_DRONE);
     let drone_id = game_logic
         .residual_attach_slave_drone(
             master_id,
