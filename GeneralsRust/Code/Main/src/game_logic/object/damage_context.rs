@@ -53,10 +53,6 @@ pub(crate) struct DamageHitContext<'a> {
     kill: bool,
     // Object::attemptHealing bypasses attemptDamage admission, not Body math.
     healing_entry: bool,
-    // Main's receiving GameLogic performs HiveStructureBody forwarding against
-    // the admitted SpawnBehavior child identities before entering Object Body.
-    // Standalone Object callers leave this false and retain their local adapter.
-    owned_hive_body: bool,
     // Area impacts carry their computed shared DamageInfo shock force through
     // the synchronous HiveStructureBody forwarding stack.
     shock_wave_force: Option<glam::Vec3>,
@@ -72,7 +68,6 @@ impl<'a> DamageHitContext<'a> {
         Self {
             kill: false,
             healing_entry: false,
-            owned_hive_body: false,
             shock_wave_force: None,
             source_player_mask: 0,
             neutral_player_id: None,
@@ -140,11 +135,6 @@ impl<'a> DamageHitContext<'a> {
         self
     }
 
-    pub(crate) fn with_owned_hive_body(mut self) -> Self {
-        self.owned_hive_body = true;
-        self
-    }
-
     pub(crate) fn with_shock_wave_force(mut self, force: Option<glam::Vec3>) -> Self {
         self.shock_wave_force = force;
         self
@@ -163,9 +153,6 @@ impl<'a> DamageHitContext<'a> {
         self.shock_wave_force
     }
 
-    pub(super) fn owned_hive_body(&self) -> bool {
-        self.owned_hive_body
-    }
     pub(super) fn neutral_player_id(&self) -> Option<u32> {
         self.neutral_player_id
     }

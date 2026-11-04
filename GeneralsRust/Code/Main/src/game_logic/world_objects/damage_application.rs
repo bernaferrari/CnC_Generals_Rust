@@ -493,8 +493,7 @@ impl GameLogic {
                     .iter()
                     .filter_map(|(id, player)| player.is_reserved_neutral().then_some(*id))
                     .min(),
-            )
-            .with_owned_hive_body();
+            );
         // C++ HiveStructureBody forwards the same DamageInfo synchronously to
         // the closest Object in SpawnBehavior::m_spawnIDs. Main owns that
         // relationship on the receiving parent; do the forwarding before the
