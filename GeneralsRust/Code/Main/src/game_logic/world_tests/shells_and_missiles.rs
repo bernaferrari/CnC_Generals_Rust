@@ -2447,14 +2447,28 @@ fn stealth_fighter_residual_missiles_and_splash() {
 #[test]
 fn mig_upgrade_refresh_binds_authored_weapon_not_name_built_stats() {
     use crate::game_logic::host_mig::{
-        BLACK_NAPALM_MISSILE_WEAPON, MigLoadout, NUKE_NUKE_MISSILE_WEAPON, mig_weapon,
+        BLACK_NAPALM_MISSILE_WEAPON, MigLoadout, NAPALM_MISSILE_WEAPON, NUKE_MIG_MISSILE_WEAPON,
+        NUKE_NUKE_MISSILE_WEAPON, mig_weapon,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
     ensure_host_weapon_store();
-    for (tpl_name, nuke, weapon_name, loadout) in [
-        ("ChinaJetMIG", false, BLACK_NAPALM_MISSILE_WEAPON, MigLoadout::BlackNapalm),
-        ("Nuke_ChinaJetMIG", true, NUKE_NUKE_MISSILE_WEAPON, MigLoadout::NukeTactical),
+    // Retail base PRIMARY authored (hq-2qedt.248 gate keys on authored MiG missile).
+    for (tpl_name, nuke, weapon_name, loadout, base) in [
+        (
+            "ChinaJetMIG",
+            false,
+            BLACK_NAPALM_MISSILE_WEAPON,
+            MigLoadout::BlackNapalm,
+            NAPALM_MISSILE_WEAPON,
+        ),
+        (
+            "Nuke_ChinaJetMIG",
+            true,
+            NUKE_NUKE_MISSILE_WEAPON,
+            MigLoadout::NukeTactical,
+            NUKE_MIG_MISSILE_WEAPON,
+        ),
     ] {
         let mut game_logic = GameLogic::new();
         let mut tpl = crate::game_logic::ThingTemplate::new(tpl_name);
@@ -2462,7 +2476,7 @@ fn mig_upgrade_refresh_binds_authored_weapon_not_name_built_stats() {
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(300.0)
-            .set_primary_weapon_name("HumveeGun");
+            .set_primary_weapon_name(base);
         game_logic.templates.insert(tpl_name.to_string(), tpl);
         let id = game_logic
             .create_object(tpl_name, Team::China, Vec3::new(0.0, 0.0, 0.0))

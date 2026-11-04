@@ -2189,4 +2189,49 @@ mod authored_mig_gate_tests {
         assert!((game_logic.host_object(named).unwrap().max_health - 300.0).abs() < 0.01);
         assert!(game_logic.host_object(authored).unwrap().max_health > 300.0);
     }
+
+    /// hq-2qedt.248: Black Napalm / Tactical Nuke MiG direct apply paths (vehicle_shells)
+    /// key on authored MiG missile PRIMARY, not template-name sniffing.
+    #[test]
+    fn mig_direct_upgrade_apply_keys_on_authored_missile_not_template_name() {
+        use crate::game_logic::host_mig::{
+            NAPALM_MISSILE_WEAPON, NUKE_MIG_MISSILE_WEAPON, UPGRADE_CHINA_BLACK_NAPALM,
+            UPGRADE_CHINA_TACTICAL_NUKE_MIG,
+        };
+        let mut gl = GameLogic::new();
+        for (tpl_name, primary) in [
+            ("ChinaJetMIG", "HumveeGun"),
+            ("Nuke_ChinaJetMIG", "HumveeGun"),
+            ("AuthoredAirframeX", NAPALM_MISSILE_WEAPON),
+            ("AuthoredAirframeN", NUKE_MIG_MISSILE_WEAPON),
+        ] {
+            let mut tpl = crate::game_logic::ThingTemplate::new(tpl_name);
+            tpl.add_kind_of(KindOf::Aircraft)
+                .set_health(300.0)
+                .set_primary_weapon_name(primary);
+            gl.templates.insert(tpl_name.to_string(), tpl);
+        }
+        let mk = |gl: &mut GameLogic, n: &str| {
+            gl.create_object(n, Team::China, Vec3::new(0.0, 0.0, 0.0))
+                .unwrap()
+        };
+        let named = mk(&mut gl, "ChinaJetMIG");
+        let named_n = mk(&mut gl, "Nuke_ChinaJetMIG");
+        let auth = mk(&mut gl, "AuthoredAirframeX");
+        let auth_n = mk(&mut gl, "AuthoredAirframeN");
+        for id in [named, auth, auth_n] {
+            let _ = gl.apply_mig_black_napalm_upgrade(id);
+        }
+        for id in [named_n, auth_n, auth] {
+            let _ = gl.apply_mig_tactical_nuke_upgrade(id);
+        }
+        let has =
+            |gl: &GameLogic, id, u: &str| gl.host_object(id).unwrap().applied_upgrades.contains(u);
+        assert!(!has(&gl, named, UPGRADE_CHINA_BLACK_NAPALM));
+        assert!(has(&gl, auth, UPGRADE_CHINA_BLACK_NAPALM));
+        assert!(!has(&gl, auth_n, UPGRADE_CHINA_BLACK_NAPALM));
+        assert!(!has(&gl, named_n, UPGRADE_CHINA_TACTICAL_NUKE_MIG));
+        assert!(has(&gl, auth_n, UPGRADE_CHINA_TACTICAL_NUKE_MIG));
+        assert!(!has(&gl, auth, UPGRADE_CHINA_TACTICAL_NUKE_MIG));
+    }
 }

@@ -812,10 +812,11 @@ impl GameLogic {
                     };
                 } else if {
                     // China MiG residual: dual-radius napalm / Nuke missiles + field residual.
-                    use crate::game_logic::host_mig::{is_mig_template, should_apply_mig_residual};
+                    // hq-2qedt.248: attacker authors a MiG missile PRIMARY (WeaponStore identity).
+                    use crate::game_logic::host_mig::authors_mig_missile;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| should_apply_mig_residual(is_mig_template(&a.template_name)))
+                        .map(|a| authors_mig_missile(a.authored_primary_weapon_names(), None))
                         .unwrap_or(false)
                 } {
                     let impact = target_position;

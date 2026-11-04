@@ -1424,13 +1424,13 @@ impl GameLogic {
     /// Apply BlackNapalm residual to a China MiG (PLAYER_UPGRADE fire-field residual).
     pub fn apply_mig_black_napalm_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_mig::{
-            UPGRADE_CHINA_BLACK_NAPALM, is_mig_template, is_nuke_mig_template, mig_loadout,
-            mig_weapon_name,
+            UPGRADE_CHINA_BLACK_NAPALM, authors_mig_missile, mig_loadout, mig_weapon_name,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_mig_template(&obj.template_name) || is_nuke_mig_template(&obj.template_name) {
+        // hq-2qedt.248: gate on authored standard MiG missile PRIMARY, not template name.
+        if !authors_mig_missile(obj.authored_primary_weapon_names(), Some(false)) {
             return false;
         }
         obj.applied_upgrades
@@ -1464,12 +1464,13 @@ impl GameLogic {
     /// Apply Tactical Nuke MiG residual to a Nuke General MiG.
     pub fn apply_mig_tactical_nuke_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_mig::{
-            UPGRADE_CHINA_TACTICAL_NUKE_MIG, is_nuke_mig_template, mig_loadout, mig_weapon_name,
+            UPGRADE_CHINA_TACTICAL_NUKE_MIG, authors_mig_missile, mig_loadout, mig_weapon_name,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_nuke_mig_template(&obj.template_name) {
+        // hq-2qedt.248: gate on authored Nuke MiG missile PRIMARY, not template name.
+        if !authors_mig_missile(obj.authored_primary_weapon_names(), Some(true)) {
             return false;
         }
         obj.applied_upgrades
@@ -1770,8 +1771,8 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_mig::{
             MIG_BLACK_DAMAGE_TYPE, MIG_BLACK_DEATH_TYPE, MIG_DAMAGE_TYPE, MIG_DEATH_TYPE,
-            MIG_FIRE_AUDIO, MIG_PRIMARY_RADIUS, MigLoadout, is_legal_mig_target, is_mig_template,
-            is_nuke_mig_template, mig_damage_at, mig_fire_field_upgraded, mig_loadout,
+            MIG_FIRE_AUDIO, MIG_PRIMARY_RADIUS, MigLoadout, authors_mig_missile,
+            is_legal_mig_target, mig_damage_at, mig_fire_field_upgraded, mig_loadout,
             mig_scatter_aim, mig_scatter_misses_infantry, mig_secondary_radius,
             mig_spawns_fire_field, mig_spawns_radiation,
         };
@@ -1782,7 +1783,7 @@ impl GameLogic {
                     (
                         obj.team,
                         mig_loadout(
-                            is_nuke_mig_template(&obj.template_name),
+                            authors_mig_missile(obj.authored_primary_weapon_names(), Some(true)),
                             &obj.applied_upgrades,
                         ),
                     )
@@ -1995,13 +1996,6 @@ impl GameLogic {
                 self.frame,
                 sid,
                 intended_target,
-            );
-            let _ = is_mig_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
             );
         }
 
