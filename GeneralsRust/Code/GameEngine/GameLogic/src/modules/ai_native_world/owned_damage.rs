@@ -100,6 +100,20 @@ impl BorrowedAiWorld<'_> {
         if damage.input.damage_type == crate::damage::DamageType::KillPilot {
             return self.attempt_kill_pilot_owned(owner, damage);
         }
+        // CPP HiveStructureBody::attemptDamage runs before StructureBody.
+        match self.hive_redirect_owned(owner, damage)? {
+            Some(HiveOwnedRedirect::Rider(rider)) => {
+                return self.attempt_damage_owned(&rider, damage);
+            }
+            Some(HiveOwnedRedirect::Swallow) => {
+                damage.sync_from_input();
+                damage.output.actual_damage_dealt = 0.0;
+                damage.output.actual_damage_clipped = 0.0;
+                damage.output.no_effect = true;
+                return Ok(0.0);
+            }
+            None => {}
+        }
         let PreparedDamage {
             id,
             body,
@@ -329,6 +343,67 @@ impl BorrowedAiWorld<'_> {
         self.prepare_damage_owned(owner, damage).map(|_| ())
     }
 
+    /// CPP HiveStructureBody.cpp attemptDamage: a propagated type goes to
+    /// OpenContain::getClosestRider (FROM_CENTER_2D) relative to the shooter;
+    /// with no rider a swallowed type is eaten. SpawnBehavior slaves are not
+    /// on the owned path yet.
+    fn hive_redirect_owned(
+        &self,
+        owner: &Arc<RwLock<Object>>,
+        damage: &DamageInfo,
+    ) -> Result<Option<HiveOwnedRedirect>, String> {
+        let (flags, has_spawn, contain) = {
+            let object = owner.try_read().map_err(|_| "damage owner unavailable")?;
+            let Some(body) = object.get_body_module() else {
+                return Ok(None);
+            };
+            let flags = body
+                .try_lock()
+                .map_err(|_| "damage body unavailable")?
+                .hive_redirect_flags(damage.input.damage_type);
+            (
+                flags,
+                object.with_spawn_behavior_full_interface(|_| ()).is_some(),
+                object.get_contain(),
+            )
+        };
+        let Some((propagate, swallow)) = flags else {
+            return Ok(None);
+        };
+        if !propagate {
+            return Ok(None);
+        }
+        if has_spawn {
+            return Err("owned hive slave propagation not admitted".into());
+        }
+        let Some(contain) = contain else {
+            return Ok(None);
+        };
+        let Some(shooter) = self.object(damage.input.source_id) else {
+            return Ok(None);
+        };
+        let pos = *shooter.read().map_err(|_| "hive shooter poisoned")?.get_position();
+        let riders = contain
+            .try_lock()
+            .map_err(|_| "hive contain unavailable")?
+            .get_contained_objects()
+            .to_vec();
+        let mut closest: Option<(f32, Arc<RwLock<Object>>)> = None;
+        for id in riders {
+            let Some(rider) = self.object(id) else { continue };
+            let p = *rider.read().map_err(|_| "hive rider poisoned")?.get_position();
+            let distance = (p.x - pos.x).powi(2) + (p.y - pos.y).powi(2);
+            if closest.as_ref().is_none_or(|(best, _)| *best > distance) {
+                closest = Some((distance, rider));
+            }
+        }
+        Ok(match closest {
+            Some((_, rider)) => Some(HiveOwnedRedirect::Rider(rider)),
+            None if swallow => Some(HiveOwnedRedirect::Swallow),
+            None => None,
+        })
+    }
+
     fn prepare_damage_owned(
         &self,
         owner: &Arc<RwLock<Object>>,
@@ -453,4 +528,9 @@ impl BorrowedAiWorld<'_> {
             observations,
         })
     }
+}
+
+enum HiveOwnedRedirect {
+    Rider(Arc<RwLock<Object>>),
+    Swallow,
 }

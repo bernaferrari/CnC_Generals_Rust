@@ -1338,6 +1338,8 @@ mod armed_transport_tests;
 
 #[path = "ai_native_world_tests/rider_change_enter.rs"]
 mod rider_change_enter;
+#[path = "ai_native_world_tests/hive_body.rs"]
+mod hive_body;
 
 #[path = "ai_native_world_tests/salvager_bike.rs"]
 mod salvager_bike_tests;
