@@ -1011,7 +1011,7 @@ End
         (default_turret.pitch_art_angle_radians() + std::f32::consts::FRAC_PI_6).abs() < 1.0e-6
     );
     assert!(default_turret.primary_fields_valid);
-    assert!(!default_turret.has_unsupported_alternate_turret());
+    assert!(!default_turret.has_alternate_turret());
 
     let damaged = definition
         .select_draw_models_for_conditions(model_condition_bit("DAMAGED"))
@@ -1025,8 +1025,8 @@ End
         "normal ConditionState inherits Default's primary art offset"
     );
     assert!(
-        damaged_turret.has_unsupported_alternate_turret(),
-        "an active AltTurretPitch must not be routed into primary control"
+        damaged_turret.has_alternate_turret(),
+        "an active AltTurretPitch is retained as TURRET_ALT, not routed into primary"
     );
 
     let really_damaged = definition
@@ -1996,8 +1996,9 @@ End
     // Primary art offsets are untouched by Alt* fields.
     assert_eq!(turret.yaw_art_angle_radians(), 0.0);
     assert_eq!(turret.pitch_art_angle_radians(), 0.0);
-    // Still unsupported until .2.6 wires the pose.
-    assert!(turret.has_unsupported_alternate_turret());
+    // hq-2qedt.2.6: TURRET_ALT is drawn, not gated off.
+    assert!(turret.has_alternate_turret());
+    assert!(turret.turret_fields_valid());
 
     let damaged = definition
         .select_draw_models_for_conditions(model_condition_bit("DAMAGED"))

@@ -97,8 +97,7 @@ impl InstalledDrawPose {
                 draw_model.primary_turret.yaw_bone.clone(),
                 draw_model.primary_turret.pitch_bone.clone(),
             ),
-            supported_controls: draw_model.primary_turret.primary_fields_valid
-                && !draw_model.primary_turret.has_unsupported_alternate_turret(),
+            supported_controls: draw_model.primary_turret.turret_fields_valid(),
             hierarchy_valid: false,
             sampled_frame: 0.,
         }
@@ -110,7 +109,7 @@ impl InstalledDrawPose {
     ) -> bool {
         std::ptr::eq(self.model.as_ref(), model)
             && self.supported_controls
-            && !selected.primary_turret.has_unsupported_alternate_turret()
+            && selected.primary_turret.turret_fields_valid()
             && self.turret_names.0 == selected.primary_turret.yaw_bone
             && self.turret_names.1 == selected.primary_turret.pitch_bone
     }
@@ -234,8 +233,7 @@ impl RenderPipeline {
         pose.install_transform(world);
         // No HTree/non-controlled plain mesh is valid. A malformed/unsupported
         // turret input remains explicitly unavailable for camera acceptance.
-        pose.supported_controls = draw_model.primary_turret.primary_fields_valid
-            && !draw_model.primary_turret.has_unsupported_alternate_turret();
+        pose.supported_controls = draw_model.primary_turret.turret_fields_valid();
         // `None` may mean a non-HTree MeshClass, where no bone exists. For a
         // real named HTree, callers must not silently drop unsupported controls.
         if controls_requested && controls.is_none() {

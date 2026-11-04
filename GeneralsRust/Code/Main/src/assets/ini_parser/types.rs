@@ -402,10 +402,23 @@ impl AuthoredDrawPrimaryTurret {
         f32::from_bits(self.alternate_pitch_art_angle_radians_bits)
     }
 
-    /// A second C++ turret slot is source-authored but deliberately unsupported
-    /// by the bounded primary-turret renderer.
-    pub fn has_unsupported_alternate_turret(&self) -> bool {
+    /// C++ `ModelConditionInfo::m_turrets[TURRET_ALT]` is source-authored.
+    pub fn has_alternate_turret(&self) -> bool {
         self.alternate_yaw_bone_present || self.alternate_pitch_bone_present
+    }
+
+    /// Both C++ turret slots parsed cleanly. A malformed primary or (when
+    /// authored) alternate art angle fails the whole binding closed, since
+    /// C++ rejects bad INI data at load instead of drawing a guessed offset.
+    pub fn turret_fields_valid(&self) -> bool {
+        self.primary_fields_valid && (!self.has_alternate_turret() || self.alternate_fields_valid)
+    }
+
+    /// Any exact turret pivot (TURRET_MAIN or TURRET_ALT) can be controlled.
+    pub fn has_any_turret_bone(&self) -> bool {
+        self.has_primary_bone()
+            || self.alternate_yaw_bone.is_some()
+            || self.alternate_pitch_bone.is_some()
     }
 
     /// This does not require both primary bones: C++ independently controls

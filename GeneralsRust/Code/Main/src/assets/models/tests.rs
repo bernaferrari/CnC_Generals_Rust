@@ -1346,6 +1346,7 @@ fn w3d_hlod_turret_primary_controls_exact_bones_after_selected_animation() {
             &primary_turret,
             0.0,
             90.0,
+            (0.0, 0.0),
         )
         .expect("exact HLOD chassis remains renderable");
     let controlled_barrel = model
@@ -1356,6 +1357,7 @@ fn w3d_hlod_turret_primary_controls_exact_bones_after_selected_animation() {
             &primary_turret,
             0.0,
             90.0,
+            (0.0, 0.0),
         )
         .expect("exact HLOD pitch child remains renderable");
     let controlled_muzzle = model
@@ -1366,6 +1368,7 @@ fn w3d_hlod_turret_primary_controls_exact_bones_after_selected_animation() {
             &primary_turret,
             0.0,
             90.0,
+            (0.0, 0.0),
         )
         .expect("exact HLOD pitch descendant remains renderable");
     let bind_controlled_hull = model
@@ -1376,6 +1379,7 @@ fn w3d_hlod_turret_primary_controls_exact_bones_after_selected_animation() {
             &primary_turret,
             0.0,
             90.0,
+            (0.0, 0.0),
         )
         .expect("bind-pose chassis remains renderable under the same control");
     let bind_controlled_muzzle = model
@@ -1386,6 +1390,7 @@ fn w3d_hlod_turret_primary_controls_exact_bones_after_selected_animation() {
             &primary_turret,
             0.0,
             90.0,
+            (0.0, 0.0),
         )
         .expect("bind-pose muzzle remains renderable under the same control");
 
@@ -1432,28 +1437,98 @@ fn w3d_hlod_turret_primary_controls_exact_bones_after_selected_animation() {
         "the controlled descendant must retain the selected frame-one HAnim pose rather than reverting to bind pose"
     );
 
-    let alternate_turret = AuthoredDrawPrimaryTurret {
+    // hq-2qedt.2.6: C++ handleClientTurretPositioning loops m_turrets[0..1]
+    // with getTurretRotAndPitch(tslot). An authored alternate turret no longer
+    // fails the whole binding closed; it keeps the primary pose (alt bones
+    // absent here) and does not borrow any alt angle.
+    let with_unbound_alt = AuthoredDrawPrimaryTurret {
         alternate_yaw_bone_present: true,
         ..primary_turret.clone()
     };
-    let alternate_fallback = model
+    let primary_with_unbound_alt = model
         .mesh_local_transform_and_visibility_for_primary_turret(
             3,
             Some(&binding),
             1.0,
-            &alternate_turret,
+            &with_unbound_alt,
             0.0,
             90.0,
+            (33.0, 17.0),
         )
-        .expect("unsupported alternate source retains normal HLOD pose");
+        .expect("authored alternate source keeps the primary pose");
     assert!(
-        alternate_fallback
+        primary_with_unbound_alt
             .0
             .to_cols_array()
             .iter()
-            .zip(normal_muzzle.0.to_cols_array())
-            .all(|(fallback, normal)| (*fallback - normal).abs() < 1.0e-5),
-        "an authored alternate turret must fail closed instead of borrowing the primary angle"
+            .zip(controlled_muzzle.0.to_cols_array())
+            .all(|(a, b)| (*a - b).abs() < 1.0e-5),
+        "an authored AltTurret must not gate off the MAIN turret pose"
+    );
+}
+
+#[test]
+fn alt_turret_draw_poses_alt_bones_from_alt_angles_hq_2qedt_2_6() {
+    let model = primary_turret_hlod_model();
+    let binding = W3dAnimationBinding::local(0);
+    let primary_only = AuthoredDrawPrimaryTurret {
+        yaw_bone: Some("yaw_pivot".to_string()),
+        pitch_bone: Some("pitch_pivot".to_string()),
+        yaw_art_angle_radians_bits: std::f32::consts::FRAC_PI_2.to_bits(),
+        ..Default::default()
+    };
+    // Same pivots, authored as TURRET_ALT only (AltTurret/AltTurretPitch +
+    // AltTurretArtAngle), no MAIN bones.
+    let alt_only = AuthoredDrawPrimaryTurret {
+        alternate_yaw_bone_present: true,
+        alternate_pitch_bone_present: true,
+        alternate_yaw_bone: Some("yaw_pivot".to_string()),
+        alternate_pitch_bone: Some("pitch_pivot".to_string()),
+        alternate_yaw_art_angle_radians_bits: std::f32::consts::FRAC_PI_2.to_bits(),
+        ..Default::default()
+    };
+    let pose = |turret: &AuthoredDrawPrimaryTurret, main: (f32, f32), alt: (f32, f32)| {
+        model
+            .mesh_local_transform_and_visibility_for_primary_turret(
+                3,
+                Some(&binding),
+                1.0,
+                turret,
+                main.0,
+                main.1,
+                alt,
+            )
+            .expect("exact HLOD muzzle remains renderable")
+            .0
+    };
+    let close = |a: Mat4, b: Mat4| {
+        a.to_cols_array()
+            .iter()
+            .zip(b.to_cols_array())
+            .all(|(x, y)| (*x - y).abs() < 1.0e-5)
+    };
+    let primary_driven = pose(&primary_only, (0.0, 90.0), (0.0, 0.0));
+    let alt_driven = pose(&alt_only, (123.0, -45.0), (0.0, 90.0));
+    assert!(
+        close(primary_driven, alt_driven),
+        "alt bones must be posed from TURRET_ALT angles + Alt art offsets exactly like MAIN"
+    );
+    let alt_zero = pose(&alt_only, (0.0, 90.0), (0.0, 0.0));
+    assert!(
+        !close(alt_zero, alt_driven),
+        "the MAIN turret angle must never drive AltTurret pivots"
+    );
+    let bad_alt = AuthoredDrawPrimaryTurret {
+        alternate_fields_valid: false,
+        ..alt_only.clone()
+    };
+    let normal = model
+        .mesh_local_transform_and_visibility_for_binding(3, Some(&binding), 1.0)
+        .expect("selected raw HAnim muzzle")
+        .0;
+    assert!(
+        close(pose(&bad_alt, (0.0, 0.0), (0.0, 90.0)), normal),
+        "a malformed authored Alt art angle fails the turret binding closed"
     );
 }
 
@@ -1483,6 +1558,7 @@ fn aggregate_poses_inherit_primary_turret_and_recoil_controls_in_cxx_order() {
             &primary_turret,
             0.0,
             90.0,
+            (0.0, 0.0),
             &weapon_controls,
         )
         .expect("the rigid barrel parent must retain its exact controlled pose");
@@ -1493,6 +1569,7 @@ fn aggregate_poses_inherit_primary_turret_and_recoil_controls_in_cxx_order() {
             &primary_turret,
             0.0,
             90.0,
+            (0.0, 0.0),
             &weapon_controls,
         )
         .expect("an aggregate on a valid parent pivot must inherit controls");
@@ -2509,7 +2586,7 @@ fn w3d_hlod_turret_retail_scorpion_retains_exact_primary_turret_binding_when_ava
         .expect("retail pristine Scorpion selects UVLiteTank");
     assert_eq!(draw.primary_turret.yaw_bone.as_deref(), Some("turret01"));
     assert_eq!(draw.primary_turret.pitch_bone, None);
-    assert!(!draw.primary_turret.has_unsupported_alternate_turret());
+    assert!(!draw.primary_turret.has_alternate_turret());
 
     let model = W3DLoader::new()
         .load_model_from_path(&w3d_path)
@@ -2542,6 +2619,7 @@ fn w3d_hlod_turret_retail_scorpion_retains_exact_primary_turret_binding_when_ava
                 &draw.primary_turret,
                 0.0,
                 0.0,
+                (0.0, 0.0),
             )
             .is_some(),
         "retail Scorpion's exact Turret01 binding must carry through the active rigid-HLOD path"

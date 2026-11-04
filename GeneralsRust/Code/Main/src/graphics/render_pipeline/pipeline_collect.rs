@@ -595,6 +595,7 @@ impl RenderPipeline {
                                 &authored_primary_turret,
                                 u.turret_angle_deg,
                                 u.turret_pitch_deg,
+                                (u.alt_turret_angle_deg, u.alt_turret_pitch_deg),
                                 &weapon_controls,
                             );
                             self.install_native_draw_pose(
@@ -605,7 +606,7 @@ impl RenderPipeline {
                                 world_matrix,
                                 animation_binding.clone(),
                                 installed_controls,
-                                authored_primary_turret.has_primary_bone()
+                                authored_primary_turret.has_any_turret_bone()
                                     || weapon_controls
                                         .iter()
                                         .any(|control| control.recoil_pivot_index.is_some()),
@@ -633,6 +634,7 @@ impl RenderPipeline {
                                         &authored_primary_turret,
                                         u.turret_angle_deg,
                                         u.turret_pitch_deg,
+                                        (u.alt_turret_angle_deg, u.alt_turret_pitch_deg),
                                         &weapon_controls,
                                         &authored_subobject_visibility,
                                         u.world_is_night,
@@ -688,6 +690,7 @@ impl RenderPipeline {
                                     &authored_primary_turret,
                                     u.turret_angle_deg,
                                     u.turret_pitch_deg,
+                                    (u.alt_turret_angle_deg, u.alt_turret_pitch_deg),
                                     &weapon_controls,
                                 );
                             let has_source_aggregate_attachments = aggregate_poses
@@ -764,6 +767,7 @@ impl RenderPipeline {
                                         &authored_primary_turret,
                                         u.turret_angle_deg,
                                         u.turret_pitch_deg,
+                                        (u.alt_turret_angle_deg, u.alt_turret_pitch_deg),
                                         &weapon_controls,
                                     )
                                 else {
