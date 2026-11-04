@@ -700,18 +700,12 @@ impl GameLogic {
                             effects,
                         )
                     };
-                } else if {
-                    // USA Tomahawk residual: dual-radius long-range missile.
-                    use crate::game_logic::host_tomahawk::{
-                        is_tomahawk_template, should_apply_tomahawk_residual,
-                    };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_tomahawk_residual(is_tomahawk_template(&a.template_name))
-                        })
-                        .unwrap_or(false)
-                } {
+                } else if self.objects.get(&attacker_id).is_some_and(|a| {
+                    // USA Tomahawk residual keyed on the authored weapon, not the template name
+                    // (hq-2qedt.212).
+                    use crate::game_logic::host_tomahawk::TOMAHAWK_MISSILE_WEAPON;
+                    matches!(a.selected_weapon_name(slot), Some(TOMAHAWK_MISSILE_WEAPON))
+                }) {
                     let impact = target_position;
                     let from = self
                         .objects
