@@ -3066,3 +3066,35 @@ fn player_grant_science_script_readies_shared_special_power() {
         "script purchase must express sharedNSync ready-now"
     );
 }
+
+#[test]
+fn chain_guns_team_scan_skips_name_only_gattling_cannon() {
+    use crate::game_logic::host_gattling_tank::UPGRADE_CHINA_CHAIN_GUNS;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    ensure_host_weapon_store();
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::China, "China", true));
+    let mut g = ThingTemplate::new("TestGattlingCannon267");
+    g.add_kind_of(KindOf::Structure)
+        .set_health(1000.0)
+        .set_primary_weapon_name("RangerFlashBangGrenadeWeapon");
+    logic.templates.insert("TestGattlingCannon267".into(), g);
+    let id = logic
+        .create_object(
+            "TestGattlingCannon267",
+            Team::China,
+            glam::Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("name-only cannon");
+    let n = logic.apply_chain_guns_to_team(Team::China.into(), UPGRADE_CHINA_CHAIN_GUNS);
+    assert_eq!(n, 0, "name-only gattling cannon must not take chain guns");
+    assert!(
+        !logic
+            .host_object(id)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_CHINA_CHAIN_GUNS)
+    );
+}

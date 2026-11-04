@@ -1133,7 +1133,7 @@ impl GameLogic {
         recipients: UpgradeRecipients,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_base_defense::is_gattling_cannon_structure;
+        use crate::game_logic::host_base_defense::is_authored_gattling_building;
         use crate::game_logic::host_gattling_tank::{
             UPGRADE_CHINA_CHAIN_GUNS, is_gattling_tank_template,
         };
@@ -1147,7 +1147,7 @@ impl GameLogic {
                 if is_minigunner_template(&o.template_name) {
                     Some((*id, 0u8))
                 } else if is_gattling_tank_template(&o.template_name)
-                    || is_gattling_cannon_structure(&o.template_name)
+                    || is_authored_gattling_building(o.weapon_name_for_slot(0))
                 {
                     Some((*id, 1))
                 } else {

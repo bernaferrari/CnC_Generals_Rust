@@ -105,8 +105,8 @@ impl GameLogic {
         // one structure FiringTracker transition. The dedicated base-defense
         // driver performs this phase itself and never calls commit_combat_shot.
         if self.objects.get(&attacker_id).is_some_and(|attacker| {
-            crate::game_logic::host_base_defense::is_gattling_cannon_structure(
-                &attacker.template_name,
+            crate::game_logic::host_base_defense::is_authored_gattling_building(
+                attacker.weapon_name_for_slot(0),
             )
         }) {
             self.advance_gattling_building_continuous_fire(attacker_id, target_id, slot);
@@ -307,8 +307,8 @@ impl GameLogic {
             ) || crate::game_logic::host_minigunner::is_minigunner_template(
                 &attacker.template_name,
             )
-                || crate::game_logic::host_base_defense::is_gattling_cannon_structure(
-                    &attacker.template_name,
+                || crate::game_logic::host_base_defense::is_authored_gattling_building(
+                    attacker.weapon_name_for_slot(0),
                 );
             if specialized_lane {
                 attacker.finish_shot_after_specialized_tracker_with_owned_rof(&rates);
