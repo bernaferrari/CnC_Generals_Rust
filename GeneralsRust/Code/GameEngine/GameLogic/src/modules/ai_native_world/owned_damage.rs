@@ -216,7 +216,7 @@ impl BorrowedAiWorld<'_> {
     /// C++ ActiveBody.cpp:365-418 DAMAGE_KILLPILOT on the borrowed owner:
     /// vehicles become DISABLED_UNMANNED, deselected, idled and neutral;
     /// alreadyHandled, no modifier, no hull HP. Moving RiderChangeContain bikes are
-    /// scored and killed; stationary bikes (EvacuateInstantly) are not admitted.
+    /// scored and killed; stationary bikes evacuate and the rider is scored/killed.
     fn attempt_kill_pilot_owned(
         &mut self,
         owner: &Arc<RwLock<Object>>,
@@ -258,7 +258,32 @@ impl BorrowedAiWorld<'_> {
                     .map_err(|_| "damage ai unavailable")?
                     .is_moving();
                 if !moving {
-                    return Err("stationary rider-change KillPilot not admitted".into());
+                    // CPP ActiveBody.cpp:386-418: aiEvacuateInstantly, then
+                    // damager->scoreTheKill(rider) and rider->kill().
+                    let contain = object.get_contain().ok_or("damage contain absent")?;
+                    drop(object);
+                    let riders = contain
+                        .try_lock()
+                        .map_err(|_| "damage contain unavailable")?
+                        .get_contained_objects()
+                        .to_vec();
+                    for rider_id in &riders {
+                        contain
+                            .try_lock()
+                            .map_err(|_| "damage contain unavailable")?
+                            .remove_from_contain_with_world(*rider_id, false, self)?;
+                    }
+                    if let Some(rider) = riders.first().and_then(|id| self.object(*id)) {
+                        let mut kill = Self::physics_resting_kill_damage(&rider)?;
+                        self.validate_damage_owned(&rider, &kill)?;
+                        self.validate_native_kill_score(&rider, damage.input.source_id)?;
+                        self.score_native_kill(&rider, damage.input.source_id);
+                        self.attempt_damage_owned(&rider, &mut kill)?;
+                    }
+                    damage.sync_from_input();
+                    damage.output.actual_damage_dealt = 0.0;
+                    damage.output.actual_damage_clipped = 0.0;
+                    return Ok(0.0);
                 }
                 drop(object);
                 let mut kill = Self::physics_resting_kill_damage(owner)?;

@@ -2299,6 +2299,48 @@ impl ContainModuleInterface for RiderChangeContain {
         self.base.redeploy_riders_at(owner_pos, fire_points);
     }
 
+    // hq-2qedt.58: owned rider dismount. C++ RiderChangeContain::onRemoving:
+    // TransportContain removal, clear the rider's RiderInfo on the bike, and
+    // hand the bike's veterancy back to a controlled rider. Exit scuttle
+    // (needs drawables) and the dead-owner destroy are not on the owned path.
+    fn remove_from_contain_with_world(
+        &mut self,
+        id: ObjectID,
+        expose: bool,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        let (Some(rider), Some(owner)) = (world.object(id), world.object(self.object_id)) else {
+            return self.base.remove_with_world(id, expose, world);
+        };
+        if owner.read().map_err(|_| "owner lock poisoned")?.is_effectively_dead() {
+            return Err("owned rider-change dead-owner removal not admitted".into());
+        }
+        let template = rider.read().map_err(|_| "rider lock poisoned")?.get_template().clone();
+        self.base.remove_with_world(id, expose, world)?;
+        let mut transfer = false;
+        if let Some(info) = self
+            .module_data
+            .riders
+            .iter()
+            .find(|info| rider_info_matches_template(info, template.as_ref()))
+        {
+            let mut owner = owner.write().map_err(|_| "owner lock poisoned")?;
+            let _ = owner.clear_model_condition_flags(
+                info.model_condition_flag | ModelConditionFlags::DOOR_1_CLOSING,
+            );
+            owner.clear_weapon_set_flag(info.weapon_set_flag);
+            owner.set_status(info.object_status, false);
+            transfer = true;
+        }
+        let controlled = rider
+            .read()
+            .map(|rider| rider.get_controlling_player().is_some())
+            .unwrap_or(false);
+        if transfer && controlled {
+            transfer_veterancy(&owner, &rider);
+        }
+        Ok(())
+    }
     // hq-2qedt.58: owned first-rider boarding. C++ RiderChangeContain.cpp
     // onContaining applies the matching RiderInfo + veterancy, then
     // TransportContain::onContaining. Replacing an existing rider/payload
