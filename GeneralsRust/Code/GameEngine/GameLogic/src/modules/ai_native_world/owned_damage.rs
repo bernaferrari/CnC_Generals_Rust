@@ -215,8 +215,8 @@ impl BorrowedAiWorld<'_> {
     }
     /// C++ ActiveBody.cpp:365-418 DAMAGE_KILLPILOT on the borrowed owner:
     /// vehicles become DISABLED_UNMANNED, deselected, idled and neutral;
-    /// alreadyHandled, no modifier, no hull HP. RiderChangeContain bikes need
-    /// kill/score callbacks and are not admitted on the owned path.
+    /// alreadyHandled, no modifier, no hull HP. Moving RiderChangeContain bikes are
+    /// scored and killed; stationary bikes (EvacuateInstantly) are not admitted.
     fn attempt_kill_pilot_owned(
         &mut self,
         owner: &Arc<RwLock<Object>>,
@@ -248,7 +248,29 @@ impl BorrowedAiWorld<'_> {
                 None => false,
             };
             if rider_change {
-                return Err("rider-change KillPilot not admitted".into());
+                // CPP ActiveBody.cpp:376-385 (hq-2qedt.58): a moving bike is
+                // scored to the damager, then obj->kill() (sourceless kill).
+                let ai = object
+                    .get_ai_update_interface()
+                    .ok_or("rider-change KillPilot needs AI")?;
+                let moving = ai
+                    .try_lock()
+                    .map_err(|_| "damage ai unavailable")?
+                    .is_moving();
+                if !moving {
+                    return Err("stationary rider-change KillPilot not admitted".into());
+                }
+                drop(object);
+                let mut kill = Self::physics_resting_kill_damage(owner)?;
+                self.validate_damage_owned(owner, &kill)?;
+                self.validate_native_kill_score(owner, damage.input.source_id)?;
+                self.score_native_kill(owner, damage.input.source_id);
+                self.attempt_damage_owned(owner, &mut kill)?;
+                crate::object::body::active_body::record_neutral_vehicle_sniped();
+                damage.sync_from_input();
+                damage.output.actual_damage_dealt = 0.0;
+                damage.output.actual_damage_clipped = 0.0;
+                return Ok(0.0);
             }
             object.set_disabled_unmanned();
             object.deselect_all();

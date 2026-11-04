@@ -8,8 +8,16 @@ use crate::object::body::active_body::ActiveBodyModuleData;
 use crate::object::update::AIUpdateModuleData;
 
 fn new_game(name: &str) -> NativeMatch {
+    new_game_with(name, false)
+}
+
+fn new_game_with(name: &str, rider_change_bike: bool) -> NativeMatch {
     let mut base = DefaultThingTemplate::new(name.into());
-    base.add_kind_of(KindOf::Infantry);
+    base.add_kind_of(if rider_change_bike {
+        KindOf::Vehicle
+    } else {
+        KindOf::Infantry
+    });
     let locomotor_name = format!("{name}Loco");
     let mut locomotor = LocomotorTemplate::new(locomotor_name.clone());
     // Keep the original factory controls' OTHER defaults, not infantry TWO_LEGS.
@@ -26,9 +34,7 @@ fn new_game(name: &str) -> NativeMatch {
     let mut body = ActiveBodyModuleData::default();
     body.max_health = 100.0;
     body.initial_health = 100.0;
-    let template = Arc::new(EntryTemplate {
-        base,
-        modules: vec![
+    let mut modules = vec![
             TemplateModuleInfo {
                 name: "ActiveBody".into(),
                 module_tag: "WaypointBody".into(),
@@ -47,15 +53,31 @@ fn new_game(name: &str) -> NativeMatch {
                 data: Arc::new(PhysicsBehaviorModuleData::default()),
                 interface_mask: ModuleInterfaceType::UPDATE,
             },
-        ],
-    });
+        ];
+    if rider_change_bike {
+        modules.push(TemplateModuleInfo {
+            name: "RiderChangeContain".into(),
+            module_tag: "WaypointBikeContain".into(),
+            data: Arc::new(crate::contain_module_overrides::ContainModuleDataAdapter::new(
+                crate::object::contain::rider_change_contain::RiderChangeContainModuleData::default(),
+            )),
+            interface_mask: ModuleInterfaceType::CONTAIN,
+        });
+    }
+    let template = Arc::new(EntryTemplate { base, modules });
     let mut game = NativeMatch::with_source_template(290.0, container_template(), false, template);
     Object::admit_update_schedule_from_handle(&game.source, &mut game.scheduler).unwrap();
     let owner = Arc::clone(&game.source);
     game.operate(0, |world| {
-        world
-            .set_object_position(&mut owner.write().unwrap(), &Coord3D::new(30.0, 30.0, 0.0))
-            .unwrap();
+        if rider_change_bike {
+            world
+                .set_object_position_handle(&owner, &Coord3D::new(30.0, 30.0, 0.0))
+                .unwrap();
+        } else {
+            world
+                .set_object_position(&mut owner.write().unwrap(), &Coord3D::new(30.0, 30.0, 0.0))
+                .unwrap();
+        }
     });
     let interface = ai(&owner);
     game.operate(0, |world| {
@@ -728,4 +750,56 @@ fn installed_immune_flight_preserves_receiving_owner_and_saved_future() {
         owner.read().unwrap().get_health(),
         receiver.read().unwrap().get_health()
     );
+}
+
+/// hq-2qedt.58 / CPP ActiveBody.cpp:376-385: KillPilot on a moving
+/// RiderChangeContain bike scores and kills the bike (no unmanning).
+#[test]
+fn kill_pilot_destroys_moving_rider_change_bike_on_owned_path() {
+    if game_engine::common::common_services::try_common_services().is_none() {
+        game_engine::common::common_services::install_common_services(Arc::new(
+            game_engine::common::common_services::CommonServices::new(),
+        ));
+    }
+    if crate::system::engine_stores::try_active_services().is_none() {
+        crate::system::engine_stores::install_active(crate::system::engine_stores::new_for_world());
+    }
+    let mut game = new_game_with("OwnedKillPilotBike", true);
+    install_waypoints(&mut game);
+    let peer = new_game_with("OwnedKillPilotBikePeer", true);
+    let interface = ai(&game.source);
+    let mut command =
+        AiCommandParams::new(AiCommandType::FollowWaypointPath, CommandSourceType::FromPlayer);
+    command.waypoint = Some(9_801);
+    game.operate(0, |world| {
+        let mut interface = interface.lock().unwrap();
+        interface
+            .execute_command_with_world(
+                &AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromAI),
+                world,
+            )
+            .unwrap();
+        interface.execute_command_with_world(&command, world).unwrap();
+    });
+    let mut moving_frame = None;
+    for frame in 1..60 {
+        game.operate(frame, |world| world.process_enter_path_queue(10).unwrap());
+        if interface.lock().unwrap().is_moving() {
+            moving_frame = Some(frame);
+            break;
+        }
+    }
+    let frame = moving_frame.expect("real waypoint motion must move the bike");
+    let owner = Arc::clone(&game.source);
+    let mut damage = crate::damage::DamageInfo::default();
+    damage.input.source_id = game.target.read().unwrap().get_id();
+    damage.input.damage_type = crate::damage::DamageType::KillPilot;
+    damage.input.amount = 50.0;
+    let dealt = game.operate(frame, |world| world.attempt_damage_owned(&owner, &mut damage));
+    assert!(dealt.is_ok(), "moving bike KillPilot admitted: {dealt:?}");
+    let bike = owner.read().unwrap();
+    assert!(bike.is_effectively_dead(), "C++ obj->kill() on moving bike");
+    assert!(!bike.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned));
+    drop(bike);
+    assert!(!peer.source.read().unwrap().is_effectively_dead(), "same-ID peer untouched");
 }

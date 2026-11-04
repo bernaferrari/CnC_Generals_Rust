@@ -2253,6 +2253,39 @@ impl ContainModuleInterface for RiderChangeContain {
         self.base.on_selling().map_err(|e| e.into())
     }
 
+    // hq-2qedt.58: onDie is inherited from TransportContain, but C++ overrides
+    // killRidersWhoAreNotFreeToExit; that rider policy is not on the owned
+    // path, so only an empty (riderless) bike admits owned lifecycle.
+    fn supports_owned_lifecycle(&self) -> bool {
+        ContainModuleInterface::get_contained_count(&self.base) == 0
+            && ContainModuleInterface::supports_owned_lifecycle(&self.base)
+    }
+    fn owned_physical_members(&self) -> Option<Vec<ObjectID>> {
+        ContainModuleInterface::owned_physical_members(&self.base)
+    }
+    fn owned_death_policy(
+        &self,
+        owner: &Object,
+        damage: &DamageInfo,
+    ) -> Option<crate::modules::OwnedContainDeathPolicy> {
+        ContainModuleInterface::owned_death_policy(&self.base, owner, damage)
+    }
+    // hq-2qedt.58: C++ RiderChangeContain inherits TransportContain's redeploy.
+    fn supports_owned_redeployment(&self) -> bool {
+        ContainModuleInterface::supports_owned_redeployment(&self.base)
+    }
+    fn begin_owned_redeployment(&mut self) -> Vec<ObjectID> {
+        ContainModuleInterface::begin_owned_redeployment(&mut self.base)
+    }
+    fn owned_next_firepoint(&mut self, bones: &[Matrix3D]) -> Option<Matrix3D> {
+        ContainModuleInterface::owned_next_firepoint(&mut self.base, bones)
+    }
+    fn owned_firepoint_index(&self) -> usize {
+        ContainModuleInterface::owned_firepoint_index(&self.base)
+    }
+    fn advance_owned_firepoint(&mut self) {
+        ContainModuleInterface::advance_owned_firepoint(&mut self.base)
+    }
     fn redeploy_riders_at(&mut self, owner_pos: &Coord3D, fire_points: &[Matrix3D]) {
         self.base.redeploy_riders_at(owner_pos, fire_points);
     }
