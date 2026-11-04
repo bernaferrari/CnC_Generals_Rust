@@ -4075,3 +4075,10 @@ fn rebel_residual_gun_and_ap_bullets() {
         "AP residual fire should deal at least base damage, got {dmg_dealt}"
     );
 }
+
+#[test]
+fn stealth_fighter_air_and_mig_residual_has_no_template_name_sniff() {
+    // C++ StealthFighter residual keys off the authored weapon, never the template name.
+    let src = include_str!("../world_combat/air_and_mig.rs");
+    assert!(!src.contains("is_stealth_fighter_template"));
+}

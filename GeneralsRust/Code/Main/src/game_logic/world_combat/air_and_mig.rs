@@ -363,7 +363,7 @@ impl GameLogic {
         use crate::game_logic::host_stealth_fighter::{
             STEALTH_FIGHTER_DAMAGE, STEALTH_FIGHTER_DAMAGE_TYPE, STEALTH_FIGHTER_DEATH_TYPE,
             STEALTH_FIGHTER_FIRE_AUDIO, STEALTH_FIGHTER_PRIMARY_RADIUS,
-            is_legal_stealth_fighter_target, is_stealth_fighter_template,
+            is_legal_stealth_fighter_target,
             stealth_fighter_damage_at, stealth_jet_scatter_aim,
             stealth_jet_scatter_misses_infantry,
         };
@@ -552,13 +552,6 @@ impl GameLogic {
                 self.frame,
                 sid,
                 intended_target,
-            );
-            let _ = is_stealth_fighter_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
             );
         }
 
