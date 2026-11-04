@@ -213,3 +213,20 @@ fn rebel_create_primary_comes_from_authored_weapon_set() {
         "authored PRIMARY ({HUMVEE_PRIMARY_WEAPON}) overwritten by rebel_weapon peel ({GLA_REBEL_PRIMARY_WEAPON}): {prim:?}"
     );
 }
+
+/// hq-2qedt.168: USA Ranger PRIMARY comes only from the authored WeaponSet
+/// (WeaponSet::updateWeaponSet); no `ranger_rifle_weapon` name peel at create.
+#[test]
+fn ranger_create_primary_has_no_name_peel_without_authored_weapon_set() {
+    crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    let mut w = world(
+        "Object AmericaInfantryRanger\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 180\n InitialHealth = 180\n End\nEnd\n",
+    );
+    let id = w.create_object_for_player("AmericaInfantryRanger", 1, Vec3::ZERO).unwrap();
+    let prim = w.host_object(id).unwrap().weapon_slot(0).cloned();
+    let peel = crate::game_logic::host_ranger::ranger_rifle_weapon();
+    let is_peel = prim.as_ref().is_some_and(|p| {
+        p.projectile_speed == peel.projectile_speed && p.clip_reload_time == peel.clip_reload_time
+    });
+    assert!(!is_peel, "Ranger PRIMARY seeded by ranger_rifle_weapon name peel: {prim:?}");
+}

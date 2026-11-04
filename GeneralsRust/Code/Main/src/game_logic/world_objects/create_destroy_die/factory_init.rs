@@ -296,7 +296,7 @@ impl GameLogic {
         // (C++ WeaponSet::updateWeaponSet), not a template-name peel
         // (hq-2qedt.167). AP Bullets residual stays in refresh_rebel_weapon.
 
-        // Host residual: USA Ranger PRIMARY rifle residual.
+        // Host residual: USA Ranger FlashBang SECONDARY residual.
         // FlashBang secondary is PLAYER_UPGRADE only (Upgrade_AmericaRangerFlashBangGrenade)
         // — parity with neutron shells / rocket pods: residual map may name the weapon,
         // but create strips it unless research is unlocked or template explicitly seeds it.
@@ -304,16 +304,9 @@ impl GameLogic {
         if crate::game_logic::host_ranger::is_ranger_template(template_name) {
             use crate::game_logic::host_ranger::{
                 UPGRADE_AMERICA_FLASHBANG, has_flashbang_equipped, ranger_flashbang_weapon,
-                ranger_rifle_weapon,
             };
-            // C++ WeaponSet::updateWeaponSet uses the authored primary.
-            // Only supply the retail seed when this template has no rule.
-            if object.thing().template.primary_weapon_name.is_none()
-                && object.thing().template.primary_weapon.is_none()
-                && !object.thing().template.primary_weapon_explicitly_none
-            {
-                object.weapon = Some(ranger_rifle_weapon());
-            }
+            // PRIMARY binds from the authored WeaponSet above (C++
+            // WeaponSet::updateWeaponSet), not a name peel (hq-2qedt.168).
             let has_flashbang = has_flashbang_equipped(
                 false,
                 if allow_upgrades {
