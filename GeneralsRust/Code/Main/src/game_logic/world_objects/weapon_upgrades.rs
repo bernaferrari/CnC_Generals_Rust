@@ -945,7 +945,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_base_defense::is_stinger_site_structure;
-        use crate::game_logic::host_rpg_trooper::is_rpg_trooper_template;
+        use crate::game_logic::host_rpg_trooper::is_rpg_trooper_weapon_name;
         use crate::game_logic::host_scorpion::{UPGRADE_GLA_AP_ROCKETS, is_scorpion_template};
 
         let ids: Vec<(ObjectId, u8)> = self
@@ -955,7 +955,10 @@ impl GameLogic {
             .filter_map(|(id, o)| {
                 if is_scorpion_template(&o.template_name) {
                     Some((*id, 0u8))
-                } else if is_rpg_trooper_template(&o.template_name) {
+                } else if o
+                    .authored_weapon_name_for_slot(0)
+                    .is_some_and(is_rpg_trooper_weapon_name)
+                {
                     Some((*id, 1))
                 } else if is_stinger_site_structure(&o.template_name) {
                     Some((*id, 2))

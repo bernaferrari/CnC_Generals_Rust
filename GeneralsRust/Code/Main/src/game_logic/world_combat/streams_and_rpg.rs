@@ -1211,12 +1211,15 @@ impl GameLogic {
     /// Refresh RPG Trooper residual from current AP Rockets upgrade tag.
     pub(in super::super) fn refresh_rpg_trooper_weapon(&mut self, object_id: ObjectId) {
         use crate::game_logic::host_rpg_trooper::{
-            has_ap_rockets_upgrade, is_rpg_trooper_template, rpg_trooper_weapon,
+            has_ap_rockets_upgrade, is_rpg_trooper_weapon_name, rpg_trooper_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return;
         };
-        if !is_rpg_trooper_template(&obj.template_name) {
+        if !obj
+            .authored_weapon_name_for_slot(0)
+            .is_some_and(is_rpg_trooper_weapon_name)
+        {
             return;
         }
         let ap = has_ap_rockets_upgrade(&obj.applied_upgrades);
@@ -1231,12 +1234,15 @@ impl GameLogic {
     /// Apply AP Rockets residual tag to an RPG Trooper (damage × 1.25).
     pub fn apply_rpg_trooper_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_rpg_trooper::{
-            UPGRADE_GLA_AP_ROCKETS, is_rpg_trooper_template,
+            UPGRADE_GLA_AP_ROCKETS, is_rpg_trooper_weapon_name,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_rpg_trooper_template(&obj.template_name) {
+        if !obj
+            .authored_weapon_name_for_slot(0)
+            .is_some_and(is_rpg_trooper_weapon_name)
+        {
             return false;
         }
         obj.applied_upgrades

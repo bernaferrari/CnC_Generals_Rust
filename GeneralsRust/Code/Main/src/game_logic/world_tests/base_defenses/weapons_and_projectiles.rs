@@ -3173,6 +3173,60 @@ fn rpg_trooper_object_hit_keys_on_authored_weapon_not_template_name() {
     );
 }
 
+/// hq-2qedt.278: AP Rockets (WeaponBonusUpgrade) keys on the authored
+/// TunnelDefenderRocketWeapon, not the template name.
+#[test]
+fn rpg_trooper_ap_rockets_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_rpg_trooper::{
+        TUNNEL_DEFENDER_ROCKET_WEAPON, UPGRADE_GLA_AP_ROCKETS, is_rpg_trooper_template,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("GLAInfantryRocketCloneTrooper");
+    tpl.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0)
+        .set_primary_weapon_name(TUNNEL_DEFENDER_ROCKET_WEAPON);
+    game_logic
+        .templates
+        .insert("GLAInfantryRocketCloneTrooper".to_string(), tpl);
+    let mut bare = crate::game_logic::ThingTemplate::new("TestRPGTrooper");
+    bare.add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(100.0);
+    game_logic
+        .templates
+        .insert("TestRPGTrooper".to_string(), bare);
+
+    let authored = game_logic
+        .create_object("GLAInfantryRocketCloneTrooper", Team::GLA, Vec3::ZERO)
+        .expect("authored");
+    let named = game_logic
+        .create_object("TestRPGTrooper", Team::GLA, Vec3::new(30.0, 0.0, 0.0))
+        .expect("named");
+    assert!(!is_rpg_trooper_template("GLAInfantryRocketCloneTrooper"));
+    assert!(is_rpg_trooper_template("TestRPGTrooper"));
+
+    assert!(
+        game_logic.apply_rpg_trooper_ap_rockets_upgrade(authored),
+        "authored TunnelDefenderRocketWeapon must take AP Rockets"
+    );
+    assert!(
+        game_logic
+            .host_object(authored)
+            .unwrap()
+            .has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS)
+    );
+    assert!(
+        !game_logic.apply_rpg_trooper_ap_rockets_upgrade(named),
+        "name-matching template without authored weapon must not take AP Rockets"
+    );
+}
+
 /// hq-2qedt.234: Jarmen Kell object_hit residual keys on the authored weapon
 /// fired from the slot (Weapon::fireWeapon / WeaponTemplate), not on the
 /// firer's template name.
