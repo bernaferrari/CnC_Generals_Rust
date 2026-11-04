@@ -62,6 +62,20 @@ pub struct HostSlowDeathIni {
     pub fx_midpoint: Option<String>,
     /// C++ `FX = FINAL ...` first non-empty FXList name.
     pub fx_final: Option<String>,
+    /// C++ DieMuxData `DeathTypes` mask (`1 << (dt - 1)` per DieModule.cpp).
+    #[serde(default = "all_death_types")]
+    pub death_types: u32,
+    /// C++ SlowDeathBehaviorModuleData `ProbabilityModifier` (default 10, >= 1).
+    #[serde(default = "default_probability_modifier")]
+    pub probability_modifier: i32,
+}
+
+fn all_death_types() -> u32 {
+    gamelogic::damage::DEATH_TYPE_FLAGS_ALL
+}
+
+fn default_probability_modifier() -> i32 {
+    10
 }
 
 impl Default for HostSlowDeathIni {
@@ -79,11 +93,22 @@ impl Default for HostSlowDeathIni {
             fx_initial: None,
             fx_midpoint: None,
             fx_final: None,
+            death_types: all_death_types(),
+            probability_modifier: default_probability_modifier(),
         }
     }
 }
 
 impl HostSlowDeathIni {
+    /// C++ DieMuxData::isDieApplicable death-type gate (DieModule.cpp).
+    pub fn death_type_applies(
+        &self,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    ) -> bool {
+        let bit = 1u32 << (u32::from(death_type.ordinal()).wrapping_sub(1) & 31);
+        self.death_types & bit != 0
+    }
+
     /// Retail AmericaInfantry* SlowDeathBehavior peel (SinkDelay 3000 / SinkRate 0.5 / DestructionDelay 8000).
     pub fn infantry_retail() -> Self {
         Self {
@@ -494,7 +519,46 @@ pub fn slow_death_ini_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostSlowDea
         fx_initial,
         fx_midpoint,
         fx_final,
+        death_types: get("DeathTypes")
+            .and_then(|raw| {
+                let tokens: Vec<&str> = raw.split_whitespace().collect();
+                gamelogic::object::die::parse_death_type_flags_tokens(&tokens).ok()
+            })
+            .unwrap_or_else(all_death_types),
+        probability_modifier: get("ProbabilityModifier")
+            .and_then(|raw| {
+                raw.split(';')
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .parse::<i32>()
+                    .ok()
+            })
+            .unwrap_or_else(default_probability_modifier)
+            .max(1),
     }
+}
+
+/// C++ SlowDeathBehavior::onDie (SlowDeathBehavior.cpp:475-502): sum
+/// ProbabilityModifier over DieMux-applicable modules, roll
+/// GameLogicRandomValue(1,total), pick the module that drives roll <= 0.
+pub fn select_slow_death_ini(
+    modules: &[HostSlowDeathIni],
+    death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+) -> Option<HostSlowDeathIni> {
+    let applicable = || modules.iter().filter(|m| m.death_type_applies(death_type));
+    let total: i32 = applicable().map(|m| m.probability_modifier).sum();
+    if total <= 0 {
+        return None;
+    }
+    let mut roll = gamelogic::helpers::get_game_logic_random_value(1, total);
+    for module in applicable() {
+        roll -= module.probability_modifier;
+        if roll <= 0 {
+            return Some(module.clone());
+        }
+    }
+    None
 }
 
 /// Read the effective immutable definition already admitted to the object.

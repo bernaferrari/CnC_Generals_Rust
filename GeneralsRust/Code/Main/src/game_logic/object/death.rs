@@ -493,10 +493,12 @@ impl Object {
         let ini = if let Some(definition) = template.receiving_object_definition.as_deref() {
             crate::game_logic::host_slow_death::slow_death_ini_for_definition(definition)
         } else {
-            template
-                .authored_slow_death
-                .as_ref()
-                .and_then(|modules| modules.first().cloned())
+            template.authored_slow_death.as_ref().and_then(|modules| {
+                crate::game_logic::host_slow_death::select_slow_death_ini(
+                    modules,
+                    self.status.death_type,
+                )
+            })
         };
         let Some(ini) = ini else {
             return self

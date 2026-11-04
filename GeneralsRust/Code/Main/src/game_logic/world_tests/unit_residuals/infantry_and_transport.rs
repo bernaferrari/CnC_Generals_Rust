@@ -3233,3 +3233,65 @@ fn troop_crawler_residual_rejects_vehicle_enter() {
         "vehicle enter must not count as troop crawler residual load"
     );
 }
+
+/// hq-2qedt.11: template-only (non-receiving-definition) SlowDeath fallback
+/// must follow C++ SlowDeathBehavior::onDie (SlowDeathBehavior.cpp:456-502):
+/// filter every module by DieMux, then GameLogicRandomValue(1,total) over
+/// ProbabilityModifier — never first-row pick.
+#[test]
+fn non_authored_slow_death_fallback_selects_through_die_mux_and_probability() {
+    use crate::game_logic::host_slow_death::{
+        msec_to_logic_frames, slow_death_ini_from_behavior_attrs,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut t = ThingTemplate::new("FallbackMultiSlowVictim");
+    t.set_health(100.0);
+    t.add_kind_of(KindOf::Vehicle);
+    t.authored_slow_death = Some(vec![
+        slow_death_ini_from_behavior_attrs(&[
+            ("DeathTypes", "NONE +CRUSHED"),
+            ("DestructionDelay", "9000"),
+            ("ProbabilityModifier", "1000000"),
+        ]),
+        slow_death_ini_from_behavior_attrs(&[
+            ("DeathTypes", "ALL -CRUSHED"),
+            ("DestructionDelay", "6000"),
+            ("ProbabilityModifier", "1"),
+        ]),
+        slow_death_ini_from_behavior_attrs(&[
+            ("DeathTypes", "ALL -CRUSHED"),
+            ("DestructionDelay", "3000"),
+            ("ProbabilityModifier", "1000000"),
+        ]),
+    ]);
+    logic.templates.insert("FallbackMultiSlowVictim".into(), t);
+    let mut picks = [0u32; 3];
+    for i in 0..20 {
+        let id = logic
+            .create_object(
+                "FallbackMultiSlowVictim",
+                Team::USA,
+                glam::Vec3::new(i as f32 * 10.0, 0.0, 0.0),
+            )
+            .unwrap();
+        logic.objects.get_mut(&id).unwrap().status.death_type =
+            crate::game_logic::host_usa_pilot::HostDeathType::Normal;
+        logic.mark_object_for_destruction(id, None);
+        let o = logic.objects.get(&id).unwrap();
+        let sd = o.slow_death.as_ref().expect("fallback SlowDeath must begin");
+        let d = sd.destroy_at_frame - sd.begin_frame;
+        if d == msec_to_logic_frames(9000) {
+            picks[0] += 1;
+        } else if d == msec_to_logic_frames(6000) {
+            picks[1] += 1;
+        } else if d == msec_to_logic_frames(3000) {
+            picks[2] += 1;
+        } else {
+            panic!("unexpected destruction delay {d}");
+        }
+        logic.objects.remove(&id);
+    }
+    assert_eq!(picks[0], 0, "DieMux must exclude CRUSHED-only module for NORMAL: {picks:?}");
+    assert!(picks[2] >= 19, "ProbabilityModifier weight must dominate: {picks:?}");
+}
