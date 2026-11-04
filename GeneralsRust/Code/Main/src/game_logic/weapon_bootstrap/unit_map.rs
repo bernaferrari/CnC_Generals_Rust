@@ -587,4 +587,13 @@ mod name_peel_tests {
             gl::host_overlord_gun::is_overlord_gun_chassis,
         );
     }
+
+    /// hq-2qedt.230
+    #[test]
+    fn angry_mob_nexus_variant_name_has_no_unit_map_weapon() {
+        assert_unmapped(
+            "FixtureAngryMobNexusVariant",
+            gl::host_angry_mob::is_angry_mob_nexus_template,
+        );
+    }
 }
