@@ -264,7 +264,7 @@ fn parse_turret_module(module: &BehaviorModuleDefinition) -> TurretSpawnSpec {
 
 fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
     use crate::game_logic::host_base_defense::{
-        is_gattling_cannon_structure,, is_patriot_battery_structure};
+        is_gattling_cannon_structure, is_patriot_battery_structure};
     use crate::game_logic::host_battlemaster::BATTLE_MASTER_TURRET_TURN_RATE;
     use crate::game_logic::host_gattling_tank::is_gattling_tank_template;
     use crate::game_logic::host_humvee::{

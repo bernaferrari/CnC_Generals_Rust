@@ -2012,6 +2012,9 @@ mod production_variation_owner_tests;
 pub(crate) mod spawn_callback_hook {
     use super::*;
     type Hook = Box<dyn FnMut(&mut GameLogic, ObjectId, ObjectId)>;
+    // cfg(test) repeated on the macro so count_globals.sh attributes it as test-only
+    // (its module-body walk misses pub(crate) mod under #[cfg(test)]).
+    #[cfg(test)]
     thread_local! {
         static HOOK: std::cell::RefCell<Option<Hook>> = std::cell::RefCell::new(None);
     }
