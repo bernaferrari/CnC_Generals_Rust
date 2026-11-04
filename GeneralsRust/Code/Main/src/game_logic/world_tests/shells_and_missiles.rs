@@ -2509,6 +2509,37 @@ fn helix_create_primary_comes_from_authored_weapon_set() {
     );
 }
 
+/// hq-2qedt.140: Humvee PRIMARY binds from the authored WeaponSet at create
+/// (C++ WeaponSet::updateWeaponSet); create path only installs transport.
+#[test]
+fn humvee_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::host_humvee::{HUMVEE_GUN_DAMAGE, HUMVEE_GUN_RANGE};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleHumvee");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(240.0)
+        .set_primary_weapon_name("HelixMinigunWeapon");
+    game_logic
+        .templates
+        .insert("AmericaVehicleHumvee".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("humvee");
+    let obj = game_logic.host_object(id).expect("humvee");
+    assert!(obj.is_humvee_transport, "transport residual still installed");
+    let prim = obj.weapon.clone().expect("authored primary");
+    assert!(
+        (prim.range - HUMVEE_GUN_RANGE).abs() > 0.01
+            || (prim.damage - HUMVEE_GUN_DAMAGE).abs() > 0.01,
+        "authored PRIMARY overwritten by humvee_gun_weapon() name peel: {prim:?}"
+    );
+}
+
 /// Residual: USA Comanche 20mm intended + anti-tank dual-radius residual.
 #[test]
 fn comanche_residual_cannon_and_antitank() {

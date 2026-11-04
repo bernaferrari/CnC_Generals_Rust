@@ -2896,6 +2896,8 @@ impl GameLogic {
             if crate::game_logic::host_humvee::is_humvee_template(template_name) {
                 object.install_humvee_transport();
             }
+            // Humvee PRIMARY binds from the authored WeaponSet above (C++
+            // WeaponSet::updateWeaponSet); no create-time name peel (hq-2qedt.140).
 
             // USA Avenger PRIMARY/SECONDARY bind from the authored WeaponSet
             // above (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a
