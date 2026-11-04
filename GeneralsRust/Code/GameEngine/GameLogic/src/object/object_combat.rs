@@ -476,7 +476,8 @@ impl Object {
                     if index < 0 {
                         return None;
                     }
-                    let manager = crate::commands::selection::get_selection_manager();
+                    let services = crate::system::engine_stores::try_active_services()?;
+                    let manager = crate::commands::selection::get_selection_manager_on(&services);
                     let manager = manager.read().ok()?;
                     let selection = manager.get_player_selection_ref(index)?;
                     Some(selection.get_selected_objects())

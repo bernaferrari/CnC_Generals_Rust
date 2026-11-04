@@ -13,6 +13,10 @@ pub(crate) struct OnDieInput {
     pub(crate) source: Option<ObjectId>,
     pub(crate) damage_type: DamageType,
     pub(crate) death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    /// C++ DamageInfoOutput m_actualDamageDealt / m_actualDamageClipped
+    /// (ActiveBody.cpp:540-541), read by SlowDeathBehavior overkill selection.
+    pub(crate) actual_damage_dealt: f32,
+    pub(crate) actual_damage_clipped: f32,
 }
 
 /// Immediate Player mutations issued by one Body operation. These are callbacks

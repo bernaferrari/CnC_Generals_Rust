@@ -2137,7 +2137,10 @@ fn host_upgrade_complete_drone_and_aircraft_armor() {
     battle.add_kind_of(KindOf::Vehicle).set_health(100.0);
     logic.templates.insert("AmericaBattleDrone".into(), battle);
     let mut mig = ThingTemplate::new("ChinaJetMIG");
-    mig.add_kind_of(KindOf::Aircraft).set_health(160.0);
+    // Retail ChinaJetMIG authors NapalmMissileWeapon (hq-2qedt.247 gate).
+    mig.add_kind_of(KindOf::Aircraft)
+        .set_health(160.0)
+        .set_primary_weapon_name(crate::game_logic::host_mig::NAPALM_MISSILE_WEAPON);
     logic.templates.insert("ChinaJetMIG".into(), mig);
 
     let did = logic
@@ -2183,7 +2186,10 @@ fn host_upgrade_complete_advanced_training_and_tactical_nuke_mig() {
         .templates
         .insert("AmericaInfantryRanger".into(), ranger);
     let mut mig = ThingTemplate::new("Nuke_ChinaJetMIG");
-    mig.add_kind_of(KindOf::Aircraft).set_health(200.0);
+    // Retail Nuke_ChinaJetMIG authors Nuke_MiGMissileWeapon (hq-2qedt.247 gate).
+    mig.add_kind_of(KindOf::Aircraft)
+        .set_health(200.0)
+        .set_primary_weapon_name(crate::game_logic::host_mig::NUKE_MIG_MISSILE_WEAPON);
     logic.templates.insert("Nuke_ChinaJetMIG".into(), mig);
 
     let rid = logic

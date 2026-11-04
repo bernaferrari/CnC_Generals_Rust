@@ -7072,3 +7072,537 @@ fn red_guard_tank_hunter_nationalism_keys_on_authored_weapon() {
         "Tank Hunter-named infantry without authored launcher does not"
     );
 }
+
+/// hq-2qedt.194: C++ BlackNapalm / Tactical Nuke MiG are WeaponSetUpgrade
+/// (WEAPONSET_PLAYER_UPGRADE → updateWeaponSet); the refreshed PRIMARY is the
+/// upgrade row's authored weapon, not name-built mig_weapon() stats.
+#[test]
+fn mig_upgrade_refresh_binds_authored_weapon_not_name_built_stats() {
+    use crate::game_logic::host_mig::{
+        BLACK_NAPALM_MISSILE_WEAPON, MigLoadout, NAPALM_MISSILE_WEAPON, NUKE_MIG_MISSILE_WEAPON,
+        NUKE_NUKE_MISSILE_WEAPON, mig_weapon,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    // Retail base PRIMARY authored (hq-2qedt.248 gate keys on authored MiG missile).
+    for (tpl_name, nuke, weapon_name, loadout, base) in [
+        (
+            "ChinaJetMIG",
+            false,
+            BLACK_NAPALM_MISSILE_WEAPON,
+            MigLoadout::BlackNapalm,
+            NAPALM_MISSILE_WEAPON,
+        ),
+        (
+            "Nuke_ChinaJetMIG",
+            true,
+            NUKE_NUKE_MISSILE_WEAPON,
+            MigLoadout::NukeTactical,
+            NUKE_MIG_MISSILE_WEAPON,
+        ),
+    ] {
+        let mut game_logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new(tpl_name);
+        tpl.add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(base);
+        game_logic.templates.insert(tpl_name.to_string(), tpl);
+        let id = game_logic
+            .create_object(tpl_name, Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("mig");
+        let applied = if nuke {
+            game_logic.apply_mig_tactical_nuke_upgrade(id)
+        } else {
+            game_logic.apply_mig_black_napalm_upgrade(id)
+        };
+        assert!(applied, "{tpl_name} upgrade applies");
+        let prim = game_logic
+            .host_object(id)
+            .and_then(|o| o.weapon.clone())
+            .expect("upgraded primary");
+        let authored = game_logic
+            .with_own_services(|| {
+                crate::game_logic::ThingTemplate::weapon_from_host_store(weapon_name)
+            })
+            .expect("authored upgrade weapon");
+        let built = mig_weapon(loadout);
+        assert!(
+            (authored.splash_radius - built.splash_radius).abs() > 0.01
+                || (authored.damage - built.damage).abs() > 0.01,
+            "fixture must distinguish authored vs name-built"
+        );
+        assert!(
+            (prim.damage - authored.damage).abs() < 0.01
+                && (prim.splash_radius - authored.splash_radius).abs() < 0.01
+                && (prim.min_range - authored.min_range).abs() < 0.01,
+            "{tpl_name}: refresh used name-built mig_weapon(): {prim:?} vs authored {authored:?}"
+        );
+    }
+}
+
+/// hq-2qedt.156: C++ binds PRIMARY from the template WeaponSet at create
+/// (WeaponSet::updateWeaponSet), not a template-name host table. A
+/// MiG-named template authoring a different PRIMARY must keep it.
+#[test]
+fn mig_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::host_mig::{MigLoadout, mig_primary_damage};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaJetMIG");
+    tpl.add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("ChinaJetMIG".to_string(), tpl);
+    let id = game_logic
+        .create_object("ChinaJetMIG", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("mig");
+    let obj = game_logic.host_object(id).expect("mig");
+    let prim = obj.weapon.clone().expect("authored primary");
+    assert!(
+        (prim.damage - mig_primary_damage(MigLoadout::Standard)).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by mig_weapon() name peel: {prim:?}"
+    );
+}
+
+/// hq-2qedt.154: C++ binds PRIMARY from the template WeaponSet at create
+/// (WeaponSet::updateWeaponSet), not a template-name host table. A
+/// Scorpion-named template authoring a different PRIMARY must keep it.
+#[test]
+fn scorpion_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::host_scorpion::{SCORPION_GUN_DAMAGE, SCORPION_GUN_DAMAGE_PLUS};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("GLATankScorpion");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("GLATankScorpion".to_string(), tpl);
+    let id = game_logic
+        .create_object("GLATankScorpion", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("scorpion");
+    let obj = game_logic.host_object(id).expect("scorpion");
+    let prim = obj.weapon.clone().expect("authored primary");
+    assert!(
+        (prim.damage - SCORPION_GUN_DAMAGE).abs() > 0.01
+            && (prim.damage - SCORPION_GUN_DAMAGE_PLUS).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by scorpion_gun_weapon() name peel: {prim:?}"
+    );
+}
+
+#[test]
+fn stealth_fighter_air_and_mig_residual_has_no_template_name_sniff() {
+    // C++ StealthFighter residual keys off the authored weapon, never the template name.
+    let src = include_str!("../world_combat/air_and_mig.rs");
+    assert!(!src.contains("is_stealth_fighter_template"));
+}
+
+/// hq-2qedt.128: object_hit Stealth residual keys on the fired slot's authored
+/// weapon (StealthJetMissileWeapon), not a template-name sniff. C++
+/// Weapon::fireWeapon spawns the weapon's ProjectileObject regardless of the
+/// firing object's template name.
+#[test]
+fn stealth_jet_missile_object_hit_residual_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_stealth_fighter::STEALTH_JET_MISSILE_WEAPON;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    fn fire(name: &str, weapon: &str) -> u32 {
+        ensure_host_weapon_store();
+        let mut gl = GameLogic::new();
+        ensure_test_tank_template(&mut gl);
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(160.0)
+            .set_primary_weapon_name(weapon);
+        gl.templates.insert(name.to_string(), tpl);
+        let shooter = gl
+            .create_object(name, Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let enemy = gl
+            .create_object("TestTank", Team::GLA, Vec3::new(150.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let (f, ev) = gl.host_object_and_attack_events_mut(shooter).unwrap();
+            f.attack_target(
+                enemy,
+                ev,
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+            );
+            if let Some(w) = f.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.reload_time = 0.05;
+            }
+        }
+        gl.set_current_frame(50);
+        gl.update_combat(&[shooter, enemy], LOGIC_FRAME_TIMESTEP);
+        gl.stealth_fighter_residual_fires()
+    }
+
+    assert!(
+        fire("TestAuthoredJetCarrier", STEALTH_JET_MISSILE_WEAPON) > 0,
+        "authored StealthJetMissileWeapon must take the stealth missile residual"
+    );
+    assert_eq!(
+        fire("AmericaJetStealthFighter", "RaptorJetMissileWeapon"),
+        0,
+        "stealth-named template with a different authored weapon must not"
+    );
+}
+
+/// hq-2qedt.135: the innate/ATTACKING-forbidden stealth residual follows the
+/// template's authored StealthUpdate (InnateStealth / StealthDelay /
+/// StealthForbiddenConditions), as C++ StealthUpdate module data does, not a
+/// template-name sniff.
+#[test]
+fn stealth_fighter_innate_stealth_residual_keys_on_authored_stealth_update() {
+    let mut game_logic = GameLogic::new();
+    let mut named = crate::game_logic::ThingTemplate::new("AmericaJetStealthFighter");
+    named
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(150.0);
+    game_logic
+        .templates
+        .insert("AmericaJetStealthFighter".to_string(), named);
+    let mut authored = crate::game_logic::ThingTemplate::new("TestCloakJet");
+    authored
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(150.0);
+    authored.stealth_update_innate = true;
+    authored.stealth_update_forbids_attacking = true;
+    authored.stealth_update_delay_ms = Some(2000);
+    game_logic
+        .templates
+        .insert("TestCloakJet".to_string(), authored);
+
+    let named_id = game_logic
+        .create_object(
+            "AmericaJetStealthFighter",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("named");
+    let authored_id = game_logic
+        .create_object("TestCloakJet", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("authored");
+    game_logic.update_stealth_and_detection();
+
+    let n = game_logic.host_object(named_id).expect("named");
+    assert!(
+        !n.innate_stealth,
+        "name-only Stealth Fighter template without StealthUpdate must not get innate stealth"
+    );
+    let a = game_logic.host_object(authored_id).expect("authored");
+    assert!(a.innate_stealth, "authored InnateStealth must apply");
+    assert_eq!(
+        a.stealth_delay_frames, 60,
+        "authored StealthDelay 2000ms = 60f"
+    );
+}
+
+/// hq-2qedt.153: object_hit Comanche residuals key on the fired slot's authored
+/// weapon (Comanche20mmCannonWeapon), not an is_comanche_template sniff. C++
+/// Weapon::fireWeapon has no firing-template name branch.
+#[test]
+fn comanche_cannon_object_hit_residual_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_comanche_rocket_pods::COMANCHE_PRIMARY_WEAPON;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    fn fire(name: &str, weapon: &str) -> u32 {
+        ensure_host_weapon_store();
+        let mut gl = GameLogic::new();
+        ensure_test_tank_template(&mut gl);
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Aircraft)
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(160.0)
+            .set_primary_weapon_name(weapon);
+        gl.templates.insert(name.to_string(), tpl);
+        let shooter = gl
+            .create_object(name, Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let enemy = gl
+            .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let (f, ev) = gl.host_object_and_attack_events_mut(shooter).unwrap();
+            f.attack_target(
+                enemy,
+                ev,
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+            );
+            if let Some(w) = f.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.reload_time = 0.05;
+            }
+        }
+        gl.set_current_frame(50);
+        gl.update_combat(&[shooter, enemy], LOGIC_FRAME_TIMESTEP);
+        gl.comanche_cannon_residual_fires
+    }
+
+    assert!(
+        fire("TestAuthoredGunshipCarrier", COMANCHE_PRIMARY_WEAPON) > 0,
+        "authored Comanche20mmCannonWeapon must take the cannon residual"
+    );
+    assert_eq!(
+        fire("AmericaVehicleComanche", "RaptorJetMissileWeapon"),
+        0,
+        "comanche-named template with a different authored weapon must not"
+    );
+}
+
+/// hq-2qedt.153: object_hit has no Comanche template-name sniff.
+#[test]
+fn comanche_object_hit_residual_has_no_template_name_sniff() {
+    let src = include_str!("../world_tick/combat/object_hit.rs");
+    assert!(!src.contains("is_comanche_template"));
+    assert!(!src.contains("should_apply_comanche"));
+    assert!(!src.contains("should_apply_rocket_pod_area_attack"));
+}
+
+/// hq-2qedt.179: Scorpion gun/rocket refresh (salvage tier / rocket / AP)
+/// keys on the authored PRIMARY (ScorpionTankGun family), not an
+/// is_scorpion_template name sniff. C++ WeaponSetUpgrade/crate paths flip
+/// WeaponSet conditions on whatever object authored that set.
+#[test]
+fn scorpion_refresh_keys_on_authored_gun_not_template_name() {
+    use crate::game_logic::host_scorpion::{
+        SCORPION_GUN_DAMAGE_PLUS, SCORPION_TANK_GUN, ScorpionSalvageTier,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    fn mk(gl: &mut GameLogic, name: &str, weapon: &str) -> ObjectId {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(weapon);
+        gl.templates.insert(name.to_string(), tpl);
+        gl.create_object(name, Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("obj")
+    }
+
+    ensure_host_weapon_store();
+    let mut gl = GameLogic::new();
+    let named = mk(&mut gl, "GLATankScorpion", "HumveeGun");
+    assert!(!gl.apply_scorpion_salvage_tier(named, ScorpionSalvageTier::One));
+    assert!(!gl.apply_scorpion_rocket_upgrade(named));
+    assert!(!gl.apply_scorpion_ap_rockets_upgrade(named));
+
+    let authored = mk(&mut gl, "GLAModTankAlpha", SCORPION_TANK_GUN);
+    assert!(gl.apply_scorpion_salvage_tier(authored, ScorpionSalvageTier::One));
+    let prim = gl.host_object(authored).unwrap().weapon.clone().unwrap();
+    assert!((prim.damage - SCORPION_GUN_DAMAGE_PLUS).abs() < 0.01);
+    assert!(gl.apply_scorpion_rocket_upgrade(authored));
+    assert!(gl.host_object(authored).unwrap().secondary_weapon.is_some());
+    assert!(gl.apply_scorpion_ap_rockets_upgrade(authored));
+}
+
+/// hq-2qedt.180: vehicle_shells Scorpion splash keys on the fired slot's
+/// authored weapon (ScorpionTankGun), not an is_scorpion_template sniff.
+/// C++ splash comes from the Weapon template (Weapon::fireWeapon / dealDamageInternal).
+#[test]
+fn scorpion_splash_residual_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_scorpion::SCORPION_TANK_GUN;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    fn splash(name: &str, weapon: &str) -> u32 {
+        ensure_host_weapon_store();
+        let mut gl = GameLogic::new();
+        ensure_test_tank_template(&mut gl);
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(weapon);
+        gl.templates.insert(name.to_string(), tpl);
+        let shooter = gl
+            .create_object(name, Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let enemy = gl
+            .create_object("TestTank", Team::USA, Vec3::new(45.0, 0.0, 0.0))
+            .expect("enemy");
+        let pos = gl.objects.get(&enemy).unwrap().get_position();
+        gl.apply_scorpion_residual_at(pos, Some(shooter), Some(enemy), 0)
+            .0
+    }
+
+    assert!(
+        splash("TestAuthoredGunCarrier", SCORPION_TANK_GUN) > 0,
+        "authored ScorpionTankGun must take the splash residual"
+    );
+    assert_eq!(
+        splash("GLATankScorpion", "RaptorJetMissileWeapon"),
+        0,
+        "scorpion-named template with a different authored weapon must not"
+    );
+}
+
+/// hq-2qedt.180: vehicle_shells has no Scorpion template-name sniff.
+#[test]
+fn scorpion_vehicle_shells_has_no_template_name_sniff() {
+    let src = include_str!("../world_combat/vehicle_shells.rs");
+    assert!(!src.contains("is_scorpion_template"));
+}
+
+/// hq-2qedt.207: Scorpion rocket / AP-rockets team upgrades pick recipients
+/// by authored PRIMARY (ScorpionTankGun family), not is_scorpion_template.
+/// C++ WeaponSetUpgrade / WeaponBonusUpgrade fire on any object whose
+/// authored modules carry the trigger, regardless of template name.
+#[test]
+fn scorpion_team_upgrades_key_on_authored_gun_not_template_name() {
+    use crate::game_logic::host_scorpion::{
+        SCORPION_TANK_GUN, UPGRADE_GLA_AP_ROCKETS, UPGRADE_GLA_SCORPION_ROCKET,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    fn mk(gl: &mut GameLogic, name: &str, weapon: &str) -> ObjectId {
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(300.0)
+            .set_primary_weapon_name(weapon);
+        gl.templates.insert(name.to_string(), tpl);
+        gl.create_object(name, Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("obj")
+    }
+
+    ensure_host_weapon_store();
+    let mut gl = GameLogic::new();
+    let named = mk(&mut gl, "GLATankScorpion", "HumveeGun");
+    let authored = mk(&mut gl, "GLAModTankAlpha", SCORPION_TANK_GUN);
+    assert_eq!(
+        gl.apply_scorpion_rocket_to_team(Team::GLA.into(), UPGRADE_GLA_SCORPION_ROCKET),
+        1
+    );
+    assert!(gl.objects.get(&authored).unwrap().has_upgrade_tag(UPGRADE_GLA_SCORPION_ROCKET));
+    assert!(!gl.objects.get(&named).unwrap().has_upgrade_tag(UPGRADE_GLA_SCORPION_ROCKET));
+    assert_eq!(gl.apply_ap_rockets_to_team(Team::GLA.into(), UPGRADE_GLA_AP_ROCKETS), 1);
+    assert!(gl.objects.get(&authored).unwrap().has_upgrade_tag(UPGRADE_GLA_AP_ROCKETS));
+
+    let src = include_str!("../world_objects/weapon_upgrades.rs");
+    assert!(!src.contains("is_scorpion_template"));
+}
+
+/// hq-2qedt.208: factory_init Scorpion rocket SECONDARY gate keys on the
+/// authored PRIMARY (ScorpionTankGun family), not is_scorpion_template.
+/// C++ WeaponSetUpgrade flips PLAYER_UPGRADE on any object whose authored
+/// modules carry it; WeaponSet::updateWeaponSet then picks the row.
+#[test]
+fn scorpion_factory_init_rocket_gate_keys_on_authored_gun_not_template_name() {
+    let src = include_str!("../world_objects/create_destroy_die/factory_init.rs");
+    assert!(!src.contains("is_scorpion_template"));
+    assert!(src.contains("authored_scorpion_gun"));
+}
+
+/// hq-2qedt.209: object_hit Scorpion residual keys on the fired slot's
+/// authored weapon (ScorpionTankGun*/ScorpionMissileWeapon*), not the firing
+/// template's name. C++ Weapon::fireWeapon has no template-name gate.
+#[test]
+fn scorpion_object_hit_residual_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_scorpion::SCORPION_TANK_GUN;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    fn fire(name: &str, weapon: &str) -> u32 {
+        ensure_host_weapon_store();
+        let mut gl = GameLogic::new();
+        ensure_test_tank_template(&mut gl);
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(weapon);
+        gl.templates.insert(name.to_string(), tpl);
+        let shooter = gl
+            .create_object(name, Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let enemy = gl
+            .create_object("TestTank", Team::USA, Vec3::new(45.0, 0.0, 0.0))
+            .expect("enemy");
+        {
+            let (f, ev) = gl.host_object_and_attack_events_mut(shooter).unwrap();
+            f.attack_target(
+                enemy,
+                ev,
+                &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+            );
+            if let Some(w) = f.weapon.as_mut() {
+                w.last_fire_time = -20.0;
+                w.reload_time = 0.05;
+            }
+        }
+        gl.set_current_frame(50);
+        gl.update_combat(&[shooter, enemy], LOGIC_FRAME_TIMESTEP);
+        gl.scorpion_residual_fires
+    }
+
+    assert!(
+        fire("TestAuthoredGunCarrier", SCORPION_TANK_GUN) > 0,
+        "authored ScorpionTankGun must take the Scorpion residual"
+    );
+    assert_eq!(
+        fire("GLATankScorpion", "RaptorJetMissileWeapon"),
+        0,
+        "scorpion-named template with a different authored weapon must not"
+    );
+}
+
+/// hq-2qedt.209: object_hit has no Scorpion template-name sniff.
+#[test]
+fn scorpion_object_hit_residual_has_no_template_name_sniff() {
+    let src = include_str!("../world_tick/combat/object_hit.rs");
+    assert!(!src.contains("is_scorpion_template"));
+    assert!(!src.contains("should_apply_scorpion_residual"));
+}
+
+/// hq-2qedt.172: Comanche ground_target / air_and_mig residuals carry no
+/// is_comanche_template sniff. C++ CommandXlat keys rocket-pod ground fire on
+/// the weapon name "ComancheRocketPodWeapon", not the firing template name.
+#[test]
+fn comanche_rocket_pod_ground_fire_keys_on_authored_tertiary_not_template_name() {
+    use crate::game_logic::host_comanche_rocket_pods::COMANCHE_ROCKET_POD_WEAPON;
+    let gt = include_str!("../world_tick/combat/ground_target.rs");
+    assert!(!gt.contains("is_comanche_template"));
+    assert!(gt.contains("COMANCHE_ROCKET_POD_WEAPON"));
+    let am = include_str!("../world_combat/air_and_mig.rs");
+    assert!(!am.contains("is_comanche_template"));
+
+    let mut gl = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("TestAuthoredPodCarrier");
+    tpl.add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0)
+        .set_tertiary_weapon_name(COMANCHE_ROCKET_POD_WEAPON);
+    gl.templates
+        .insert("TestAuthoredPodCarrier".to_string(), tpl);
+    let id = gl
+        .create_object("TestAuthoredPodCarrier", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("carrier");
+    assert_eq!(
+        gl.host_object(id).unwrap().authored_weapon_name_for_slot(2),
+        Some(COMANCHE_ROCKET_POD_WEAPON)
+    );
+}

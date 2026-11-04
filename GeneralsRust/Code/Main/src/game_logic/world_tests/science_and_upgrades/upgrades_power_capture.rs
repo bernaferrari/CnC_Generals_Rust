@@ -372,7 +372,10 @@ fn host_upgrade_complete_ap_bullets_and_ap_rockets_team() {
     kell.add_kind_of(KindOf::Infantry).set_health(120.0);
     logic.templates.insert("GLAInfantryJarmenKell".into(), kell);
     let mut scorp = ThingTemplate::new("GLATankScorpion");
-    scorp.add_kind_of(KindOf::Vehicle).set_health(300.0);
+    scorp
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(300.0)
+        .set_primary_weapon_name(crate::game_logic::host_scorpion::SCORPION_TANK_GUN);
     logic.templates.insert("GLATankScorpion".into(), scorp);
     let mut rpg = ThingTemplate::new("GLAInfantryRPGTrooper");
     rpg.add_kind_of(KindOf::Infantry).set_health(100.0);
@@ -453,7 +456,10 @@ fn host_upgrade_complete_uranium_and_black_napalm() {
     bm.add_kind_of(KindOf::Vehicle).set_health(400.0);
     logic.templates.insert("ChinaTankBattleMaster".into(), bm);
     let mut mig = ThingTemplate::new("ChinaJetMIG");
-    mig.add_kind_of(KindOf::Aircraft).set_health(200.0);
+    // Retail ChinaJetMIG authors NapalmMissileWeapon (hq-2qedt.247 gate).
+    mig.add_kind_of(KindOf::Aircraft)
+        .set_health(200.0)
+        .set_primary_weapon_name(crate::game_logic::host_mig::NAPALM_MISSILE_WEAPON);
     logic.templates.insert("ChinaJetMIG".into(), mig);
 
     let bid = logic
@@ -499,10 +505,16 @@ fn host_upgrade_complete_scorpion_rocket_and_laser_missiles() {
         .insert(1, Player::new(1, Team::USA, "USA", true));
 
     let mut scorp = ThingTemplate::new("GLATankScorpion");
-    scorp.add_kind_of(KindOf::Vehicle).set_health(300.0);
+    scorp
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(300.0)
+        .set_primary_weapon_name(crate::game_logic::host_scorpion::SCORPION_TANK_GUN);
     logic.templates.insert("GLATankScorpion".into(), scorp);
     let mut raptor = ThingTemplate::new("AmericaJetRaptor");
-    raptor.add_kind_of(KindOf::Aircraft).set_health(200.0);
+    raptor
+        .add_kind_of(KindOf::Aircraft)
+        .set_health(200.0)
+        .set_primary_weapon_name(crate::game_logic::host_raptor::RAPTOR_JET_MISSILE_WEAPON);
     logic.templates.insert("AmericaJetRaptor".into(), raptor);
 
     let sid = logic

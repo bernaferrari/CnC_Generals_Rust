@@ -745,7 +745,6 @@ fn comanche_rocket_pod_spawns_scatter_projectiles() {
 fn stealth_jet_missile_projectile_flies_and_impacts() {
     use crate::game_logic::host_stealth_fighter::{
         STEALTH_FIGHTER_DAMAGE, STEALTH_JET_MISSILE_PROJECTILE, STEALTH_MISSILE_FUEL_FRAMES,
-        is_stealth_fighter_template,
     };
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     use glam::Vec3;
@@ -772,9 +771,6 @@ fn stealth_jet_missile_projectile_flies_and_impacts() {
             Vec3::new(0.0, 40.0, 0.0),
         )
         .expect("stealth fighter");
-    assert!(is_stealth_fighter_template(
-        &logic.host_object(sf).unwrap().template_name
-    ));
     let enemy = logic
         .create_object("TestTank", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
         .expect("enemy");

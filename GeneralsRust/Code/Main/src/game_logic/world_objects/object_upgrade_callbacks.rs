@@ -1187,9 +1187,6 @@ impl GameLogic {
             if let Some(drone) = self.objects.get_mut(&drone_id) {
                 drone.producer_id = Some(object_id);
                 drone.set_status_unselectable(true);
-                if drone.upgrade_die.is_none() {
-                    drone.install_upgrade_die(kind.upgrade_name());
-                }
             }
         }
         if let Some(error) = ocl_error {
@@ -1746,6 +1743,51 @@ mod object_creation_upgrade_birth_tests {
             vec!["ConstructedCreationUpgradeChild".to_owned()],
             "the construction-complete update must re-evaluate the existing object upgrade mask"
         );
+    }
+
+    #[test]
+    fn authored_ocl_enslaves_slaved_child_without_drone_name_sniff() {
+        // ObjectCreationUpgrade.cpp:68 -> ObjectCreationList::create(ocl, getObject());
+        // GenericObjectCreationNugget (ObjectCreationList.cpp:985-993) calls
+        // SlavedUpdate::onEnslave(sourceObj) for any created SlavedUpdate child,
+        // independent of the upgrade or OCL spelling.
+        const AUTHORED: &str = "Upgrade_AuthoredSlaveCompanion";
+        let mut world = GameLogic::new();
+        world.add_player(crate::game_logic::Player::new(0, Team::USA, "SlaveOwner", true));
+        admit_upgrade(&mut world, AUTHORED);
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "AuthoredSlaveOcl.ini".into(),
+                    "Object AuthoredSlaveHost\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = ObjectCreationUpgrade CreateCompanion\n  TriggeredBy = Upgrade_AuthoredSlaveCompanion\n  UpgradeObject = OCL_AuthoredSlaveCompanion\n End\nEnd\nObject AuthoredSlaveCompanion\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 50\n InitialHealth = 50\n End\n Behavior = SlavedUpdate SlaveTag\n  GuardMaxRange = 30\n End\nEnd\n".into(),
+                )])
+                .unwrap(),
+            )
+            .expect("authored content admits");
+        world
+            .admit_object_creation_list_sources([
+                "ObjectCreationList OCL_AuthoredSlaveCompanion\n CreateObject\n  ObjectNames = AuthoredSlaveCompanion\n  Count = 1\n End\nEnd\n".to_owned(),
+            ])
+            .expect("OCL admits");
+        let source = world
+            .create_object_for_player("AuthoredSlaveHost", 0, glam::Vec3::ZERO)
+            .expect("host creates");
+        apply(&mut world, source, AUTHORED);
+        let children: Vec<_> = world
+            .objects
+            .registered()
+            .filter(|(id, _)| **id != source)
+            .map(|(_, object)| object)
+            .collect();
+        assert_eq!(children.len(), 1);
+        let child = children[0];
+        assert_eq!(child.producer_id, Some(source));
+        assert_eq!(
+            child.slaved_update.as_ref().and_then(|state| state.master),
+            Some(source),
+            "OCL nugget must onEnslave the SlavedUpdate child to the receiving source"
+        );
+        assert!(child.status.unselectable, "startSlavedEffects marks UNSELECTABLE");
     }
 }
 

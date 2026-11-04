@@ -45,6 +45,8 @@ pub struct HostFireWeaponWhenDamagedData {
     pub continuous_damaged: Option<String>,
     pub continuous_really_damaged: Option<String>,
     pub continuous_rubble: Option<String>,
+    /// Compatibility mirror of the most recent reaction fire (save/observation
+    /// `fwwd_last_reaction_frame`). Not a gate: C++ owns one Weapon per role.
     pub last_reaction_frame: u32,
     /// C++ FireWeaponWhenDamagedBehavior.cpp:37-72: one reaction Weapon per
     /// body state, each with its own READY_TO_FIRE. Indexed by HostBodyDamageType.
@@ -197,6 +199,19 @@ impl HostFireWeaponWhenDamagedData {
         if actual_damage < self.damage_amount {
             return None;
         }
+        self.on_damage_with_reload(state, current_frame, |name| {
+            crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_nominal(name)
+                .map(|secs| (secs * 30.0).round() as u32)
+                .unwrap_or(0)
+        })
+    }
+
+    fn on_damage_with_reload(
+        &mut self,
+        state: HostBodyDamageType,
+        current_frame: u32,
+        reload_frames: impl Fn(&str) -> u32,
+    ) -> Option<String> {
         let name = self.weapon_for_state(state, false)?.to_string();
         // C++ getStatus()==READY_TO_FIRE on this role's own Weapon
         // (FireWeaponWhenDamagedBehavior.cpp:167-191). DelayBetweenShots 0 stays ready.
@@ -393,6 +408,24 @@ mod tests {
         assert!(first.contains("BattleshipTarget"));
         assert!(same_frame.contains("BattleshipTarget"));
         assert!(next_frame.contains("BattleshipTarget"));
+    }
+
+    #[test]
+    fn reaction_roles_keep_independent_ready_clocks_like_cpp_weapons() {
+        // C++ allocates one Weapon per reaction role; each has its own
+        // READY_TO_FIRE status. A Pristine shot must not reload Damaged.
+        let name = "ReactionWeapon";
+        let reload = |_: &str| 30;
+        let mut d = HostFireWeaponWhenDamagedData {
+            reaction_pristine: Some(name.into()),
+            reaction_damaged: Some(name.into()),
+            ..Default::default()
+        };
+        assert!(d.on_damage_with_reload(HostBodyDamageType::Pristine, 10, reload).is_some());
+        // Same role still reloading.
+        assert!(d.on_damage_with_reload(HostBodyDamageType::Pristine, 11, reload).is_none());
+        // Different role: separate C++ Weapon, READY_TO_FIRE.
+        assert!(d.on_damage_with_reload(HostBodyDamageType::Damaged, 11, reload).is_some());
     }
 
     #[test]

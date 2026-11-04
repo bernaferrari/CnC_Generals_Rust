@@ -168,19 +168,22 @@ impl GameLogic {
         // (C++ WeaponSet::updateWeaponSet), not a template-name peel
         // (hq-2qedt.163). AP rockets refresh stays on the upgrade path.
 
-        // Host residual: GLA Scorpion PRIMARY gun (+ secondary rocket if unlocked).
+        // GLA Scorpion PRIMARY binds from the authored WeaponSet (C++
+        // WeaponSet::updateWeaponSet from ThingTemplate), not a name peel
+        // (hq-2qedt.154). Residual: PLAYER_UPGRADE rocket SECONDARY only.
+        // Gate keys on authored PRIMARY (ScorpionTankGun family), not a
+        // template-name sniff (hq-2qedt.208; C++ WeaponSetUpgrade).
         // Fail-closed: not full SalvageCrate missile-rack W3D subobject matrix.
-        if crate::game_logic::host_scorpion::is_scorpion_template(template_name) {
+        if super::super::super::world_combat::ocl_and_scud::authored_scorpion_gun(object) {
             use crate::game_logic::host_scorpion::{
                 has_ap_rockets_upgrade, has_scorpion_rocket_upgrade, salvage_tier_from_upgrades,
-                scorpion_gun_weapon, scorpion_missile_weapon,
+                scorpion_missile_weapon,
             };
             let tier = salvage_tier_from_upgrades(if allow_upgrades {
                 &object.applied_upgrades
             } else {
                 &no_upgrade_mask
             });
-            object.weapon = Some(scorpion_gun_weapon(tier));
             if has_scorpion_rocket_upgrade(if allow_upgrades {
                 &object.applied_upgrades
             } else {
@@ -200,20 +203,9 @@ impl GameLogic {
         // (C++ WeaponSet::updateWeaponSet), not a template-name peel
         // (hq-2qedt.220). Laser Missiles refresh stays on the upgrade path.
 
-        // Host residual: China MiG PRIMARY napalm / Nuke dual-radius missiles.
-        // Fail-closed: not full RETURN_TO_BASE ClipReload / HistoricBonus Firestorm matrix.
-        if crate::game_logic::host_mig::is_mig_template(template_name) {
-            use crate::game_logic::host_mig::{is_nuke_mig_template, mig_loadout, mig_weapon};
-            let loadout = mig_loadout(
-                is_nuke_mig_template(template_name),
-                if allow_upgrades {
-                    &object.applied_upgrades
-                } else {
-                    &no_upgrade_mask
-                },
-            );
-            object.weapon = Some(mig_weapon(loadout));
-        }
+        // China MiG PRIMARY binds from the authored WeaponSet (C++
+        // WeaponSet::updateWeaponSet from ThingTemplate), not a name peel
+        // (hq-2qedt.156). Black Napalm / Tactical Nuke upgrade refresh is unchanged.
 
         // USA Comanche PRIMARY/SECONDARY bind from the authored WeaponSet
         // (C++ WeaponSet::updateWeaponSet), not this name peel (hq-2qedt.109).

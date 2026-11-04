@@ -1041,3 +1041,41 @@ fn authored_upgrade_die_diemux_skips_module_and_isolates_same_id_peer_like_cpp()
     let pp = peer.host_object(peer_producer).unwrap();
     assert!(pp.has_object_upgrade_complete("Upgrade_FixtureA"));
     assert!(pp.has_object_upgrade_complete("Upgrade_FixtureB"), "peer world isolated");
+
+#[test]
+fn create_installs_upgrade_die_from_authored_module_without_template_name_sniff() {
+    // C++ ModuleFactory binds UpgradeDie from the Object's authored module
+    // data (UpgradeToRemove); the template name plays no part.
+    let mut logic = GameLogic::new();
+    logic
+        .admit_object_ini_sources([(
+            "AuthoredUpgradeDieCreate.ini".into(),
+            "Object FixtureGenericDroneChild\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\n Behavior = UpgradeDie DieA\n DeathTypes = ALL\n UpgradeToRemove = Upgrade_FixtureGeneric\n End\nEnd\nObject AmericaVehicleScoutDrone\n KindOf = VEHICLE SELECTABLE\n Body = ActiveBody Body\n MaxHealth = 100\n InitialHealth = 100\n End\nEnd\n"
+                .into(),
+        )])
+        .expect("ini");
+    logic.players.insert(
+        1,
+        crate::game_logic::Player::new(1, Team::USA, "Owner", true),
+    );
+    let generic = logic
+        .create_object_for_player("FixtureGenericDroneChild", 1, Vec3::ZERO)
+        .expect("generic");
+    assert_eq!(
+        logic
+            .host_object(generic)
+            .unwrap()
+            .upgrade_die
+            .as_ref()
+            .map(|ud| ud.upgrade_to_remove.as_str()),
+        Some("Upgrade_FixtureGeneric"),
+        "authored UpgradeToRemove binds at create"
+    );
+    let named = logic
+        .create_object_for_player("AmericaVehicleScoutDrone", 1, Vec3::new(30.0, 0.0, 0.0))
+        .expect("named");
+    assert!(
+        logic.host_object(named).unwrap().upgrade_die.is_none(),
+        "retail drone name without authored UpgradeDie installs nothing"
+    );
+}

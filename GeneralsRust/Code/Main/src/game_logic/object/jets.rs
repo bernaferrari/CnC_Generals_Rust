@@ -97,7 +97,6 @@ pub enum HostJetPendingResume {
 /// Retail AmericaJetStealthFighter `LockonTime` 1500ms → 45 frames.
 pub const STEALTH_FIGHTER_LOCKON_TIME_MS: u32 = 1500;
 pub const STEALTH_FIGHTER_LOCKON_TIME_FRAMES: u32 = 45;
-pub const STEALTH_FIGHTER_LOCKON_CURSOR: &str = "LockonCursor";
 pub const STEALTH_FIGHTER_LOCKON_INITIAL_DIST: f32 = 300.0;
 pub const STEALTH_FIGHTER_LOCKON_FREQ: f32 = 0.5;
 pub const STEALTH_FIGHTER_LOCKON_ANGLE_SPIN: f32 = 1440.0_f32.to_radians();
@@ -720,16 +719,14 @@ impl Object {
             .receiving_jet_lockon_data()
     }
     pub(crate) fn jet_lockon_cursor_name(&self) -> Option<&str> {
-        if let Some(data) = self.jet_lockon_data() {
-            return (!data.lockon_cursor.is_empty()).then(|| data.lockon_cursor.as_str());
-        }
-        // Explicit assetless prototype templates retain their existing rules.
-        (self.jet_lockon_time_frames() != 0).then_some(STEALTH_FIGHTER_LOCKON_CURSOR)
+        let data = self.jet_lockon_data()?;
+        (!data.lockon_cursor.is_empty()).then(|| data.lockon_cursor.as_str())
     }
     pub(crate) fn refresh_jet_lockon_position(&mut self, now: u32) {
         self.position_jet_lockon(now);
     }
 
+    /// C++ `JetAIUpdateModuleData::m_lockonTime` defaults to 0 (JetAIUpdate.cpp:1640).
     pub fn jet_lockon_time_frames(&self) -> u32 {
         if let Some(data) = self.jet_lockon_data() {
             return data.lockon_time;

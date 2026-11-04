@@ -24,14 +24,12 @@ fn bind_test_world() {
 }
 
 fn collapse_owner_world(delay: u32, initial_fx: &str) -> (GameLogic, ObjectId) {
+    let source = format!(
+        "Object SameNameCollapseProbe\n  KindOf = STRUCTURE IMMOBILE\n  Body = ActiveBody ModuleTag_Body\n    MaxHealth = 100\n  End\n  Behavior = StructureCollapseUpdate ModuleTag_Sink\n    MinBurstDelay = {delay}\n    MaxBurstDelay = {delay}\n    FXList = INITIAL {initial_fx}\n  End\nEnd\n"
+    );
     let mut parser = crate::assets::IniParser::new();
     parser
-        .parse_ini_content(
-            &format!(
-                "Object SameNameCollapseProbe\n  KindOf = STRUCTURE IMMOBILE\n  MaxHealth = 100\n  Behavior = StructureCollapseUpdate ModuleTag_Sink\n    MinBurstDelay = {delay}\n    MaxBurstDelay = {delay}\n    FXList = INITIAL {initial_fx}\n  End\nEnd\n"
-            ),
-            "collapse-owner-world.ini",
-        )
+        .parse_ini_content(&source, "collapse-owner-world.ini")
         .unwrap();
     let definition = parser.get_definition("SameNameCollapseProbe").unwrap();
     let template =
@@ -42,6 +40,17 @@ fn collapse_owner_world(delay: u32, initial_fx: &str) -> (GameLogic, ObjectId) {
     world
         .templates
         .insert("SameNameCollapseProbe".into(), template);
+    // Authored templates spawn only through this world's admitted receiving
+    // module content (C++ ThingFactory owns the parsed Object definition).
+    world
+        .admit_receiving_module_content(
+            crate::assets::ReceivingObjectContent::from_sources([(
+                "collapse-owner-world.ini".into(),
+                source,
+            )])
+            .unwrap(),
+        )
+        .unwrap();
     let id = world
         .create_object("SameNameCollapseProbe", Team::USA, Vec3::ZERO)
         .expect("create admitted structure in this world");
@@ -72,9 +81,10 @@ fn same_id_worlds_begin_collapse_from_their_admitted_definitions() {
         .structure_collapse_data
         .as_ref()
         .unwrap();
-    assert_eq!(first_data.min_burst_delay, 66);
+    // C++ INI::parseDurationUnsignedInt: ceil(msec * 30 / 1000) frames.
+    assert_eq!(first_data.min_burst_delay, 2);
     assert_eq!(first_data.fx_initial.as_deref(), Some("FX_FirstInitial"));
-    assert_eq!(second_data.min_burst_delay, 132);
+    assert_eq!(second_data.min_burst_delay, 4);
     assert_eq!(second_data.fx_initial.as_deref(), Some("FX_SecondInitial"));
 
     // Interleaving the independent owners leaves both runtime residuals stable.
@@ -94,7 +104,7 @@ fn same_id_worlds_begin_collapse_from_their_admitted_definitions() {
             .as_ref()
             .unwrap()
             .min_burst_delay,
-        66
+        2
     );
     assert_eq!(
         second
@@ -104,14 +114,16 @@ fn same_id_worlds_begin_collapse_from_their_admitted_definitions() {
             .as_ref()
             .unwrap()
             .min_burst_delay,
-        132
+        4
     );
 }
 
 fn lethal_owner(collapse: bool) -> (GameLogic, ObjectId, Option<ObjectId>) {
     let mut world = GameLogic::new();
     if !collapse {
-        assert_eq!(
+        // The crushing weapon must live in this world's own WeaponStore (the
+        // one its update reads), not the thread-bound test services.
+        let registered = world.with_own_services(|| {
             crate::assets::ini_template_loader::register_weapons_from_ini_text(
                 r#"
 Weapon ToppledStructureWeapon
@@ -121,9 +133,9 @@ Weapon ToppledStructureWeapon
   DeathType = EXPLODED
 End
 "#
-            ),
-            1
-        );
+            )
+        });
+        assert_eq!(registered, 1);
     }
     ensure_test_player_for_team(&mut world, Team::USA);
     let mut template = ThingTemplate::new("AuthoredLethalStructure");

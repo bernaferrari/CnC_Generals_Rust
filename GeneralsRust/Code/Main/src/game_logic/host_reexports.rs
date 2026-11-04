@@ -106,8 +106,6 @@ pub use super::host_comanche_rocket_pods::{
     ROCKET_POD_SECONDARY_RADIUS, UPGRADE_COMANCHE_ROCKET_PODS, comanche_antitank_damage_at,
     comanche_antitank_weapon, comanche_cannon_weapon, comanche_rocket_pod_weapon,
     is_comanche_template, rocket_pod_damage_at_distance, rocket_pod_ground_fire_active,
-    should_apply_comanche_antitank_residual, should_apply_comanche_cannon_residual,
-    should_apply_comanche_residual, should_apply_rocket_pod_area_attack,
 };
 pub use super::host_combat_chinook::{
     COMBAT_CHINOOK_TRANSPORT_SLOTS, HostCombatChinookRegistry,

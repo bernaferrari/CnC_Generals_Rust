@@ -2854,6 +2854,49 @@ fn upgrade_die_removes_producer_drone_upgrade() {
 }
 
 #[test]
+fn residual_attach_slave_drone_uses_authored_upgrade_die_without_kind_name_fallback() {
+    // C++ UpgradeDie is bound only from the drone Object's authored module
+    // (UpgradeDieModuleData::m_upgradeName); attach never names one by kind.
+    use crate::game_logic::host_slave_drones::SlaveDroneKind;
+    let mut game_logic = GameLogic::new();
+    super::super::super::world_combat::slaved_update_tests::install_slave_fixture(
+        &mut game_logic,
+        SlaveDroneKind::Scout,
+    );
+    let name = SlaveDroneKind::Scout.template_name();
+    // Drop only the authored Die modules; keep the admitted receiving
+    // definition bound so create reuses this exact template.
+    let definition = game_logic
+        .receiving_object_definitions
+        .as_ref()
+        .and_then(|definitions| definitions.get(name))
+        .cloned();
+    let template = game_logic.templates.get_mut(name).expect("scout template");
+    template.native_die_declarations = None;
+    if definition.is_some() {
+        template.receiving_object_definition = definition;
+    }
+    let mut humvee = ThingTemplate::new("AmericaVehicleHumvee");
+    humvee
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(200.0);
+    game_logic
+        .templates
+        .insert("AmericaVehicleHumvee".into(), humvee);
+    let master_id = game_logic
+        .create_object("AmericaVehicleHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("humvee");
+    let drone_id = game_logic
+        .residual_attach_slave_drone(master_id, SlaveDroneKind::Scout)
+        .expect("scout drone");
+    assert!(
+        game_logic.host_object(drone_id).unwrap().upgrade_die.is_none(),
+        "drone without authored UpgradeDie must not get a kind-name UpgradeDie"
+    );
+}
+
+#[test]
 fn tunnel_network_residual_flags_and_capacity_installed() {
     let mut game_logic = GameLogic::new();
     let tunnel_id = create_test_tunnel_network(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));

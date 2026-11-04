@@ -14,6 +14,8 @@ pub struct OwnedDamageOutcome {
     pub max_health: f32,
     pub last_source: ObjectId,
     pub damaged: bool,
+    /// C++ `amount > 0 || m_kill` block entered (setAttackedBy gate).
+    pub applied: bool,
     pub processed: bool,
 }
 impl ActiveBody {
@@ -107,6 +109,7 @@ impl ActiveBody {
                 max_health: self.get_max_health(),
                 last_source: INVALID_ID,
                 damaged: false,
+                applied: false,
                 processed: false,
             });
         }
@@ -154,6 +157,7 @@ impl ActiveBody {
                 .map(|damage| damage.input.source_id)
                 .unwrap_or(INVALID_ID),
             damaged: changed && self.get_health() < previous,
+            applied: changed,
             processed: true,
         })
     }

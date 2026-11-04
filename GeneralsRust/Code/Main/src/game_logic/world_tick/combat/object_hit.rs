@@ -281,37 +281,42 @@ impl GameLogic {
                         effects,
                     );
                 } else if {
-                    // Comanche residual: 20mm primary / anti-tank secondary /
-                    // manual rocket pods tertiary.
+                    // Comanche residuals: keyed on the fired slot's authored weapon
+                    // (C++ Weapon::fireWeapon; no firing-template name branch).
                     use crate::game_logic::host_comanche_rocket_pods::{
-                        UPGRADE_COMANCHE_ROCKET_PODS, is_comanche_template,
-                        should_apply_comanche_antitank_residual,
-                        should_apply_comanche_cannon_residual, should_apply_rocket_pod_area_attack,
+                        COMANCHE_ANTITANK_WEAPON, COMANCHE_PRIMARY_WEAPON,
+                        COMANCHE_ROCKET_POD_WEAPON,
                     };
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| is_comanche_template(&a.template_name))
-                        .unwrap_or(false)
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .is_some_and(|w| {
+                            w.eq_ignore_ascii_case(COMANCHE_PRIMARY_WEAPON)
+                                || w.eq_ignore_ascii_case(COMANCHE_ANTITANK_WEAPON)
+                                || w.eq_ignore_ascii_case(COMANCHE_ROCKET_POD_WEAPON)
+                        })
                 } {
                     use crate::game_logic::host_comanche_rocket_pods::{
-                        UPGRADE_COMANCHE_ROCKET_PODS, is_comanche_template,
-                        should_apply_comanche_antitank_residual,
-                        should_apply_comanche_cannon_residual, should_apply_rocket_pod_area_attack,
+                        COMANCHE_ANTITANK_WEAPON, COMANCHE_PRIMARY_WEAPON,
+                        COMANCHE_ROCKET_POD_WEAPON, UPGRADE_COMANCHE_ROCKET_PODS,
                     };
                     let impact = target_position;
-                    let (has_pods, is_comanche) = self
+                    let (has_pods, weapon) = self
                         .objects
                         .get(&attacker_id)
                         .map(|a| {
                             (
                                 a.has_upgrade_tag(UPGRADE_COMANCHE_ROCKET_PODS)
                                     || a.has_upgrade_tag("Upgrade_ComancheRocketPods"),
-                                is_comanche_template(&a.template_name),
+                                a.authored_weapon_name_for_slot(slot)
+                                    .map(|w| w.to_string())
+                                    .unwrap_or_default(),
                             )
                         })
-                        .unwrap_or((false, false));
+                        .unwrap_or_default();
+                    let is_w = |n: &str| weapon.eq_ignore_ascii_case(n);
                     let (hits, _destroyed_any) =
-                        if should_apply_rocket_pod_area_attack(is_comanche, has_pods, slot) {
+                        if has_pods && is_w(COMANCHE_ROCKET_POD_WEAPON) {
                             {
                                 use crate::game_logic::host_comanche_rocket_pods::{
                                     ROCKET_POD_CLIP_SIZE, rocket_pod_scatter_impact,
@@ -348,18 +353,14 @@ impl GameLogic {
                                     effects,
                                 )
                             }
-                        } else if should_apply_comanche_antitank_residual(
-                            is_comanche,
-                            slot,
-                            has_pods,
-                        ) {
+                        } else if is_w(COMANCHE_ANTITANK_WEAPON) {
                             self.apply_comanche_antitank_residual_at_with_effects(
                                 impact,
                                 Some(attacker_id),
                                 Some(target_id),
                                 effects,
                             )
-                        } else if should_apply_comanche_cannon_residual(is_comanche, slot) {
+                        } else if is_w(COMANCHE_PRIMARY_WEAPON) {
                             self.apply_comanche_cannon_residual_at_with_effects(
                                 impact,
                                 Some(attacker_id),
@@ -412,15 +413,15 @@ impl GameLogic {
                     // GLA SCUD launcher residual keyed on the authored SCUD gun, not the
                     // template name (hq-2qedt.197); non-explosive warheads leave a toxin field.
                     use crate::game_logic::host_scud_launcher::{
-                        SCUD_GUN_ANTHRAX, SCUD_GUN_ANTHRAX_GAMMA, SCUD_GUN_EXPLOSIVE,
-                        SCUD_GUN_TOXIN,
+                        authors_scud_gun, should_apply_scud_area,
                     };
-                    match a.selected_weapon_name(slot)? {
-                        SCUD_GUN_EXPLOSIVE => Some(false),
-                        SCUD_GUN_TOXIN | SCUD_GUN_ANTHRAX | SCUD_GUN_ANTHRAX_GAMMA => Some(true),
-                        _ => None,
-                    }
-                }) {
+                    self.objects
+                        .get(&attacker_id)
+                        .map(|a| {
+                            should_apply_scud_area(authors_scud_gun(a.authored_primary_weapon_names()))
+                        })
+                        .unwrap_or(false)
+                } {
                     let impact = target_position;
                     let from = self
                         .objects
@@ -573,15 +574,19 @@ impl GameLogic {
                     };
                 } else if {
                     // GLA Scorpion residual: gun splash or rocket dual-radius secondary.
+                    // Keyed on the fired slot's authored weapon (C++ Weapon::fireWeapon;
+                    // no firing-template name branch).
                     use crate::game_logic::host_scorpion::{
-                        is_scorpion_template, should_apply_scorpion_residual,
+                        SCORPION_MISSILE_WEAPON, SCORPION_TANK_GUN,
                     };
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_scorpion_residual(is_scorpion_template(&a.template_name))
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .is_some_and(|w| {
+                            let w = w.to_ascii_lowercase();
+                            w.starts_with(&SCORPION_TANK_GUN.to_ascii_lowercase())
+                                || w.starts_with(&SCORPION_MISSILE_WEAPON.to_ascii_lowercase())
                         })
-                        .unwrap_or(false)
                 } {
                     let impact = target_position;
                     let from = self
@@ -667,12 +672,11 @@ impl GameLogic {
                     };
                 } else if {
                     // USA Raptor residual: jet missiles + Laser Missiles splash.
-                    use crate::game_logic::host_raptor::{
-                        is_raptor_template, should_apply_raptor_residual,
-                    };
+                    // hq-2qedt.249: attacker authors a Raptor missile PRIMARY (WeaponStore identity).
+                    use crate::game_logic::host_raptor::authors_raptor_missile;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| should_apply_raptor_residual(is_raptor_template(&a.template_name)))
+                        .map(|a| authors_raptor_missile(a.authored_primary_weapon_names(), None))
                         .unwrap_or(false)
                 } {
                     let impact = target_position;
@@ -703,10 +707,11 @@ impl GameLogic {
                     };
                 } else if {
                     // China MiG residual: dual-radius napalm / Nuke missiles + field residual.
-                    use crate::game_logic::host_mig::{is_mig_template, should_apply_mig_residual};
+                    // hq-2qedt.248: attacker authors a MiG missile PRIMARY (WeaponStore identity).
+                    use crate::game_logic::host_mig::authors_mig_missile;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| should_apply_mig_residual(is_mig_template(&a.template_name)))
+                        .map(|a| authors_mig_missile(a.authored_primary_weapon_names(), None))
                         .unwrap_or(false)
                 } {
                     let impact = target_position;

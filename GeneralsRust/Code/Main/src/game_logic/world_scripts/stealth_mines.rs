@@ -704,10 +704,13 @@ impl GameLogic {
             }
         }
 
-        // AmericaJetStealthFighter: InnateStealth Yes, Forbidden ATTACKING,
-        // StealthDelay 2000ms (C++ StealthUpdate allowedToStealth).
+        // Aircraft with authored StealthUpdate InnateStealth Yes + Forbidden
+        // ATTACKING (retail AmericaJetStealthFighter, StealthDelay 2000ms).
+        // Keyed on the template's StealthUpdate module data, as C++
+        // StealthUpdate::allowedToStealth is — never the template name.
         {
             use crate::game_logic::host_radar_stealth_vision_residual::{
+                STEALTH_FIGHTER_STEALTH_DELAY_FRAMES_RESIDUAL, residual_ms_to_frames,
                 stealth_fighter_allowed_to_stealth_residual,
                 STEALTH_FIGHTER_STEALTH_DELAY_FRAMES_RESIDUAL,
             };
@@ -721,7 +724,7 @@ impl GameLogic {
                 })
                 .map(|(id, _)| *id)
                 .collect();
-            for sid in sf_ids {
+            for (sid, authored_delay) in sf_ids {
                 let Some(obj) = self.objects.get_mut(&sid) else {
                     continue;
                 };
@@ -729,7 +732,7 @@ impl GameLogic {
                     obj.innate_stealth = true;
                 }
                 if obj.stealth_delay_frames == 0 {
-                    obj.stealth_delay_frames = STEALTH_FIGHTER_STEALTH_DELAY_FRAMES_RESIDUAL;
+                    obj.stealth_delay_frames = authored_delay;
                 }
                 if !obj.status.stealthed
                     && obj.stealth_allowed_frame == 0

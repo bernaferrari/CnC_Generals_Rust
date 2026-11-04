@@ -1296,11 +1296,12 @@ impl GameLogic {
         }
     }
 
-    /// C++ SpawnBehavior::computeAggregateStates — higher rank wins both ways.
-    fn sync_spawn_behavior_veterancy(&mut self, parent_id: ObjectId, spawn_template: &str) {
-        use crate::game_logic::host_slave_drones::synced_spawn_veterancy;
-
-        let Some(parent_level) = self
+    /// C++ SpawnBehavior::computeAggregateStates (SpawnBehavior.cpp:855-897):
+    /// `vetLevel` is captured once, then each spawn in roster order is compared
+    /// to that captured rank; the lower side gets the exact
+    /// `ExperienceTracker::setVeterancyLevel(level)` with default feedback.
+    pub(super) fn sync_spawn_behavior_veterancy(&mut self, parent_id: ObjectId, spawn_template: &str) {
+        let Some(vet_level) = self
             .host_object(parent_id)
             .filter(|o| o.is_alive())
             .map(|o| o.experience.level)
@@ -1316,43 +1317,21 @@ impl GameLogic {
             .filter(|object| object.is_alive() && !object.status.effectively_dead)
             .map(|object| (object.id, object.experience.level))
             .collect();
-        let mut high = parent_level;
-        for (_, level) in &children {
-            let (next, _) = synced_spawn_veterancy(high, *level);
-            high = next;
-        }
-        if high != parent_level {
-            let health_bonus = self.veterancy_health_bonus;
-            let _ = self.host_object_mut(parent_id);
-            self.with_object_veterancy_feedback_and_locomotors(
-                parent_id,
-                |parent, audio, feedback, locomotors| {
-                    parent.set_min_veterancy_level_with_health_bonus_table(
-                        high,
-                        &health_bonus,
-                        audio,
-                        feedback,
-                        locomotors,
-                    )
-                },
-            );
-        }
-        for (id, level) in children {
-            if level != high {
-                let health_bonus = self.veterancy_health_bonus;
-                let _ = self.host_object_mut(id);
-                self.with_object_veterancy_feedback_and_locomotors(
-                    id,
-                    |child, audio, feedback, locomotors| {
-                        child.set_min_veterancy_level_with_health_bonus_table(
-                            high,
-                            &health_bonus,
-                            audio,
-                            feedback,
-                            locomotors,
-                        )
-                    },
-                );
+        let rank = crate::game_logic::host_unit_training::veterancy_rank;
+        for (child_id, spawn_level) in children {
+            let (target, level) = if rank(spawn_level) > rank(vet_level) {
+                (parent_id, spawn_level)
+            } else if rank(spawn_level) < rank(vet_level) {
+                (child_id, vet_level)
+            } else {
+                continue;
+            };
+            if let Err(error) = self.set_exact_veterancy_level_with_upgrade_callback(
+                target,
+                level,
+                &mut Default::default(),
+            ) {
+                log::error!("{error}");
             }
         }
     }
@@ -2785,9 +2764,22 @@ impl GameLogic {
             if object.smart_bomb_target_homing.is_some() {
                 self.smart_bomb_target_homing_reg.record_install();
             }
-            if let Some(up) =
-                crate::game_logic::host_upgrade_die::upgrade_to_remove_for_template(template_name)
-            {
+            // C++ ModuleFactory binds UpgradeDie from the Object's authored
+            // module data (UpgradeDieModuleData::m_upgradeName); no name sniff.
+            let authored_upgrade_die = object
+                .thing()
+                .template
+                .native_die_declarations
+                .as_deref()
+                .and_then(|declarations| {
+                    declarations.iter().find_map(|declaration| match &declaration.kind {
+                        crate::game_logic::native_die_definition::NativeDieKind::Upgrade {
+                            upgrade_to_remove,
+                        } => Some(upgrade_to_remove.clone()),
+                        _ => None,
+                    })
+                });
+            if let Some(up) = authored_upgrade_die {
                 object.install_upgrade_die(up);
             }
 

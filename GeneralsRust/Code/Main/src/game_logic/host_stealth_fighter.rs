@@ -35,7 +35,6 @@
 //! - Not full BunkerBusterBehavior seismic sim path (see host_bunker_buster)
 //! - Not network stealth-fighter / science replication (network deferred)
 
-use super::Weapon;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
@@ -214,34 +213,6 @@ pub fn player_may_produce_stealth_aircraft(has_science: bool, template_name: &st
         return true;
     }
     has_science
-}
-
-/// Reload time seconds residual for delay frames @ 30 FPS.
-pub fn delay_frames_to_reload_secs(delay_frames: u32) -> f32 {
-    (delay_frames.max(1) as f32) / 30.0
-}
-
-/// Build residual Stealth Fighter primary Weapon.
-pub fn stealth_fighter_weapon() -> Weapon {
-    Weapon {
-        damage: STEALTH_FIGHTER_DAMAGE,
-        range: STEALTH_FIGHTER_RANGE,
-        min_range: STEALTH_FIGHTER_MIN_RANGE,
-        reload_time: delay_frames_to_reload_secs(STEALTH_FIGHTER_DELAY_FRAMES),
-        last_fire_time: 0.0,
-        ammo: Some(STEALTH_FIGHTER_CLIP_SIZE),
-        clip_size: STEALTH_FIGHTER_CLIP_SIZE,
-        clip_reload_time: delay_frames_to_reload_secs(STEALTH_FIGHTER_CLIP_RELOAD_FRAMES),
-        // Retail AntiAirborneVehicle/Infantry = No — ground residual only.
-        can_target_air: false,
-        can_target_ground: true,
-        projectile_speed: STEALTH_FIGHTER_PROJECTILE_SPEED,
-        pre_attack_delay: 0.0,
-        splash_radius: 0.0,
-        suspend_fx_frame: 0,
-        reloading_clip: false,
-        last_bonus_rof: 0.0,
-    }
 }
 
 /// Residual damage at distance from impact (intended / primary ring).
@@ -507,20 +478,6 @@ mod tests {
     }
 
     #[test]
-    fn living_template_matrix() {
-        assert!(is_stealth_fighter_template("AmericaJetStealthFighter"));
-        assert!(is_stealth_fighter_template("USA_StealthFighter"));
-        assert!(is_stealth_fighter_template("TestStealthFighter"));
-        assert!(is_stealth_fighter_template("AirF_AmericaJetStealthFighter"));
-        assert!(is_stealth_fighter_template("SupW_AmericaJetStealthFighter"));
-        assert!(is_stealth_fighter_template("Lazr_AmericaJetStealthFighter"));
-        assert!(!is_stealth_fighter_template("StealthJetMissile"));
-        assert!(!is_stealth_fighter_template("StealthJetMissileWeapon"));
-        assert!(!is_stealth_fighter_template("AmericaJetRaptor"));
-        assert!(!is_stealth_fighter_template("Upgrade_AmericaBunkerBusters"));
-    }
-
-    #[test]
     fn production_gate_requires_science() {
         assert!(!player_may_produce_stealth_aircraft(
             false,
@@ -539,15 +496,6 @@ mod tests {
 
     #[test]
     fn weapon_and_splash() {
-        let w = stealth_fighter_weapon();
-        assert!((w.damage - 100.0).abs() < 0.01);
-        assert!((w.range - 220.0).abs() < 0.01);
-        assert!((w.min_range - 60.0).abs() < 0.01);
-        assert!((w.reload_time - 6.0 / 30.0).abs() < 0.01);
-        assert_eq!(w.ammo, Some(2));
-        assert!(!w.can_target_air);
-        assert!(w.can_target_ground);
-
         assert!((stealth_fighter_damage_at(0.0) - 100.0).abs() < 0.01);
         assert!((stealth_fighter_damage_at(5.0) - 100.0).abs() < 0.01);
         assert!((stealth_fighter_damage_at(6.0)).abs() < 0.01);

@@ -1129,6 +1129,18 @@ impl GameLogic {
                         );
                     }
                 }
+                // C++ ObjectCreationList.cpp:985-993: any created object with a
+                // SlavedUpdate is enslaved to the source (startSlavedEffects ->
+                // UNSELECTABLE), independent of upgrade/OCL spelling.
+                if let (Some(source), Some(birth)) = (source_id, source_birth.as_ref()) {
+                    if self
+                        .objects
+                        .get(&created_id)
+                        .is_some_and(|object| object.thing().template.slaved_update_metadata.is_some())
+                    {
+                        self.enslave_owned_drone(created_id, source, birth);
+                    }
+                }
                 let veterancy_health_bonus = self.veterancy_health_bonus;
                 let inherit_name = self
                     .with_object_veterancy_feedback_and_locomotors(
@@ -1143,9 +1155,11 @@ impl GameLogic {
                             }
                             // C++ ObjectCreationList.cpp:996-1006 — inherit rank and
                             // transferObjectName only when the created tracker isTrainable.
+                            // ExperienceTracker::setVeterancyLevel is exact: it replaces
+                            // (and may lower) the receiving constructor/onCreate rank.
                             let inherit_name = generic.inherit_veterancy && object.is_trainable();
                             if inherit_name {
-                                object.set_min_veterancy_level_with_health_bonus_table(
+                                object.set_exact_veterancy_level_with_health_bonus_table(
                                     source_veterancy,
                                     &veterancy_health_bonus,
                                     audio,
@@ -3588,13 +3602,13 @@ impl GameLogic {
     ) -> bool {
         use crate::game_logic::host_scorpion::{
             ScorpionSalvageTier, has_ap_rockets_upgrade, has_scorpion_rocket_upgrade,
-            is_scorpion_template, scorpion_gun_weapon, scorpion_missile_weapon,
+            scorpion_gun_weapon, scorpion_missile_weapon,
         };
 
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_scorpion_template(&obj.template_name) {
+        if !authored_scorpion_gun(obj) {
             return false;
         }
 
@@ -3641,14 +3655,14 @@ impl GameLogic {
     /// Equip Scorpion Rocket secondary residual (Upgrade_GLAScorpionRocket).
     pub fn apply_scorpion_rocket_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_scorpion::{
-            UPGRADE_GLA_SCORPION_ROCKET, has_ap_rockets_upgrade, is_scorpion_template,
-            salvage_tier_from_upgrades, scorpion_missile_weapon,
+            UPGRADE_GLA_SCORPION_ROCKET, has_ap_rockets_upgrade, salvage_tier_from_upgrades,
+            scorpion_missile_weapon,
         };
 
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_scorpion_template(&obj.template_name) {
+        if !authored_scorpion_gun(obj) {
             return false;
         }
         obj.applied_upgrades
@@ -3667,14 +3681,14 @@ impl GameLogic {
     /// Apply AP Rockets residual damage mult to Scorpion missile secondary.
     pub fn apply_scorpion_ap_rockets_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_scorpion::{
-            UPGRADE_GLA_AP_ROCKETS, has_scorpion_rocket_upgrade, is_scorpion_template,
-            salvage_tier_from_upgrades, scorpion_missile_weapon,
+            UPGRADE_GLA_AP_ROCKETS, has_scorpion_rocket_upgrade, salvage_tier_from_upgrades,
+            scorpion_missile_weapon,
         };
 
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        if !is_scorpion_template(&obj.template_name) {
+        if !authored_scorpion_gun(obj) {
             return false;
         }
         obj.applied_upgrades
@@ -4359,6 +4373,69 @@ End
         );
     }
 
+    /// hq-2qedt.60: C++ ObjectCreationList.cpp:996-1001 calls the exact
+    /// `ExperienceTracker::setVeterancyLevel` (ExperienceTracker.cpp:82-95),
+    /// not setMinVeterancyLevel, after construction/onCreate already seeded the
+    /// receiving rank (Object.cpp:456, VeterancyGainCreate). The inherited
+    /// source rank therefore replaces — and may lower — that rank.
+    #[test]
+    fn ocl_inherits_veterancy_sets_exact_rank_over_receiving_create_rank() {
+        let ini = r#"
+ObjectCreationList OCL_Hq60Inherit
+  CreateObject
+    ObjectNames = Hq60Spawned
+    Count = 1
+    InheritsVeterancy = Yes
+  End
+End
+"#;
+        let mut logic = GameLogic::new();
+        logic
+            .apply_receiving_ocl_overrides(&[ini.to_owned()])
+            .expect("inherit OCL must parse");
+        let mut source_tpl = ThingTemplate::new("__Hq60Source");
+        source_tpl.is_trainable = true;
+        logic.templates.insert("__Hq60Source".into(), source_tpl);
+        let mut spawned_tpl = ThingTemplate::new("Hq60Spawned");
+        spawned_tpl.is_trainable = true;
+        spawned_tpl.veterancy_gain_creates =
+            vec![crate::game_logic::VeterancyGainCreateMetadata {
+                starting_level: VeterancyLevel::Elite,
+                science_required: None,
+            }];
+        logic.templates.insert("Hq60Spawned".into(), spawned_tpl);
+        let source = logic
+            .create_object("__Hq60Source", Team::USA, Vec3::new(2.0, 0.0, 4.0))
+            .expect("source");
+
+        let baseline = logic
+            .create_object("Hq60Spawned", Team::USA, Vec3::new(20.0, 0.0, 4.0))
+            .expect("baseline");
+        assert_eq!(
+            logic.objects.get(&baseline).unwrap().experience.level,
+            VeterancyLevel::Elite,
+            "fixture: receiving create seeds Elite before OCL inherit"
+        );
+
+        for (source_rank, x) in [(VeterancyLevel::Veteran, 6.0), (VeterancyLevel::Rookie, 10.0)] {
+            let created = logic.execute_parsed_weapon_ocl_at(
+                "OCL_Hq60Inherit",
+                Some(source),
+                Team::USA,
+                source_rank,
+                0.0,
+                Vec3::ZERO,
+                Vec3::new(x, 0.0, 4.0),
+            );
+            assert_eq!(created.len(), 1);
+            assert_eq!(
+                logic.objects.get(&created[0]).unwrap().experience.level,
+                source_rank,
+                "C++ setVeterancyLevel is exact: source {source_rank:?} replaces created Elite"
+            );
+        }
+    }
+
     /// C++ HelixContain.cpp:340 — portable gattling fires without host shot.
     #[test]
     fn overlord_gattling_independent_acquire_not_stacked_primary() {
@@ -4535,4 +4612,15 @@ End
             Some(payload)
         );
     }
+}
+
+/// hq-2qedt.179: Scorpion gun/rocket refresh keys on the authored PRIMARY
+/// (ScorpionTankGun family) rather than a template-name sniff; C++ crate /
+/// WeaponSetUpgrade paths only flip WeaponSet conditions on the authored set.
+pub(in crate::game_logic) fn authored_scorpion_gun(obj: &crate::game_logic::Object) -> bool {
+    use crate::game_logic::host_scorpion::{SCORPION_TANK_GUN, SCORPION_TANK_GUN_PLUS_ONE};
+    obj.authored_weapon_name_for_slot(0).is_some_and(|w| {
+        w.eq_ignore_ascii_case(SCORPION_TANK_GUN)
+            || w.eq_ignore_ascii_case(SCORPION_TANK_GUN_PLUS_ONE)
+    })
 }

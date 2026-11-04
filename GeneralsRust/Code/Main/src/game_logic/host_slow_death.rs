@@ -62,6 +62,36 @@ pub struct HostSlowDeathIni {
     pub fx_midpoint: Option<String>,
     /// C++ `FX = FINAL ...` first non-empty FXList name.
     pub fx_final: Option<String>,
+    /// C++ DieMuxData `DeathTypes` mask (`1 << (dt - 1)` per DieModule.cpp).
+    #[serde(default = "all_death_types")]
+    pub death_types: u32,
+    /// C++ SlowDeathBehaviorModuleData `ProbabilityModifier` (default 10, >= 1).
+    #[serde(default = "default_probability_modifier")]
+    pub probability_modifier: i32,
+    /// C++ DieMuxData `VeterancyLevels` mask (default all).
+    #[serde(default = "all_veterancy_levels")]
+    pub veterancy_levels: u32,
+    /// C++ DieMuxData `ExemptStatus` bits (any set on object → not applicable).
+    #[serde(default)]
+    pub exempt_status: u64,
+    /// C++ DieMuxData `RequiredStatus` bits (all must be set on object).
+    #[serde(default)]
+    pub required_status: u64,
+    /// C++ `ModifierBonusPerOverkillPercent` (`INI::parsePercentToReal`, default 0).
+    #[serde(default)]
+    pub modifier_bonus_per_overkill_percent: f32,
+}
+
+fn all_veterancy_levels() -> u32 {
+    gamelogic::object::die::VETERANCY_LEVEL_FLAGS_ALL
+}
+
+fn all_death_types() -> u32 {
+    gamelogic::damage::DEATH_TYPE_FLAGS_ALL
+}
+
+fn default_probability_modifier() -> i32 {
+    10
 }
 
 impl Default for HostSlowDeathIni {
@@ -79,11 +109,58 @@ impl Default for HostSlowDeathIni {
             fx_initial: None,
             fx_midpoint: None,
             fx_final: None,
+            death_types: all_death_types(),
+            probability_modifier: default_probability_modifier(),
+            veterancy_levels: all_veterancy_levels(),
+            exempt_status: 0,
+            required_status: 0,
+            modifier_bonus_per_overkill_percent: 0.0,
         }
     }
 }
 
 impl HostSlowDeathIni {
+    /// C++ DieMuxData::isDieApplicable death-type gate (DieModule.cpp).
+    pub fn death_type_applies(
+        &self,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    ) -> bool {
+        let bit = 1u32 << (u32::from(death_type.ordinal()).wrapping_sub(1) & 31);
+        self.death_types & bit != 0
+    }
+
+    /// C++ DieMuxData::isDieApplicable (DieModule.cpp:47-67): death type,
+    /// veterancy level, ExemptStatus (any), RequiredStatus (all).
+    pub fn die_applies(
+        &self,
+        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+        veterancy: gamelogic::common::VeterancyLevel,
+        status_bits: u64,
+    ) -> bool {
+        if !self.death_type_applies(death_type) {
+            return false;
+        }
+        if !gamelogic::object::die::get_veterancy_level_flag(self.veterancy_levels, veterancy) {
+            return false;
+        }
+        if self.exempt_status != 0 && status_bits & self.exempt_status != 0 {
+            return false;
+        }
+        if self.required_status != 0 && status_bits & self.required_status != self.required_status
+        {
+            return false;
+        }
+        true
+    }
+
+    /// C++ SlowDeathBehavior::getProbabilityModifier (SlowDeathBehavior.cpp:158-168):
+    /// `max(ProbabilityModifier + Int(overkillFraction * bonus), 1)` where
+    /// overkillFraction = (actualDealt - actualClipped) / maxHealth.
+    pub fn probability_modifier_for(&self, overkill_fraction: f32) -> i32 {
+        let overkill_modifier = (overkill_fraction * self.modifier_bonus_per_overkill_percent) as i32;
+        (self.probability_modifier + overkill_modifier).max(1)
+    }
+
     /// Retail AmericaInfantry* SlowDeathBehavior peel (SinkDelay 3000 / SinkRate 0.5 / DestructionDelay 8000).
     pub fn infantry_retail() -> Self {
         Self {
@@ -494,7 +571,89 @@ pub fn slow_death_ini_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostSlowDea
         fx_initial,
         fx_midpoint,
         fx_final,
+        death_types: get("DeathTypes")
+            .and_then(|raw| {
+                let tokens: Vec<&str> = raw.split_whitespace().collect();
+                gamelogic::object::die::parse_death_type_flags_tokens(&tokens).ok()
+            })
+            .unwrap_or_else(all_death_types),
+        probability_modifier: get("ProbabilityModifier")
+            .and_then(|raw| {
+                raw.split(';')
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .parse::<i32>()
+                    .ok()
+            })
+            .unwrap_or_else(default_probability_modifier)
+            .max(1),
+        veterancy_levels: get("VeterancyLevels")
+            .and_then(|raw| {
+                let tokens = flag_tokens(raw);
+                gamelogic::object::die::parse_veterancy_level_flags_tokens(&tokens).ok()
+            })
+            .unwrap_or_else(all_veterancy_levels),
+        exempt_status: get("ExemptStatus")
+            .and_then(|raw| status_bits_from(raw))
+            .unwrap_or(0),
+        required_status: get("RequiredStatus")
+            .and_then(|raw| status_bits_from(raw))
+            .unwrap_or(0),
+        modifier_bonus_per_overkill_percent: get("ModifierBonusPerOverkillPercent")
+            .and_then(|raw| {
+                let t = raw.split(';').next().unwrap_or_default().trim();
+                t.trim_end_matches('%').trim().parse::<f32>().ok().map(|v| v / 100.0)
+            })
+            .unwrap_or(0.0),
     }
+}
+
+fn flag_tokens(raw: &str) -> Vec<&str> {
+    raw.split(';')
+        .next()
+        .unwrap_or_default()
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn status_bits_from(raw: &str) -> Option<u64> {
+    let tokens = flag_tokens(raw);
+    gamelogic::object::die::parse_object_status_mask_tokens(&tokens)
+        .ok()
+        .map(|mask| mask.bits())
+}
+
+/// C++ SlowDeathBehavior::onDie (SlowDeathBehavior.cpp:475-502): sum
+/// ProbabilityModifier over DieMux-applicable modules, roll
+/// GameLogicRandomValue(1,total), pick the module that drives roll <= 0.
+pub fn select_slow_death_ini(
+    modules: &[HostSlowDeathIni],
+    death_type: crate::game_logic::host_usa_pilot::HostDeathType,
+    veterancy: gamelogic::common::VeterancyLevel,
+    status_bits: u64,
+    overkill_fraction: f32,
+) -> Option<HostSlowDeathIni> {
+    let applicable = || {
+        modules
+            .iter()
+            .filter(|m| m.die_applies(death_type, veterancy, status_bits))
+    };
+    let total: i32 = applicable()
+        .map(|m| m.probability_modifier_for(overkill_fraction))
+        .sum();
+    if total <= 0 {
+        return None;
+    }
+    let mut roll = gamelogic::helpers::get_game_logic_random_value(1, total);
+    for module in applicable() {
+        roll -= module.probability_modifier_for(overkill_fraction);
+        if roll <= 0 {
+            return Some(module.clone());
+        }
+    }
+    None
 }
 
 /// Read the effective immutable definition already admitted to the object.
@@ -611,5 +770,29 @@ mod tests {
             let definition = crate::assets::ObjectDefinition::new(name.to_string());
             assert!(slow_death_ini_for_definition(&definition).is_none());
         }
+    }
+}
+
+#[cfg(test)]
+mod overkill_probability_tests {
+    use super::*;
+
+    #[test]
+    fn slow_death_overkill_bonus_matches_cpp_get_probability_modifier() {
+        // C++ SlowDeathBehavior.cpp:158-168:
+        // max(m_probabilityModifier + Int(overkillFraction * bonus), 1).
+        let ini = slow_death_ini_from_behavior_attrs(&[
+            ("ProbabilityModifier", "10"),
+            ("ModifierBonusPerOverkillPercent", "2000%"),
+        ]);
+        assert!((ini.modifier_bonus_per_overkill_percent - 20.0).abs() < 1e-6);
+        assert_eq!(ini.probability_modifier_for(0.0), 10);
+        assert_eq!(ini.probability_modifier_for(0.5), 20);
+        assert_eq!(ini.probability_modifier_for(0.04), 10); // Int truncation
+        let neg = slow_death_ini_from_behavior_attrs(&[
+            ("ProbabilityModifier", "5"),
+            ("ModifierBonusPerOverkillPercent", "-5000%"),
+        ]);
+        assert_eq!(neg.probability_modifier_for(1.0), 1);
     }
 }

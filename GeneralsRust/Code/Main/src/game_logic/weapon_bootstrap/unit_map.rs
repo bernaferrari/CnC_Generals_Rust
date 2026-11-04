@@ -110,6 +110,11 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         "ChinaJetMIG" | "China_MiG" | "TestMiG" | "Tank_ChinaJetMIG" | "Infa_ChinaJetMIG"
         | "Boss_JetMIG" => Some(NAPALM_MISSILE_WEAPON),
         "Nuke_ChinaJetMIG" => Some(NUKE_MIG_MISSILE_WEAPON),
+        "AmericaJetRaptor" | "USA_Raptor" | "TestRaptor" | "SupW_AmericaJetRaptor"
+        | "Lazr_AmericaJetRaptor" => Some(crate::game_logic::host_raptor::RAPTOR_JET_MISSILE_WEAPON),
+        "AirF_AmericaJetRaptor" => {
+            Some(crate::game_logic::host_raptor::AIRF_RAPTOR_JET_MISSILE_WEAPON)
+        }
         // America Fire Base residual howitzer.
         "AmericaFireBase"
         | "USA_FireBase"
@@ -305,6 +310,14 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_bunker_buster::is_kill_garrisoned_clearer(template_name) {
                 return Some(MICROWAVE_BUILDING_CLEARER_WEAPON);
             }
+            // Comanche: explicit retail rows above only; no fuzzy name peel
+            // (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.123).
+            if crate::game_logic::host_overlord_addons::is_helix_template(template_name) {
+                return Some(HELIX_MINIGUN_WEAPON);
+            }
+            if crate::game_logic::host_pathfinder::is_pathfinder_template(template_name) {
+                return Some(PATHFINDER_SNIPER_WEAPON);
+            }
             if crate::game_logic::host_slave_drones::is_hellfire_drone_template(template_name) {
                 return Some(HELLFIRE_MISSILE_WEAPON);
             }
@@ -321,11 +334,29 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_rocket_buggy::is_rocket_buggy_template(template_name) {
                 return Some(BUGGY_ROCKET_WEAPON);
             }
+            if crate::game_logic::host_quad_cannon::is_quad_cannon_template(template_name) {
+                return Some(QUAD_CANNON_GUN);
+            }
+            // SCUD: explicit retail rows above only (hq-2qedt.250).
             if crate::game_logic::host_technical::is_technical_template(template_name) {
                 return Some(TECHNICAL_MACHINE_GUN);
             }
-            if crate::game_logic::host_scorpion::is_scorpion_template(template_name) {
-                return Some(SCORPION_TANK_GUN);
+            if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name) {
+                return Some(TOXIN_TRUCK_GUN);
+            }
+            if crate::game_logic::host_tomahawk::is_tomahawk_template(template_name) {
+                return Some(TOMAHAWK_MISSILE_WEAPON);
+            }
+            // Raptor: explicit retail rows above only; no fuzzy name peel
+            // (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.249).
+            if crate::game_logic::host_slave_drones::is_battle_drone_template(template_name) {
+                return Some(BATTLE_DRONE_MACHINE_GUN);
+            }
+            if crate::game_logic::host_overlord_gun::is_overlord_gun_chassis(template_name) {
+                return Some(OVERLORD_TANK_GUN);
+            }
+            if crate::game_logic::host_jarmen_kell::is_jarmen_kell_template(template_name) {
+                return Some(JARMEN_KELL_RIFLE);
             }
             if crate::game_logic::host_marauder::is_marauder_template(template_name) {
                 return Some(MARAUDER_TANK_GUN);

@@ -572,7 +572,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_comanche_rocket_pods::{
             COMANCHE_CANNON_DAMAGE, COMANCHE_CANNON_DAMAGE_TYPE, COMANCHE_CANNON_DEATH_TYPE,
-            COMANCHE_CANNON_FIRE_AUDIO, is_comanche_template, is_legal_comanche_target,
+            COMANCHE_CANNON_FIRE_AUDIO, is_legal_comanche_target,
         };
 
         let source_team = source
@@ -777,7 +777,7 @@ impl GameLogic {
             COMANCHE_AT_DAMAGE_TYPE, COMANCHE_AT_DEATH_TYPE, COMANCHE_AT_FIRE_AUDIO,
             COMANCHE_AT_PRIMARY_RADIUS, COMANCHE_AT_SECONDARY_RADIUS, comanche_antitank_damage_at,
             comanche_antitank_scatter_aim, comanche_antitank_scatter_misses_infantry,
-            is_comanche_template, is_legal_comanche_target,
+            is_legal_comanche_target,
         };
 
         let source_team = source

@@ -543,7 +543,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_mig::{
-            UPGRADE_CHINA_AIRCRAFT_ARMOR, apply_mig_aircraft_armor_health, is_mig_template,
+            UPGRADE_CHINA_AIRCRAFT_ARMOR, apply_mig_aircraft_armor_health, authors_mig_missile,
         };
 
         let mut n = 0u32;
@@ -551,7 +551,7 @@ impl GameLogic {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
-            if !is_mig_template(&obj.template_name) {
+            if !authors_mig_missile(obj.authored_primary_weapon_names(), None) {
                 continue;
             }
             if obj.has_upgrade_tag(UPGRADE_CHINA_AIRCRAFT_ARMOR)
@@ -623,14 +623,14 @@ impl GameLogic {
         recipients: UpgradeRecipients,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_mig::{UPGRADE_CHINA_TACTICAL_NUKE_MIG, is_nuke_mig_template};
+        use crate::game_logic::host_mig::{UPGRADE_CHINA_TACTICAL_NUKE_MIG, authors_mig_missile};
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
             .filter(|(_, o)| {
                 recipients.matches_object(o)
                     && o.is_alive()
-                    && is_nuke_mig_template(&o.template_name)
+                    && authors_mig_missile(o.authored_primary_weapon_names(), Some(true))
             })
             .map(|(id, _)| *id)
             .collect();
@@ -661,7 +661,7 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_scud_launcher::{
-            UPGRADE_GLA_ANTHRAX_BETA, is_scud_launcher_template,
+            UPGRADE_GLA_ANTHRAX_BETA, authors_scud_gun,
         };
         use crate::game_logic::host_toxin_tractor::is_toxin_tractor_template;
 
@@ -671,7 +671,7 @@ impl GameLogic {
                 continue;
             }
             let is_tt = is_toxin_tractor_template(&obj.template_name);
-            let is_scud = is_scud_launcher_template(&obj.template_name);
+            let is_scud = authors_scud_gun(obj.authored_primary_weapon_names());
             if !is_tt && !is_scud {
                 continue;
             }
@@ -700,7 +700,7 @@ impl GameLogic {
         recipients: UpgradeRecipients,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_scud_launcher::is_scud_launcher_template;
+        use crate::game_logic::host_scud_launcher::authors_scud_gun;
         use crate::game_logic::host_upgrades::UPGRADE_GLA_TOXIN_SHELLS;
 
         let mut n = 0u32;
@@ -708,7 +708,7 @@ impl GameLogic {
             if !recipients.matches_object(obj) || !obj.is_alive() {
                 continue;
             }
-            if !is_scud_launcher_template(&obj.template_name) {
+            if !authors_scud_gun(obj.authored_primary_weapon_names()) {
                 continue;
             }
             if obj.has_upgrade_tag(UPGRADE_GLA_TOXIN_SHELLS) || obj.has_upgrade_tag(upgrade_name) {
@@ -864,14 +864,14 @@ impl GameLogic {
         upgrade_name: &str,
     ) -> u32 {
         use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
-        use crate::game_logic::host_mig::is_mig_template;
+        use crate::game_logic::host_mig::authors_mig_missile;
 
         let ids: Vec<(ObjectId, u8)> = self
             .objects
             .registered()
             .filter(|(_, o)| recipients.matches_object(o) && o.is_alive())
             .filter_map(|(id, o)| {
-                if is_mig_template(&o.template_name) {
+                if authors_mig_missile(o.authored_primary_weapon_names(), Some(false)) {
                     Some((*id, 0u8))
                 } else if is_inferno_cannon_template(&o.template_name) {
                     Some((*id, 1))
@@ -914,14 +914,15 @@ impl GameLogic {
         recipients: UpgradeRecipients,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_scorpion::{UPGRADE_GLA_SCORPION_ROCKET, is_scorpion_template};
+        use crate::game_logic::host_scorpion::UPGRADE_GLA_SCORPION_ROCKET;
+        use super::super::world_combat::ocl_and_scud::authored_scorpion_gun;
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
             .filter(|(_, o)| {
                 recipients.matches_object(o)
                     && o.is_alive()
-                    && is_scorpion_template(&o.template_name)
+                    && authored_scorpion_gun(o)
             })
             .map(|(id, _)| *id)
             .collect();
@@ -954,7 +955,7 @@ impl GameLogic {
             .registered()
             .filter(|(_, o)| recipients.matches_object(o) && o.is_alive())
             .filter_map(|(id, o)| {
-                if is_scorpion_template(&o.template_name) {
+                if authored_scorpion_gun(o) {
                     Some((*id, 0u8))
                 } else if o
                     .authored_weapon_name_for_slot(0)
@@ -1000,12 +1001,16 @@ impl GameLogic {
         recipients: UpgradeRecipients,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_raptor::{UPGRADE_AMERICA_LASER_MISSILES, is_raptor_template};
+        use crate::game_logic::host_raptor::{
+            UPGRADE_AMERICA_LASER_MISSILES, authors_raptor_missile,
+        };
         let ids: Vec<ObjectId> = self
             .objects
             .registered()
             .filter(|(_, o)| {
-                recipients.matches_object(o) && o.is_alive() && is_raptor_template(&o.template_name)
+                recipients.matches_object(o)
+                    && o.is_alive()
+                    && authors_raptor_missile(o.authored_primary_weapon_names(), None)
             })
             .map(|(id, _)| *id)
             .collect();
@@ -2147,5 +2152,178 @@ mod upgrade_lookup_admission_tests {
         assert!(world.objects[&registered].has_upgrade_tag(name));
         assert!(!world.objects[&raw_id].has_upgrade_tag(name));
         assert!(world.get_player(0).unwrap().has_unlocked_upgrade(name));
+    }
+}
+
+#[cfg(test)]
+mod authored_mig_gate_tests {
+    use super::UpgradeRecipients;
+    use crate::game_logic::*;
+
+    /// hq-2qedt.247: C++ MaxHealthUpgrade / WeaponSetUpgrade on the MiG key on the
+    /// object's authored modules/WeaponSet, not its template name. A MiG-named
+    /// template authoring no MiG missile gets nothing; an unlisted name authoring
+    /// NapalmMissileWeapon gets Aircraft Armor.
+    #[test]
+    fn mig_team_upgrade_gates_key_on_authored_missile_not_template_name() {
+        use crate::game_logic::host_mig::NAPALM_MISSILE_WEAPON;
+
+        let mut game_logic = GameLogic::new();
+        for (tpl_name, primary) in [
+            ("ChinaJetMIG", "HumveeGun"),
+            ("AuthoredAirframeX", NAPALM_MISSILE_WEAPON),
+        ] {
+            let mut tpl = crate::game_logic::ThingTemplate::new(tpl_name);
+            tpl.add_kind_of(KindOf::Aircraft)
+                .add_kind_of(KindOf::Selectable)
+                .add_kind_of(KindOf::Attackable)
+                .set_health(300.0)
+                .set_primary_weapon_name(primary);
+            game_logic.templates.insert(tpl_name.to_string(), tpl);
+        }
+        let named = game_logic
+            .create_object("ChinaJetMIG", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let authored = game_logic
+            .create_object("AuthoredAirframeX", Team::China, Vec3::new(50.0, 0.0, 0.0))
+            .unwrap();
+        let n = game_logic.apply_aircraft_armor_to_team(
+            UpgradeRecipients::Team(Team::China),
+            "Upgrade_ChinaAircraftArmor",
+        );
+        assert_eq!(n, 1, "exactly the authored MiG-missile object upgrades");
+        assert!((game_logic.host_object(named).unwrap().max_health - 300.0).abs() < 0.01);
+        assert!(game_logic.host_object(authored).unwrap().max_health > 300.0);
+    }
+
+    /// hq-2qedt.248: Black Napalm / Tactical Nuke MiG direct apply paths (vehicle_shells)
+    /// key on authored MiG missile PRIMARY, not template-name sniffing.
+    #[test]
+    fn mig_direct_upgrade_apply_keys_on_authored_missile_not_template_name() {
+        use crate::game_logic::host_mig::{
+            NAPALM_MISSILE_WEAPON, NUKE_MIG_MISSILE_WEAPON, UPGRADE_CHINA_BLACK_NAPALM,
+            UPGRADE_CHINA_TACTICAL_NUKE_MIG,
+        };
+        let mut gl = GameLogic::new();
+        for (tpl_name, primary) in [
+            ("ChinaJetMIG", "HumveeGun"),
+            ("Nuke_ChinaJetMIG", "HumveeGun"),
+            ("AuthoredAirframeX", NAPALM_MISSILE_WEAPON),
+            ("AuthoredAirframeN", NUKE_MIG_MISSILE_WEAPON),
+        ] {
+            let mut tpl = crate::game_logic::ThingTemplate::new(tpl_name);
+            tpl.add_kind_of(KindOf::Aircraft)
+                .set_health(300.0)
+                .set_primary_weapon_name(primary);
+            gl.templates.insert(tpl_name.to_string(), tpl);
+        }
+        let mk = |gl: &mut GameLogic, n: &str| {
+            gl.create_object(n, Team::China, Vec3::new(0.0, 0.0, 0.0))
+                .unwrap()
+        };
+        let named = mk(&mut gl, "ChinaJetMIG");
+        let named_n = mk(&mut gl, "Nuke_ChinaJetMIG");
+        let auth = mk(&mut gl, "AuthoredAirframeX");
+        let auth_n = mk(&mut gl, "AuthoredAirframeN");
+        for id in [named, auth, auth_n] {
+            let _ = gl.apply_mig_black_napalm_upgrade(id);
+        }
+        for id in [named_n, auth_n, auth] {
+            let _ = gl.apply_mig_tactical_nuke_upgrade(id);
+        }
+        let has =
+            |gl: &GameLogic, id, u: &str| gl.host_object(id).unwrap().applied_upgrades.contains(u);
+        assert!(!has(&gl, named, UPGRADE_CHINA_BLACK_NAPALM));
+        assert!(has(&gl, auth, UPGRADE_CHINA_BLACK_NAPALM));
+        assert!(!has(&gl, auth_n, UPGRADE_CHINA_BLACK_NAPALM));
+        assert!(!has(&gl, named_n, UPGRADE_CHINA_TACTICAL_NUKE_MIG));
+        assert!(has(&gl, auth_n, UPGRADE_CHINA_TACTICAL_NUKE_MIG));
+        assert!(!has(&gl, auth, UPGRADE_CHINA_TACTICAL_NUKE_MIG));
+    }
+
+    /// hq-2qedt.249: Laser Missiles (WeaponSetUpgrade) keys on authored Raptor missile
+    /// PRIMARY, not template-name sniffing (team + direct apply paths).
+    #[test]
+    fn raptor_laser_missiles_keys_on_authored_missile_not_template_name() {
+        use crate::game_logic::host_raptor::{
+            AIRF_RAPTOR_JET_MISSILE_WEAPON, RAPTOR_JET_MISSILE_WEAPON,
+            UPGRADE_AMERICA_LASER_MISSILES,
+        };
+        let mut gl = GameLogic::new();
+        for (tpl_name, primary) in [
+            ("AmericaJetRaptor", "HumveeGun"),
+            ("AuthoredAirframeR", RAPTOR_JET_MISSILE_WEAPON),
+            ("AuthoredAirframeK", AIRF_RAPTOR_JET_MISSILE_WEAPON),
+        ] {
+            let mut tpl = crate::game_logic::ThingTemplate::new(tpl_name);
+            tpl.add_kind_of(KindOf::Aircraft)
+                .set_health(160.0)
+                .set_primary_weapon_name(primary);
+            gl.templates.insert(tpl_name.to_string(), tpl);
+        }
+        let named = gl
+            .create_object("AmericaJetRaptor", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let auth = gl
+            .create_object("AuthoredAirframeR", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let king = gl
+            .create_object("AuthoredAirframeK", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        assert!(!gl.apply_raptor_laser_missiles_upgrade(named));
+        assert!(gl.apply_raptor_laser_missiles_upgrade(king));
+        let n = gl.apply_laser_missiles_to_team(
+            UpgradeRecipients::Team(Team::USA),
+            UPGRADE_AMERICA_LASER_MISSILES,
+        );
+        assert_eq!(n, 2);
+        let has = |gl: &GameLogic, id| {
+            gl.host_object(id)
+                .unwrap()
+                .applied_upgrades
+                .contains(UPGRADE_AMERICA_LASER_MISSILES)
+        };
+        assert!(!has(&gl, named));
+        assert!(has(&gl, auth));
+        assert!(has(&gl, king));
+    }
+
+    /// hq-2qedt.250: Anthrax Beta / Toxin Shells key on authored SCUD gun PRIMARY,
+    /// not template-name sniffing.
+    #[test]
+    fn scud_upgrades_key_on_authored_scud_gun_not_template_name() {
+        use crate::game_logic::host_scud_launcher::UPGRADE_GLA_ANTHRAX_BETA;
+        use crate::game_logic::host_upgrades::UPGRADE_GLA_TOXIN_SHELLS;
+        use crate::game_logic::weapon_bootstrap::SCUD_GUN_EXPLOSIVE;
+        let mut gl = GameLogic::new();
+        for (tpl_name, primary) in [
+            ("GLAVehicleScudLauncher", "HumveeGun"),
+            ("AuthoredRackS", SCUD_GUN_EXPLOSIVE),
+        ] {
+            let mut tpl = crate::game_logic::ThingTemplate::new(tpl_name);
+            tpl.add_kind_of(KindOf::Vehicle)
+                .set_health(200.0)
+                .set_primary_weapon_name(primary);
+            gl.templates.insert(tpl_name.to_string(), tpl);
+        }
+        let named = gl
+            .create_object("GLAVehicleScudLauncher", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        let auth = gl
+            .create_object("AuthoredRackS", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .unwrap();
+        assert_eq!(
+            gl.apply_anthrax_beta_to_team(UpgradeRecipients::Team(Team::GLA), UPGRADE_GLA_ANTHRAX_BETA),
+            1
+        );
+        assert_eq!(
+            gl.apply_toxin_shells_to_team(UpgradeRecipients::Team(Team::GLA), UPGRADE_GLA_TOXIN_SHELLS),
+            1
+        );
+        let has = |gl: &GameLogic, id, u: &str| gl.host_object(id).unwrap().applied_upgrades.contains(u);
+        assert!(!has(&gl, named, UPGRADE_GLA_ANTHRAX_BETA));
+        assert!(has(&gl, auth, UPGRADE_GLA_ANTHRAX_BETA));
+        assert!(!has(&gl, named, UPGRADE_GLA_TOXIN_SHELLS));
+        assert!(has(&gl, auth, UPGRADE_GLA_TOXIN_SHELLS));
     }
 }

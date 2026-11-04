@@ -573,6 +573,15 @@ pub struct ThingTemplate {
     pub stealth_friendly_opacity_min: f32,
     #[serde(default = "default_stealth_friendly_opacity_max")]
     pub stealth_friendly_opacity_max: f32,
+    /// Exact StealthUpdate `InnateStealth` (C++ `m_innateStealth`).
+    #[serde(default)]
+    pub stealth_update_innate: bool,
+    /// StealthUpdate `StealthForbiddenConditions` contains `ATTACKING`.
+    #[serde(default)]
+    pub stealth_update_forbids_attacking: bool,
+    /// Exact StealthUpdate `StealthDelay` in ms, when authored.
+    #[serde(default)]
+    pub stealth_update_delay_ms: Option<u32>,
     /// Exact `ParkingPlaceBehavior` data.  This remains absent when the
     /// source object has no such behavior, even if its KindOf is
     /// `FSAirfield`; physical aircraft landing then fails closed.
@@ -1190,6 +1199,9 @@ impl ThingTemplate {
 
             stealth_friendly_opacity_min: default_stealth_friendly_opacity_min(),
             stealth_friendly_opacity_max: default_stealth_friendly_opacity_max(),
+            stealth_update_innate: false,
+            stealth_update_forbids_attacking: false,
+            stealth_update_delay_ms: None,
             parking_place: None,
             flight_deck: None,
             deploy_style_metadata: None,

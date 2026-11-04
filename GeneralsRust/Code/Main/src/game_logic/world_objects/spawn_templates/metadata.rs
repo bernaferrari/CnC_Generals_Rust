@@ -2508,6 +2508,32 @@ impl GameLogic {
         {
             template.stealth_friendly_opacity_max = value;
         }
+        // C++ StealthUpdateModuleData: InnateStealth (parseBool), StealthDelay
+        // (parseDurationUnsignedInt ms), StealthForbiddenConditions bitstring.
+        if let Some(value) = module.attribute("InnateStealth") {
+            let v = value.split(';').next().unwrap_or_default().trim();
+            template.stealth_update_innate = v.eq_ignore_ascii_case("yes") || v == "1";
+        }
+        if let Some(ms) = module.attribute("StealthDelay").and_then(|value| {
+            value
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .parse::<f32>()
+                .ok()
+                .filter(|v| v.is_finite() && *v >= 0.0)
+        }) {
+            template.stealth_update_delay_ms = Some(ms.round() as u32);
+        }
+        if let Some(value) = module.attribute("StealthForbiddenConditions") {
+            template.stealth_update_forbids_attacking = value
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .split_whitespace()
+                .any(|token| token.eq_ignore_ascii_case("ATTACKING"));
+        }
         if template.stealth_friendly_opacity_min > template.stealth_friendly_opacity_max {
             template.stealth_friendly_opacity_min = 0.5;
             template.stealth_friendly_opacity_max = 1.0;

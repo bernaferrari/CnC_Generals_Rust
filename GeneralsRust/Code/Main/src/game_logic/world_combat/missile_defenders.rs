@@ -1980,9 +1980,8 @@ impl GameLogic {
         // C++ startSlavedEffects (SlavedUpdate.cpp:700-701) OBJECT_STATUS_UNSELECTABLE.
         if let Some(drone) = self.objects.get_mut(&drone_id) {
             drone.set_status_unselectable(true);
-            if drone.upgrade_die.is_none() {
-                drone.install_upgrade_die(kind.upgrade_name());
-            }
+            // UpgradeDie is bound at create from the drone's authored module
+            // (UpgradeDie.cpp m_upgradeName); attach never names one by kind.
         }
         if !self.object_birth_matches(drone_id, &drone_birth)
             || !self.object_birth_matches(master_id, &master_birth)

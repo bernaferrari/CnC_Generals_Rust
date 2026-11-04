@@ -261,12 +261,12 @@ pub fn rocket_pods_auto_choose_allowed() -> bool {
 ///
 /// active_weapon_slot == 2 locks real tertiary fire.
 pub fn rocket_pod_ground_fire_active(
-    is_comanche: bool,
+    tertiary_is_rocket_pod: bool,
     has_upgrade: bool,
     has_tertiary: bool,
     active_weapon_slot: u8,
 ) -> bool {
-    is_comanche && has_upgrade && has_tertiary && active_weapon_slot == 2
+    tertiary_is_rocket_pod && has_upgrade && has_tertiary && active_weapon_slot == 2
 }
 
 /// Reload time seconds residual for delay frames @ 30 FPS.
@@ -441,24 +441,6 @@ mod tests {
         assert!(!is_comanche_template("ComancheRocketPodRocket"));
         assert!(!is_comanche_template("ComancheAntiTankMissile"));
         assert!(!is_comanche_template("ComancheBlades"));
-    }
-
-    #[test]
-    fn should_apply_area_gate() {
-        assert!(should_apply_rocket_pod_area_attack(true, true, 2));
-        assert!(!should_apply_rocket_pod_area_attack(true, true, 1));
-        assert!(!should_apply_rocket_pod_area_attack(true, true, 0));
-        assert!(!should_apply_rocket_pod_area_attack(true, false, 2));
-        assert!(!should_apply_rocket_pod_area_attack(false, true, 2));
-    }
-
-    #[test]
-    fn cannon_and_antitank_slot_gates() {
-        assert!(should_apply_comanche_cannon_residual(true, 0));
-        assert!(!should_apply_comanche_cannon_residual(true, 1));
-        assert!(should_apply_comanche_antitank_residual(true, 1, false));
-        assert!(should_apply_comanche_antitank_residual(true, 1, true));
-        assert!(!should_apply_comanche_antitank_residual(true, 0, false));
     }
 
     #[test]
