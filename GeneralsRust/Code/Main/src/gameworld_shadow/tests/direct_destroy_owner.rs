@@ -1,8 +1,28 @@
 //! A presentation-health copy must not resurrect an owner-issued deletion.
 use super::*;
 
+/// Binds CommonServices + WorldServices + MainServices the shadow world needs.
+fn bind_three_services() {
+    if game_engine::common::common_services::try_common_services().is_none() {
+        game_engine::common::common_services::install_common_services(std::sync::Arc::new(
+            game_engine::common::common_services::CommonServices::new(),
+        ));
+    }
+    if gamelogic::system::engine_stores::try_active_services().is_none() {
+        gamelogic::system::engine_stores::install_services(
+            gamelogic::system::engine_stores::new_world_services(),
+        );
+    }
+    if crate::main_services::try_main_services().is_none() {
+        crate::main_services::install_main_services(std::sync::Arc::new(
+            crate::main_services::MainServices::new(),
+        ));
+    }
+}
+
 #[test]
 fn coupled_direct_destroy_preserves_owner_body_through_health_writeback() {
+    bind_three_services();
     let mut logic = GameLogic::new();
     ensure_template(&mut logic, "DirectDestroyBoundary", 100.0);
     let id = logic
@@ -59,21 +79,7 @@ fn coupled_direct_destroy_preserves_owner_body_through_health_writeback() {
 /// not turn that zero-HP rubble owner into a destroyed/deleted object.
 #[test]
 fn coupled_tensile_rubble_zero_hp_owner_is_not_destroyed_by_shadow() {
-    if game_engine::common::common_services::try_common_services().is_none() {
-        game_engine::common::common_services::install_common_services(std::sync::Arc::new(
-            game_engine::common::common_services::CommonServices::new(),
-        ));
-    }
-    if gamelogic::system::engine_stores::try_active_services().is_none() {
-        gamelogic::system::engine_stores::install_services(
-            gamelogic::system::engine_stores::new_world_services(),
-        );
-    }
-    if crate::main_services::try_main_services().is_none() {
-        crate::main_services::install_main_services(std::sync::Arc::new(
-            crate::main_services::MainServices::new(),
-        ));
-    }
+    bind_three_services();
     let mut logic = GameLogic::new();
     ensure_template(&mut logic, "TensileRubbleBoundary", 100.0);
     let id = logic
