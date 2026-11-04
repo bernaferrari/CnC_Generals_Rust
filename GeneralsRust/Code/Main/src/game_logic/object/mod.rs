@@ -2796,6 +2796,12 @@ pub struct Object {
     /// slot pick / aim / draw land in hq-2qedt.2.2-.2.4.
     #[serde(skip)]
     pub(crate) alt_turret_runtime: Option<turret_runtime::HostTurretExtra>,
+    /// C++ `m_turretAI[TURRET_ALT]` pose / state-machine memory
+    /// (hq-2qedt.2.3.2). Paired with `alt_turret_runtime`; `None` for
+    /// primary-only templates. In-memory only: xfer is owned by .2.6/.2.7,
+    /// so primary save shape is unchanged. Ticks/targeting land in .2.3.3/.2.3.4.
+    #[serde(skip)]
+    pub(crate) alt_turret_ai: Option<turret_ai_state::TurretAiState>,
 
     /// C++ AIUpdateInterface AttitudeType residual (AI_SLEEP..AI_AGGRESSIVE).
     /// Host residual for TurretAI mood matrix Sleep/Passive gates.
