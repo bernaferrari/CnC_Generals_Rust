@@ -1140,14 +1140,14 @@ impl GameLogic {
                     };
                 } else if {
                     // China Red Guard residual: bayonet one-shot vs close infantry, else gun.
-                    use crate::game_logic::host_red_guard::{
-                        is_red_guard_template, should_apply_red_guard_residual,
-                    };
+                    // Keyed on the authored weapon fired from this slot
+                    // (Weapon::fireWeapon uses the WeaponTemplate, not the
+                    // firer's template name).
+                    use crate::game_logic::host_red_guard::is_red_guard_weapon_name;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_red_guard_residual(is_red_guard_template(&a.template_name))
-                        })
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .map(is_red_guard_weapon_name)
                         .unwrap_or(false)
                 } {
                     let (hits, _destroyed_any) = self.apply_red_guard_residual_at_with_effects(

@@ -379,7 +379,7 @@ pub use super::host_rank_ui_residual::{
 };
 pub use super::host_red_guard::{
     REDGUARD_DAMAGE, REDGUARD_MACHINE_GUN, REDGUARD_RANGE, is_red_guard_template, red_guard_weapon,
-    should_apply_bayonet_residual, should_apply_red_guard_residual,
+    is_red_guard_weapon_name, should_apply_bayonet_residual,
 };
 
 pub use super::host_residual_acquire::{
