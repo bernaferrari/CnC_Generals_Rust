@@ -726,3 +726,82 @@ fn kill_pilot_unmans_acting_dozer_freezing_fortify_without_peer_change() {
             .is_disabled_by_type(DisabledType::DisabledUnmanned)
     );
 }
+
+/// hq-2qedt.10: CPP Object::xfer saves m_disabledMask/m_disabledTillFrame and
+/// DozerAIUpdate::xfer saves the primary machine + task (DozerAIUpdate.cpp:819).
+/// An unmanned dozer frozen in Fortify must load into a same-ID fresh world
+/// still unmanned, still retaining Fortify, and still frozen.
+#[test]
+fn unmanned_dozer_save_load_retains_frozen_fortify_task_without_peer_change() {
+    use crate::common::DisabledType;
+    let mut game = world();
+    request(&mut game, 10);
+    let mut frame = 11;
+    while observation(&game).action != 2 {
+        advance(&mut game, frame);
+        frame += 1;
+        assert!(frame < 200, "real movement must reach the action state");
+    }
+    let owner = Arc::clone(&game.source);
+    let source = game.target.read().unwrap().get_id();
+    let mut damage = crate::damage::DamageInfo::default();
+    damage.input.source_id = source;
+    damage.input.damage_type = crate::damage::DamageType::KillPilot;
+    damage.input.amount = 50.0;
+    assert_eq!(
+        game.operate(frame, |world| world.attempt_damage_owned(&owner, &mut damage)),
+        Ok(0.0)
+    );
+    let mut object_bytes = Cursor::new(Vec::new());
+    owner
+        .write()
+        .unwrap()
+        .xfer_checked(&mut XferSave::new(&mut object_bytes, 1))
+        .unwrap();
+    let object_bytes = object_bytes.into_inner();
+    let dozer_bytes = save(&game);
+
+    let mut restored = world();
+    let peer = world();
+    let peer_before = observation(&peer);
+    assert_eq!(
+        restored.source.read().unwrap().get_id(),
+        owner.read().unwrap().get_id()
+    );
+    // CPP Object.cpp:4104 resolves the saved team in the receiving
+    // TeamFactory; lend the restored match's teams to the ambient factory.
+    let _lock = crate::test_sync::lock();
+    let lent = std::mem::replace(
+        &mut *crate::team::get_team_factory().lock().unwrap(),
+        std::mem::replace(&mut restored.teams, crate::team::TeamFactory::new()),
+    );
+    let loaded_object = restored
+        .source
+        .write()
+        .unwrap()
+        .xfer_checked(&mut XferLoad::new(Cursor::new(object_bytes), 1));
+    restored.teams = std::mem::replace(&mut *crate::team::get_team_factory().lock().unwrap(), lent);
+    loaded_object.unwrap();
+    load(&restored, dozer_bytes.clone());
+    assert!(restored
+        .source
+        .read()
+        .unwrap()
+        .is_disabled_by_type(DisabledType::DisabledUnmanned));
+    assert_eq!(save(&restored), dozer_bytes, "dozer machine roundtrips exactly");
+    let loaded = observation(&restored);
+    assert_eq!(loaded.primary, 3, "primary stays DOZER_PRIMARY_FORTIFY");
+    assert_eq!(loaded.current_task, DozerTask::Fortify);
+    for step in 1..6 {
+        advance(&mut restored, frame + step);
+    }
+    let after = observation(&restored);
+    assert_eq!(after.primary, loaded.primary, "loaded unmanned dozer stays frozen");
+    assert_eq!(after.current_task, DozerTask::Fortify);
+    assert_eq!(observation(&peer), peer_before);
+    assert!(!peer
+        .source
+        .read()
+        .unwrap()
+        .is_disabled_by_type(DisabledType::DisabledUnmanned));
+}
