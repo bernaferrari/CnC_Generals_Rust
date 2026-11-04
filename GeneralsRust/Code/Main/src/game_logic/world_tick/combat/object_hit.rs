@@ -1834,11 +1834,15 @@ impl GameLogic {
         // Fail-closed: instant FireFieldSmall zone if shell spawn fails.
         // Skipped for Aurora (delayed dive residual already queued).
         if !aurora_queued {
-            use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
+            // Keyed on the authored weapon fired from this slot
+            // (Weapon::fireWeapon uses the WeaponTemplate, not the firer's
+            // template name).
+            use crate::game_logic::host_inferno_cannon::is_inferno_cannon_weapon_name;
             let is_inferno = self
                 .objects
                 .get(&attacker_id)
-                .map(|a| is_inferno_cannon_template(&a.template_name))
+                .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                .map(is_inferno_cannon_weapon_name)
                 .unwrap_or(false);
             if is_inferno {
                 let impact = target_position;

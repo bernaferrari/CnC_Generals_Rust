@@ -225,6 +225,12 @@ pub fn is_inferno_cannon_template(template_name: &str) -> bool {
     n.contains("infernocannon") || n.contains("inferno_cannon") || n.contains("vehicleinferno")
 }
 
+/// Authored WeaponTemplate identity for the Inferno Cannon shell residual.
+pub fn is_inferno_cannon_weapon_name(weapon_name: &str) -> bool {
+    weapon_name.eq_ignore_ascii_case(INFERNO_CANNON_PRIMARY_WEAPON)
+        || weapon_name.eq_ignore_ascii_case(INFERNO_CANNON_UPGRADED_WEAPON)
+}
+
 /// Whether BlackNapalm upgrade is active on residual Inferno (tag present).
 pub fn has_black_napalm_upgrade(applied_upgrades: &std::collections::HashSet<String>) -> bool {
     applied_upgrades.iter().any(|u| {
