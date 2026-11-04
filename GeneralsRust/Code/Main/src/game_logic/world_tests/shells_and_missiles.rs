@@ -5275,3 +5275,33 @@ fn stinger_hive_spawn_keys_on_authored_spawns_are_the_weapons() {
         "Stinger-named structure without the authored hive KindOf spawns nothing"
     );
 }
+
+/// hq-2qedt.260: Black Lotus innate hero stealth keys on the authored
+/// SpecialAbilityBlackLotusCaptureBuilding capture power, not the template name.
+#[test]
+fn black_lotus_innate_stealth_keys_on_authored_capture_power() {
+    let run = |name: &str, lotus: bool| -> bool {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, crate::game_logic::Player::new(0, Team::China, "China", true));
+        let mut t = crate::game_logic::ThingTemplate::new(name);
+        t.add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(200.0);
+        if lotus {
+            t.capture_power = crate::game_logic::CapturePowerKind::BlackLotus;
+        }
+        logic.templates.insert(name.into(), t);
+        let id = logic.create_object(name, Team::China, Vec3::ZERO).expect("lotus");
+        logic.host_object(id).unwrap().innate_stealth
+    };
+    assert!(
+        run("TestHeroCaptureInfantry", true),
+        "authored Black Lotus capture power gets innate hero stealth"
+    );
+    assert!(
+        !run("ChinaInfantryBlackLotus", false),
+        "Lotus-named infantry without the authored capture power gets no hero stealth"
+    );
+}

@@ -84,7 +84,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         use crate::game_logic::host_demo_suicide_bomb::{
-            DEMO_SUICIDE_BOMB_AUDIO, plan_demo_destroyed_hits,
+            plan_demo_destroyed_hits, DEMO_SUICIDE_BOMB_AUDIO,
         };
 
         let candidates: Vec<(ObjectId, Vec3, bool, bool)> = self
@@ -174,7 +174,7 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> bool {
         use crate::game_logic::host_demo_suicide_bomb::{
-            DEMO_SUICIDE_BOMB_AUDIO, DEMO_SUICIDE_DYNAMITE_PLUS_FIRE, plan_demo_plus_fire_hits,
+            plan_demo_plus_fire_hits, DEMO_SUICIDE_BOMB_AUDIO, DEMO_SUICIDE_DYNAMITE_PLUS_FIRE,
         };
 
         let _ = DEMO_SUICIDE_DYNAMITE_PLUS_FIRE; // honesty weapon name residual
@@ -711,19 +711,17 @@ impl GameLogic {
         let name = obj.template_name.to_ascii_lowercase();
         let team = obj.team;
         let owner_player_id = obj.owner_player_id;
-        let kind =
-            if crate::game_logic::host_hero_abilities::is_black_lotus_template(&obj.template_name)
-                || name.contains("blacklotus")
-                || name.contains("black_lotus")
-            {
-                "lotus"
-            } else if name.contains("jarmen") || name.contains("kell") {
-                "jarmen"
-            } else if name.contains("burton") || name.contains("colonel") {
-                "burton"
-            } else {
-                return;
-            };
+        let kind = if obj.thing().template.capture_power
+            == crate::game_logic::CapturePowerKind::BlackLotus
+        {
+            "lotus"
+        } else if name.contains("jarmen") || name.contains("kell") {
+            "jarmen"
+        } else if name.contains("burton") || name.contains("colonel") {
+            "burton"
+        } else {
+            return;
+        };
         let Some(local_id) = self.eva_local_player_id() else {
             return;
         };
@@ -1789,6 +1787,7 @@ mod tests {
         logic.players.insert(0, local);
         logic.players.insert(1, china);
         let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");
+        lotus.capture_power = crate::game_logic::CapturePowerKind::BlackLotus;
         lotus
             .add_kind_of(KindOf::Infantry)
             .add_kind_of(KindOf::Hero)
@@ -1816,6 +1815,7 @@ mod tests {
             .players
             .insert(2, Player::new(2, Team::GLA, "GLA", false));
         let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");
+        lotus.capture_power = crate::game_logic::CapturePowerKind::BlackLotus;
         lotus
             .add_kind_of(KindOf::Infantry)
             .add_kind_of(KindOf::Hero)
@@ -1849,6 +1849,7 @@ mod tests {
             .players
             .insert(1, Player::new(1, Team::China, "China", false));
         let mut lotus = ThingTemplate::new("ChinaInfantryBlackLotus");
+        lotus.capture_power = crate::game_logic::CapturePowerKind::BlackLotus;
         lotus
             .add_kind_of(KindOf::Infantry)
             .add_kind_of(KindOf::Hero)
@@ -1987,13 +1988,11 @@ mod tests {
             logic.eva_science_hidden_latched(id),
             "creation without RequiredScience must latch hiddenByScience"
         );
-        assert!(
-            logic
-                .players
-                .get_mut(&0)
-                .unwrap()
-                .unlock_science("SCIENCE_ParticleCannonTest")
-        );
+        assert!(logic
+            .players
+            .get_mut(&0)
+            .unwrap()
+            .unlock_science("SCIENCE_ParticleCannonTest"));
         let _ = logic.take_eva_requests();
         logic.try_eva_superweapon_ready_for_source(id);
         assert!(
@@ -2008,13 +2007,11 @@ mod tests {
         logic
             .players
             .insert(0, Player::new(0, Team::USA, "Local", true));
-        assert!(
-            logic
-                .players
-                .get_mut(&0)
-                .unwrap()
-                .unlock_science("SCIENCE_ParticleCannonTest")
-        );
+        assert!(logic
+            .players
+            .get_mut(&0)
+            .unwrap()
+            .unlock_science("SCIENCE_ParticleCannonTest"));
         let id = spawn_local_particle_cannon(&mut logic, Some("SCIENCE_ParticleCannonTest"));
         logic.on_structure_superweapon_creation(id);
         let _ = logic.take_eva_requests();

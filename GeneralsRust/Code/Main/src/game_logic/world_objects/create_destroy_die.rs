@@ -2957,13 +2957,12 @@ impl GameLogic {
             // Heroes wait StealthDelay (Burton/Kell 60f, Lotus/Saboteur/Hijacker 75f).
             {
                 use crate::game_logic::host_colonel_burton::is_colonel_burton_template;
-                use crate::game_logic::host_hero_abilities::is_black_lotus_template;
                 use crate::game_logic::host_jarmen_kell::is_jarmen_kell_template;
                 use crate::game_logic::host_radar_stealth_vision_residual::hero_stealth_delay_frames_residual;
                 let n = template_name.to_ascii_lowercase();
                 let is_hero_stealth = is_colonel_burton_template(template_name)
                     || is_jarmen_kell_template(template_name)
-                    || is_black_lotus_template(template_name)
+                    || object.thing().template.capture_power == crate::game_logic::CapturePowerKind::BlackLotus
                     || n.contains("saboteur")
                     || n.contains("hijacker");
                 if is_hero_stealth {
