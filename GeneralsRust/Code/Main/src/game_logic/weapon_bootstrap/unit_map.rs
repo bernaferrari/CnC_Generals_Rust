@@ -314,9 +314,8 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_neutron_shell::is_nuke_cannon_template(template_name) {
                 return Some(NUKE_CANNON_PRIMARY_WEAPON);
             }
-            if crate::game_logic::host_inferno_cannon::is_inferno_cannon_template(template_name) {
-                return Some(INFERNO_CANNON_PRIMARY_WEAPON);
-            }
+            // Inferno Cannon: explicit retail rows above only; no fuzzy name
+            // peel (C++ PRIMARY comes from the authored WeaponSet, hq-2qedt.221).
             if crate::game_logic::host_aurora_bomb::is_aurora_aircraft_template(template_name) {
                 return Some(
                     match crate::game_logic::host_aurora_bomb::aurora_bomb_kind_for_template(
@@ -694,6 +693,22 @@ mod raptor_unit_map_peel_tests {
         assert_eq!(
             primary_weapon_name_for_unit("AirF_AmericaJetRaptor"),
             Some(AIRF_RAPTOR_JET_MISSILE_WEAPON)
+        );
+    }
+}
+
+#[cfg(test)]
+mod inferno_unit_map_peel_tests {
+    use super::*;
+
+    /// hq-2qedt.221: an unlisted template whose name merely contains
+    /// "InfernoCannon" must not pick up InfernoCannonGun from a name peel.
+    #[test]
+    fn unlisted_inferno_named_template_gets_no_name_peel_primary() {
+        assert_eq!(primary_weapon_name_for_unit("Boss_ChinaVehicleInfernoCannonDecoy"), None);
+        assert_eq!(
+            primary_weapon_name_for_unit("ChinaVehicleInfernoCannon"),
+            Some(INFERNO_CANNON_PRIMARY_WEAPON)
         );
     }
 }

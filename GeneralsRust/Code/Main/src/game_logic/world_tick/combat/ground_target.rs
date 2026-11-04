@@ -457,23 +457,31 @@ impl GameLogic {
                 }
 
                 // Inferno Cannon residual: ground attack also seeds FireFieldSmall.
+                // Keyed on the authored WeaponSet slot weapon (InfernoCannonGun /
+                // InfernoCannonGunUpgraded), not the template name (hq-2qedt.221).
                 if !rocket_pod_ground && !buggy_ground && !scud_ground {
-                    use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
-                    let is_inferno = self
-                        .objects
-                        .get(&attacker_id)
-                        .map(|a| is_inferno_cannon_template(&a.template_name))
-                        .unwrap_or(false);
+                    use crate::game_logic::host_inferno_cannon::{
+                        INFERNO_CANNON_GUN, INFERNO_CANNON_GUN_UPGRADED,
+                    };
+                    let inferno_wname = self.objects.get(&attacker_id).and_then(|a| {
+                        a.weapon_name_for_slot(ground_slot).map(str::to_owned)
+                    });
+                    let is_inferno = matches!(
+                        inferno_wname.as_deref(),
+                        Some(INFERNO_CANNON_GUN) | Some(INFERNO_CANNON_GUN_UPGRADED)
+                    );
                     if is_inferno {
-                        let upgraded = self
-                            .objects
-                            .get(&attacker_id)
-                            .map(|a| {
-                                crate::game_logic::host_inferno_cannon::has_black_napalm_upgrade(
-                                    &a.applied_upgrades,
-                                )
-                            })
-                            .unwrap_or(false);
+                        let upgraded = inferno_wname.as_deref()
+                            == Some(INFERNO_CANNON_GUN_UPGRADED)
+                            || self
+                                .objects
+                                .get(&attacker_id)
+                                .map(|a| {
+                                    crate::game_logic::host_inferno_cannon::has_black_napalm_upgrade(
+                                        &a.applied_upgrades,
+                                    )
+                                })
+                                .unwrap_or(false);
                         let _ = self.spawn_inferno_fire_zone_with_effects(
                             attacker_id,
                             attacker_team,

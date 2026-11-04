@@ -4956,3 +4956,47 @@ fn raptor_create_primary_comes_from_authored_weapon_set() {
         );
     }
 }
+
+/// hq-2qedt.221: Inferno ground-attack fire field keys on the authored
+/// WeaponSet slot weapon (InfernoCannonGun), not the template name.
+#[test]
+fn inferno_ground_fire_field_keys_on_authored_weapon() {
+    use crate::game_logic::weapon_bootstrap::{
+        INFERNO_CANNON_PRIMARY_WEAPON, ensure_host_weapon_store,
+    };
+
+    ensure_host_weapon_store();
+    let run = |weapon: &str| -> bool {
+        let mut game_logic = GameLogic::new();
+        let mut tpl = ThingTemplate::new("ChinaVehicleInfernoCannon");
+        tpl.add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(200.0)
+            .set_primary_weapon_name(weapon);
+        game_logic
+            .templates
+            .insert("ChinaVehicleInfernoCannon".to_string(), tpl);
+        let id = game_logic
+            .create_object("ChinaVehicleInfernoCannon", Team::China, Vec3::new(0.0, 0.0, 0.0))
+            .expect("inferno");
+        if let Some(w) = game_logic.host_object_mut(id).and_then(|o| o.weapon.as_mut()) {
+            w.last_fire_time = -100.0;
+            w.min_range = 0.0;
+        }
+        assert!(game_logic.unit_command_attack_ground(id, Vec3::new(60.0, 0.0, 0.0)));
+        for f in 0..30u64 {
+            game_logic.set_current_frame(10 + f);
+            game_logic.update_combat(&[id], LOGIC_FRAME_TIMESTEP);
+        }
+        game_logic.honesty_inferno_fire_spawn_ok()
+    };
+    assert!(
+        run(INFERNO_CANNON_PRIMARY_WEAPON),
+        "authored InfernoCannonGun ground attack must seed the fire field"
+    );
+    assert!(
+        !run("HumveeGun"),
+        "Inferno-named chassis with authored HumveeGun must not seed an Inferno fire field"
+    );
+}
