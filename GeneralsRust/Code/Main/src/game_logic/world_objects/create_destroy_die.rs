@@ -2716,9 +2716,22 @@ impl GameLogic {
             if object.smart_bomb_target_homing.is_some() {
                 self.smart_bomb_target_homing_reg.record_install();
             }
-            if let Some(up) =
-                crate::game_logic::host_upgrade_die::upgrade_to_remove_for_template(template_name)
-            {
+            // C++ ModuleFactory binds UpgradeDie from the Object's authored
+            // module data (UpgradeDieModuleData::m_upgradeName); no name sniff.
+            let authored_upgrade_die = object
+                .thing()
+                .template
+                .native_die_declarations
+                .as_deref()
+                .and_then(|declarations| {
+                    declarations.iter().find_map(|declaration| match &declaration.kind {
+                        crate::game_logic::native_die_definition::NativeDieKind::Upgrade {
+                            upgrade_to_remove,
+                        } => Some(upgrade_to_remove.clone()),
+                        _ => None,
+                    })
+                });
+            if let Some(up) = authored_upgrade_die {
                 object.install_upgrade_die(up);
             }
 

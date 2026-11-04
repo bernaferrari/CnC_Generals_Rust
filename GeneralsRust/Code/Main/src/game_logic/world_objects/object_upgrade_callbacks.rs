@@ -1187,9 +1187,6 @@ impl GameLogic {
             if let Some(drone) = self.objects.get_mut(&drone_id) {
                 drone.producer_id = Some(object_id);
                 drone.set_status_unselectable(true);
-                if drone.upgrade_die.is_none() {
-                    drone.install_upgrade_die(kind.upgrade_name());
-                }
             }
         }
         if let Some(error) = ocl_error {
