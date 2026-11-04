@@ -4243,3 +4243,31 @@ fn rebel_residual_gun_and_ap_bullets() {
         "AP residual fire should deal at least base damage, got {dmg_dealt}"
     );
 }
+
+/// hq-2qedt.130: Battle Drone PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
+#[test]
+fn battle_drone_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("AmericaVehicleBattleDrone");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic.templates.insert("AmericaVehicleBattleDrone".to_string(), tpl);
+    let id = game_logic
+        .create_object("AmericaVehicleBattleDrone", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("battle_drone");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - crate::game_logic::host_slave_drones::BATTLE_DRONE_GUN_DAMAGE).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by battle_drone name peel: {prim:?}"
+    );
+}

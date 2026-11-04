@@ -462,6 +462,14 @@ pub(in crate::game_logic) fn install_slave_fixture(
             SlaveDroneKind::Hellfire => (0, 100),
             SlaveDroneKind::Scout => (0, 150),
         };
+        // Retail Object WeaponSet (hq-2qedt.130): create arms the authored
+        // PRIMARY, not a template-name peel.
+        let weapon_set = match kind {
+            SlaveDroneKind::Battle => {
+                "\n WeaponSet\n  Conditions = None\n  Weapon = PRIMARY BattleDroneMachineGun\n End"
+            }
+            SlaveDroneKind::Hellfire | SlaveDroneKind::Scout => "",
+        };
         let name = kind.template_name();
         let upgrade = kind.upgrade_name();
         format!(
@@ -472,7 +480,7 @@ Object {name}
   MaxHealth = 100
   InitialHealth = 100
  End
- VisionRange = {vision}
+ VisionRange = {vision}{weapon_set}
  Locomotor = SET_NORMAL ComancheLocomotor
  Behavior = AIUpdateInterface FixtureSlaveAI
   AutoAcquireEnemiesWhenIdle = Yes

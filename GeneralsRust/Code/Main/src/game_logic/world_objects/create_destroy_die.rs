@@ -3050,12 +3050,9 @@ impl GameLogic {
             // above (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a
             // template-name host table (hq-2qedt.109).
 
-            // Host residual: USA Battle Drone PRIMARY machine gun.
-            // Fail-closed: not full SlavedUpdate repair arm weld FX matrix.
-            if crate::game_logic::host_slave_drones::is_battle_drone_template(template_name) {
-                use crate::game_logic::host_slave_drones::battle_drone_weapon;
-                object.weapon = Some(battle_drone_weapon());
-            }
+            // Battle Drone PRIMARY binds from the authored WeaponSet above
+            // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+            // (hq-2qedt.130).
 
             // Host residual: China Red Guard PRIMARY machine gun residual.
             // Fail-closed: bayonet residual applied at fire-time for close infantry.
