@@ -187,8 +187,11 @@ impl GameLogic {
             SlaveDroneKind, is_slave_drone_master_template, slave_drone_conflicts_with_owned,
         };
 
-        let kind = SlaveDroneKind::from_upgrade_name(upgrade_name).unwrap_or(SlaveDroneKind::Scout);
-        let tag = kind.upgrade_name();
+        // C++ ObjectCreationUpgrade is keyed by the granted upgrade itself;
+        // no drone kind for an unknown upgrade (no Scout fallback).
+        let Some(kind) = SlaveDroneKind::from_upgrade_name(upgrade_name) else {
+            return 0;
+        };
 
         let masters: Vec<ObjectId> = self
             .objects
@@ -198,7 +201,6 @@ impl GameLogic {
                     && o.is_alive()
                     && !o.status.under_construction
                     && is_slave_drone_master_template(&o.template_name)
-                    && !o.has_upgrade_tag(tag)
                     && !o.has_upgrade_tag(upgrade_name)
                     && !slave_drone_conflicts_with_owned(
                         upgrade_name,
@@ -214,7 +216,6 @@ impl GameLogic {
             // creates the drone (Object.cpp giveUpgrade -> updateUpgradeModules).
             if let Some(m) = self.objects.get_mut(&mid) {
                 m.apply_upgrade_tag(upgrade_name);
-                m.apply_upgrade_tag(tag);
             }
             if self
                 .residual_attach_slave_drone_with_interpreter_and_effects(
@@ -229,7 +230,7 @@ impl GameLogic {
             }
         }
         // Player unlock residual for production UI / late builds.
-        let _ = self.apply_player_unlock_upgrade(recipients, upgrade_name, tag);
+        let _ = self.apply_player_unlock_upgrade(recipients, upgrade_name, upgrade_name);
         n
     }
 
