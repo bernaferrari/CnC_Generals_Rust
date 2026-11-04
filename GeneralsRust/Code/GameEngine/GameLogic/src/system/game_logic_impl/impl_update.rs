@@ -92,7 +92,7 @@ impl GameLogic {
         frame: u32,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, None, None, None, observe_camera)
+        self.update_with_optional_upgrade_services(frame, None, None, None, None, observe_camera)
     }
 
     /// Update with a borrowed UI callback for a deferred new-game start.
@@ -103,7 +103,7 @@ impl GameLogic {
         hooks: &mut dyn crate::helpers::LoadScreenHooks,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, None, Some(hooks), None, observe_camera)
+        self.update_with_optional_upgrade_services(frame, None, None, Some(hooks), None, observe_camera)
     }
 
     pub fn update_with_upgrade_services(
@@ -115,6 +115,26 @@ impl GameLogic {
         self.update_with_optional_upgrade_services(
             frame,
             Some(services),
+            None,
+            None,
+            None,
+            observe_camera,
+        )
+    }
+
+    /// Lend the match-owned services module updates use mid-frame
+    /// (production completion, GenerateMinefield placement/removal).
+    pub fn update_with_match_services(
+        &mut self,
+        frame: u32,
+        upgrades: Option<&mut dyn UpgradeCompletionServices>,
+        minefield: Option<&mut dyn MinefieldPlacementServices>,
+        observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
+    ) -> Result<(), GameLogicError> {
+        self.update_with_optional_upgrade_services(
+            frame,
+            upgrades,
+            minefield,
             None,
             None,
             observe_camera,
@@ -149,13 +169,14 @@ impl GameLogic {
         scripts: &mut dyn FnMut(&mut Self) -> Result<(), GameLogicError>,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
     ) -> Result<(), GameLogicError> {
-        self.update_with_optional_upgrade_services(frame, None, None, Some(scripts), observe_camera)
+        self.update_with_optional_upgrade_services(frame, None, None, None, Some(scripts), observe_camera)
     }
 
     fn update_with_optional_upgrade_services(
         &mut self,
         frame: u32,
         mut services: Option<&mut dyn UpgradeCompletionServices>,
+        mut minefield: Option<&mut dyn MinefieldPlacementServices>,
         mut load_screen_hooks: Option<&mut dyn crate::helpers::LoadScreenHooks>,
         scripts: Option<&mut dyn FnMut(&mut Self) -> Result<(), GameLogicError>>,
         observe_camera: impl FnOnce() -> Option<crate::helpers::CameraTimeObservation>,
@@ -365,8 +386,11 @@ impl GameLogic {
         //
         // Process all non-sleepy (every-frame) update modules.
         // These include physics updates that must run at full frame rate.
-        if let Some(services) = services.as_mut() {
-            self.process_normal_updates_with_upgrade_services(Some(&mut **services));
+        if services.is_some() || minefield.is_some() {
+            self.process_normal_updates_with_upgrade_services(
+                services.as_mut().map(|s| &mut **s as &mut dyn UpgradeCompletionServices),
+                minefield.as_mut().map(|s| &mut **s as &mut dyn MinefieldPlacementServices),
+            );
         } else {
             self.process_normal_updates();
         }
@@ -385,8 +409,12 @@ impl GameLogic {
         //   c. Stealth is broken, OBJECT_STATUS_STEALTHED cleared
         //   d. Stealth delay timer starts
         //   e. After delay + weapon stop, stealth reactivates
-        if let Some(services) = services.as_mut() {
-            self.process_sleepy_updates_with_upgrade_services(frame, Some(&mut **services));
+        if services.is_some() || minefield.is_some() {
+            self.process_sleepy_updates_with_upgrade_services(
+                frame,
+                services.as_mut().map(|s| &mut **s as &mut dyn UpgradeCompletionServices),
+                minefield.as_mut().map(|s| &mut **s as &mut dyn MinefieldPlacementServices),
+            );
         } else {
             self.process_sleepy_updates(frame);
         }

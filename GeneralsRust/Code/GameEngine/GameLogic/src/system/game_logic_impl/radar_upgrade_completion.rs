@@ -204,7 +204,7 @@ impl GameLogic {
         services: &mut dyn UpgradeCompletionServices,
     ) {
         self.frame = frame;
-        self.process_normal_updates_with_upgrade_services(Some(services));
+        self.process_normal_updates_with_upgrade_services(Some(services), None);
     }
 
     pub(crate) fn run_normal_updates_for_test(&mut self, frame: u32) {
