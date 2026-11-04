@@ -2310,7 +2310,7 @@ fn raptor_residual_missiles_and_laser_missiles() {
 fn stealth_fighter_residual_missiles_and_splash() {
     use crate::game_logic::host_stealth_fighter::{
         STEALTH_FIGHTER_DAMAGE, STEALTH_FIGHTER_MIN_RANGE, STEALTH_FIGHTER_RANGE,
-        STEALTH_JET_MISSILE_WEAPON, is_stealth_fighter_template,
+        STEALTH_JET_MISSILE_WEAPON,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -2341,7 +2341,6 @@ fn stealth_fighter_residual_missiles_and_splash() {
         .expect("stealth fighter");
     {
         let f = game_logic.host_object(fighter_id).expect("fighter");
-        assert!(is_stealth_fighter_template(&f.template_name));
         let prim = f.weapon.as_ref().expect("missile");
         assert!((prim.damage - STEALTH_FIGHTER_DAMAGE).abs() < 0.01);
         assert!((prim.range - STEALTH_FIGHTER_RANGE).abs() < 1.0);
@@ -4135,5 +4134,57 @@ fn stealth_jet_missile_object_hit_residual_keys_on_authored_weapon_not_template_
         fire("AmericaJetStealthFighter", "RaptorJetMissileWeapon"),
         0,
         "stealth-named template with a different authored weapon must not"
+    );
+}
+
+/// hq-2qedt.135: the innate/ATTACKING-forbidden stealth residual follows the
+/// template's authored StealthUpdate (InnateStealth / StealthDelay /
+/// StealthForbiddenConditions), as C++ StealthUpdate module data does, not a
+/// template-name sniff.
+#[test]
+fn stealth_fighter_innate_stealth_residual_keys_on_authored_stealth_update() {
+    let mut game_logic = GameLogic::new();
+    let mut named = crate::game_logic::ThingTemplate::new("AmericaJetStealthFighter");
+    named
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(150.0);
+    game_logic
+        .templates
+        .insert("AmericaJetStealthFighter".to_string(), named);
+    let mut authored = crate::game_logic::ThingTemplate::new("TestCloakJet");
+    authored
+        .add_kind_of(KindOf::Aircraft)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(150.0);
+    authored.stealth_update_innate = true;
+    authored.stealth_update_forbids_attacking = true;
+    authored.stealth_update_delay_ms = Some(2000);
+    game_logic
+        .templates
+        .insert("TestCloakJet".to_string(), authored);
+
+    let named_id = game_logic
+        .create_object(
+            "AmericaJetStealthFighter",
+            Team::USA,
+            Vec3::new(0.0, 0.0, 0.0),
+        )
+        .expect("named");
+    let authored_id = game_logic
+        .create_object("TestCloakJet", Team::USA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("authored");
+    game_logic.update_stealth_and_detection();
+
+    let n = game_logic.host_object(named_id).expect("named");
+    assert!(
+        !n.innate_stealth,
+        "name-only Stealth Fighter template without StealthUpdate must not get innate stealth"
+    );
+    let a = game_logic.host_object(authored_id).expect("authored");
+    assert!(a.innate_stealth, "authored InnateStealth must apply");
+    assert_eq!(
+        a.stealth_delay_frames, 60,
+        "authored StealthDelay 2000ms = 60f"
     );
 }

@@ -158,37 +158,6 @@ pub fn is_stealth_fighter_science(name: &str) -> bool {
     n == "sciencestealthfighter" || n == "stealthfighter"
 }
 
-/// Whether template is a residual living Stealth Fighter jet.
-///
-/// Fail-closed: name residual. Excludes missiles / weapons / hulks.
-pub fn is_stealth_fighter_template(template_name: &str) -> bool {
-    let n = normalize_identity(template_name);
-    if n.is_empty() {
-        return false;
-    }
-    // Explicit residual test / shorthand names.
-    if n == "usastealthfighter" || n == "teststealthfighter" || n == "americajetstealthfighter" {
-        return true;
-    }
-    // Exclude non-living residual objects / projectiles / science tokens.
-    if n.contains("weapon")
-        || n.contains("projectile")
-        || n.contains("debris")
-        || n.contains("hulk")
-        || n.contains("dead")
-        || n.contains("exhaust")
-        || n.contains("locomotor")
-        || n.starts_with("upgrade")
-        || n.contains("crate")
-        || n.contains("science")
-        || n == "stealthjetmissile"
-        || n.ends_with("jetmissile")
-    {
-        return false;
-    }
-    n.contains("stealthfighter") || n.contains("jetstealth")
-}
-
 /// Whether a unit template requires SCIENCE_StealthFighter for production.
 ///
 /// Explicitly **not** gated: AirF_AmericaJetStealthFighter (Airforce General free).
@@ -475,20 +444,6 @@ mod tests {
         ));
         assert!(!requires_stealth_fighter_science("USA_Raptor"));
         assert!(!requires_stealth_fighter_science("TestAircraft"));
-    }
-
-    #[test]
-    fn living_template_matrix() {
-        assert!(is_stealth_fighter_template("AmericaJetStealthFighter"));
-        assert!(is_stealth_fighter_template("USA_StealthFighter"));
-        assert!(is_stealth_fighter_template("TestStealthFighter"));
-        assert!(is_stealth_fighter_template("AirF_AmericaJetStealthFighter"));
-        assert!(is_stealth_fighter_template("SupW_AmericaJetStealthFighter"));
-        assert!(is_stealth_fighter_template("Lazr_AmericaJetStealthFighter"));
-        assert!(!is_stealth_fighter_template("StealthJetMissile"));
-        assert!(!is_stealth_fighter_template("StealthJetMissileWeapon"));
-        assert!(!is_stealth_fighter_template("AmericaJetRaptor"));
-        assert!(!is_stealth_fighter_template("Upgrade_AmericaBunkerBusters"));
     }
 
     #[test]

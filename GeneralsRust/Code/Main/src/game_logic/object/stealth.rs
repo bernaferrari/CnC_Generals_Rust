@@ -409,6 +409,15 @@ impl Object {
     ///
     /// Every enabled StealthUpdate except mines and disguise-transition writes
     /// `setEffectiveOpacity(0.5 + sin(phase)*0.5)` and advances `m_pulsePhase`.
+    /// Authored StealthUpdate `InnateStealth Yes` + `StealthForbiddenConditions`
+    /// containing `ATTACKING`: returns the authored StealthDelay in ms (None
+    /// when unauthored). Outer None when the template lacks that module data.
+    pub(crate) fn authored_innate_attacking_stealth_delay_ms(&self) -> Option<Option<u32>> {
+        let t = &self.thing.template;
+        (t.stealth_update_innate && t.stealth_update_forbids_attacking)
+            .then_some(t.stealth_update_delay_ms)
+    }
+
     pub fn apply_stealth_update_pulse(&mut self) {
         if !self.stealth_or_detector_update_processes() {
             return;
