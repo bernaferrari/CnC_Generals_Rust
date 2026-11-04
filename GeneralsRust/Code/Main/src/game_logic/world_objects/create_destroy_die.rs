@@ -2759,14 +2759,8 @@ impl GameLogic {
             // WeaponSet::updateWeaponSet), not a template-name peel (hq-2qedt.144).
             // Uranium/horde/nationalism stay on refresh_battlemaster_weapon.
 
-            // Host residual: GLA Marauder PRIMARY MarauderTankGun residual (salvage tiers).
-            // Fail-closed: not full SalvageCrate W3D turret subobject matrix.
-            if crate::game_logic::host_marauder::is_marauder_template(template_name) {
-                use crate::game_logic::host_marauder::{
-                    MarauderWeaponTier, marauder_weapon_for_tier,
-                };
-                object.weapon = Some(marauder_weapon_for_tier(MarauderWeaponTier::Base));
-            }
+            // GLA Marauder PRIMARY binds from the authored WeaponSet above (C++
+            // WeaponSet::updateWeaponSet), not a template-name peel (hq-2qedt.145).
 
             // Host residual: GLA Combat Cycle RiderChangeContain Slots=1 + rider weapon.
             // Fail-closed: not full STATUS_RIDER death OCL / scuttle / stealth matrix.

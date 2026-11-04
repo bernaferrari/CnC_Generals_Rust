@@ -4062,3 +4062,31 @@ fn battlemaster_create_primary_comes_from_authored_weapon_set() {
         "authored PRIMARY overwritten by battlemaster name peel: {prim:?}"
     );
 }
+
+/// hq-2qedt.145: GLA Marauder PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
+#[test]
+fn marauder_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("GLATankMarauder");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name("RangerFlashBangGrenadeWeapon");
+    game_logic.templates.insert("GLATankMarauder".to_string(), tpl);
+    let id = game_logic
+        .create_object("GLATankMarauder", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("marauder");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - crate::game_logic::host_marauder::MARAUDER_DAMAGE).abs() > 0.01,
+        "authored PRIMARY overwritten by marauder name peel: {prim:?}"
+    );
+}
