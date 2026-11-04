@@ -748,11 +748,11 @@ impl AIPlayer {
         game_logic: &(impl AiReadSource + ?Sized),
         template_name: &str,
     ) -> bool {
+        // C++ uses KINDOF_COMMANDCENTER only; name peel is invent.
         let game_logic = &AiWorldView::new(game_logic);
-        if let Some(template) = game_logic.template(template_name) {
-            return template.is_kind_of(KindOf::CommandCenter);
-        }
-        template_name.contains("CommandCenter")
+        game_logic
+            .template(template_name)
+            .is_some_and(|template| template.is_kind_of(KindOf::CommandCenter))
     }
 
     pub(super) fn aidata_rotate_skirmish_bases(ai_data: &AiDataView) -> bool {

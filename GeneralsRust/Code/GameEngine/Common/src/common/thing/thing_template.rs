@@ -2493,9 +2493,20 @@ impl ThingTemplate {
     }
 
     /// Replay stored top-level Locomotor lines into AI module data (late hook install).
+    ///
+    /// hq-fgp6j: C++ `AIUpdateModuleData::parseLocomotorSet` throws
+    /// `INI_INVALID_DATA` when `friend_getAIModuleInfo` is NULL. Early parse may
+    /// still capture set names before the AIUpdate Behavior is registered; at
+    /// this finalize step a missing typed AI module is an admission failure.
     pub fn apply_stored_locomotors_to_ai_module(&mut self) -> Result<(), String> {
         if self.locomotor_sets.is_empty() {
             return Ok(());
+        }
+        if self.friend_get_ai_module_info().is_none() {
+            return Err(format!(
+                "Attempted to specify a locomotor for object {} without an AIUpdate block.",
+                self.get_name()
+            ));
         }
         let sets: Vec<(String, Vec<AsciiString>)> = self
             .locomotor_sets
@@ -3795,6 +3806,25 @@ mod locomotor_parse_policy_owner_tests {
         assert_eq!(
             template.locomotor_set_names("SET_NORMAL").unwrap(),
             &["Override".to_owned()]
+        );
+    }
+
+    #[test]
+    fn apply_stored_locomotors_rejects_missing_ai_module_like_cpp() {
+        // hq-fgp6j: C++ AIUpdateModuleData::parseLocomotorSet throws when
+        // friend_getAIModuleInfo is NULL. Early parse may capture sets; finalize
+        // must not invent a typed AI module to hold them.
+        let mut template = ThingTemplate::new_receiving();
+        template
+            .parse_locomotor_field("SET_NORMAL BasicHumanLocomotor")
+            .unwrap();
+        assert!(template.friend_get_ai_module_info().is_none());
+        let err = template
+            .apply_stored_locomotors_to_ai_module()
+            .expect_err("missing AIUpdate must fail finalize");
+        assert!(
+            err.contains("without an AIUpdate block"),
+            "C++ diagnostic: {err}"
         );
     }
 }
