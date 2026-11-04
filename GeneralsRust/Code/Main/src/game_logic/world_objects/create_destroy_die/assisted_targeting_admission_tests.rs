@@ -132,3 +132,36 @@ fn patriot_runtime_slots_match_retail_weapon_set() {
     assert!((air.range - PATRIOT_AIR_RANGE).abs() < 0.01);
     assert!(air.can_target_air && !air.can_target_ground);
 }
+
+/// hq-2qedt.24: AssistedTargetingUpdate::assistAttack (AssistedTargetingUpdate.cpp:66-75)
+/// has no assistant-to-victim weapon-range gate: it always locks the slot and
+/// issues aiAttackObject(victim, clipSize); range is the attack machine's job.
+#[test]
+fn pending_assist_issues_attack_even_when_victim_beyond_assist_weapon_range() {
+    use crate::game_logic::{Weapon, WeaponLockType};
+    let mut w = world(&patriot(
+        "Behavior = AssistedTargetingUpdate AssistTag\n AssistingClipSize = 4\n AssistingWeaponSlot = SECONDARY\nEnd\n",
+    ));
+    let id = w.create_object_for_player("AmericaPatriotBattery", 0, Vec3::ZERO).unwrap();
+    let victim = w
+        .create_object_for_player("AuthoredVictim", 1, Vec3::new(500.0, 0.0, 0.0))
+        .unwrap();
+    {
+        let o = w.objects.get_mut(&id).unwrap();
+        o.weapon = Some(Weapon { damage: 10.0, range: 200.0, ..Weapon::default() });
+        o.secondary_weapon = Some(Weapon { damage: 25.0, range: 450.0, ..Weapon::default() });
+    }
+    let assist = w.host_object(id).unwrap().assisted_targeting.expect("bound");
+    w.frame = 1;
+    w.pending_patriot_assists.push(
+        crate::game_logic::host_base_defense::PendingPatriotAssist::new(
+            id, victim, id, 1, "AmericaPatriotBattery", assist,
+        ),
+    );
+    w.update_pending_patriot_assists();
+    let o = w.host_object(id).unwrap();
+    assert_eq!(o.weapon_lock_type, WeaponLockType::LockedTemporarily);
+    assert_eq!(o.weapon_lock_slot, 1);
+    assert_eq!(o.max_shots_to_fire, 4);
+    assert_eq!(o.target, Some(victim));
+}

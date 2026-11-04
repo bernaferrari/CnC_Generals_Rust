@@ -1120,7 +1120,6 @@ impl GameLogic {
     ) {
         use crate::game_logic::host_base_defense::{
             LAZR_PATRIOT_FIRE_AUDIO, PATRIOT_ASSIST_DELAY_FRAMES, PATRIOT_FIRE_AUDIO,
-            is_within_patriot_assist_weapon_range,
         };
 
         if self.pending_patriot_assists.is_empty() {
@@ -1164,15 +1163,9 @@ impl GameLogic {
                 .objects
                 .get(&clip.assistant_id)
                 .map(|assistant| std::sync::Arc::downgrade(&assistant.visual_draw_identity_token));
-            let vdist = {
-                let dx = assistant_pos.x - victim_pos.x;
-                let dz = assistant_pos.z - victim_pos.z;
-                (dx * dx + dz * dz).sqrt()
-            };
-            if !is_within_patriot_assist_weapon_range(vdist) {
-                // Leave range → cancel remaining clip residual.
-                continue;
-            }
+            // C++ assistAttack has no assistant-to-victim range gate; the
+            // attack machine owns range (hq-2qedt.24).
+            let _ = (assistant_pos, victim_pos);
 
             if frame < clip.next_shot_frame {
                 keep.push(clip);
