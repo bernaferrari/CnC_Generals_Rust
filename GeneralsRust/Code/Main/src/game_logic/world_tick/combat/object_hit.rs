@@ -335,15 +335,16 @@ impl GameLogic {
                     // Helix residual: PRIMARY HelixMinigunWeapon intended-only.
                     // When portable gattling addon is installed, the Overlord/Helix
                     // gattling residual path already applies primary + passenger.
-                    use crate::game_logic::host_helix_minigun::should_apply_helix_minigun_residual;
-                    use crate::game_logic::host_overlord_addons::is_helix_template;
+                    // Keyed on the authored weapon fired from this slot
+                    // (Weapon::fireWeapon uses the WeaponTemplate, not the
+                    // firer's template name).
+                    use crate::game_logic::host_helix_minigun::HELIX_MINIGUN_WEAPON;
                     self.objects
                         .get(&attacker_id)
                         .map(|a| {
-                            should_apply_helix_minigun_residual(
-                                is_helix_template(&a.template_name),
-                                slot,
-                            ) && !a.has_overlord_gattling_residual()
+                            a.authored_weapon_name_for_slot(slot)
+                                .is_some_and(|n| n.eq_ignore_ascii_case(HELIX_MINIGUN_WEAPON))
+                                && !a.has_overlord_gattling_residual()
                         })
                         .unwrap_or(false)
                 } {

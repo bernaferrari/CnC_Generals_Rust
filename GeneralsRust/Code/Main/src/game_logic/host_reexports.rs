@@ -236,7 +236,7 @@ pub use super::host_satellite_hack::{
 
 pub use super::host_helix_minigun::{
     HELIX_MINIGUN_DAMAGE, HELIX_MINIGUN_DELAY_FRAMES, HELIX_MINIGUN_RANGE, HELIX_MINIGUN_WEAPON,
-    helix_minigun_weapon, is_legal_helix_minigun_target, should_apply_helix_minigun_residual,
+    is_legal_helix_minigun_target,
 };
 pub use super::host_helix_napalm::{
     HELIX_FIRESTORM_DAMAGE_PER_TICK, HELIX_FIRESTORM_DURATION_FRAMES, HELIX_FIRESTORM_RADIUS,

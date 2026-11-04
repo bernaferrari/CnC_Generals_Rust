@@ -2887,11 +2887,6 @@ impl GameLogic {
                 // OverlordContain style: portable slot reserved; bunker residual separate.
                 object.overlord_bunker_capacity = Some(0);
             }
-            if crate::game_logic::host_overlord_addons::is_helix_template(template_name) {
-                // Host residual: Helix PRIMARY HelixMinigunWeapon (always retained with addons).
-                // Fail-closed: not full ChinookAIUpdate / COMANCHE_VULCAN Stinger matrix.
-                object.weapon = Some(crate::game_logic::host_helix_minigun::helix_minigun_weapon());
-            }
             if crate::game_logic::host_overlord_addons::is_emperor_template(template_name) {
                 // Innate PropagandaTowerBehavior AffectsSelf residual.
                 object.has_overlord_propaganda_addon = true;
