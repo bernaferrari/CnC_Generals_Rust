@@ -3740,3 +3740,56 @@ fn streams_rpg_missile_defenders_residual_impact_spawns_no_muzzle_hq_2qedt_87_2(
         "impact residuals spawned a second muzzle at the shooter (C++ FireFX is fire-time only): {failures:?}"
     );
 }
+
+/// hq-2qedt.87.3: C++ Weapon.cpp FireFX plays at fire time only (shared
+/// dispatch owns the one muzzle). air_and_mig residual impact handlers must
+/// not spawn a second muzzle at the shooter.
+#[test]
+fn air_and_mig_residual_impact_spawns_no_muzzle_hq_2qedt_87_3() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let cases = [
+        "stealth_fighter", "comanche_cannon", "helix_minigun", "comanche_antitank",
+        "battle_drone", "overlord_gun", "jarmen_kell",
+    ];
+    let mut failures = Vec::new();
+    for case in cases {
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let src = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(45.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic.objects.get(&tank).unwrap().get_position();
+        let shooter_pos = logic.objects.get(&src).unwrap().get_position();
+        let count = |l: &GameLogic| {
+            l.combat_particles()
+                .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+                .iter()
+                .filter(|e| e.position.distance(shooter_pos) < 1.0)
+                .count()
+        };
+        let before = count(&logic);
+        let (s, t) = (Some(src), Some(tank));
+        let _ = match case {
+            "stealth_fighter" => logic.apply_stealth_fighter_residual_at(impact, s, t),
+            "comanche_cannon" => logic.apply_comanche_cannon_residual_at(impact, s, t),
+            "helix_minigun" => logic.apply_helix_minigun_residual_at(impact, s, t),
+            "comanche_antitank" => logic.apply_comanche_antitank_residual_at(impact, s, t),
+            "battle_drone" => logic.apply_battle_drone_residual_at(impact, s, t),
+            "overlord_gun" => logic.apply_overlord_gun_residual_at(impact, s, t),
+            _ => logic.apply_jarmen_kell_residual_at(impact, s, t),
+        };
+        if count(&logic) != before {
+            failures.push(case);
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "impact residuals spawned a second muzzle at the shooter (C++ FireFX is fire-time only): {failures:?}"
+    );
+}
