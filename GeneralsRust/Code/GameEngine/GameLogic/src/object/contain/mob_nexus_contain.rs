@@ -1168,6 +1168,18 @@ mod tests {
         (physics, record)
     }
 
+    /// Object admission and `Object::drop` read the active Core stores
+    /// (WorldServices + TheAI); without them a dropped fixture object
+    /// double-panics and aborts the test binary (hq-2qedt.69).
+    fn with_fixture_services(body: fn()) {
+        let _lock = crate::test_sync::lock();
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let stores = crate::system::engine_stores::new_for_world();
+            crate::system::engine_stores::with_active_stores(&stores, body)
+        });
+    }
+
     #[test]
     fn missing_exit_bone_preserves_rider_position_like_cpp() {
         // C++ MobNexusContain.cpp:215-226 moves the rider only when the
@@ -1214,6 +1226,10 @@ mod tests {
 
     #[test]
     fn on_removing_scales_exit_pitch_by_center_of_mass() {
+        with_fixture_services(on_removing_scales_exit_pitch_by_center_of_mass_body);
+    }
+
+    fn on_removing_scales_exit_pitch_by_center_of_mass_body() {
         let owner_id = 91_440_011;
         let rider_id = 91_440_012;
         let _registered = Registered(vec![owner_id, rider_id]);
@@ -1241,6 +1257,10 @@ mod tests {
 
     #[test]
     fn on_removing_same_physics_scales_pitch_without_nesting() {
+        with_fixture_services(on_removing_same_physics_scales_pitch_without_nesting_body);
+    }
+
+    fn on_removing_same_physics_scales_pitch_without_nesting_body() {
         let owner_id = 91_440_021;
         let rider_id = 91_440_022;
         let _registered = Registered(vec![owner_id, rider_id]);
@@ -1266,6 +1286,10 @@ mod tests {
 
     #[test]
     fn on_removing_without_parent_physics_leaves_pitch() {
+        with_fixture_services(on_removing_without_parent_physics_leaves_pitch_body);
+    }
+
+    fn on_removing_without_parent_physics_leaves_pitch_body() {
         let owner_id = 91_440_031;
         let rider_id = 91_440_032;
         let _registered = Registered(vec![owner_id, rider_id]);
