@@ -1225,6 +1225,12 @@ pub(super) fn seed_known_host_weapons() -> usize {
             t.minimum_attack_range = 100.0;
             t.pre_attack_delay = 8; // 250ms @ 30 FPS residual
         }
+        // Retail StealthJetMissileWeapon MinimumAttackRange 60 / PrimaryDamageRadius 5
+        // (authored source for Stealth Fighter PRIMARY at create, hq-2qedt.110).
+        if seed.name == STEALTH_JET_MISSILE_WEAPON {
+            t.primary_damage_radius = 5.0;
+            t.minimum_attack_range = 60.0;
+        }
         if seed.name == DRAGON_TANK_FLAME_WEAPON || seed.name == DRAGON_TANK_FLAME_WEAPON_UPGRADED {
             t.primary_damage_radius = 5.0;
             t.secondary_damage = if seed.name == DRAGON_TANK_FLAME_WEAPON_UPGRADED {
