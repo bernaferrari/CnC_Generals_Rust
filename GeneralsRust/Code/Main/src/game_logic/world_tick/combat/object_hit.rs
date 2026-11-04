@@ -931,19 +931,20 @@ impl GameLogic {
                         effects,
                     );
                 } else if {
-                    // China Overlord / Emperor residual: dual-radius main gun (no gattling addon).
+                    // China Overlord / Emperor residual: dual-radius main gun (no
+                    // gattling addon). Keyed on the authored WeaponSet weapon for
+                    // this slot, not the template name (hq-2qedt.181).
                     use crate::game_logic::host_overlord_gun::{
-                        is_overlord_gun_chassis, should_apply_overlord_gun_residual,
+                        OVERLORD_TANK_GUN, TANK_OVERLORD_TANK_GUN,
                     };
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_overlord_gun_residual(
-                                is_overlord_gun_chassis(&a.template_name),
-                                a.has_overlord_gattling_residual(),
-                            )
+                        .is_some_and(|a| {
+                            !a.has_overlord_gattling_residual()
+                                && a.authored_weapon_name_for_slot(slot).is_some_and(|n| {
+                                    n == OVERLORD_TANK_GUN || n == TANK_OVERLORD_TANK_GUN
+                                })
                         })
-                        .unwrap_or(false)
                 } {
                     let impact = target_position;
                     let from = self

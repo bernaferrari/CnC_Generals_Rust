@@ -4562,3 +4562,61 @@ fn minigunner_create_primary_comes_from_authored_weapon_set() {
         "authored HumveeGun PRIMARY overwritten by minigunner name peel: {prim:?}"
     );
 }
+
+/// hq-2qedt.181: C++ fires the authored WeaponSet weapon; an Overlord-named
+/// template authoring a non-OverlordTankGun PRIMARY must not route through
+/// the Overlord main-gun residual (OverlordTankShell) on object hit.
+#[test]
+fn overlord_named_non_overlord_gun_skips_overlord_object_hit_residual() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaTankOverlord");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(1000.0)
+        .set_primary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("ChinaTankOverlord".to_string(), tpl);
+    let ol_id = game_logic
+        .create_object("ChinaTankOverlord", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("overlord");
+    let enemy = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let (t, attack_events) = game_logic
+            .host_object_and_attack_events_mut(ol_id)
+            .unwrap();
+        t.attack_target(
+            enemy,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = t.weapon.as_mut() {
+            w.last_fire_time = -20.0;
+            w.reload_time = 0.1;
+        }
+    }
+    let mut shells = 0;
+    for f in 50..60 {
+        game_logic.set_current_frame(f);
+        game_logic.update_combat(&[ol_id, enemy], LOGIC_FRAME_TIMESTEP);
+        shells = shells.max(
+            game_logic
+                .objects
+                .registered_values()
+                .filter(|o| o.template_name == "OverlordTankShell")
+                .count(),
+        );
+    }
+    assert_eq!(
+        shells + game_logic.overlord_gun_residual_fires() as usize,
+        0,
+        "Overlord residual chosen by template-name peel instead of authored weapon"
+    );
+}
