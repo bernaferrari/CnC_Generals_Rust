@@ -230,9 +230,10 @@ pub fn is_legal_rpg_trooper_splash_target(
     is_alive && !is_self && !under_construction && is_combat_kind
 }
 
-/// Whether residual fire should apply RPG Trooper residual path.
-pub fn should_apply_rpg_trooper_residual(is_rpg_trooper: bool) -> bool {
-    is_rpg_trooper
+/// Authored WeaponTemplate identity for the RPG Trooper residual
+/// (AP Rockets is a WeaponBonus, so the slot weapon name is unchanged).
+pub fn is_rpg_trooper_weapon_name(weapon_name: &str) -> bool {
+    weapon_name.eq_ignore_ascii_case(TUNNEL_DEFENDER_ROCKET_WEAPON)
 }
 
 /// Whether residual attack range is legal (min + max gate).
@@ -435,8 +436,8 @@ mod tests {
 
     #[test]
     fn residual_gate() {
-        assert!(should_apply_rpg_trooper_residual(true));
-        assert!(!should_apply_rpg_trooper_residual(false));
+        assert!(is_rpg_trooper_weapon_name("TunnelDefenderRocketWeapon"));
+        assert!(!is_rpg_trooper_weapon_name("TunnelDefenderBikerRocketWeapon"));
         assert!(is_legal_rpg_trooper_splash_target(true, false, false, true));
         assert!(!is_legal_rpg_trooper_splash_target(
             false, false, false, true
