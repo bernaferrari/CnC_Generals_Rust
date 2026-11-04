@@ -1108,13 +1108,29 @@ impl Object {
         self.is_weapon_slot_on_turret(slot) && self.is_trying_to_aim_at_target(victim.id)
     }
 
-    /// Leftover `TurretAI::isWeaponSlotOnTurret` (ControlledWeaponSlots bit).
+    /// C++ `AIUpdateInterface::isWeaponSlotOnTurret*` loops every TurretAI
+    /// (AIUpdate.cpp:711-720); true when any turret controls `slot`.
     pub fn is_weapon_slot_on_turret(&self, slot: u8) -> bool {
-        if !self.turret_runtime.has_authored_turret && !self.turret_enabled {
-            return false;
+        self.which_turret_for_weapon_slot(slot).is_some()
+    }
+
+    /// C++ `AIUpdateInterface::getWhichTurretForWeaponSlot` (AIUpdate.cpp:756-770):
+    /// first of `m_turretAI[MAX_TURRETS]` whose `TurretAI::isWeaponSlotOnTurret`
+    /// holds. `Some(0)` = TURRET_MAIN (`turret_runtime`), `Some(1)` = TURRET_ALT
+    /// (`alt_turret_runtime`), `None` = TURRET_INVALID.
+    pub fn which_turret_for_weapon_slot(&self, slot: u8) -> Option<usize> {
+        fn controls(mask: u32, slot: u8) -> bool {
+            slot < 3 && (mask & (1u32 << slot)) != 0
         }
-        let mask = self.turret_runtime.controlled_weapon_slots;
-        slot < 3 && (mask & (1u32 << slot)) != 0
+        if (self.turret_runtime.has_authored_turret || self.turret_enabled)
+            && controls(self.turret_runtime.controlled_weapon_slots, slot)
+        {
+            return Some(0);
+        }
+        self.alt_turret_runtime
+            .as_ref()
+            .filter(|alt| alt.has_authored_turret && controls(alt.controlled_weapon_slots, slot))
+            .map(|_| 1)
     }
 
     /// C++ WeaponSet.cpp:869-877 — PreferredAgainst KindOf match, ready unless
