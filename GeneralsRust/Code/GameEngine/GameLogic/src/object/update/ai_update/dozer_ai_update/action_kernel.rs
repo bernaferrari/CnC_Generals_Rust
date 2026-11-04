@@ -132,3 +132,51 @@ impl<R, D> DozerTaskOwner<R, D> {
         }
     }
 }
+#[cfg(test)]
+mod unmanned_tests {
+    use super::*;
+    fn facts(unmanned: bool) -> ActionFacts {
+        ActionFacts {
+            frame: 10,
+            regular_idle: true,
+            target: 7,
+            target_exists: true,
+            claim_valid: true,
+            unmanned,
+            picked_position: Coord3D::ZERO,
+            ignore_obstacle_count: 1,
+            distance_squared: 0.0,
+            actor_radius: 0.0,
+        }
+    }
+    fn owner_in_do_action() -> DozerTaskOwner<Option<u32>, ()> {
+        let mut o = DozerTaskOwner::<Option<u32>, ()>::default();
+        o.requests[DozerTask::Build as usize] = Some(5);
+        o.enter_primary_task(DozerTask::Build);
+        o.primary.actions[DozerTask::Build as usize].state =
+            ActionState::DoAction { enter_frame: 9 };
+        o
+    }
+    /// DozerAIUpdate.cpp:467 DoAction fails on DISABLED_UNMANNED -> PRIMARY_IDLE
+    /// (cpp1270 failure edge); the m_task request is retained for re-pick.
+    #[test]
+    fn unmanned_dozer_do_action_resets_primary_idle_retaining_task() {
+        let mut manned = owner_in_do_action();
+        assert!(matches!(
+            manned.prepare_action_phase(facts(false)),
+            ActionStep::RunAction {
+                task: DozerTask::Build,
+                ..
+            }
+        ));
+        let mut o = owner_in_do_action();
+        assert!(matches!(
+            o.prepare_action_phase(facts(true)),
+            ActionStep::ResetPrimary
+        ));
+        o.finish_primary_reset(10);
+        assert_eq!(o.current, DozerTask::Invalid);
+        assert_eq!(o.requests[DozerTask::Build as usize], Some(5));
+        assert_eq!(o.most_recent(|r| *r), DozerTask::Build);
+    }
+}
