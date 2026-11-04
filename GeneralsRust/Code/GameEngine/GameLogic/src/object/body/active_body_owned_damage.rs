@@ -56,13 +56,17 @@ impl ActiveBody {
             || matches!(
                 damage.input.damage_type,
                 DamageType::Healing
-                    | DamageType::KillPilot
                     | DamageType::KillGarrisoned
                     | DamageType::Status
             )
             || is_subdual_damage(damage.input.damage_type)
         {
             return Err(BodyError::OperationNotSupported);
+        }
+        // C++ ActiveBody.cpp:365-418: KillPilot is alreadyHandled and never
+        // drains hull HP, so it is never lethal on the body.
+        if damage.input.damage_type == DamageType::KillPilot {
+            return Ok(false);
         }
         if self.state.armor_flags_dirty {
             return Err(BodyError::OperationNotSupported);

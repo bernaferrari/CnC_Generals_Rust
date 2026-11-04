@@ -97,6 +97,9 @@ impl BorrowedAiWorld<'_> {
         owner: &Arc<RwLock<Object>>,
         damage: &mut DamageInfo,
     ) -> Result<f32, String> {
+        if damage.input.damage_type == crate::damage::DamageType::KillPilot {
+            return self.attempt_kill_pilot_owned(owner, damage);
+        }
         let PreparedDamage {
             id,
             body,
@@ -209,6 +212,54 @@ impl BorrowedAiWorld<'_> {
         self.finish_damage_shock(owner, &candidate)?;
         *damage = candidate;
         Ok(damage.output.actual_damage_dealt)
+    }
+    /// C++ ActiveBody.cpp:365-418 DAMAGE_KILLPILOT on the borrowed owner:
+    /// vehicles become DISABLED_UNMANNED, deselected, idled and neutral;
+    /// alreadyHandled, no modifier, no hull HP. RiderChangeContain bikes need
+    /// kill/score callbacks and are not admitted on the owned path.
+    fn attempt_kill_pilot_owned(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        damage: &mut DamageInfo,
+    ) -> Result<f32, String> {
+        let mut object = owner.try_write().map_err(|_| "damage owner unavailable")?;
+        if !self
+            .object(object.get_id())
+            .is_some_and(|actual| Arc::ptr_eq(&actual, owner))
+        {
+            return Err("foreign damage owner".into());
+        }
+        if object.is_effectively_dead() {
+            return Err("native damage actor family not admitted".into());
+        }
+        object
+            .get_body_module()
+            .ok_or("damage body absent")?
+            .try_lock()
+            .map_err(|_| "damage body unavailable")?
+            .assess_owned_native_damage(damage)
+            .map_err(|error| error.to_string())?;
+        if object.is_kind_of(KindOf::Vehicle) {
+            let rider_change = match object.get_contain() {
+                Some(contain) => contain
+                    .try_lock()
+                    .map_err(|_| "damage contain unavailable")?
+                    .is_rider_change_contain(),
+                None => false,
+            };
+            if rider_change {
+                return Err("rider-change KillPilot not admitted".into());
+            }
+            object.set_disabled_unmanned();
+            object.deselect_all();
+            object.ai_idle();
+            object.set_team_to_neutral();
+            crate::object::body::active_body::record_neutral_vehicle_sniped();
+        }
+        damage.sync_from_input();
+        damage.output.actual_damage_dealt = 0.0;
+        damage.output.actual_damage_clipped = 0.0;
+        Ok(0.0)
     }
     /// Validate all current damage/death callbacks without changing health,
     /// scheduling, presentation or the session random stream. Landing uses

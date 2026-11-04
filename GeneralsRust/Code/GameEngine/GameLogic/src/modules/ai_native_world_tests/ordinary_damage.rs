@@ -11,6 +11,9 @@ pub(super) fn damage_actor(heals: bool) -> Arc<dyn ThingTemplate> {
     damage_actor_with_physics(heals, false)
 }
 fn damage_actor_with_physics(heals: bool, physics: bool) -> Arc<dyn ThingTemplate> {
+    damage_actor_kinded(heals, physics, KindOf::Infantry)
+}
+fn damage_actor_kinded(heals: bool, physics: bool, kind: KindOf) -> Arc<dyn ThingTemplate> {
     let mut base = DefaultThingTemplate::new(
         if heals {
             "OwnedDamageHealer"
@@ -19,7 +22,7 @@ fn damage_actor_with_physics(heals: bool, physics: bool) -> Arc<dyn ThingTemplat
         }
         .into(),
     );
-    base.add_kind_of(KindOf::Infantry);
+    base.add_kind_of(kind);
     let body = ActiveBodyModuleData {
         max_health: 100.0,
         initial_health: 100.0,
@@ -68,6 +71,9 @@ fn receiving_damage_world() -> NativeMatch {
     receiving_damage_world_with_physics(false)
 }
 fn receiving_damage_world_with_physics(physics: bool) -> NativeMatch {
+    receiving_damage_world_kinded(physics, KindOf::Infantry)
+}
+fn receiving_damage_world_kinded(physics: bool, kind: KindOf) -> NativeMatch {
     let mut game = NativeMatch::new(150.0);
     let mut factory = ObjectFactory::new();
     let definitions = Arc::new(
@@ -78,7 +84,7 @@ fn receiving_damage_world_with_physics(physics: bool) -> NativeMatch {
         )
         .unwrap(),
     );
-    let source_template = damage_actor_with_physics(true, physics);
+    let source_template = damage_actor_kinded(true, physics, kind);
     let target_template = damage_actor(false);
     let mut catalog = game_engine::common::thing::module_factory::ModuleFactory::new();
     crate::contain_module_overrides::register_native_module_overrides(&mut catalog).unwrap();
@@ -381,5 +387,38 @@ fn unavailable_shock_module_rejects_before_body_and_restored_impulse_uses_receiv
         physics.accumulated_force_acceleration()
     );
     assert!(receiver_physics.installed_is_stunned().unwrap());
+    assert_eq!(health(&peer.source), 100.0);
+}
+#[test]
+fn owned_kill_pilot_unmans_vehicle_without_hull_damage() {
+    use crate::system::engine_stores::{new_world_services, with_world_services};
+    with_world_services(&new_world_services(), owned_kill_pilot_body);
+}
+fn owned_kill_pilot_body() {
+    use crate::common::DisabledType;
+    let mut first = receiving_damage_world_kinded(false, KindOf::Vehicle);
+    let peer = receiving_damage_world_kinded(false, KindOf::Vehicle);
+    let owner = Arc::clone(&first.source);
+    let wake = healing_wake(&first);
+    let mut damage = hit(2, 50.0);
+    damage.input.damage_type = DamageType::KillPilot;
+    first.operate(300, |world| {
+        assert_eq!(
+            world.attempt_damage_owned(&owner, &mut damage),
+            Ok(0.0),
+            "C++ ActiveBody DAMAGE_KILLPILOT is alreadyHandled on owned path"
+        )
+    });
+    let object = first.source.read().unwrap();
+    assert!(object.is_disabled_by_type(DisabledType::DisabledUnmanned));
+    assert!(!object.is_effectively_dead());
+    drop(object);
+    assert_eq!(health(&first.source), 100.0, "KillPilot never drains hull HP");
+    assert_eq!(healing_wake(&first), wake, "no onDamage for handled KillPilot");
+    assert!(!peer
+        .source
+        .read()
+        .unwrap()
+        .is_disabled_by_type(DisabledType::DisabledUnmanned));
     assert_eq!(health(&peer.source), 100.0);
 }
