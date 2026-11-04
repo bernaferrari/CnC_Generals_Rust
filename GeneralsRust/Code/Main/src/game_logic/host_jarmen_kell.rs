@@ -188,9 +188,10 @@ pub fn is_jarmen_kell_template(template_name: &str) -> bool {
         || (n.contains("infantry") && n.contains("kell") && !n.contains("rebel"))
 }
 
-/// Whether residual fire should apply Jarmen Kell sniper residual path.
-pub fn should_apply_jarmen_kell_residual(is_kell: bool) -> bool {
-    is_kell
+/// Authored WeaponTemplate identity for the Jarmen Kell sniper residual
+/// (AP Bullets is a WeaponBonus, so the slot weapon name is unchanged).
+pub fn is_jarmen_kell_weapon_name(weapon_name: &str) -> bool {
+    weapon_name.eq_ignore_ascii_case(JARMEN_KELL_RIFLE)
 }
 
 /// Whether AP Bullets upgrade tag is present.
@@ -413,6 +414,9 @@ mod tests {
         assert!(!is_jarmen_kell_template("GLAInfantryRebel"));
         assert!(!is_jarmen_kell_template("AmericaInfantryColonelBurton"));
         assert!(!is_jarmen_kell_template("GLAVehicleCombatBike"));
+        assert!(is_jarmen_kell_weapon_name("GLAJarmenKellRifle"));
+        assert!(!is_jarmen_kell_weapon_name("GLABikerKellSniperRifle"));
+        assert!(!is_jarmen_kell_weapon_name("GLAJarmenKellVehiclePilotSniperRifle"));
     }
 
     #[test]

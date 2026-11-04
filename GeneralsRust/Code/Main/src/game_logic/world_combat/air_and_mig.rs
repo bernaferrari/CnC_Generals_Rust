@@ -1572,8 +1572,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_jarmen_kell::{
             JARMEN_KELL_DAMAGE_TYPE, JARMEN_KELL_DEATH_TYPE, JARMEN_KELL_FIRE_AUDIO,
-            has_ap_bullets_upgrade, is_jarmen_kell_template, is_legal_jarmen_kell_target,
-            jarmen_kell_damage_with_ap,
+            has_ap_bullets_upgrade, is_legal_jarmen_kell_target, jarmen_kell_damage_with_ap,
         };
 
         let (source_team, damage) = {
@@ -1583,9 +1582,7 @@ impl GameLogic {
             let Some(obj) = self.objects.get(&sid) else {
                 return (0, false);
             };
-            if !is_jarmen_kell_template(&obj.template_name) {
-                return (0, false);
-            }
+            // Caller (object_hit) already gated on the authored slot weapon.
             let ap = has_ap_bullets_upgrade(&obj.applied_upgrades);
             let dmg = obj
                 .weapon
