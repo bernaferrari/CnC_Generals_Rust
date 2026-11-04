@@ -1672,3 +1672,18 @@ fn gattling_tank_has_no_unit_map_weapon_names_hq_2qedt_186() {
         assert_eq!(secondary_weapon_name_for_unit(name), None, "{name}");
     }
 }
+
+#[test]
+fn gattling_cannon_structure_has_no_unit_map_weapon_names_hq_2qedt_201() {
+    for name in [
+        "China_GattlingCannon",
+        "ChinaGattlingCannon",
+        "Nuke_ChinaGattlingCannon",
+        "Tank_ChinaGattlingCannon",
+        "Infa_ChinaGattlingCannon",
+        "TestGattlingCannon",
+    ] {
+        assert_eq!(primary_weapon_name_for_unit(name), None, "{name}");
+        assert_eq!(secondary_weapon_name_for_unit(name), None, "{name}");
+    }
+}

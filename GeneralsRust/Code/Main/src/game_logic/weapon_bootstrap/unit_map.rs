@@ -66,12 +66,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "GC_Slth_GLAStingerSite"
         | "GC_Chem_GLAStingerSite"
         | "TestStingerSite" => Some(STINGER_PRIMARY_WEAPON),
-        "China_GattlingCannon"
-        | "ChinaGattlingCannon"
-        | "Nuke_ChinaGattlingCannon"
-        | "Tank_ChinaGattlingCannon"
-        | "Infa_ChinaGattlingCannon"
-        | "TestGattlingCannon" => Some(GATTLING_BUILDING_PRIMARY_WEAPON),
         "China_NukeCannon"
         | "ChinaVehicleNukeCannon"
         | "Nuke_ChinaVehicleNukeCannon"
@@ -433,6 +427,10 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
                     },
                 );
             }
+            // hq-2qedt.201: Gattling Cannon structure weapons come from authored WeaponSet only.
+            if crate::game_logic::host_base_defense::is_gattling_cannon_structure(template_name) {
+                return None;
+            }
             crate::game_logic::host_base_defense::primary_weapon_name_for_defense(template_name)
         }
     }
@@ -473,12 +471,6 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "GC_Slth_GLAStingerSite"
         | "GC_Chem_GLAStingerSite"
         | "TestStingerSite" => Some(STINGER_SECONDARY_WEAPON),
-        "China_GattlingCannon"
-        | "ChinaGattlingCannon"
-        | "Nuke_ChinaGattlingCannon"
-        | "Tank_ChinaGattlingCannon"
-        | "Infa_ChinaGattlingCannon"
-        | "TestGattlingCannon" => Some(GATTLING_BUILDING_SECONDARY_WEAPON),
         // Neutron shells are PLAYER_UPGRADE residual (Upgrade_ChinaNeutronShells) —
         // not bound at create; research equips secondary (parity with rocket pods).
         // Rocket pods are PLAYER_UPGRADE residual — not bound at create; research equips.
@@ -528,10 +520,6 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
                 template_name,
             ) {
                 Some(TOXIN_TRUCK_SPRAYER)
-            } else if crate::game_logic::host_base_defense::is_gattling_cannon_structure(
-                template_name,
-            ) {
-                Some(GATTLING_BUILDING_SECONDARY_WEAPON)
             } else if crate::game_logic::host_base_defense::is_patriot_battery_structure(
                 template_name,
             ) {
