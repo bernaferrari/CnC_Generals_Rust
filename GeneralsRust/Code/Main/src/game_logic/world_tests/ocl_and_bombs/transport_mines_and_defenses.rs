@@ -2873,3 +2873,77 @@ fn patriot_requests_assist_before_fire_even_when_shot_kills() {
         "free assistant must accept the pre-fire request"
     );
 }
+
+/// C++ Weapon::fireWeapon only reaches privateFireWeapon (and thus
+/// processRequestAssistance, Weapon.cpp:2476-2478) when the weapon is READY_TO_FIRE
+/// (DelayBetweenShots / clip reload elapsed). A Patriot still reloading must not
+/// request assistance or fire this frame.
+#[test]
+fn patriot_does_not_request_assist_while_weapon_not_ready() {
+    use crate::game_logic::host_base_defense::{
+        PATRIOT_PRIMARY_WEAPON, PATRIOT_REQUEST_ASSIST_RANGE, PATRIOT_SECONDARY_WEAPON,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+    let mut patriot_tpl = crate::game_logic::ThingTemplate::new("USA_Patriot");
+    patriot_tpl
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(600.0)
+        .set_primary_weapon_name(PATRIOT_PRIMARY_WEAPON)
+        .set_secondary_weapon_name(PATRIOT_SECONDARY_WEAPON);
+    game_logic
+        .templates
+        .insert("USA_Patriot".to_string(), patriot_tpl);
+    let requester_id = game_logic
+        .create_object("USA_Patriot", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("requester");
+    let assistant_id = game_logic
+        .create_object(
+            "USA_Patriot",
+            Team::USA,
+            Vec3::new(PATRIOT_REQUEST_ASSIST_RANGE * 0.5, 0.0, 0.0),
+        )
+        .expect("assistant");
+    let enemy_id = game_logic
+        .create_object("TestTank", Team::GLA, Vec3::new(50.0, 0.0, 0.0))
+        .expect("enemy");
+    {
+        let e = game_logic.host_object_mut(enemy_id).unwrap();
+        e.health.current = 1.0e6;
+        e.health.maximum = 1.0e6;
+        e.max_health = 1.0e6;
+    }
+    game_logic.frame = 100;
+    let now = game_logic.frame as f32 * LOGIC_FRAME_TIMESTEP;
+    // Both Patriots just fired: every slot is mid-reload.
+    for id in [requester_id, assistant_id] {
+        let o = game_logic.host_object_mut(id).unwrap();
+        if let Some(w) = o.weapon.as_mut() {
+            w.last_fire_time = now;
+        }
+        for slot in 0..3u8 {
+            if let Some(w) = o.weapon_slot_mut(slot) {
+                w.last_fire_time = now;
+            }
+        }
+    }
+    let hp_before = game_logic.host_object(enemy_id).unwrap().health.current;
+    game_logic.update_combat(&[requester_id, assistant_id, enemy_id], LOGIC_FRAME_TIMESTEP);
+
+    assert_eq!(
+        game_logic.patriot_assist_residual_requests(),
+        0,
+        "not-ready Patriot must not request assistance"
+    );
+    assert_eq!(
+        game_logic.host_object(enemy_id).unwrap().health.current,
+        hp_before,
+        "not-ready Patriot must not fire"
+    );
+}

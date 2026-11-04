@@ -562,6 +562,12 @@ impl GameLogic {
         if damage <= 0.0 {
             return Ok(());
         }
+        // C++ Weapon::fireWeapon reaches privateFireWeapon (and its
+        // processRequestAssistance) only when READY_TO_FIRE: DelayBetweenShots /
+        // clip reload must elapse first, so no every-frame request or shot.
+        if !ready {
+            return Ok(());
+        }
 
         // C++ Weapon::privateFireWeapon (Weapon.cpp:2476-2478) requests assistance
         // before the shot is delivered, so a killing shot still recruits helpers.
