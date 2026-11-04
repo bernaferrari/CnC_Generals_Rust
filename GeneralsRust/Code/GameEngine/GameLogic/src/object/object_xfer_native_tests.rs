@@ -786,3 +786,53 @@ fn native_birth_uses_exact_receiving_constructor_catalog_without_fallback() {
 mod factory_identity;
 #[path = "object_xfer_native_tests/saved_particles.rs"]
 mod saved_particles;
+
+/// hq-2qedt.38: ActiveBody.cpp:399-410 KillPilot aftermath — `setDisabled(DISABLED_UNMANNED)`
+/// (Object.cpp:2044 => setDisabledUntil(FOREVER)) plus neutral default team — must survive
+/// Object.cpp xfer (teamID ~4044, m_disabledMask + m_disabledTillFrame ~4150).
+#[test]
+fn unmanned_neutral_kill_pilot_aftermath_survives_object_xfer_round_trip() {
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    let world = crate::system::engine_stores::new_world_services();
+    game_engine::common::common_services::with_common_services(&common, || {
+    crate::system::engine_stores::with_world_services(&world, || {
+    let definitions = Definitions::new(75.0);
+    let receiving = Definitions::new(75.0);
+    let mut sender = Candidate::new();
+    let source = sender.prepare_source(&definitions);
+    let neutral = sender.teams.find_team_by_id(2).unwrap();
+    {
+        let mut object = source.write().unwrap();
+        object.set_disabled_unmanned();
+        object.set_team(Some(neutral)).unwrap();
+    }
+    let unmanned_index = source
+        .read()
+        .unwrap()
+        .get_disabled_type_index(DisabledType::DisabledUnmanned)
+        .unwrap();
+    assert_eq!(
+        source.read().unwrap().disabled_till_frame[unmanned_index],
+        game_engine::common::game_common::FOREVER,
+        "CPP setDisabled == setDisabledUntil(type, FOREVER)"
+    );
+    let record = sender.operate(&definitions, 17, |services| {
+        services.save_object(&source).unwrap()
+    });
+    let mut candidate = Candidate::new();
+    let restored = candidate.restore(&receiving, &[record]).unwrap().remove(0);
+    let object = restored.read().unwrap();
+    assert!(object.is_disabled_by_type(DisabledType::DisabledUnmanned));
+    assert_eq!(
+        object.disabled_till_frame[unmanned_index],
+        game_engine::common::game_common::FOREVER
+    );
+    let team = object.get_team().unwrap();
+    assert!(Arc::ptr_eq(
+        &team,
+        &candidate.teams.find_team_by_id(2).unwrap()
+    ));
+    assert!(team.read().unwrap().get_members().contains(&object.get_id()));
+    });
+    });
+}
