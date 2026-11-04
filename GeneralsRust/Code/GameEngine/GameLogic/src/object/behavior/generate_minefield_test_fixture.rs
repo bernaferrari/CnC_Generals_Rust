@@ -506,3 +506,48 @@ fn oriented_footprint_body() {
             .is_ok()
     );
 }
+
+#[derive(Debug, Default)]
+struct GenFxRecorder {
+    mines_at_fx: std::sync::Mutex<Vec<usize>>,
+}
+impl crate::common::FXListManagerInterface for GenFxRecorder {
+    fn do_fx_pos(&self, fx: crate::common::FXListId, _: &crate::common::Coord3D, _: Option<&glam::Mat4>) {
+        assert_eq!(fx, game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("LegacyMineGenFX") as crate::common::FXListId);
+        let mines = crate::object_manager::get_object_manager().read().unwrap().get_object_count();
+        self.mines_at_fx.lock().unwrap().push(mines);
+    }
+    fn do_fx_obj(&self, _: crate::common::FXListId, _: crate::common::ThingId) {}
+    fn do_fx_for_object(&self, _: crate::common::FXListId, _: &Object) {}
+    fn do_fx_for_host_objects(&self, _: crate::common::FXListId, _: &crate::helpers::HostFxObjectPose, _: Option<&crate::helpers::HostFxObjectPose>) {}
+}
+
+#[test]
+fn legacy_place_mines_plays_generation_fx_after_mines_exist() {
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+        crate::system::engine_stores::with_active_stores(&stores, legacy_gen_fx_body)
+    });
+}
+
+fn legacy_gen_fx_body() {
+    // GenerateMinefieldBehavior.cpp:431: FXList::doFXObj(m_genFX) runs after
+    // every mine of the field has been created.
+    let fixture = MinefieldFixture::new(98_135);
+    {
+        let mut guard = game_engine::common::thing::thing_factory::get_thing_factory().unwrap();
+        let factory = guard.get_or_insert_with(ThingFactory::new);
+        assert_eq!(factory.load_ini_text(&format!("Object {}\n KindOf = MINE\n Geometry = CYLINDER\n GeometryMajorRadius = 3.0\n GeometryMinorRadius = 3.0\n GeometryHeight = 1.0\nEnd\n", fixture.template)), 1);
+    }
+    let owner = fixture.factory.get_object(fixture.id).unwrap().get_base_object().unwrap();
+    crate::object::registry::OBJECT_REGISTRY.register_object(fixture.id, &owner);
+    let recorder = Arc::new(GenFxRecorder::default());
+    assert!(crate::helpers::register_fx_list_manager(recorder.clone()));
+    let mut behavior = fixture.behavior(false);
+    behavior.config.generation_fx = Some("LegacyMineGenFX".into());
+    behavior.place_mines().expect("legacy place_mines");
+    let mines = behavior.get_mine_list();
+    assert!(!mines.is_empty(), "legacy path creates real mines");
+    assert_eq!(*recorder.mines_at_fx.lock().unwrap(), vec![mines.len()], "gen FX fires once, after all mines exist");
+}
