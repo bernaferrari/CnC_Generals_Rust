@@ -855,8 +855,32 @@ impl GameLogic {
         self.remove_self_as_jet_targeter_from_current_victim(unit_id);
     }
 
-    /// C++ AIUpdateInterface::setTurretTargetObject residual.
+    /// hq-2qedt.2.3.4: C++ AIStates `getWhichTurretForCurWeapon()` →
+    /// `setTurretTarget*(tur, ..)` (AIStates.cpp:2615-2620, AIUpdate.cpp:756-770).
+    /// True when the active weapon slot is controlled by TURRET_ALT.
+    fn cur_weapon_on_alt_turret(&self, unit_id: ObjectId) -> bool {
+        self.objects
+            .get(&unit_id)
+            .is_some_and(|u| u.which_turret_for_weapon_slot(u.active_weapon_slot) == Some(1))
+    }
+
+    /// C++ AIUpdateInterface::setTurretTargetObject(getWhichTurretForCurWeapon(), ..):
+    /// writes the TurretAI that controls the active weapon slot.
     pub fn set_turret_target_object(
+        &mut self,
+        unit_id: ObjectId,
+        victim_id: Option<ObjectId>,
+        force_attacking: bool,
+    ) {
+        if self.cur_weapon_on_alt_turret(unit_id) && self.swap_alt_turret_slot(unit_id) {
+            self.set_turret_target_object_on_slot0(unit_id, victim_id, force_attacking);
+            self.swap_alt_turret_slot(unit_id);
+            return;
+        }
+        self.set_turret_target_object_on_slot0(unit_id, victim_id, force_attacking);
+    }
+
+    fn set_turret_target_object_on_slot0(
         &mut self,
         unit_id: ObjectId,
         victim_id: Option<ObjectId>,
@@ -937,8 +961,18 @@ impl GameLogic {
         }
     }
 
-    /// C++ TurretAI::setTurretTargetPosition (TurretAI.cpp:589-626).
+    /// C++ TurretAI::setTurretTargetPosition (TurretAI.cpp:589-626), routed to
+    /// the turret controlling the active weapon slot (hq-2qedt.2.3.4).
     pub fn set_turret_target_position(&mut self, unit_id: ObjectId, pos: Option<glam::Vec3>) {
+        if self.cur_weapon_on_alt_turret(unit_id) && self.swap_alt_turret_slot(unit_id) {
+            self.set_turret_target_position_on_slot0(unit_id, pos);
+            self.swap_alt_turret_slot(unit_id);
+            return;
+        }
+        self.set_turret_target_position_on_slot0(unit_id, pos);
+    }
+
+    fn set_turret_target_position_on_slot0(&mut self, unit_id: ObjectId, pos: Option<glam::Vec3>) {
         let enabled = self.objects.get(&unit_id).is_some_and(|u| u.turret_ai.turret_enabled);
         if !enabled {
             return;
