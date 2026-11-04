@@ -433,6 +433,57 @@ fn inherit_uses_named_team_proto_not_faction() {
 }
 
 #[test]
+fn create_inherits_authored_team_attack_priority_profile() {
+    // hq-uwty0: C++ Object.cpp:442-448 reads AttackPriorityName from the
+    // named Team prototype before onObjectCreated callbacks — never invents
+    // a faction-default priority set.
+    use crate::game_logic::{
+        AttackPriorityInfo, KindOf, Object, ObjectId, Team, ThingTemplate,
+    };
+    use gamelogic::common::well_known_keys::key_team_aggressiveness;
+    use gamelogic::common::{AsciiString, Dict};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(crate::game_logic::Player::new(
+        1,
+        Team::USA,
+        "PlyrAmerica",
+        true,
+    ));
+    {
+        let mut factory = logic.team_factory.lock().expect("own TeamFactory");
+        let mut named = Dict::new();
+        named.set_int(key_team_aggressiveness(), 0);
+        let _ = factory.init_team(
+            AsciiString::from("AmericaTeamPrioInherit"),
+            AsciiString::from("PlyrAmerica"),
+            false,
+            Some(&named),
+        );
+        assert!(factory.set_team_prototype_attack_priority_name(
+            "AmericaTeamPrioInherit",
+            "AuthoredHuntPrio",
+        ));
+    }
+    logic.register_attack_priority_set(AttackPriorityInfo::new("AuthoredHuntPrio"));
+
+    let mut t = ThingTemplate::new("AmericaRangerPrioInherit");
+    t.add_kind_of(KindOf::Infantry);
+    let id = ObjectId(4102);
+    let mut o = Object::new(t, id, Team::USA);
+    o.team_instance_name = "AmericaTeamPrioInherit".into();
+    logic.objects.insert(id, o);
+
+    logic.inherit_team_ai_defaults(id);
+    assert_eq!(
+        logic.objects[&id].attack_priority_set.as_deref(),
+        Some("AuthoredHuntPrio"),
+        "named team proto AttackPriorityName must win; no invented faction default"
+    );
+}
+
+
+#[test]
 fn set_unit_attitude_affects_mood_matrix() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();

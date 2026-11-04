@@ -673,7 +673,10 @@ fn seed_set_switch_locomotor(name: &str) {
     }
 }
 
-fn residual_swap_for_name(name: &'static str) -> Option<LocomotorSetSwap> {
+fn residual_swap_for_name(
+    name: &'static str,
+    kind: HostLocomotorSetKind,
+) -> Option<LocomotorSetSwap> {
     let (speed, accel, turn_deg, speed_dmg, accel_dmg, braking) = match name {
         // INIZH Locomotor.ini: PanicHuman Speed 25 (SpeedDamaged 10, TurnRate
         // 350, Accel 100/50, Braking 100); WanderHuman Speed 10.
@@ -695,10 +698,11 @@ fn residual_swap_for_name(name: &'static str) -> Option<LocomotorSetSwap> {
         _ => return None,
     };
     let turn = turn_deg * DEG_TO_RAD;
-    let locomotor_surfaces = if name.contains("Supersonic") {
-        crate::game_logic::object::LOCO_SURFACE_AIR
-    } else {
-        crate::game_logic::object::LOCO_SURFACE_GROUND
+    // C++ Locomotor.ini Surfaces for SET_SUPERSONIC are AIR; do not invent
+    // from a name peel when the set kind is already known.
+    let locomotor_surfaces = match kind {
+        HostLocomotorSetKind::Supersonic => crate::game_logic::object::LOCO_SURFACE_AIR,
+        _ => crate::game_logic::object::LOCO_SURFACE_GROUND,
     };
     Some(LocomotorSetSwap {
         locomotor_name: name,
@@ -758,7 +762,7 @@ fn locomotor_set_swap_for_kind_in(
     }
     store
         .is_none()
-        .then(|| residual_swap_for_name(name))
+        .then(|| residual_swap_for_name(name, kind))
         .flatten()
 }
 

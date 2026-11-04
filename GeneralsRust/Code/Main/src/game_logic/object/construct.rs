@@ -2476,12 +2476,10 @@ impl Object {
     }
 
     pub fn is_worker(&self) -> bool {
+        // C++ ActionManager / AI worker gates use KindOf, never a name peel.
         self.is_kind_of(KindOf::Worker)
             || self.is_kind_of(KindOf::Dozer)
-            || self.template_name.contains("Dozer")
-            || self.template_name.contains("Worker")
-            || self.template_name.contains("Harvester")
-            || self.template_name.contains("Collector")
+            || self.is_kind_of(KindOf::Harvester)
     }
 
     /// C++ `KINDOF_HARVESTER`: semantic permission to collect supplies.
@@ -2502,9 +2500,8 @@ impl Object {
     }
 
     pub fn is_command_center(&self) -> bool {
+        // C++ uses KINDOF_COMMANDCENTER; name peel is invent.
         self.is_kind_of(KindOf::CommandCenter)
-            || self.template_name.contains("CommandCenter")
-            || self.template_name.contains("Headquarters")
     }
 
     pub fn is_faction_structure(&self) -> bool {
@@ -2711,6 +2708,35 @@ mod tests {
         assert!(obj.status.unselectable);
         assert!(!obj.status.masked);
         assert!(!obj.is_selectable());
+    }
+
+    #[test]
+    fn is_worker_and_command_center_use_kindof_not_name_peel() {
+        let mut named_dozer = ThingTemplate::new("AmericaFakeDozer");
+        named_dozer.add_kind_of(KindOf::Vehicle);
+        let named = Object::new(named_dozer, ObjectId(61), Team::USA);
+        assert!(
+            !named.is_worker(),
+            "name-contains Dozer is not a C++ worker gate"
+        );
+
+        let mut real = ThingTemplate::new("USA_Dozer");
+        real.add_kind_of(KindOf::Dozer);
+        let dozer = Object::new(real, ObjectId(62), Team::USA);
+        assert!(dozer.is_worker());
+
+        let mut named_cc = ThingTemplate::new("FakeCommandCenterHut");
+        named_cc.add_kind_of(KindOf::Structure);
+        let hut = Object::new(named_cc, ObjectId(63), Team::USA);
+        assert!(
+            !hut.is_command_center(),
+            "name-contains CommandCenter is invent"
+        );
+
+        let mut real_cc = ThingTemplate::new("AmericaCommandCenter");
+        real_cc.add_kind_of(KindOf::CommandCenter);
+        let cc = Object::new(real_cc, ObjectId(64), Team::USA);
+        assert!(cc.is_command_center());
     }
 
     #[test]
