@@ -97,7 +97,6 @@ pub enum HostJetPendingResume {
 /// Retail AmericaJetStealthFighter `LockonTime` 1500ms → 45 frames.
 pub const STEALTH_FIGHTER_LOCKON_TIME_MS: u32 = 1500;
 pub const STEALTH_FIGHTER_LOCKON_TIME_FRAMES: u32 = 45;
-pub const STEALTH_FIGHTER_LOCKON_CURSOR: &str = "LockonCursor";
 pub const STEALTH_FIGHTER_LOCKON_INITIAL_DIST: f32 = 300.0;
 pub const STEALTH_FIGHTER_LOCKON_FREQ: f32 = 0.5;
 pub const STEALTH_FIGHTER_LOCKON_ANGLE_SPIN: f32 = 1440.0_f32.to_radians();
