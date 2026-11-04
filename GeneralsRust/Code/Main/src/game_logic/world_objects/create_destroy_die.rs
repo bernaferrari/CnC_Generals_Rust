@@ -3042,12 +3042,9 @@ impl GameLogic {
             // template-name peel (hq-2qedt.105). SPAWNS_ARE_THE_WEAPONS /
             // garrison HiveStructure matrix stays out of scope.
 
-            // Host residual: USA Stealth Fighter PRIMARY jet missiles.
-            // Fail-closed: not full RETURN_TO_BASE ClipReload / science production matrix.
-            if crate::game_logic::host_stealth_fighter::is_stealth_fighter_template(template_name) {
-                use crate::game_logic::host_stealth_fighter::stealth_fighter_weapon;
-                object.weapon = Some(stealth_fighter_weapon());
-            }
+            // USA Stealth Fighter PRIMARY binds from the authored WeaponSet
+            // above (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a
+            // template-name host table (hq-2qedt.110).
 
             // USA Comanche PRIMARY/SECONDARY bind from the authored WeaponSet
             // above (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a
