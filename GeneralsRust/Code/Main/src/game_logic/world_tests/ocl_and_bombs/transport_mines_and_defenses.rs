@@ -1862,6 +1862,8 @@ fn stinger_hive_structure_body_and_spawn_respawn_residual() {
     let stinger_id = game_logic
         .create_object("GLAStingerSite", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("stinger");
+
+    game_logic.run_first_spawn_update_for_test();
     {
         let s = game_logic.host_object(stinger_id).unwrap();
         assert_eq!(s.hive_slave_count, STINGER_SPAWN_NUMBER as u8);
@@ -2036,6 +2038,8 @@ fn stinger_get_closest_slave_physical_roster_residual() {
     let stinger_id = game_logic
         .create_object("GLAStingerSite", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
         .expect("stinger");
+
+    game_logic.run_first_spawn_update_for_test();
     {
         let s = game_logic.host_object(stinger_id).unwrap();
         assert_eq!(s.hive_slave_count, STINGER_SPAWN_NUMBER as u8);
@@ -2196,6 +2200,7 @@ fn camo_netting_structure_attack_and_damage_reveal_residual() {
     let stinger_id = game_logic
         .create_object("GLAStingerSite", Team::GLA, Vec3::new(100.0, 0.0, 0.0))
         .expect("stinger");
+    game_logic.run_first_spawn_update_for_test();
 
     game_logic.queue_command(GameCommand {
         command_type: CommandType::QueueUpgrade {

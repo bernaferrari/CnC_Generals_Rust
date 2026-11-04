@@ -73,7 +73,7 @@ const BIG_DISTANCE: Real = 99999999.9;
 /// C++ SpawnBehavior::update first-pass burst queue (SpawnBehavior.cpp:187-208).
 /// `birthFrame` is computed and discarded. The list stores `runtimeProduced` (0 or 1)
 /// when InitialBurst is set, otherwise the slot index.
-fn initial_burst_replacement_times(
+pub fn initial_burst_replacement_times(
     _now: UnsignedInt,
     spawn_number: Int,
     initial_burst: Int,

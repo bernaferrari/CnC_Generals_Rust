@@ -399,6 +399,8 @@ fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
     let peer_site = peer
         .create_object_for_player("GLAStingerSite", 1, Vec3::ZERO)
         .expect("peer Stinger admitted");
+    first.run_first_spawn_update_for_test();
+    peer.run_first_spawn_update_for_test();
     assert_eq!(site, peer_site, "worlds deliberately reuse object IDs");
     let first_roster = roster(&first, site);
     let peer_roster = roster(&peer, peer_site);
@@ -516,6 +518,7 @@ fn stinger_hive_damage_uses_receiving_roster_order_and_death_deadlines() {
     let active_source = active_body
         .create_object_for_player("HiveShooter", 1, Vec3::ZERO)
         .expect("ActiveBody test source admitted");
+    active_body.run_first_spawn_update_for_test();
     let active_children = roster(&active_body, active_site);
     let active_child_health = active_body
         .host_object(ObjectId(active_children[0]))
@@ -655,6 +658,8 @@ fn hive_damage_masks_follow_receiving_body_and_source() {
     let peer_site = peer
         .create_object_for_player("GLAStingerSite", 1, Vec3::ZERO)
         .unwrap();
+    first.run_first_spawn_update_for_test();
+    peer.run_first_spawn_update_for_test();
     let shooter = first
         .create_object_for_player("HiveShooter", 1, Vec3::ZERO)
         .unwrap();

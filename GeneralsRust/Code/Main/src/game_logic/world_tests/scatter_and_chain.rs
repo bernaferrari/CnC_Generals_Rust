@@ -1908,6 +1908,8 @@ fn stinger_scatter_misses_infantry_residual() {
     let stinger = logic
         .create_object("GLAStingerSite", Team::GLA, glam::Vec3::new(0.0, 0.0, 0.0))
         .expect("stinger");
+
+    logic.run_first_spawn_update_for_test();
     // SPAWNS_ARE_THE_WEAPONS residual needs slaves.
     if let Some(s) = logic.objects.get_mut(&stinger) {
         s.hive_slave_count = 3;

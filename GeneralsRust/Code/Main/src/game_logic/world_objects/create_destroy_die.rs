@@ -44,6 +44,7 @@ struct HostSpawnBehaviorSpec {
     one_shot: bool,
     spawned_require_spawner: bool,
     slaves_have_free_will: bool,
+    initial_burst: i32,
 }
 
 /// C++ `MAX_SPAWN_POINTS` (`SpawnPointProductionExitUpdate.h:20`).
@@ -616,6 +617,7 @@ impl GameLogic {
             one_shot: data.is_one_shot_data,
             spawned_require_spawner: data.spawned_require_spawner,
             slaves_have_free_will: data.slaves_have_free_will,
+            initial_burst: data.initial_burst,
         })
     }
 
@@ -641,6 +643,7 @@ impl GameLogic {
                 one_shot: true,
                 spawned_require_spawner: false,
                 slaves_have_free_will: false,
+                initial_burst: 0,
             });
         }
         if crate::game_logic::host_base_defense::is_stinger_site_structure(template_name) {
@@ -655,6 +658,7 @@ impl GameLogic {
                 one_shot: false,
                 spawned_require_spawner: true,
                 slaves_have_free_will: false,
+                initial_burst: 0,
             });
         }
         None
@@ -932,6 +936,27 @@ impl GameLogic {
         }
         if spec.one_shot {
             self.spawn_oneshot_spawn_behavior_checked(object_id, &spec, interpreter, ui)?;
+        } else if self.host_object(object_id).is_some_and(|object| {
+            crate::game_logic::host_base_defense::is_stinger_site_structure(&object.template_name)
+        }) {
+            // C++ SpawnBehavior::update first pass (SpawnBehavior.cpp:176-248):
+            // build completion spawns nothing; the first update seeds the
+            // ordered replacement list (runtimeProduced or list index) and the
+            // per-frame drain spawns each entry where currentTime > time.
+            let live = self.count_spawn_behavior_children(object_id, &spec.spawn_template, true);
+            if let Some(object) = self.host_object_mut(object_id) {
+                if live == 0 && object.spawn_behavior_replacement_times().is_empty() {
+                    let runtime_produced = object.producer_id.is_some();
+                    for due in gamelogic::object::behavior::spawn_behavior::initial_burst_replacement_times(
+                        0,
+                        spec.spawn_number as i32,
+                        spec.initial_burst,
+                        runtime_produced,
+                    ) {
+                        object.enqueue_spawn_behavior_replacement(due.max(0) as u32);
+                    }
+                }
+            }
         } else {
             let _created = self.spawn_missing_hive_world_soldiers_with_effects_checked(
                 object_id,
@@ -940,26 +965,6 @@ impl GameLogic {
                 ui,
                 None,
             )?;
-            if self.host_object(object_id).is_some_and(|object| {
-                crate::game_logic::host_base_defense::is_stinger_site_structure(
-                    &object.template_name,
-                )
-            }) {
-                let live =
-                    self.count_spawn_behavior_children(object_id, &spec.spawn_template, true);
-                if live < spec.spawn_number
-                    && self
-                        .host_object(object_id)
-                        .is_some_and(|object| object.spawn_behavior_replacement_times().is_empty())
-                {
-                    let due = self.frame.saturating_sub(1);
-                    if let Some(object) = self.host_object_mut(object_id) {
-                        for _ in 0..spec.spawn_number.saturating_sub(live) {
-                            object.enqueue_spawn_behavior_replacement(due);
-                        }
-                    }
-                }
-            }
         }
 
         Ok(())
@@ -1185,6 +1190,16 @@ impl GameLogic {
         }
 
         Ok(created)
+    }
+
+    /// Test fixture: run the C++ SpawnBehavior first update for every Stinger
+    /// site so build-complete fixtures observe their initial roster.
+    #[doc(hidden)]
+    pub fn run_first_spawn_update_for_test(&mut self) {
+        let saved = self.frame;
+        self.frame = saved.max(crate::game_logic::host_base_defense::STINGER_SPAWN_NUMBER as u32 + 1);
+        self.update_stinger_hive_world_soldiers();
+        self.frame = saved;
     }
 
     /// Advance each Stinger's ordered SpawnBehavior replacement deadlines.

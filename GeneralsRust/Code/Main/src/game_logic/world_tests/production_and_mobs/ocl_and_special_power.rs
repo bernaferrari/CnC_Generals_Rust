@@ -667,6 +667,8 @@ fn stinger_site_spawns_three_soldier_world_objects() {
     let site_id = logic
         .create_object("GLAStingerSite", Team::GLA, Vec3::ZERO)
         .expect("stinger");
+
+    logic.run_first_spawn_update_for_test();
     let soldiers: Vec<_> = logic
         .objects
         .registered_values()
@@ -762,6 +764,8 @@ fn spawn_point_exit_uses_pristine_bones_and_refuses_full_slots() {
     let site_id = logic
         .create_object("GLAStingerSite", Team::GLA, Vec3::new(10.0, 2.0, 20.0))
         .expect("stinger");
+
+    logic.run_first_spawn_update_for_test();
     let mut soldiers: Vec<(ObjectId, Vec3, f32)> = logic
         .objects
         .registered_values()
@@ -977,4 +981,61 @@ fn authored_upgrade_die_removes_each_modules_upgrade_from_producer_like_cpp() {
     let p = logic.host_object(producer).unwrap();
     assert!(!p.has_object_upgrade_complete("Upgrade_FixtureA"), "DieA removes its upgrade");
     assert!(!p.has_object_upgrade_complete("Upgrade_FixtureB"), "DieB removes its upgrade");
+}
+
+/// C++ SpawnBehavior.cpp:176-248: build completion spawns nothing; the first
+/// update seeds slot-index replacement times (InitialBurst = 0) and each entry
+/// spawns once `currentTime > replacementTime`.
+#[test]
+fn stinger_site_spawn_waits_for_first_update_replacement_times() {
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
+    let mut site = ThingTemplate::new("GLAStingerSite");
+    site.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::FSBaseDefense)
+        .set_health(1000.0);
+    logic.templates.insert("GLAStingerSite".into(), site);
+    let mut soldier = ThingTemplate::new("GLAInfantryStingerSoldier");
+    soldier
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(100.0);
+    logic
+        .templates
+        .insert("GLAInfantryStingerSoldier".into(), soldier);
+    logic.frame = 0;
+    let site_id = logic
+        .create_object("GLAStingerSite", Team::GLA, Vec3::ZERO)
+        .expect("stinger");
+    let count = |logic: &GameLogic| {
+        logic
+            .objects
+            .registered_values()
+            .filter(|o| {
+                o.producer_id == Some(site_id)
+                    && o.template_name
+                        .eq_ignore_ascii_case("GLAInfantryStingerSoldier")
+            })
+            .count()
+    };
+    assert_eq!(count(&logic), 0, "build completion must not spawn synchronously");
+    assert_eq!(
+        logic.host_object(site_id).unwrap().spawn_behavior_replacement_times(),
+        &[0, 1, 2],
+        "first pass seeds slot-index replacement times"
+    );
+    logic.frame = 1;
+    logic.update_stinger_hive_world_soldiers();
+    assert_eq!(count(&logic), 1, "only time 0 is due at frame 1");
+    logic.frame = 3;
+    logic.update_stinger_hive_world_soldiers();
+    assert_eq!(count(&logic), 3);
+    assert!(logic
+        .host_object(site_id)
+        .unwrap()
+        .spawn_behavior_replacement_times()
+        .is_empty());
 }
