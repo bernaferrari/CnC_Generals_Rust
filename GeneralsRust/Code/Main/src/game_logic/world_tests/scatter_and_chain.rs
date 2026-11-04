@@ -3793,3 +3793,61 @@ fn air_and_mig_residual_impact_spawns_no_muzzle_hq_2qedt_87_3() {
         "impact residuals spawned a second muzzle at the shooter (C++ FireFX is fire-time only): {failures:?}"
     );
 }
+
+/// hq-2qedt.87.4: C++ Weapon.cpp FireFX plays at fire time only (shared
+/// dispatch owns the one muzzle). ocl_and_scud / tanks_and_upgrades /
+/// base_defense_lasers residual impact handlers must not spawn a second
+/// muzzle at the shooter.
+#[test]
+fn ocl_tanks_lasers_residual_impact_spawns_no_muzzle_hq_2qedt_87_4() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let cases = [
+        "nuke_cannon", "overlord_gattling", "technical", "dragon_flame",
+        "gattling_tank", "marauder", "battlemaster", "red_guard", "tank_hunter",
+        "rocket_buggy",
+    ];
+    let mut failures = Vec::new();
+    for case in cases {
+        let mut logic = GameLogic::new();
+        ensure_test_tank_template(&mut logic);
+        let src = logic
+            .create_object("TestTank", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0))
+            .expect("shooter");
+        let tank = logic
+            .create_object("TestTank", Team::GLA, glam::Vec3::new(45.0, 0.0, 0.0))
+            .expect("tank");
+        let impact = logic.objects.get(&tank).unwrap().get_position();
+        let shooter_pos = logic.objects.get(&src).unwrap().get_position();
+        let count = |l: &GameLogic| {
+            l.combat_particles()
+                .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+                .iter()
+                .filter(|e| e.position.distance(shooter_pos) < 1.0)
+                .count()
+        };
+        let before = count(&logic);
+        let (s, t) = (Some(src), Some(tank));
+        let _ = match case {
+            "nuke_cannon" => logic.apply_nuke_cannon_primary_at(impact, s, Team::USA),
+            "overlord_gattling" => logic.apply_overlord_gattling_residual_at(impact, s, t, 0),
+            "technical" => logic.apply_technical_residual_at(impact, s, t),
+            "dragon_flame" => logic.apply_dragon_flame_residual_at(impact, s, t),
+            "gattling_tank" => logic.apply_gattling_tank_residual_at(impact, s, t, 0),
+            "marauder" => logic.apply_marauder_residual_at(impact, s, t),
+            "battlemaster" => logic.apply_battlemaster_residual_at(impact, s, t),
+            "red_guard" => logic.apply_red_guard_residual_at(impact, s, t),
+            "tank_hunter" => logic.apply_tank_hunter_residual_at(impact, s, t),
+            _ => logic.apply_rocket_buggy_residual_at(impact, s, t),
+        };
+        if count(&logic) != before {
+            failures.push(case);
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "impact residuals spawned a second muzzle at the shooter (C++ FireFX is fire-time only): {failures:?}"
+    );
+}
