@@ -418,3 +418,50 @@ fn missing_owner_errors_with_generated_flag_already_set() {
     ));
     });
 }
+
+#[test]
+fn emp_upgrade_destroys_old_mines_immediately_then_places_upgraded() {
+    let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+    game_engine::common::common_services::with_common_services(&common, || {
+        let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+        crate::system::engine_stores::with_active_stores(&stores, emp_upgrade_body)
+    });
+}
+
+fn emp_upgrade_body() {
+    let mut fixture = MinefieldFixture::new(98_133);
+    let mut behavior = fixture.behavior(false);
+    behavior.config.mine_name_upgraded = Some(fixture.template.clone());
+    behavior.place_mines_owned(&mut fixture).unwrap();
+    let old = fixture.assert_real_mines(&behavior);
+    assert_eq!(
+        behavior.update_upgrade_owned(false, &mut fixture).unwrap(),
+        UpdateSleepTime::None
+    );
+    assert_eq!(behavior.get_mine_list(), old);
+    assert_eq!(
+        behavior.update_upgrade_owned(true, &mut fixture).unwrap(),
+        UpdateSleepTime::None
+    );
+    // C++ GenerateMinefieldBehavior.cpp:456-464: destroyObject is synchronous,
+    // so every old mine is already DESTROYED in the same update.
+    for id in &old {
+        assert!(
+            fixture
+                .scheduler
+                .find_object_by_id(*id)
+                .unwrap()
+                .read()
+                .unwrap()
+                .is_destroyed(),
+            "old mine {id} must be destroyed in the upgrade update"
+        );
+    }
+    let new = fixture.assert_real_mines(&behavior);
+    assert!(new.iter().all(|id| !old.contains(id)));
+    assert!(behavior.get_statistics().is_upgraded);
+    assert_eq!(
+        behavior.update_upgrade_owned(true, &mut fixture).unwrap(),
+        UpdateSleepTime::Forever
+    );
+}

@@ -586,7 +586,6 @@ impl GenerateMinefieldBehavior {
             || !self.config.border_only
             || !self.config.always_circular
             || self.config.generation_fx.is_some()
-            || self.state.upgraded
         {
             return Err(BehaviorError::ServiceUnavailable(
                 "owned minefield admits normal circular border without generation FX".into(),
@@ -595,8 +594,17 @@ impl GenerateMinefieldBehavior {
         // GenerateMinefieldBehavior.cpp:354: m_generated is set before the
         // owner/template resolve, so resolve failures surface already generated.
         self.state.generated = true;
-        let (mut geometry, mine_radius) =
-            services.preflight(self.object_id, &self.config.mine_name)?;
+        // GenerateMinefieldBehavior.cpp:365-374: upgraded picks UpgradedMineName;
+        // a missing template returns after m_generated is already set.
+        let mine_name = if self.state.upgraded {
+            match self.config.mine_name_upgraded.clone() {
+                Some(name) => name,
+                None => return Ok(()),
+            }
+        } else {
+            self.config.mine_name.clone()
+        };
+        let (mut geometry, mine_radius) = services.preflight(self.object_id, &mine_name)?;
         if let Some(target) = self.state.target {
             geometry.center = target;
         }
@@ -609,7 +617,7 @@ impl GenerateMinefieldBehavior {
             }
             match services.place(
                 self.object_id,
-                &self.config.mine_name,
+                &mine_name,
                 &position,
                 self.config.skip_if_this_much_under_structure,
             ) {
@@ -622,8 +630,35 @@ impl GenerateMinefieldBehavior {
                 Err(error) => return Err(error),
             }
         }
-        self.state.current_mine_template = self.config.mine_name.clone();
+        self.state.current_mine_template = mine_name;
         Ok(())
+    }
+
+    /// C++ GenerateMinefieldBehavior::update() 437-475 upgrade branch, match-owned.
+    /// `owner_has_upgrade` is the owner's completed-mask test for Upgrade_ChinaEMPMines.
+    /// Each old mine is destroyed immediately through the owning GameLogic
+    /// (C++ 456-464 `TheGameLogic->destroyObject`), not queued for a later frame.
+    pub(crate) fn update_upgrade_owned(
+        &mut self,
+        owner_has_upgrade: bool,
+        services: &mut dyn MinefieldPlacement,
+    ) -> BehaviorResult<UpdateSleepTime> {
+        if self.state.upgraded || !self.config.upgradable {
+            return Ok(UpdateSleepTime::Forever);
+        }
+        if self.state.generated && owner_has_upgrade {
+            self.state.upgraded = true;
+            for id in std::mem::take(&mut self.state.mine_list) {
+                match services.remove(self.object_id, id) {
+                    // C++ 460-461: a mine no longer found is skipped.
+                    Ok(()) | Err(BehaviorError::ObjectNotFound { .. }) => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            self.state.generated = false;
+            self.place_mines_owned(services)?;
+        }
+        Ok(UpdateSleepTime::None)
     }
 
     pub(crate) fn on_die_owned(
