@@ -3127,3 +3127,62 @@ fn chain_guns_upgrade_keys_on_authored_gattling_weapon_not_chassis_name_hq_2qedt
         .expect("chassis");
     assert!(!logic.apply_gattling_chain_guns_upgrade(id));
 }
+
+#[test]
+fn dragon_black_napalm_and_unit_map_key_on_authored_flame_weapon_not_chassis_name_hq_2qedt_242() {
+    use crate::game_logic::host_dragon_tank::{
+        DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED, UPGRADE_CHINA_BLACK_NAPALM,
+    };
+    use crate::game_logic::weapon_bootstrap::{
+        ensure_host_weapon_store, primary_weapon_name_for_unit,
+    };
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    ensure_host_weapon_store();
+    // unit_map no longer invents a Dragon flame primary from chassis names.
+    for name in [
+        "ChinaTankDragon",
+        "China_DragonTank",
+        "TestDragonTank",
+        "Tank_ChinaTankDragon",
+        "Nuke_ChinaTankDragon",
+        "Infa_ChinaTankDragon",
+        "SomeModDragonTank",
+    ] {
+        assert_eq!(primary_weapon_name_for_unit(name), None, "{name}");
+    }
+
+    for weapon in [DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED] {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        let mut t = ThingTemplate::new("AuthoredFlameCarrier");
+        t.add_kind_of(KindOf::Vehicle)
+            .set_health(300.0)
+            .set_primary_weapon_name(weapon);
+        logic.templates.insert("AuthoredFlameCarrier".into(), t);
+        let id = logic
+            .create_object("AuthoredFlameCarrier", Team::China, glam::Vec3::ZERO)
+            .expect("carrier");
+        let n = logic.apply_black_napalm_to_team(Team::China.into(), UPGRADE_CHINA_BLACK_NAPALM);
+        assert_eq!(n, 1, "authored {weapon} carrier receives Black Napalm");
+        assert_eq!(logic.dragon_tank_residual_black_napalm_upgrades, 1);
+    }
+
+    // Chassis name alone, with a non-Dragon authored weapon, no longer qualifies.
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::China, "China", true));
+    let mut t = ThingTemplate::new("ChinaTankDragon");
+    t.add_kind_of(KindOf::Vehicle)
+        .set_health(300.0)
+        .set_primary_weapon_name(crate::game_logic::host_gattling_tank::GATTLING_TANK_GUN);
+    logic.templates.insert("ChinaTankDragon".into(), t);
+    let id = logic
+        .create_object("ChinaTankDragon", Team::China, glam::Vec3::ZERO)
+        .expect("chassis");
+    assert!(!logic.apply_dragon_black_napalm_upgrade(id));
+    assert_eq!(logic.dragon_tank_residual_black_napalm_upgrades, 0);
+}

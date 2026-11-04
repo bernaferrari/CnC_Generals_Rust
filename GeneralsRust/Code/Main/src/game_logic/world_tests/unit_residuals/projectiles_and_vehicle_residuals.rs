@@ -107,7 +107,7 @@ fn dragon_flame_projectile_flies_and_impacts() {
 fn dragon_tank_residual_flame_and_black_napalm() {
     use crate::game_logic::host_dragon_tank::{
         DRAGON_PRIMARY_DAMAGE, DRAGON_RANGE, DRAGON_TANK_FLAME_WEAPON,
-        DRAGON_UPGRADED_PRIMARY_DAMAGE, is_dragon_tank_template,
+        DRAGON_UPGRADED_PRIMARY_DAMAGE,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -133,7 +133,6 @@ fn dragon_tank_residual_flame_and_black_napalm() {
         .expect("dragon");
     {
         let d = game_logic.host_object(dragon_id).expect("dragon");
-        assert!(is_dragon_tank_template(&d.template_name));
         let prim = d.weapon.as_ref().expect("flame");
         assert!(
             (prim.damage - DRAGON_PRIMARY_DAMAGE).abs() < 0.01,
@@ -2074,7 +2073,7 @@ fn avenger_object_hit_routes_on_authored_weapon_not_chassis_name_hq_2qedt_161() 
 
 #[test]
 fn dragon_object_hit_routes_on_authored_flame_weapon_not_chassis_name_hq_2qedt_202() {
-    use crate::game_logic::host_dragon_tank::{DRAGON_TANK_FLAME_WEAPON, is_dragon_tank_template};
+    use crate::game_logic::host_dragon_tank::DRAGON_TANK_FLAME_WEAPON;
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
     ensure_host_weapon_store();
@@ -2085,7 +2084,6 @@ fn dragon_object_hit_routes_on_authored_flame_weapon_not_chassis_name_hq_2qedt_2
         .add_kind_of(KindOf::Attackable)
         .set_health(300.0)
         .set_primary_weapon_name(DRAGON_TANK_FLAME_WEAPON);
-    assert!(!is_dragon_tank_template(&carrier.name));
     game_logic.templates.insert(carrier.name.clone(), carrier);
     let mut tank = crate::game_logic::ThingTemplate::new("FlameVictimTank");
     tank.add_kind_of(KindOf::Vehicle)

@@ -244,13 +244,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "TestBattlemaster"
         | "Tank_ChinaTankBattleMaster"
         | "Nuke_ChinaTankBattleMaster" => Some(BATTLE_MASTER_TANK_GUN),
-        // China Dragon Tank residual flame.
-        "ChinaTankDragon"
-        | "China_DragonTank"
-        | "TestDragonTank"
-        | "Tank_ChinaTankDragon"
-        | "Nuke_ChinaTankDragon"
-        | "Infa_ChinaTankDragon" => Some(DRAGON_TANK_FLAME_WEAPON),
         // China Infantry General MiniGunner residual ground gun.
         "Infa_ChinaInfantryMiniGunner"
         | "China_MiniGunner"
@@ -391,9 +384,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             }
             if crate::game_logic::host_battlemaster::is_battlemaster_template(template_name) {
                 return Some(BATTLE_MASTER_TANK_GUN);
-            }
-            if crate::game_logic::host_dragon_tank::is_dragon_tank_template(template_name) {
-                return Some(DRAGON_TANK_FLAME_WEAPON);
             }
             if crate::game_logic::host_minigunner::is_minigunner_template(template_name) {
                 return Some(MINIGUNNER_GUN);

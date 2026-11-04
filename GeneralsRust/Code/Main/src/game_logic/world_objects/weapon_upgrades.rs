@@ -858,7 +858,6 @@ impl GameLogic {
         recipients: UpgradeRecipients,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_dragon_tank::is_dragon_tank_template;
         use crate::game_logic::host_inferno_cannon::is_inferno_cannon_template;
         use crate::game_logic::host_mig::is_mig_template;
 
@@ -871,7 +870,7 @@ impl GameLogic {
                     Some((*id, 0u8))
                 } else if is_inferno_cannon_template(&o.template_name) {
                     Some((*id, 1))
-                } else if is_dragon_tank_template(&o.template_name) {
+                } else if Self::has_authored_dragon_flame_weapon(o) {
                     Some((*id, 2))
                 } else {
                     None

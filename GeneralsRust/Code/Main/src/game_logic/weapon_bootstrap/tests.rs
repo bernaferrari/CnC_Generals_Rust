@@ -150,14 +150,9 @@ fn primary_weapon_name_covers_china_gla_usa_residual_gaps() {
         primary_weapon_name_for_unit("GLA_RPGTrooper"),
         Some(TUNNEL_DEFENDER_ROCKET_WEAPON)
     );
-    assert_eq!(
-        primary_weapon_name_for_unit("China_DragonTank"),
-        Some(DRAGON_TANK_FLAME_WEAPON)
-    );
-    assert_eq!(
-        primary_weapon_name_for_unit("ChinaTankDragon"),
-        Some(DRAGON_TANK_FLAME_WEAPON)
-    );
+    // hq-2qedt.242: Dragon flame comes from the authored WeaponSet only.
+    assert_eq!(primary_weapon_name_for_unit("China_DragonTank"), None);
+    assert_eq!(primary_weapon_name_for_unit("ChinaTankDragon"), None);
     assert_eq!(
         primary_weapon_name_for_unit("Infa_ChinaInfantryMiniGunner"),
         Some(MINIGUNNER_GUN)

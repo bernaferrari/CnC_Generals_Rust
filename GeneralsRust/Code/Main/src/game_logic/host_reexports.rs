@@ -148,7 +148,7 @@ pub use super::host_dragon_tank::{
     DRAGON_PRIMARY_DAMAGE, DRAGON_RANGE, DRAGON_SECONDARY_DAMAGE, DRAGON_SECONDARY_RADIUS,
     DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED, UPGRADE_CHINA_BLACK_NAPALM,
     dragon_flame_damage_at, dragon_flame_stats, dragon_flame_weapon, dragon_flame_weapon_name,
-    has_black_napalm_upgrade, is_dragon_tank_template,
+    has_black_napalm_upgrade,
 };
 pub use super::host_ecm_jam::{HOST_ECM_JAM_RADIUS, is_ecm_jammer, is_legal_ecm_jam_target};
 pub use super::host_emergency_repair::{

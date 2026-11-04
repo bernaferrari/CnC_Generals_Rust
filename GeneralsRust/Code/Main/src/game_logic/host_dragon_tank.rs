@@ -143,38 +143,6 @@ pub fn dragon_ms_to_frames(ms: u32) -> u32 {
     ((ms as f32) * DRAGON_LOGIC_FPS / 1000.0).round() as u32
 }
 
-/// Whether template is a residual Dragon Tank vehicle.
-///
-/// Fail-closed: name residual (not full BlackNapalm / W3D matrix).
-/// Excludes weapons / projectiles / FireWallSegment / science tokens.
-pub fn is_dragon_tank_template(template_name: &str) -> bool {
-    let n = template_name.to_ascii_lowercase();
-    if n.is_empty() {
-        return false;
-    }
-    // Weapon / projectile / segment / upgrade tokens are not the living vehicle.
-    if n.contains("weapon")
-        || n.contains("projectile")
-        || n.contains("segment")
-        || n.contains("shell")
-        || n.contains("missile")
-        || n.starts_with("upgrade")
-        || n.contains("science")
-        || n.contains("firewall")
-        || n.contains("firestorm")
-        || n.contains("dead")
-        || n.contains("hulk")
-        || n.contains("debris")
-    {
-        return false;
-    }
-    n.contains("dragontank")
-        || n.contains("tankdragon")
-        || n == "china_dragontank"
-        || n == "testdragontank"
-        || (n.contains("dragon") && (n.contains("tank") || n.contains("vehicle")))
-}
-
 /// Whether residual fire should apply Dragon flame residual path.
 
 /// Per-frame flame projectile step speed (dist/frame). Pre-turn uses InitialVelocity;
@@ -394,24 +362,6 @@ pub fn honesty_dragon_tank_residual_pack_ok() -> bool {
 mod tests {
     use super::*;
     use std::collections::HashSet;
-
-    #[test]
-    fn dragon_tank_name_matrix() {
-        assert!(is_dragon_tank_template("ChinaTankDragon"));
-        assert!(is_dragon_tank_template("China_DragonTank"));
-        assert!(is_dragon_tank_template("Infa_ChinaTankDragon"));
-        assert!(is_dragon_tank_template("Nuke_ChinaTankDragon"));
-        assert!(is_dragon_tank_template("Tank_ChinaTankDragon"));
-        assert!(is_dragon_tank_template("TestDragonTank"));
-        assert!(!is_dragon_tank_template("DragonTankFlameWeapon"));
-        assert!(!is_dragon_tank_template("DragonTankFireWallWeapon"));
-        assert!(!is_dragon_tank_template("DragonTankFlameProjectile"));
-        assert!(!is_dragon_tank_template("FireWallSegment"));
-        assert!(!is_dragon_tank_template("Upgrade_ChinaBlackNapalm"));
-        assert!(!is_dragon_tank_template("ChinaTankGattling"));
-        assert!(!is_dragon_tank_template("USA_Ranger"));
-        assert!(!is_dragon_tank_template("ChinaTankDragonDeadHull"));
-    }
 
     #[test]
     fn flame_stats_and_splash() {
