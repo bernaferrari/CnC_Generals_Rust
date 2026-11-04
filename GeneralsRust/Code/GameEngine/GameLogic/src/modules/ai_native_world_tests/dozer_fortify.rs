@@ -12,7 +12,19 @@ use crate::object::update::ai_update::dozer_ai_update::{
 use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
 use std::io::Cursor;
 use std::sync::Mutex;
+/// hq-2qedt.20: bind Common + Core stores on this test thread (standalone runs).
+fn bind() {
+    if game_engine::common::common_services::try_common_services().is_none() {
+        game_engine::common::common_services::install_common_services(Arc::new(
+            game_engine::common::common_services::CommonServices::new(),
+        ));
+    }
+    if crate::system::engine_stores::try_active_services().is_none() {
+        crate::system::engine_stores::install_active(crate::system::engine_stores::new_for_world());
+    }
+}
 fn source_template() -> Arc<dyn ThingTemplate> {
+    bind();
     let mut base = DefaultThingTemplate::new("OwnedFortifyDozer".into());
     base.add_kind_of(KindOf::Vehicle);
     base.add_kind_of(KindOf::Dozer);
@@ -68,6 +80,7 @@ fn target_template() -> Arc<dyn ThingTemplate> {
     })
 }
 fn world() -> NativeMatch {
+    bind();
     let mut game =
         NativeMatch::with_source_template(220.0, target_template(), false, source_template());
     register_receiving_geometry(&mut game);
