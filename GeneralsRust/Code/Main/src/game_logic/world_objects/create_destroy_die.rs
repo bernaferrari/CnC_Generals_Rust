@@ -2782,11 +2782,8 @@ impl GameLogic {
             // Sneak-attack tunnels have no StealthDetectorUpdate in retail INI.
             if crate::game_logic::host_tunnel_network::is_tunnel_network_template(template_name) {
                 object.install_tunnel_network_residual();
-                object.weapon = Some(
-                    crate::game_logic::host_tunnel_network::tunnel_network_primary_weapon(
-                        template_name,
-                    ),
-                );
+                // PRIMARY binds from the authored WeaponSet above (C++
+                // WeaponSet::updateWeaponSet), not a template-name peel (hq-2qedt.147).
                 if crate::game_logic::host_tunnel_network::tunnel_network_spawn_is_detector(
                     template_name,
                 ) {

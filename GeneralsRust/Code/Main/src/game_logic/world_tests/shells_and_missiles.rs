@@ -4118,3 +4118,32 @@ fn missile_defender_create_primary_comes_from_authored_weapon_set() {
         "authored PRIMARY overwritten by missile_defender name peel: {prim:?}"
     );
 }
+
+/// hq-2qedt.147: GLA Tunnel Network PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
+#[test]
+fn tunnel_network_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("GLATunnelNetwork");
+    tpl.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name("RangerFlashBangGrenadeWeapon");
+    game_logic.templates.insert("GLATunnelNetwork".to_string(), tpl);
+    let id = game_logic
+        .create_object("GLATunnelNetwork", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("tunnel_network");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_GUN_DAMAGE).abs() > 0.01,
+        "authored PRIMARY overwritten by tunnel_network name peel: {prim:?}"
+    );
+}
+
