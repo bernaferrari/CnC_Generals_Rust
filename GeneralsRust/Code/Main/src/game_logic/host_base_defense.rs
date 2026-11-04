@@ -196,6 +196,8 @@ pub const LAZR_PATRIOT_ASSIST_DAMAGE: f32 = 35.0;
 pub const PATRIOT_ASSIST_DELAY_FRAMES: u32 = 8;
 /// Retail assist ClipReloadTime 1000ms → 30 frames residual honesty.
 pub const PATRIOT_ASSIST_CLIP_RELOAD_FRAMES: u32 = 30;
+/// Retail PatriotMissileAssistWeapon `ClipSize`.
+pub const PATRIOT_ASSIST_WEAPON_CLIP_SIZE: u32 = 4;
 /// Retail assist weapon template names (honesty / docs).
 pub const PATRIOT_ASSIST_WEAPON: &str = "PatriotMissileAssistWeapon";
 pub const LAZR_PATRIOT_ASSIST_WEAPON: &str = "Lazr_PatriotMissileAssistWeapon";
@@ -1665,26 +1667,6 @@ pub fn is_base_defense_structure(
         || crate::game_logic::host_tunnel_network::is_tunnel_network_template(template_name)
 }
 
-/// C++ Patriot battery identity from authored data: the WeaponSet PRIMARY is a
-/// `PatriotMissileWeapon` family weapon (stock / Lazr_ / SupW_), not the
-/// template name (hq-2qedt.258).
-pub fn is_patriot_primary_weapon_name(name: &str) -> bool {
-    [
-        PATRIOT_PRIMARY_WEAPON,
-        LAZR_PATRIOT_PRIMARY_WEAPON,
-        SUPW_PATRIOT_PRIMARY_WEAPON,
-    ]
-    .iter()
-    .any(|w| w.eq_ignore_ascii_case(name))
-}
-
-/// Whether the object authors a Patriot WeaponSet PRIMARY (hq-2qedt.258).
-pub fn authors_patriot_weapon_set(object: &crate::game_logic::Object) -> bool {
-    object
-        .authored_weapon_name_for_slot(0)
-        .is_some_and(is_patriot_primary_weapon_name)
-}
-
 /// Whether template is a residual USA Patriot battery (ground + AA residual).
 ///
 /// Fail-closed: name residual. Excludes projectile / weapon / debris names.
@@ -1821,13 +1803,6 @@ fn leftover_stealth_detector_range(template_name: &str) -> Option<f32> {
     None
 }
 
-/// Whether the authored PRIMARY is the Gattling Cannon structure gun
-/// (`GattlingBuildingGun`). Keys the building ramp/AA residual on the
-/// WeaponSet instead of the template name (hq-2qedt.266).
-pub fn is_authored_gattling_building(primary_weapon: Option<&str>) -> bool {
-    primary_weapon == Some(GATTLING_BUILDING_PRIMARY_WEAPON)
-}
-
 /// Whether template is a residual China Gattling Cannon structure (ramp + AA).
 ///
 /// Fail-closed: name residual. Excludes tank / Overlord / Helix payloads.
@@ -1874,27 +1849,18 @@ pub fn is_gattling_cannon_structure(template_name: &str) -> bool {
         || n == "testgatlingcannon"
 }
 
-/// C++ Laser General Patriot identity from authored data: the weapon is a
-/// `Lazr_PatriotMissileWeapon` family weapon, not a `Lazr_` template name
-/// (hq-2qedt.270).
-pub fn is_laser_patriot_weapon_name(name: &str) -> bool {
-    [
-        LAZR_PATRIOT_PRIMARY_WEAPON,
-        LAZR_PATRIOT_SECONDARY_WEAPON,
-        LAZR_PATRIOT_ASSIST_WEAPON,
-    ]
-    .iter()
-    .any(|w| w.eq_ignore_ascii_case(name))
-}
-
-/// Whether an authored WeaponSet PRIMARY is the Laser Patriot weapon.
-pub fn is_laser_patriot_primary(primary_weapon: Option<&str>) -> bool {
-    primary_weapon.is_some_and(is_laser_patriot_weapon_name)
-}
-
-/// Whether the object authors a Laser Patriot WeaponSet PRIMARY (hq-2qedt.270).
-pub fn authors_laser_patriot_weapon_set(object: &crate::game_logic::Object) -> bool {
-    is_laser_patriot_primary(object.authored_weapon_name_for_slot(0))
+/// Whether template is a Laser General Patriot residual (Lazr_ prefix).
+///
+/// Fail-closed: name residual (not full general production gate).
+pub fn is_laser_patriot_template(template_name: &str) -> bool {
+    if !is_patriot_battery_structure(template_name) {
+        return false;
+    }
+    let n = template_name.to_ascii_lowercase();
+    n.starts_with("lazr_")
+        || n.contains("lazr_patriot")
+        || n.contains("lazr_america")
+        || n == "testlazrpatriot"
 }
 
 /// Whether template is a Superweapon General EMP Patriot residual (SupW_ prefix).
@@ -1993,11 +1959,15 @@ pub fn supw_emp_scatter_misses_infantry(
 /// Retail-ish residual weapon name for known host base-defense templates.
 pub fn primary_weapon_name_for_defense(template_name: &str) -> Option<&'static str> {
     if is_patriot_battery_structure(template_name) {
-        Some(if is_supw_patriot_template(template_name) {
+        Some(if is_laser_patriot_template(template_name) {
+            LAZR_PATRIOT_PRIMARY_WEAPON
+        } else if is_supw_patriot_template(template_name) {
             SUPW_PATRIOT_PRIMARY_WEAPON
         } else {
             PATRIOT_PRIMARY_WEAPON
         })
+    } else if is_gattling_cannon_structure(template_name) {
+        Some(GATTLING_BUILDING_PRIMARY_WEAPON)
     } else if is_stinger_site_structure(template_name) {
         Some(STINGER_PRIMARY_WEAPON)
     } else if crate::game_logic::host_tunnel_network::is_tunnel_network_template(template_name) {
@@ -2013,8 +1983,12 @@ pub fn primary_weapon_name_for_defense(template_name: &str) -> Option<&'static s
 
 /// Secondary AA residual weapon name for dual-slot base defenses.
 pub fn secondary_weapon_name_for_defense(template_name: &str) -> Option<&'static str> {
-    if is_patriot_battery_structure(template_name) {
-        Some(if is_supw_patriot_template(template_name) {
+    if is_gattling_cannon_structure(template_name) {
+        Some(GATTLING_BUILDING_SECONDARY_WEAPON)
+    } else if is_patriot_battery_structure(template_name) {
+        Some(if is_laser_patriot_template(template_name) {
+            LAZR_PATRIOT_SECONDARY_WEAPON
+        } else if is_supw_patriot_template(template_name) {
             SUPW_PATRIOT_SECONDARY_WEAPON
         } else {
             PATRIOT_SECONDARY_WEAPON
@@ -2027,11 +2001,9 @@ pub fn secondary_weapon_name_for_defense(template_name: &str) -> Option<&'static
 }
 
 /// Whether this base defense uses dual ground/AA residual slots.
-///
-/// Gattling Cannon is keyed on its authored `GattlingBuildingGun` by callers
-/// (`is_authored_gattling_building`), not on the template name (hq-2qedt.268).
 pub fn is_dual_slot_base_defense(template_name: &str) -> bool {
-    is_stinger_site_structure(template_name)
+    is_gattling_cannon_structure(template_name)
+        || is_stinger_site_structure(template_name)
         || is_patriot_battery_structure(template_name)
 }
 
@@ -2105,18 +2077,17 @@ pub fn stinger_air_weapon(has_ap_rockets: bool) -> Weapon {
 
 /// Build residual Patriot ground Weapon (standard shell residual).
 pub fn patriot_ground_weapon() -> Weapon {
-    patriot_ground_weapon_for_template("AmericaPatriotBattery", None)
+    patriot_ground_weapon_for_template("AmericaPatriotBattery")
 }
 
 /// Build residual Patriot AA Weapon (standard shell residual).
 pub fn patriot_air_weapon() -> Weapon {
-    patriot_air_weapon_for_template("AmericaPatriotBattery", None)
+    patriot_air_weapon_for_template("AmericaPatriotBattery")
 }
 
 /// Build residual Patriot ground Weapon for a specific battery template.
-/// `primary_weapon` is the authored WeaponSet PRIMARY (Lazr family keys on it).
-pub fn patriot_ground_weapon_for_template(template_name: &str, primary_weapon: Option<&str>) -> Weapon {
-    let laser = is_laser_patriot_primary(primary_weapon);
+pub fn patriot_ground_weapon_for_template(template_name: &str) -> Weapon {
+    let laser = is_laser_patriot_template(template_name);
     let supw = is_supw_patriot_template(template_name);
     Weapon {
         damage: if laser {
@@ -2152,9 +2123,8 @@ pub fn patriot_ground_weapon_for_template(template_name: &str, primary_weapon: O
 }
 
 /// Build residual Patriot AA Weapon for a specific battery template.
-/// `primary_weapon` is the authored WeaponSet PRIMARY (Lazr family keys on it).
-pub fn patriot_air_weapon_for_template(template_name: &str, primary_weapon: Option<&str>) -> Weapon {
-    let laser = is_laser_patriot_primary(primary_weapon);
+pub fn patriot_air_weapon_for_template(template_name: &str) -> Weapon {
+    let laser = is_laser_patriot_template(template_name);
     let supw = is_supw_patriot_template(template_name);
     Weapon {
         damage: if laser {
@@ -2186,9 +2156,37 @@ pub fn patriot_air_weapon_for_template(template_name: &str, primary_weapon: Opti
     }
 }
 
+/// Retail Patriot SECONDARY `PatriotMissileAssistWeapon` (Weapon.ini: dmg 25 /
+/// Lazr 35, AttackRange 450, DelayBetweenShots 250, ClipSize 4, ClipReloadTime 1000,
+/// AntiGround + AntiAirborne*). FactionBuilding.ini AssistingWeaponSlot = SECONDARY.
+pub fn patriot_assist_weapon_for_template(template_name: &str) -> Weapon {
+    let laser = is_laser_patriot_template(template_name);
+    Weapon {
+        damage: patriot_assist_damage_for_template(template_name),
+        range: PATRIOT_ASSIST_RANGE,
+        min_range: 0.0,
+        reload_time: delay_frames_to_reload_secs(PATRIOT_ASSIST_DELAY_FRAMES),
+        last_fire_time: 0.0,
+        ammo: Some(PATRIOT_ASSIST_WEAPON_CLIP_SIZE),
+        clip_size: PATRIOT_ASSIST_WEAPON_CLIP_SIZE,
+        clip_reload_time: delay_frames_to_reload_secs(PATRIOT_ASSIST_CLIP_RELOAD_FRAMES),
+        can_target_air: true,
+        can_target_ground: true,
+        projectile_speed: if laser { 999_999.0 } else { 600.0 },
+        pre_attack_delay: 0.0,
+        splash_radius: 0.0,
+        reloading_clip: false,
+        last_bonus_rof: 0.0,
+        suspend_fx_frame: 0,
+    }
+}
+
+/// Retail Patriot runtime slot that owns the AA weapon (TERTIARY).
+pub const PATRIOT_AIR_WEAPON_SLOT: u8 = 2;
+
 /// Residual assist damage for a Patriot template family (stock / Lazr / SupW).
-pub fn patriot_assist_damage_for_template(_template_name: &str, primary_weapon: Option<&str>) -> f32 {
-    if is_laser_patriot_primary(primary_weapon) {
+pub fn patriot_assist_damage_for_template(template_name: &str) -> f32 {
+    if is_laser_patriot_template(template_name) {
         LAZR_PATRIOT_ASSIST_DAMAGE
     } else {
         // Stock + SupW assist shells both use PrimaryDamage 25 residual.
@@ -2197,11 +2195,8 @@ pub fn patriot_assist_damage_for_template(_template_name: &str, primary_weapon: 
 }
 
 /// Residual assist weapon name honesty for a Patriot template family.
-pub fn patriot_assist_weapon_name_for_template(
-    template_name: &str,
-    primary_weapon: Option<&str>,
-) -> &'static str {
-    if is_laser_patriot_primary(primary_weapon) {
+pub fn patriot_assist_weapon_name_for_template(template_name: &str) -> &'static str {
+    if is_laser_patriot_template(template_name) {
         LAZR_PATRIOT_ASSIST_WEAPON
     } else if is_supw_patriot_template(template_name) {
         SUPW_PATRIOT_ASSIST_WEAPON
@@ -2214,16 +2209,11 @@ pub fn patriot_assist_weapon_name_for_template(
 ///
 /// C++ `ThingTemplate::isEquivalentTo` residual: same general family (stock / Lazr /
 /// SupW). Fail-closed: not full reskin / faction-building inheritance matrix.
-pub fn patriots_are_assist_equivalent(
-    requester: &str,
-    requester_primary: Option<&str>,
-    assistant: &str,
-    assistant_primary: Option<&str>,
-) -> bool {
+pub fn patriots_are_assist_equivalent(requester: &str, assistant: &str) -> bool {
     if !is_patriot_battery_structure(requester) || !is_patriot_battery_structure(assistant) {
         return false;
     }
-    is_laser_patriot_primary(requester_primary) == is_laser_patriot_primary(assistant_primary)
+    is_laser_patriot_template(requester) == is_laser_patriot_template(assistant)
         && is_supw_patriot_template(requester) == is_supw_patriot_template(assistant)
 }
 
@@ -2264,18 +2254,7 @@ pub fn leftover_request_assist_range(weapon_name: &str) -> f32 {
 }
 
 /// Leftover RequestAssistRange for the Patriot slot that just fired.
-/// `authored_weapon` (the fired slot's authored weapon) wins over the template table.
-pub fn patriot_request_assist_range_for_template(
-    template_name: &str,
-    air_slot: bool,
-    authored_weapon: Option<&str>,
-) -> f32 {
-    if let Some(r) = authored_weapon
-        .map(leftover_request_assist_range)
-        .filter(|r| *r > 0.0)
-    {
-        return r;
-    }
+pub fn patriot_request_assist_range_for_template(template_name: &str, air_slot: bool) -> f32 {
     let weapon_name = if air_slot {
         secondary_weapon_name_for_defense(template_name)
     } else {
@@ -2294,6 +2273,55 @@ pub fn is_within_patriot_assist_weapon_range(dist_2d: f32) -> bool {
     dist_2d <= PATRIOT_ASSIST_RANGE
 }
 
+/// Authored AssistedTargetingUpdate module data bound onto a Main Object.
+///
+/// C++ AssistedTargetingUpdate.h:26-27 defaults (clip 1, PRIMARY_WEAPON);
+/// AssistedTargetingUpdate.cpp:74-75 locks `m_weaponSlot` and attacks with `m_clipSize`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct HostAssistedTargetingData {
+    pub clip_size: u32,
+    /// 0 = PRIMARY, 1 = SECONDARY, 2 = TERTIARY.
+    pub weapon_slot: u8,
+}
+
+impl HostAssistedTargetingData {
+    /// Retail AmericaPatriotBattery ModuleTag_07 residual for unadmitted templates.
+    pub const RETAIL_PATRIOT: Self = Self {
+        clip_size: PATRIOT_ASSISTING_CLIP_SIZE,
+        // FactionBuilding.ini ModuleTag_07: AssistingWeaponSlot = SECONDARY
+        // (PatriotMissileAssistWeapon, retail slots from hq-2qedt.32.2).
+        weapon_slot: 1,
+    };
+
+    /// Bind from the Object's admitted module declarations; `None` when the
+    /// Object declares no AssistedTargetingUpdate.
+    pub fn from_modules(
+        modules: &[crate::assets::ini_parser::BehaviorModuleDefinition],
+    ) -> Option<Self> {
+        let module = modules
+            .iter()
+            .find(|m| m.class_name.eq_ignore_ascii_case("AssistedTargetingUpdate"))?;
+        let mut data = Self {
+            clip_size: 1,
+            weapon_slot: 0,
+        };
+        if let Some(v) = module
+            .attribute("AssistingClipSize")
+            .and_then(|v| v.trim().parse::<i32>().ok())
+        {
+            data.clip_size = v.max(0) as u32;
+        }
+        if let Some(v) = module.attribute("AssistingWeaponSlot") {
+            data.weapon_slot = match v.trim().to_ascii_uppercase().as_str() {
+                "SECONDARY" | "SECONDARY_WEAPON" => 1,
+                "TERTIARY" | "TERTIARY_WEAPON" => 2,
+                _ => 0,
+            };
+        }
+        Some(data)
+    }
+}
+
 /// Pending assist clip residual (AssistingClipSize shots at DelayBetweenShots).
 #[derive(Debug, Clone, PartialEq)]
 pub struct PendingPatriotAssist {
@@ -2302,10 +2330,10 @@ pub struct PendingPatriotAssist {
     pub requester_id: ObjectId,
     pub shots_remaining: u32,
     pub next_shot_frame: u32,
-    /// Template name snapshot for EMP family residual.
+    /// Template name snapshot for damage / EMP family residual.
     pub assistant_template: String,
-    /// Assistant authors the Lazr Patriot WeaponSet (hq-2qedt.270).
-    pub assistant_laser: bool,
+    /// Authored AssistingWeaponSlot (consumed by weapon lock in hq-2qedt.31).
+    pub weapon_slot: u8,
 }
 
 impl PendingPatriotAssist {
@@ -2315,26 +2343,22 @@ impl PendingPatriotAssist {
         requester_id: ObjectId,
         start_frame: u32,
         assistant_template: impl Into<String>,
-        assistant_laser: bool,
+        assist: HostAssistedTargetingData,
     ) -> Self {
         Self {
             assistant_id,
             victim_id,
             requester_id,
-            shots_remaining: PATRIOT_ASSISTING_CLIP_SIZE,
+            shots_remaining: assist.clip_size,
+            weapon_slot: assist.weapon_slot,
             // First shot is immediate (C++ assistAttack locks and fires ASAP).
             next_shot_frame: start_frame,
             assistant_template: assistant_template.into(),
-            assistant_laser,
         }
     }
 
     pub fn damage(&self) -> f32 {
-        if self.assistant_laser {
-            LAZR_PATRIOT_ASSIST_DAMAGE
-        } else {
-            PATRIOT_ASSIST_DAMAGE
-        }
+        patriot_assist_damage_for_template(&self.assistant_template)
     }
 
     pub fn is_supw(&self) -> bool {
@@ -2676,10 +2700,14 @@ mod tests {
             secondary_weapon_name_for_defense("USA_Patriot"),
             Some(PATRIOT_SECONDARY_WEAPON)
         );
-        // hq-2qedt.266: Gattling Cannon names no longer map a weapon here;
-        // the authored WeaponSet is the only source.
-        assert_eq!(primary_weapon_name_for_defense("China_GattlingCannon"), None);
-        assert_eq!(secondary_weapon_name_for_defense("China_GattlingCannon"), None);
+        assert_eq!(
+            primary_weapon_name_for_defense("China_GattlingCannon"),
+            Some(GATTLING_BUILDING_PRIMARY_WEAPON)
+        );
+        assert_eq!(
+            secondary_weapon_name_for_defense("China_GattlingCannon"),
+            Some(GATTLING_BUILDING_SECONDARY_WEAPON)
+        );
         assert_eq!(
             primary_weapon_name_for_defense("GLA_StingerSite"),
             Some(STINGER_PRIMARY_WEAPON)
@@ -2689,13 +2717,12 @@ mod tests {
             Some(STINGER_SECONDARY_WEAPON)
         );
         assert_eq!(
-            // Lazr_ name no longer selects the family; authored WeaponSet does (hq-2qedt.270).
             primary_weapon_name_for_defense("Lazr_AmericaPatriotBattery"),
-            Some(PATRIOT_PRIMARY_WEAPON)
+            Some(LAZR_PATRIOT_PRIMARY_WEAPON)
         );
         assert_eq!(
             secondary_weapon_name_for_defense("Lazr_AmericaPatriotBattery"),
-            Some(PATRIOT_SECONDARY_WEAPON)
+            Some(LAZR_PATRIOT_SECONDARY_WEAPON)
         );
         assert_eq!(
             primary_weapon_name_for_defense("SupW_AmericaPatriotBattery"),
@@ -2719,26 +2746,19 @@ mod tests {
         assert!(is_dual_slot_base_defense("Lazr_AmericaPatriotBattery"));
         assert!(is_dual_slot_base_defense("SupW_AmericaPatriotBattery"));
         assert!(is_dual_slot_base_defense("GLA_StingerSite"));
-        assert!(!is_dual_slot_base_defense("China_GattlingCannon"));
+        assert!(is_dual_slot_base_defense("China_GattlingCannon"));
         assert!(!is_dual_slot_base_defense("USA_Barracks"));
         assert!(!is_dual_slot_base_defense("GLATunnelNetwork"));
     }
 
     #[test]
     fn laser_patriot_weapon_stats() {
-        assert!(is_laser_patriot_primary(Some(LAZR_PATRIOT_PRIMARY_WEAPON)));
-        assert!(!is_laser_patriot_primary(Some(PATRIOT_PRIMARY_WEAPON)));
-        assert!(!is_laser_patriot_primary(None));
-        let lazr = Some(LAZR_PATRIOT_PRIMARY_WEAPON);
-        // Authored weapon, not the Lazr_ name, selects the family (hq-2qedt.270).
-        let g = patriot_ground_weapon_for_template("AmericaPatriotBattery", lazr);
+        assert!(is_laser_patriot_template("Lazr_AmericaPatriotBattery"));
+        assert!(is_laser_patriot_template("TestLazrPatriot"));
+        assert!(!is_laser_patriot_template("AmericaPatriotBattery"));
+        let g = patriot_ground_weapon_for_template("Lazr_AmericaPatriotBattery");
         assert!((g.damage - LAZR_PATRIOT_GROUND_DAMAGE).abs() < 0.01);
-        let stock_named_lazr = patriot_ground_weapon_for_template(
-            "Lazr_AmericaPatriotBattery",
-            Some(PATRIOT_PRIMARY_WEAPON),
-        );
-        assert!((stock_named_lazr.damage - PATRIOT_GROUND_DAMAGE).abs() < 0.01);
-        let a = patriot_air_weapon_for_template("AmericaPatriotBattery", lazr);
+        let a = patriot_air_weapon_for_template("Lazr_AmericaPatriotBattery");
         assert!((a.damage - LAZR_PATRIOT_AIR_DAMAGE).abs() < 0.01);
         assert!(a.can_target_air);
         let stock = patriot_ground_weapon();
@@ -2752,10 +2772,10 @@ mod tests {
         assert!(is_supw_patriot_template("TestEmpPatriot"));
         assert!(!is_supw_patriot_template("AmericaPatriotBattery"));
         assert!(!is_supw_patriot_template("Lazr_AmericaPatriotBattery"));
-        let g = patriot_ground_weapon_for_template("SupW_AmericaPatriotBattery", None);
+        let g = patriot_ground_weapon_for_template("SupW_AmericaPatriotBattery");
         assert!((g.damage - SUPW_PATRIOT_GROUND_DAMAGE).abs() < 0.01);
         assert!((g.range - SUPW_PATRIOT_GROUND_RANGE).abs() < 0.01);
-        let a = patriot_air_weapon_for_template("SupW_AmericaPatriotBattery", None);
+        let a = patriot_air_weapon_for_template("SupW_AmericaPatriotBattery");
         assert!((a.damage - SUPW_PATRIOT_AIR_DAMAGE).abs() < 0.01);
         assert!((a.range - SUPW_PATRIOT_AIR_RANGE).abs() < 0.01);
         assert!(a.can_target_air);
@@ -2930,57 +2950,45 @@ mod tests {
         assert_eq!(PATRIOT_ASSIST_DELAY_FRAMES, 8);
         assert_eq!(PATRIOT_ASSIST_CLIP_RELOAD_FRAMES, 30);
 
-        assert!((patriot_assist_damage_for_template("AmericaPatriotBattery", None) - 25.0).abs() < 0.01);
+        assert!((patriot_assist_damage_for_template("AmericaPatriotBattery") - 25.0).abs() < 0.01);
         assert!(
-            (patriot_assist_damage_for_template("Lazr_AmericaPatriotBattery", Some(LAZR_PATRIOT_PRIMARY_WEAPON)) - 35.0).abs() < 0.01
+            (patriot_assist_damage_for_template("Lazr_AmericaPatriotBattery") - 35.0).abs() < 0.01
         );
         assert!(
-            (patriot_assist_damage_for_template("SupW_AmericaPatriotBattery", None) - 25.0).abs() < 0.01
+            (patriot_assist_damage_for_template("SupW_AmericaPatriotBattery") - 25.0).abs() < 0.01
         );
         assert_eq!(
-            patriot_assist_weapon_name_for_template("AmericaPatriotBattery", None),
+            patriot_assist_weapon_name_for_template("AmericaPatriotBattery"),
             PATRIOT_ASSIST_WEAPON
         );
         assert_eq!(
-            patriot_assist_weapon_name_for_template("Lazr_AmericaPatriotBattery", Some(LAZR_PATRIOT_PRIMARY_WEAPON)),
+            patriot_assist_weapon_name_for_template("Lazr_AmericaPatriotBattery"),
             LAZR_PATRIOT_ASSIST_WEAPON
         );
         assert_eq!(
-            patriot_assist_weapon_name_for_template("SupW_AmericaPatriotBattery", None),
+            patriot_assist_weapon_name_for_template("SupW_AmericaPatriotBattery"),
             SUPW_PATRIOT_ASSIST_WEAPON
         );
 
-        let lz = Some(LAZR_PATRIOT_PRIMARY_WEAPON);
-        let st = Some(PATRIOT_PRIMARY_WEAPON);
         assert!(patriots_are_assist_equivalent(
             "AmericaPatriotBattery",
-            st,
-            "USA_Patriot",
-            st
+            "USA_Patriot"
         ));
         assert!(patriots_are_assist_equivalent(
             "Lazr_AmericaPatriotBattery",
-            lz,
-            "TestLazrPatriot",
-            lz
+            "TestLazrPatriot"
         ));
         assert!(!patriots_are_assist_equivalent(
             "AmericaPatriotBattery",
-            st,
-            "Lazr_AmericaPatriotBattery",
-            lz
+            "Lazr_AmericaPatriotBattery"
         ));
         assert!(!patriots_are_assist_equivalent(
             "AmericaPatriotBattery",
-            st,
-            "SupW_AmericaPatriotBattery",
-            None
+            "SupW_AmericaPatriotBattery"
         ));
         assert!(!patriots_are_assist_equivalent(
             "AmericaPatriotBattery",
-            st,
-            "ChinaGattlingCannon",
-            None
+            "ChinaGattlingCannon"
         ));
 
         assert!(is_patriot_free_to_assist(
@@ -3014,7 +3022,7 @@ mod tests {
             ObjectId(3),
             10,
             "AmericaPatriotBattery",
-            false,
+            HostAssistedTargetingData::RETAIL_PATRIOT,
         );
         assert_eq!(pending.shots_remaining, 4);
         assert_eq!(pending.next_shot_frame, 10);
