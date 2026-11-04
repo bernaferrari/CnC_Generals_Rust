@@ -195,3 +195,21 @@ fn patriot_create_weapons_come_from_authored_weapon_set() {
     assert_eq!(prim.damage, sec.damage, "PRIMARY/SECONDARY both authored HumveeGun");
     assert_eq!(prim.damage, ter.damage, "PRIMARY/TERTIARY both authored HumveeGun");
 }
+
+/// hq-2qedt.167: GLA Rebel PRIMARY binds from the authored WeaponSet at
+/// create (WeaponSet::updateWeaponSet), not the `rebel_weapon` name peel.
+#[test]
+fn rebel_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::{GLA_REBEL_PRIMARY_WEAPON, HUMVEE_PRIMARY_WEAPON};
+    crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+    let mut w = world(&format!(
+        "Object GLAInfantryRebel\n KindOf = INFANTRY SELECTABLE\n Body = ActiveBody BodyTag\n MaxHealth = 120\n InitialHealth = 120\n End\nWeaponSet\n Conditions = None\n Weapon = PRIMARY {HUMVEE_PRIMARY_WEAPON}\nEnd\nEnd\n"
+    ));
+    let id = w.create_object_for_player("GLAInfantryRebel", 1, Vec3::ZERO).unwrap();
+    let prim = w.host_object(id).unwrap().weapon_slot(0).expect("authored PRIMARY").clone();
+    let peel = crate::game_logic::host_gla_rebel::rebel_weapon(false);
+    assert!(
+        (prim.damage - peel.damage).abs() > 0.01 || prim.clip_size != peel.clip_size,
+        "authored PRIMARY ({HUMVEE_PRIMARY_WEAPON}) overwritten by rebel_weapon peel ({GLA_REBEL_PRIMARY_WEAPON}): {prim:?}"
+    );
+}

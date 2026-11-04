@@ -292,17 +292,9 @@ impl GameLogic {
             object.template_mut().apply_retail_button_only_auto_choose();
         }
 
-        // Host residual: GLA Rebel PRIMARY machine gun residual.
-        // Fail-closed: not full ClipSize volley / CaptureBuilding / BoobyTrap matrix.
-        if crate::game_logic::host_gla_rebel::is_gla_rebel_template(template_name) {
-            use crate::game_logic::host_gla_rebel::{has_ap_bullets_upgrade, rebel_weapon};
-            let ap = has_ap_bullets_upgrade(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
-            object.weapon = Some(rebel_weapon(ap));
-        }
+        // GLA Rebel PRIMARY binds from the authored WeaponSet above
+        // (C++ WeaponSet::updateWeaponSet), not a template-name peel
+        // (hq-2qedt.167). AP Bullets residual stays in refresh_rebel_weapon.
 
         // Host residual: USA Ranger PRIMARY rifle residual.
         // FlashBang secondary is PLAYER_UPGRADE only (Upgrade_AmericaRangerFlashBangGrenade)
