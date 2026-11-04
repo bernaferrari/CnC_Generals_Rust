@@ -71,12 +71,12 @@ pub fn install(rows: &str) -> mpsc::Receiver<Observation> {
         // These identities are unique across every fixture in this binary.
         // No reset or global observer replacement is involved.
         let compiled = FXList::from_definition(&definition);
-        game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(name.clone(), compiled); });
+        game_client::fx_list::with_fx_list_store_mut(|s| {
+            s.add_fx_list(name.clone(), compiled);
+        });
         let sounds = game_client::fx_list::sound_names_for_fx_list(&name);
         assert_eq!(sounds, vec![format!("Sound_{rows}_{level}")]);
-        let compiled = game_client::fx_list::get_fx_list_store()
-            .find_fx_list(&name)
-            .unwrap();
+        let compiled = game_client::fx_list::with_fx_list_store(|s| s.find_fx_list(&name)).unwrap();
         let mut observed = FXList::new();
         observed.add_fx_nugget(Box::new(ObservedList {
             list: name.clone(),
@@ -84,7 +84,9 @@ pub fn install(rows: &str) -> mpsc::Receiver<Observation> {
             sounds,
             events: events.clone(),
         }));
-        game_client::fx_list::with_fx_list_store_mut(|s| { s.add_fx_list(name, observed); });
+        game_client::fx_list::with_fx_list_store_mut(|s| {
+            s.add_fx_list(name, observed);
+        });
     }
     receiver
 }
