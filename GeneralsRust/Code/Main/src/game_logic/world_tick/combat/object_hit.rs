@@ -1393,15 +1393,14 @@ impl GameLogic {
                     let _ = HV_TOW_AUDIO;
                 } else if {
                     // China MiniGunner residual: ground gun or AA secondary hit.
-                    use crate::game_logic::host_minigunner::{
-                        is_minigunner_template, should_apply_minigunner_residual,
-                    };
+                    // Keyed on the authored weapon fired from this slot
+                    // (Weapon::fireWeapon uses the WeaponTemplate).
+                    use crate::game_logic::host_minigunner::is_minigunner_weapon_name;
                     self.objects
                         .get(&attacker_id)
                         .map(|a| {
-                            should_apply_minigunner_residual(is_minigunner_template(
-                                &a.template_name,
-                            ))
+                            a.authored_weapon_name_for_slot(slot)
+                                .is_some_and(|n| is_minigunner_weapon_name(&n))
                         })
                         .unwrap_or(false)
                 } {

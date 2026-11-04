@@ -95,7 +95,11 @@ impl GameLogic {
         if self
             .objects
             .get(&attacker_id)
-            .map(|a| crate::game_logic::host_minigunner::is_minigunner_template(&a.template_name))
+            .map(|a| {
+                a.authored_weapon_name_for_slot(slot).is_some_and(|n| {
+                    crate::game_logic::host_minigunner::is_minigunner_weapon_name(&n)
+                })
+            })
             .unwrap_or(false)
         {
             self.advance_minigunner_continuous_fire(attacker_id, target_id, slot);
@@ -304,9 +308,9 @@ impl GameLogic {
             // finish only the shared post-shot effects here.
             let specialized_lane = crate::game_logic::host_gattling_tank::is_gattling_tank_template(
                 &attacker.template_name,
-            ) || crate::game_logic::host_minigunner::is_minigunner_template(
-                &attacker.template_name,
-            )
+            ) || attacker.authored_weapon_name_for_slot(slot).is_some_and(|n| {
+                crate::game_logic::host_minigunner::is_minigunner_weapon_name(&n)
+            })
                 || crate::game_logic::host_base_defense::is_gattling_cannon_structure(
                     &attacker.template_name,
                 );

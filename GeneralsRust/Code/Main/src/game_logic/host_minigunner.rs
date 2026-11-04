@@ -416,9 +416,11 @@ pub fn is_legal_minigunner_target(
     is_alive && !is_self && !under_construction && is_combat_kind
 }
 
-/// Whether residual fire should apply MiniGunner residual path.
-pub fn should_apply_minigunner_residual(is_minigunner: bool) -> bool {
-    is_minigunner
+/// Whether an authored weapon name is a MiniGunner slot weapon
+/// (`Infa_MiniGunnerGun` / `Infa_MiniGunnerGunAir`).
+pub fn is_minigunner_weapon_name(weapon_name: &str) -> bool {
+    weapon_name.eq_ignore_ascii_case(MINIGUNNER_GUN)
+        || weapon_name.eq_ignore_ascii_case(MINIGUNNER_GUN_AIR)
 }
 
 /// Convert msec residual → logic frames @ 30 FPS (round half-up).
@@ -665,8 +667,8 @@ mod tests {
     fn slot_and_legal() {
         assert_eq!(preferred_minigunner_slot(false), 0);
         assert_eq!(preferred_minigunner_slot(true), 1);
-        assert!(should_apply_minigunner_residual(true));
-        assert!(!should_apply_minigunner_residual(false));
+        assert!(is_minigunner_weapon_name(MINIGUNNER_GUN));
+        assert!(!is_minigunner_weapon_name("Infa_RedguardMachineGun"));
         assert!(is_legal_minigunner_target(true, false, false, true));
         assert!(!is_legal_minigunner_target(false, false, false, true));
         assert!(!is_legal_minigunner_target(true, true, false, true));
