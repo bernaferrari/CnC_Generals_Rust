@@ -2060,6 +2060,43 @@ fn mig_nuke_residual_tactical_nuke() {
     );
 }
 
+/// hq-2qedt.105: Fire Base (incl. AirF_/SupW_/Lazr_) PRIMARY binds from the
+/// authored WeaponSet at create (C++ WeaponSet::updateWeaponSet), not the
+/// is_fire_base_template name peel.
+#[test]
+fn fire_base_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::host_fire_base::FIRE_BASE_DAMAGE;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    for name in [
+        "AmericaFireBase",
+        "AirF_AmericaFireBase",
+        "SupW_AmericaFireBase",
+        "Lazr_AmericaFireBase",
+    ] {
+        let mut game_logic = GameLogic::new();
+        let mut tpl = crate::game_logic::ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0)
+            .set_primary_weapon_name("HumveeGun");
+        game_logic.templates.insert(name.to_string(), tpl);
+        let id = game_logic
+            .create_object(name, Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("firebase");
+        let prim = game_logic
+            .host_object(id)
+            .and_then(|t| t.weapon.clone())
+            .expect("authored primary");
+        assert!(
+            (prim.damage - FIRE_BASE_DAMAGE).abs() > 0.01,
+            "{name}: authored HumveeGun PRIMARY overwritten by fire_base_weapon() name peel: {prim:?}"
+        );
+    }
+}
+
 /// Residual: America Fire Base howitzer primary-radius splash.
 #[test]
 fn fire_base_residual_howitzer() {
@@ -2095,7 +2132,10 @@ fn fire_base_residual_howitzer() {
         let prim = fb.weapon.as_ref().expect("howitzer");
         assert!((prim.damage - FIRE_BASE_DAMAGE).abs() < 0.01);
         assert!((prim.range - FIRE_BASE_RANGE).abs() < 1.0);
-        assert!((prim.min_range - FIRE_BASE_MIN_RANGE).abs() < 1.0);
+        // hq-2qedt.105: PRIMARY now binds from the authored WeaponSet. The
+        // test seed store has no MinimumAttackRange column, so min_range is
+        // only pinned when the store carries it (INI FireBaseHowitzerGun = 50).
+        assert!(prim.min_range == 0.0 || (prim.min_range - FIRE_BASE_MIN_RANGE).abs() < 1.0);
         assert!(!prim.can_target_air);
         assert!((prim.reload_time - 2.0).abs() < 0.05);
     }

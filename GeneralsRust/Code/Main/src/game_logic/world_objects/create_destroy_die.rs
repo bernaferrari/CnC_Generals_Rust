@@ -3037,12 +3037,10 @@ impl GameLogic {
             // (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a
             // template-name host table (hq-2qedt.102).
 
-            // Host residual: America Fire Base PRIMARY howitzer.
-            // Fail-closed: not full SPAWNS_ARE_THE_WEAPONS / garrison HiveStructure matrix.
-            if crate::game_logic::host_fire_base::is_fire_base_template(template_name) {
-                use crate::game_logic::host_fire_base::fire_base_weapon;
-                object.weapon = Some(fire_base_weapon());
-            }
+            // America Fire Base PRIMARY howitzer binds from the authored
+            // WeaponSet above (C++ WeaponSet::updateWeaponSet), not a
+            // template-name peel (hq-2qedt.105). SPAWNS_ARE_THE_WEAPONS /
+            // garrison HiveStructure matrix stays out of scope.
 
             // Host residual: USA Stealth Fighter PRIMARY jet missiles.
             // Fail-closed: not full RETURN_TO_BASE ClipReload / science production matrix.
