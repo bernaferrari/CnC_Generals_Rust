@@ -139,6 +139,12 @@ pub(crate) fn collect_module_states(
             payload: super::turret_runtime_persist::encode(object)?,
         });
     }
+    if super::alt_turret_persist::present(object) {
+        out.push(EntityModuleState {
+            tag: TAG_ALT_TURRET.to_owned(),
+            payload: super::alt_turret_persist::encode(object)?,
+        });
+    }
     push_opt(&mut out, TAG_UPGRADE_DIE, &object.upgrade_die)?;
     push_opt(
         &mut out,

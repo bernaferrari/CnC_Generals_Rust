@@ -172,6 +172,7 @@ pub(crate) mod parachute_contain;
 pub(crate) mod turret_ai_state;
 pub(crate) mod turret_runtime;
 pub(crate) mod turret_runtime_persist;
+pub(crate) mod alt_turret_persist;
 mod turret_spawn;
 use turret_spawn::turret_spawn_for_thing_template;
 pub(crate) use turret_spawn::{

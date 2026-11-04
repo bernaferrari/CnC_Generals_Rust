@@ -112,6 +112,8 @@ pub const TAG_SPAWN_BEHAVIOR: &str = "SpawnBehavior";
 pub const TAG_FIRING_TRACKER: &str = "FiringTracker";
 /// Additional canonical TurretAI target/sweep/audio continuation.
 pub const TAG_TURRET_RUNTIME: &str = "TurretRuntime";
+/// C++ AIUpdateInterface::xfer second TurretAI (TURRET_ALT) residual.
+pub const TAG_ALT_TURRET: &str = "AltTurretRuntime";
 /// C++ FireOCLAfterWeaponCooldownUpdate residual.
 pub const TAG_FIRE_OCL_AFTER_COOLDOWN: &str = "FireOclAfterCooldown";
 /// C++ AssaultTransportAIUpdate residual.
@@ -143,6 +145,7 @@ pub const TAG_RAILROAD: &str = "RailroadBehavior";
 pub const INVENTORY_TAGS: &[&str] = &[
     TAG_WEAPON_SLOTS,
     TAG_TURRET_RUNTIME,
+    TAG_ALT_TURRET,
     TAG_UPGRADE_DIE,
     TAG_SPECIAL_POWER_COMPLETION,
     TAG_BATTLE_BUS_BODY,
