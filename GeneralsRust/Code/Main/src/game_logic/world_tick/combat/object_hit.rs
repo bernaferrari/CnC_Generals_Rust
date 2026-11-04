@@ -975,19 +975,18 @@ impl GameLogic {
                         Some(target_id),
                         effects,
                     );
-                } else if {
-                    // USA Crusader/Paladin residual: GenericTankShell Bezier + splash.
+                } else if let Some(pal) = self.objects.get(&attacker_id).and_then(|a| {
+                    // USA Crusader/Paladin residual keyed on the authored tank gun,
+                    // not the template name (hq-2qedt.195). Laser General guns stay off.
+                    use crate::game_logic::host_usa_tanks::{CRUSADER_TANK_GUN, PALADIN_TANK_GUN};
+                    match a.selected_weapon_name(slot)? {
+                        CRUSADER_TANK_GUN => Some(false),
+                        PALADIN_TANK_GUN => Some(true),
+                        _ => None,
+                    }
+                }) {
                     use crate::game_logic::host_usa_tanks::{
-                        CRUSADER_WEAPON_SPEED, PALADIN_WEAPON_SPEED, is_paladin_template,
-                        should_apply_usa_tank_gun_residual,
-                    };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| should_apply_usa_tank_gun_residual(&a.template_name))
-                        .unwrap_or(false)
-                } {
-                    use crate::game_logic::host_usa_tanks::{
-                        CRUSADER_WEAPON_SPEED, PALADIN_WEAPON_SPEED, is_paladin_template,
+                        CRUSADER_WEAPON_SPEED, PALADIN_WEAPON_SPEED,
                     };
                     let impact = target_position;
                     let from = self
@@ -995,25 +994,17 @@ impl GameLogic {
                         .get(&attacker_id)
                         .map(|a| a.get_position())
                         .unwrap_or(impact);
-                    let (speed, is_pal) = self
+                    let speed = self
                         .objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            let pal = is_paladin_template(&a.template_name);
-                            let spd = a
-                                .weapon
-                                .as_ref()
-                                .map(|w| w.projectile_speed)
-                                .filter(|s| *s > 1.0)
-                                .unwrap_or(if pal {
-                                    PALADIN_WEAPON_SPEED
-                                } else {
-                                    CRUSADER_WEAPON_SPEED
-                                });
-                            (spd, pal)
-                        })
-                        .unwrap_or((CRUSADER_WEAPON_SPEED, false));
-                    let _ = is_pal;
+                        .and_then(|a| a.weapon.as_ref())
+                        .map(|w| w.projectile_speed)
+                        .filter(|s| *s > 1.0)
+                        .unwrap_or(if pal {
+                            PALADIN_WEAPON_SPEED
+                        } else {
+                            CRUSADER_WEAPON_SPEED
+                        });
                     let spawned = self
                         .spawn_usa_tank_shell_projectile_with_effects(
                             attacker_id,
