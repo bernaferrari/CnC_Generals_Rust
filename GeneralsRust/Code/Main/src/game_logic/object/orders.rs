@@ -1531,8 +1531,7 @@ impl Object {
     pub fn install_overlord_battle_bunker(&mut self, slots: usize) {
         self.overlord_bunker_capacity = Some(slots);
         // Exclusive ConflictsWith residual (not Emperor innate propaganda).
-        let emperor =
-            crate::game_logic::host_overlord_addons::is_emperor_template(&self.template_name);
+        let emperor = self.authors_innate_propaganda_tower();
         self.has_overlord_gattling_addon = false;
         if !emperor {
             self.has_overlord_propaganda_addon = false;
@@ -1547,11 +1546,9 @@ impl Object {
     /// Fail-closed: not full portable-structure passenger object.
     pub fn install_overlord_gattling_addon(&mut self) {
         use crate::game_logic::host_gattling_tank::has_chain_guns_upgrade;
-        use crate::game_logic::host_overlord_addons::{
-            is_emperor_template, overlord_gattling_air_weapon,
-        };
+        use crate::game_logic::host_overlord_addons::overlord_gattling_air_weapon;
         // Exclusive ConflictsWith residual vs bunker / propaganda (except Emperor).
-        let emperor = is_emperor_template(&self.template_name);
+        let emperor = self.authors_innate_propaganda_tower();
         if !emperor {
             self.has_overlord_propaganda_addon = false;
             // Keep overlord-style marker but zero bunker slots.
@@ -1601,7 +1598,7 @@ impl Object {
             self.has_overlord_gattling_addon,
             self.has_overlord_propaganda_addon,
             self.overlord_bunker_slot_capacity(),
-            crate::game_logic::host_overlord_addons::is_emperor_template(&self.template_name),
+            self.authors_innate_propaganda_tower(),
         )
     }
 
@@ -1663,7 +1660,7 @@ impl Object {
     /// True when portable / innate propaganda residual is active on this host.
     pub fn has_overlord_propaganda_residual(&self) -> bool {
         self.has_overlord_propaganda_addon
-            || crate::game_logic::host_overlord_addons::is_emperor_template(&self.template_name)
+            || self.authors_innate_propaganda_tower()
     }
 
     /// Install residual GLA Tunnel Network structure:

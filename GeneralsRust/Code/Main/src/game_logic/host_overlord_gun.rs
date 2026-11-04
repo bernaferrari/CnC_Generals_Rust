@@ -34,7 +34,7 @@
 //! - Not network uranium / dual-radius replication (network deferred)
 
 use super::Weapon;
-use crate::game_logic::host_overlord_addons::{is_emperor_template, is_overlord_tank_template};
+use crate::game_logic::host_overlord_addons::is_overlord_tank_template;
 use glam::Vec3;
 use std::collections::HashSet;
 
@@ -168,7 +168,7 @@ pub fn is_overlord_gun_chassis(template_name: &str) -> bool {
     {
         return true;
     }
-    is_overlord_tank_template(template_name) || is_emperor_template(template_name)
+    is_overlord_tank_template(template_name)
 }
 
 /// Whether residual fire should apply Overlord dual-radius gun residual.

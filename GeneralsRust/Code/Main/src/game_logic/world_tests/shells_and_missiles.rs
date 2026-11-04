@@ -5140,3 +5140,54 @@ fn emperor_innate_propaganda_keys_on_authored_modules() {
         "Emperor-named hull without authored PropagandaTowerBehavior gets no innate tower"
     );
 }
+
+/// hq-2qedt.257: Emperor addon-conflict orders key on the authored innate
+/// PropagandaTowerBehavior, not the template name.
+#[test]
+fn emperor_addon_conflicts_key_on_authored_innate_tower() {
+    let run = |name: &str, propaganda: bool| -> (bool, bool) {
+        let mut world = GameLogic::new();
+        let tower = if propaganda {
+            "Behavior = PropagandaTowerBehavior ModulePropaganda_04\nRadius = 150.0\nEnd\n"
+        } else {
+            ""
+        };
+        let source = format!(
+            "Object {name}\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody Body\nMaxHealth = 100\nInitialHealth = 100\nEnd\nBehavior = OverlordContain ModuleTag_06\nSlots = 1\nEnd\n{tower}End\n"
+        );
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "emperor.ini".into(),
+                    source,
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        world.add_player(Player::new(1, Team::China, "owner", true));
+        let id = world
+            .create_object_for_player_with_effects_checked(
+                name,
+                1,
+                Vec3::ZERO,
+                None,
+                &mut Default::default(),
+            )
+            .unwrap()
+            .unwrap();
+        let o = world.host_object_mut(id).unwrap();
+        o.has_overlord_propaganda_addon = true;
+        o.install_overlord_gattling_addon();
+        (o.has_overlord_propaganda_addon, o.has_overlord_propaganda_residual())
+    };
+    assert_eq!(
+        run("TestHullWithTower", true),
+        (true, true),
+        "authored innate tower survives the gattling ConflictsWith clear"
+    );
+    assert_eq!(
+        run("Tank_ChinaTankEmperor", false),
+        (false, false),
+        "Emperor-named hull without authored tower takes the normal conflict clear"
+    );
+}
