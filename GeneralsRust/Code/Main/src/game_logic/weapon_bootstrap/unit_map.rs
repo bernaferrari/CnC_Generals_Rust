@@ -366,9 +366,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_scorpion::is_scorpion_template(template_name) {
                 return Some(SCORPION_TANK_GUN);
             }
-            if crate::game_logic::host_tomahawk::is_tomahawk_template(template_name) {
-                return Some(TOMAHAWK_MISSILE_WEAPON);
-            }
             if crate::game_logic::host_raptor::is_raptor_template(template_name) {
                 let king = crate::game_logic::host_raptor::is_king_raptor_template(template_name);
                 return Some(crate::game_logic::host_raptor::raptor_weapon_name(king));
@@ -565,5 +562,25 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
                 None
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod name_peel_tests {
+    use super::{primary_weapon_name_for_unit, secondary_weapon_name_for_unit};
+    use crate::game_logic as gl;
+
+    /// A family-predicate-only variant name must not inherit a weapon from the
+    /// template name; the authored WeaponSet is the only source.
+    fn assert_unmapped(name: &str, predicate: fn(&str) -> bool) {
+        assert!(predicate(name), "probe {name} must still be a family name");
+        assert_eq!(primary_weapon_name_for_unit(name), None, "{name} PRIMARY");
+        assert_eq!(secondary_weapon_name_for_unit(name), None, "{name} SECONDARY");
+    }
+
+    /// hq-2qedt.224
+    #[test]
+    fn tomahawk_variant_name_has_no_unit_map_weapon() {
+        assert_unmapped("FixtureTomahawkVariant", gl::host_tomahawk::is_tomahawk_template);
     }
 }

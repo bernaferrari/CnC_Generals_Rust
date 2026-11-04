@@ -720,7 +720,7 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_tomahawk::{
             TOMAHAWK_DAMAGE_TYPE, TOMAHAWK_DEATH_TYPE, TOMAHAWK_FIRE_AUDIO,
-            TOMAHAWK_SECONDARY_RADIUS, is_legal_tomahawk_splash_target, is_tomahawk_template,
+            TOMAHAWK_SECONDARY_RADIUS, is_legal_tomahawk_splash_target,
             tomahawk_damage_at, tomahawk_scatter_aim, tomahawk_scatter_misses_infantry,
         };
 
@@ -893,13 +893,6 @@ impl GameLogic {
                 self.frame,
                 sid,
                 intended_target,
-            );
-            let _ = is_tomahawk_template(
-                &self
-                    .objects
-                    .get(&sid)
-                    .map(|o| o.template_name.clone())
-                    .unwrap_or_default(),
             );
         }
 

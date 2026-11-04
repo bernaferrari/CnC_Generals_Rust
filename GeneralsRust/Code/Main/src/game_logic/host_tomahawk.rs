@@ -195,11 +195,6 @@ pub fn is_tomahawk_template(template_name: &str) -> bool {
     n.contains("vehicletomahawk") || (n.contains("tomahawk") && !n.contains("missile"))
 }
 
-/// Whether residual fire should apply Tomahawk residual path.
-pub fn should_apply_tomahawk_residual(is_tomahawk: bool) -> bool {
-    is_tomahawk
-}
-
 /// Reload time seconds residual for delay frames @ 30 FPS.
 pub fn delay_frames_to_reload_secs(delay_frames: u32) -> f32 {
     (delay_frames.max(1) as f32) / 30.0
