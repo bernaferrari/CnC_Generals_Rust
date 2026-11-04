@@ -1126,6 +1126,18 @@ impl GameLogic {
                         );
                     }
                 }
+                // C++ ObjectCreationList.cpp:985-993: any created object with a
+                // SlavedUpdate is enslaved to the source (startSlavedEffects ->
+                // UNSELECTABLE), independent of upgrade/OCL spelling.
+                if let (Some(source), Some(birth)) = (source_id, source_birth.as_ref()) {
+                    if self
+                        .objects
+                        .get(&created_id)
+                        .is_some_and(|object| object.thing().template.slaved_update_metadata.is_some())
+                    {
+                        self.enslave_owned_drone(created_id, source, birth);
+                    }
+                }
                 let veterancy_health_bonus = self.veterancy_health_bonus;
                 let inherit_name = self
                     .with_object_veterancy_feedback_and_locomotors(
