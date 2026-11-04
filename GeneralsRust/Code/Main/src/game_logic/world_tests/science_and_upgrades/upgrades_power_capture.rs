@@ -3098,3 +3098,33 @@ fn chain_guns_team_scan_skips_name_only_gattling_cannon() {
             .has_upgrade_tag(UPGRADE_CHINA_CHAIN_GUNS)
     );
 }
+
+#[test]
+fn gattling_building_chain_guns_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    ensure_host_weapon_store();
+    let mut logic = GameLogic::new();
+    for (name, weapon) in [
+        ("TestGattlingCannon268", "RangerFlashBangGrenadeWeapon"),
+        ("A268xAuthoredCannon", "GattlingBuildingGun"),
+    ] {
+        let mut tpl = ThingTemplate::new(name);
+        tpl.add_kind_of(KindOf::Structure)
+            .set_health(1000.0)
+            .set_primary_weapon_name(weapon);
+        logic.templates.insert(name.to_string(), tpl);
+    }
+    let foreign = logic
+        .create_object("TestGattlingCannon268", Team::China, glam::Vec3::ZERO)
+        .expect("foreign");
+    let authored = logic
+        .create_object(
+            "A268xAuthoredCannon",
+            Team::China,
+            glam::Vec3::new(80.0, 0.0, 0.0),
+        )
+        .expect("authored");
+    assert!(!logic.apply_gattling_chain_guns_upgrade(foreign));
+    assert!(logic.apply_gattling_chain_guns_upgrade(authored));
+}

@@ -2002,9 +2002,11 @@ pub fn secondary_weapon_name_for_defense(template_name: &str) -> Option<&'static
 }
 
 /// Whether this base defense uses dual ground/AA residual slots.
+///
+/// Gattling Cannon is keyed on its authored `GattlingBuildingGun` by callers
+/// (`is_authored_gattling_building`), not on the template name (hq-2qedt.268).
 pub fn is_dual_slot_base_defense(template_name: &str) -> bool {
-    is_gattling_cannon_structure(template_name)
-        || is_stinger_site_structure(template_name)
+    is_stinger_site_structure(template_name)
         || is_patriot_battery_structure(template_name)
 }
 
@@ -2662,7 +2664,7 @@ mod tests {
         assert!(is_dual_slot_base_defense("Lazr_AmericaPatriotBattery"));
         assert!(is_dual_slot_base_defense("SupW_AmericaPatriotBattery"));
         assert!(is_dual_slot_base_defense("GLA_StingerSite"));
-        assert!(is_dual_slot_base_defense("China_GattlingCannon"));
+        assert!(!is_dual_slot_base_defense("China_GattlingCannon"));
         assert!(!is_dual_slot_base_defense("USA_Barracks"));
         assert!(!is_dual_slot_base_defense("GLATunnelNetwork"));
     }

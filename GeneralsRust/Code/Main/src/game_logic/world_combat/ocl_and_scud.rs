@@ -2642,7 +2642,7 @@ impl GameLogic {
     pub fn apply_gattling_chain_guns_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_base_defense::{
             gattling_building_air_weapon, gattling_building_ground_weapon,
-            is_gattling_cannon_structure,
+            is_authored_gattling_building,
         };
         use crate::game_logic::host_gattling_tank::{
             GattlingFireLevel, UPGRADE_CHINA_CHAIN_GUNS, gattling_air_weapon,
@@ -2652,7 +2652,7 @@ impl GameLogic {
             return false;
         };
         let is_tank = is_gattling_tank_template(&obj.template_name);
-        let is_building = is_gattling_cannon_structure(&obj.template_name);
+        let is_building = is_authored_gattling_building(obj.weapon_name_for_slot(0));
         if !is_tank && !is_building {
             return false;
         }

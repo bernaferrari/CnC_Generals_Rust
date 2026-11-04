@@ -367,7 +367,7 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::host_base_defense::{
             GATTLING_BUILDING_FIRE_AUDIO, PATRIOT_FIRE_AUDIO, STINGER_FIRE_AUDIO,
-            is_dual_slot_base_defense, is_gattling_cannon_structure, is_patriot_battery_structure,
+            is_authored_gattling_building, is_dual_slot_base_defense, is_patriot_battery_structure,
             is_stinger_site_structure, preferred_dual_defense_slot,
         };
 
@@ -384,10 +384,10 @@ impl GameLogic {
             return Ok(());
         }
         let template_name = attacker.template_name.clone();
-        let is_gattling = is_gattling_cannon_structure(&template_name);
+        let is_gattling = is_authored_gattling_building(attacker.weapon_name_for_slot(0));
         let is_stinger = is_stinger_site_structure(&template_name);
         let is_patriot = is_patriot_battery_structure(&template_name);
-        let dual_slot = is_dual_slot_base_defense(&template_name);
+        let dual_slot = is_gattling || is_dual_slot_base_defense(&template_name);
         // SPAWNS_ARE_THE_WEAPONS residual: Stinger Site cannot fire with 0 soldiers.
         if is_stinger {
             let has_live_spawn =
