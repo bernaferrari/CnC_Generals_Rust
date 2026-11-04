@@ -377,9 +377,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_toxin_tractor::is_toxin_tractor_template(template_name) {
                 return Some(TOXIN_TRUCK_GUN);
             }
-            if crate::game_logic::host_scorpion::is_scorpion_template(template_name) {
-                return Some(SCORPION_TANK_GUN);
-            }
             if crate::game_logic::host_tomahawk::is_tomahawk_template(template_name) {
                 return Some(TOMAHAWK_MISSILE_WEAPON);
             }
@@ -601,6 +598,20 @@ mod comanche_unit_map_peel_tests {
         assert_eq!(
             secondary_weapon_name_for_unit("AmericaVehicleComanche"),
             Some(COMANCHE_ANTITANK_WEAPON)
+        );
+    }
+
+    #[test]
+    fn unlisted_scorpion_named_template_gets_no_name_peel_defaults() {
+        assert_eq!(primary_weapon_name_for_unit("Boss_GLATankScorpionDecoy"), None);
+        // Explicit retail table rows stay.
+        assert_eq!(
+            primary_weapon_name_for_unit("GLATankScorpion"),
+            Some(SCORPION_TANK_GUN)
+        );
+        assert_eq!(
+            primary_weapon_name_for_unit("Chem_GLATankScorpion"),
+            Some(SCORPION_TANK_GUN)
         );
     }
 }
