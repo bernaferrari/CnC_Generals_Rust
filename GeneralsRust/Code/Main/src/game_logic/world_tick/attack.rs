@@ -1673,6 +1673,78 @@ impl GameLogic {
         })
     }
 
+    /// Swap `turret_ai`/`turret_runtime` with the ALT slot so the single-slot
+    /// TurretAI body runs against m_turretAI[TURRET_ALT]. Self-inverse; returns
+    /// false (no swap) when the object has no ALT turret.
+    fn swap_alt_turret_slot(&mut self, unit_id: ObjectId) -> bool {
+        let Some(u) = self.objects.get_mut(&unit_id) else {
+            return false;
+        };
+        let (Some(ai), Some(rt)) = (u.alt_turret_ai.as_mut(), u.alt_turret_runtime.as_mut())
+        else {
+            return false;
+        };
+        std::mem::swap(&mut u.turret_ai, ai);
+        std::mem::swap(&mut u.turret_runtime, rt);
+        true
+    }
+
+    /// C++ TurretAI::updateTurretAI for one turret index (0=TURRET_MAIN,
+    /// 1=TURRET_ALT); AIUpdate.cpp AIUpdateInterface::update ticks each
+    /// m_turretAI[i] independently.
+    pub(crate) fn tick_turret_state_machine_for_index_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        turret_index: usize,
+        current_time: f32,
+        logic_frame: u32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<AttackAimResult> {
+        if turret_index == 0 {
+            return self.tick_turret_state_machine_with_effects(
+                unit_id,
+                current_time,
+                logic_frame,
+                presentation_effects,
+            );
+        }
+        if turret_index != 1 || !self.swap_alt_turret_slot(unit_id) {
+            return Ok(AttackAimResult::Failure);
+        }
+        let result = self.tick_turret_state_machine_with_effects(
+            unit_id,
+            current_time,
+            logic_frame,
+            presentation_effects,
+        );
+        self.swap_alt_turret_slot(unit_id);
+        result
+    }
+
+    /// TurretAI aim tick for one turret index (0=TURRET_MAIN, 1=TURRET_ALT).
+    pub(crate) fn tick_turret_aim_for_index_with_effects(
+        &mut self,
+        unit_id: ObjectId,
+        turret_index: usize,
+        max_rate_modifier: f32,
+        presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+    ) -> gamelogic::GameLogicResult<AttackAimResult> {
+        if turret_index == 0 {
+            return self.tick_turret_aim_with_effects(
+                unit_id,
+                max_rate_modifier,
+                presentation_effects,
+            );
+        }
+        if turret_index != 1 || !self.swap_alt_turret_slot(unit_id) {
+            return Ok(AttackAimResult::Failure);
+        }
+        let result =
+            self.tick_turret_aim_with_effects(unit_id, max_rate_modifier, presentation_effects);
+        self.swap_alt_turret_slot(unit_id);
+        result
+    }
+
     /// Drive TurretAI SM for all turret-enabled objects (and disabled Recenter).
     #[cfg(test)]
     pub(crate) fn tick_all_turret_state_machines(
@@ -1699,27 +1771,37 @@ impl GameLogic {
     ) -> gamelogic::GameLogicResult<()> {
         use crate::game_logic::object::TurretSubState;
         for &id in object_ids {
-            let should = self
-                .objects
-                .get(&id)
-                .map(|o| {
-                    let disabled = o.status.disabled_paralyzed
-                        || o.status.disabled_unmanned
-                        || o.status.disabled_emp
-                        || o.status.disabled_subdued
-                        || o.status.disabled_hacked;
-                    o.is_alive()
-                        && !disabled
-                        && (o.turret_ai.turret_enabled || o.turret_ai.turret_substate == TurretSubState::Recenter)
-                })
-                .unwrap_or(false);
-            if should {
-                let _ = self.tick_turret_state_machine_with_effects(
-                    id,
-                    current_time,
-                    logic_frame,
-                    presentation_effects,
-                )?;
+            // AIUpdate.cpp: for each m_turretAI[i] (MAIN, then ALT) updateTurretAI.
+            for turret_index in 0..2usize {
+                let should = self
+                    .objects
+                    .get(&id)
+                    .map(|o| {
+                        let disabled = o.status.disabled_paralyzed
+                            || o.status.disabled_unmanned
+                            || o.status.disabled_emp
+                            || o.status.disabled_subdued
+                            || o.status.disabled_hacked;
+                        let ai = match turret_index {
+                            0 => Some(&o.turret_ai),
+                            _ => o.alt_turret_ai.as_ref().filter(|_| o.alt_turret_runtime.is_some()),
+                        };
+                        o.is_alive()
+                            && !disabled
+                            && ai.is_some_and(|ai| {
+                                ai.turret_enabled || ai.turret_substate == TurretSubState::Recenter
+                            })
+                    })
+                    .unwrap_or(false);
+                if should {
+                    let _ = self.tick_turret_state_machine_for_index_with_effects(
+                        id,
+                        turret_index,
+                        current_time,
+                        logic_frame,
+                        presentation_effects,
+                    )?;
+                }
             }
         }
         Ok(())
