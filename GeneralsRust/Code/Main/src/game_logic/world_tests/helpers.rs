@@ -424,6 +424,7 @@ pub(super) fn ensure_test_combat_chinook_template(game_logic: &mut GameLogic) {
         .add_kind_of(KindOf::Attackable)
         .set_health(350.0)
         .set_cost(1200, 0);
+    crate::game_logic::host_combat_chinook::author_combat_chinook_contain(&mut chinook);
     game_logic
         .templates
         .insert("AirF_AmericaVehicleChinook".to_string(), chinook);

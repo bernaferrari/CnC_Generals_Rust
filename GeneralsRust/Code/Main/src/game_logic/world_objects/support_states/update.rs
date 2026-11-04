@@ -3684,10 +3684,7 @@ impl GameLogic {
                                             &o.template_name,
                                         ) || o.chinook_ai.is_some()
                                             || o.is_combat_chinook_style_container();
-                                    let is_combat = o.is_combat_chinook_style_container()
-                                        || crate::game_logic::host_combat_chinook::is_combat_chinook_template(
-                                            &o.template_name,
-                                        );
+                                    let is_combat = o.is_combat_chinook_style_container();
                                     let authored = o
                                         .thing()
                                         .template

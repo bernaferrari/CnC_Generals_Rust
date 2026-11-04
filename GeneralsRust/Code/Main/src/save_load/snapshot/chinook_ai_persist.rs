@@ -144,10 +144,11 @@ mod tests {
     #[test]
     fn snapshot_round_trips_chinook_combat_drop() {
         let mut source = GameLogic::new();
-        source.templates.insert(
-            "AirF_AmericaVehicleChinook".to_string(),
-            ThingTemplate::new("AirF_AmericaVehicleChinook"),
-        );
+        let mut combat = ThingTemplate::new("AirF_AmericaVehicleChinook");
+        crate::game_logic::host_combat_chinook::author_combat_chinook_contain(&mut combat);
+        source
+            .templates
+            .insert("AirF_AmericaVehicleChinook".to_string(), combat);
         source.add_player(Player::new(0, Team::USA, "USA", true));
         let bird = source
             .create_object(

@@ -926,12 +926,11 @@ impl<'a> CommandExecutor<'a> {
             let taking_off = if let Some(obj) = self.game_logic.host_object_mut(unit_id) {
                 let name = obj.template_name.clone();
                 if obj.chinook_ai.is_none()
-                    && (crate::game_logic::host_combat_chinook::is_regular_chinook_template(&name)
-                        || crate::game_logic::host_combat_chinook::is_combat_chinook_template(
-                            &name,
-                        ))
+                    && crate::game_logic::host_combat_chinook::is_chinook_hull_template(&name)
                 {
-                    if crate::game_logic::host_combat_chinook::is_combat_chinook_template(&name) {
+                    if crate::game_logic::host_combat_chinook::is_authored_combat_chinook(
+                        &obj.thing().template,
+                    ) {
                         obj.install_combat_chinook_transport();
                     } else {
                         obj.install_chinook_transport();

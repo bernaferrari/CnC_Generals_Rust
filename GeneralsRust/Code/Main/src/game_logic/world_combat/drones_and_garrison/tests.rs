@@ -170,6 +170,7 @@ fn combat_chinook_vehicle_rider_does_not_residual_fire() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(300.0);
+    crate::game_logic::host_combat_chinook::author_combat_chinook_contain(&mut chinook);
     logic
         .templates
         .insert("AirF_AmericaVehicleChinook".to_string(), chinook);

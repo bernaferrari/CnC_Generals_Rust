@@ -534,11 +534,11 @@ impl SnapshotBuilder {
         // so default AI original_pos matches the saved hull, and before
         // weapon restore so Combat Chinook dummy-weapon wipe cannot clobber
         // the saved WeaponSet. Persist overlay then writes mid-drop state.
-        if crate::game_logic::host_combat_chinook::is_combat_chinook_template(
-            &snapshot.template_name,
+        if crate::game_logic::host_combat_chinook::is_authored_combat_chinook(
+            &object.thing().template,
         ) {
             object.install_combat_chinook_transport();
-        } else if crate::game_logic::host_combat_chinook::is_regular_chinook_template(
+        } else if crate::game_logic::host_combat_chinook::is_chinook_hull_template(
             &snapshot.template_name,
         ) {
             object.install_chinook_transport();

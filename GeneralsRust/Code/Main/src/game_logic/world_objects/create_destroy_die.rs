@@ -2809,9 +2809,11 @@ impl GameLogic {
 
             // Host residual: AirF Combat Chinook TransportContain Slots=8 + passenger fire.
             // Regular AmericaVehicleChinook: same slots + ChinookAI, no passenger fire.
-            if crate::game_logic::host_combat_chinook::is_combat_chinook_template(template_name) {
+            if crate::game_logic::host_combat_chinook::is_authored_combat_chinook(
+                &object.thing().template,
+            ) {
                 object.install_combat_chinook_transport();
-            } else if crate::game_logic::host_combat_chinook::is_regular_chinook_template(
+            } else if crate::game_logic::host_combat_chinook::is_chinook_hull_template(
                 template_name,
             ) {
                 object.install_chinook_transport();
