@@ -27,6 +27,9 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     Module, ModuleData as EngineModuleData, NameKeyType, PayloadTargetControlInterface,
 };
+use game_engine::common::thing::update_module::{
+    MinefieldServiceError, OwnedMinefieldServices,
+};
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
@@ -615,6 +618,59 @@ pub(crate) trait MinefieldPlacement {
         skip: f32,
     ) -> BehaviorResult<ObjectId>;
     fn remove(&mut self, owner: ObjectId, mine: ObjectId) -> BehaviorResult<()>;
+}
+
+fn minefield_service_error(error: MinefieldServiceError) -> BehaviorError {
+    match error {
+        MinefieldServiceError::ObjectNotFound(id) => BehaviorError::ObjectNotFound { id },
+        MinefieldServiceError::NoSpaceAvailable => BehaviorError::NoSpaceAvailable,
+        MinefieldServiceError::InvalidPosition => BehaviorError::InvalidPosition,
+        MinefieldServiceError::Unavailable(reason) => BehaviorError::ServiceUnavailable(reason),
+    }
+}
+
+/// Common schedule hook (`UpdateScheduleContext::owned_minefield_services`)
+/// seen through the behavior's owned-service trait.
+pub(crate) struct ScheduledMinefield<'a>(pub(crate) &'a mut dyn OwnedMinefieldServices);
+
+impl MinefieldPlacement for ScheduledMinefield<'_> {
+    fn preflight(&self, owner: ObjectId, template: &str) -> BehaviorResult<(GeometryInfo, f32)> {
+        let footprint = self.0.preflight( owner, template)
+            .map_err(minefield_service_error)?;
+        let [x, y, z] = footprint.center;
+        Ok((
+            GeometryInfo {
+                center: Coord3D::new(x, y, z),
+                major_radius: footprint.major_radius,
+                minor_radius: footprint.minor_radius,
+                rotation: footprint.rotation,
+                is_circular: footprint.is_circular,
+            },
+            footprint.mine_radius,
+        ))
+    }
+    fn random_real(&mut self, low: f32, high: f32) -> f32 {
+        self.0.random_real( low, high)
+    }
+    fn place(
+        &mut self,
+        owner: ObjectId,
+        template: &str,
+        position: &Coord3D,
+        skip: f32,
+    ) -> BehaviorResult<ObjectId> {
+        self.0
+            .place(
+            owner,
+            template,
+            [position.x, position.y, position.z],
+            skip,
+        )
+        .map_err(minefield_service_error)
+    }
+    fn remove(&mut self, owner: ObjectId, mine: ObjectId) -> BehaviorResult<()> {
+        self.0.remove( owner, mine).map_err(minefield_service_error)
+    }
 }
 
 impl GenerateMinefieldBehavior {
@@ -2216,5 +2272,110 @@ mod tests {
             retained.into_iter().all(|present| present),
             "mine remains owned until deletion boundary"
         );
+    }
+
+    struct ScheduledMinefieldStub {
+        removed: Vec<u32>,
+        placed: Vec<String>,
+        next_id: u32,
+    }
+
+    impl OwnedMinefieldServices for ScheduledMinefieldStub {
+        fn preflight(
+            &self,
+            _owner: u32,
+            _template: &str,
+        ) -> Result<game_engine::common::thing::update_module::MinefieldFootprint, MinefieldServiceError>
+        {
+            Ok(game_engine::common::thing::update_module::MinefieldFootprint {
+                center: [100.0, 100.0, 0.0],
+                major_radius: 20.0,
+                minor_radius: 20.0,
+                rotation: 0.0,
+                is_circular: true,
+                mine_radius: 5.0,
+            })
+        }
+        fn random_real(&mut self, low: f32, _high: f32) -> f32 {
+            low
+        }
+        fn place(
+            &mut self,
+            _owner: u32,
+            template: &str,
+            _position: [f32; 3],
+            _skip: f32,
+        ) -> Result<u32, MinefieldServiceError> {
+            self.next_id += 1;
+            self.placed.push(template.to_string());
+            Ok(self.next_id)
+        }
+        fn remove(&mut self, _owner: u32, mine: u32) -> Result<(), MinefieldServiceError> {
+            self.removed.push(mine);
+            Err(MinefieldServiceError::ObjectNotFound(mine))
+        }
+    }
+
+    struct ScheduleWithMinefield {
+        services: ScheduledMinefieldStub,
+    }
+
+    impl game_engine::common::thing::update_module::UpdateScheduleContext for ScheduleWithMinefield {
+        fn frame(&self) -> u32 {
+            7
+        }
+        fn owned_minefield_services(&mut self) -> Option<&mut dyn OwnedMinefieldServices> {
+            Some(&mut self.services)
+        }
+        fn awaken(&mut self, _: &game_engine::common::thing::update_module::UpdateModulePtr, _: u32) {}
+        fn unregister(&mut self, _: &game_engine::common::thing::update_module::UpdateModulePtr) {}
+    }
+
+    struct SchedulingOnly;
+
+    impl game_engine::common::thing::update_module::UpdateScheduleContext for SchedulingOnly {
+        fn frame(&self) -> u32 {
+            7
+        }
+        fn awaken(&mut self, _: &game_engine::common::thing::update_module::UpdateModulePtr, _: u32) {}
+        fn unregister(&mut self, _: &game_engine::common::thing::update_module::UpdateModulePtr) {}
+    }
+
+    /// hq-2qedt.70: the Common update schedule carries owned minefield services
+    /// that drive update_upgrade_owned (GenerateMinefieldBehavior.cpp:437-475).
+    #[test]
+    fn schedule_context_hook_drives_owned_minefield_upgrade() {
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, schedule_hook_body);
+    }
+
+    fn schedule_hook_body() {
+        use game_engine::common::thing::update_module::UpdateScheduleContext;
+        assert!(SchedulingOnly.owned_minefield_services().is_none());
+
+        let config = GenerateMinefieldBehaviorModuleData {
+            mine_name: "Mine".into(),
+            mine_name_upgraded: Some("EMPMine".into()),
+            border_only: true,
+            always_circular: true,
+            upgradable: true,
+            ..GenerateMinefieldBehaviorModuleData::default()
+        };
+        let mut behavior = GenerateMinefieldBehavior::new_from_config(42, config);
+        let mut context = ScheduleWithMinefield {
+            services: ScheduledMinefieldStub { removed: Vec::new(), placed: Vec::new(), next_id: 0 },
+        };
+        let services = context.owned_minefield_services().expect("match-owned services");
+        behavior.place_mines_owned(&mut ScheduledMinefield(services)).expect("initial placement");
+        let initial = behavior.state.mine_list.clone();
+        assert!(!initial.is_empty());
+
+        let services = context.owned_minefield_services().expect("match-owned services");
+        let sleep = behavior.update_upgrade_owned(true, &mut ScheduledMinefield(services)).expect("upgrade");
+        assert_eq!(sleep, UpdateSleepTime::None);
+        assert!(behavior.state.upgraded);
+        assert_eq!(context.services.removed, initial, "missing old mines are skipped");
+        assert_eq!(context.services.placed.last().map(String::as_str), Some("EMPMine"));
+        assert_eq!(behavior.state.current_mine_template, "EMPMine");
     }
 }

@@ -28,8 +28,55 @@ pub struct UpgradeProductionObservation {
     pub energy_supply_ratio: f32,
 }
 
+/// Failure reported by match-owned minefield services.
+/// Mirrors the outcomes GenerateMinefieldBehavior.cpp distinguishes:
+/// skipped placements (no space / bad terrain) versus hard failures.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MinefieldServiceError {
+    ObjectNotFound(u32),
+    NoSpaceAvailable,
+    InvalidPosition,
+    Unavailable(String),
+}
+
+/// Owner footprint and mine radius resolved before placement
+/// (GenerateMinefieldBehavior.cpp:376-392 geometry + mine bounding circle).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MinefieldFootprint {
+    pub center: [f32; 3],
+    pub major_radius: f32,
+    pub minor_radius: f32,
+    pub rotation: f32,
+    pub is_circular: bool,
+    pub mine_radius: f32,
+}
+
+/// Match-owned object create/destroy, terrain/partition validation and
+/// GameLogic random that GenerateMinefieldBehavior::update/placeMines use
+/// (C++ `TheThingFactory->newObject`, `TheGameLogic->destroyObject`,
+/// `TheTerrainLogic`, `ThePartitionManager`, `GameLogicRandomValueReal`).
+/// Common-typed so the update schedule can supply it without naming GameLogic.
+pub trait OwnedMinefieldServices {
+    fn preflight(&self, owner: u32, template: &str)
+    -> Result<MinefieldFootprint, MinefieldServiceError>;
+    fn random_real(&mut self, low: f32, high: f32) -> f32;
+    fn place(
+        &mut self,
+        owner: u32,
+        template: &str,
+        position: [f32; 3],
+        skip: f32,
+    ) -> Result<u32, MinefieldServiceError>;
+    fn remove(&mut self, owner: u32, mine: u32) -> Result<(), MinefieldServiceError>;
+}
+
 pub trait UpdateScheduleContext {
     fn frame(&self) -> u32;
+    /// Owned minefield services for the driving match.
+    /// Scheduling-only contexts own no world and return None.
+    fn owned_minefield_services(&mut self) -> Option<&mut dyn OwnedMinefieldServices> {
+        None
+    }
     fn upgrade_production_observation(&self) -> Option<UpgradeProductionObservation> {
         None
     }
