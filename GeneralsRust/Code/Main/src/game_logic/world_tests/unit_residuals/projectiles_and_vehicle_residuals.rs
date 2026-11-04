@@ -2071,3 +2071,55 @@ fn avenger_object_hit_routes_on_authored_weapon_not_chassis_name_hq_2qedt_161() 
     );
     assert!(game_logic.host_object(jet_id).unwrap().health.current < hp_before);
 }
+
+#[test]
+fn dragon_object_hit_routes_on_authored_flame_weapon_not_chassis_name_hq_2qedt_202() {
+    use crate::game_logic::host_dragon_tank::{DRAGON_TANK_FLAME_WEAPON, is_dragon_tank_template};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut carrier = crate::game_logic::ThingTemplate::new("AuthoredFlameCarrier");
+    carrier
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name(DRAGON_TANK_FLAME_WEAPON);
+    assert!(!is_dragon_tank_template(&carrier.name));
+    game_logic.templates.insert(carrier.name.clone(), carrier);
+    let mut tank = crate::game_logic::ThingTemplate::new("FlameVictimTank");
+    tank.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(500.0);
+    game_logic.templates.insert(tank.name.clone(), tank);
+
+    let shooter = game_logic
+        .create_object("AuthoredFlameCarrier", Team::China, Vec3::ZERO)
+        .unwrap();
+    let tank_id = game_logic
+        .create_object("FlameVictimTank", Team::GLA, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    game_logic.frame = 100;
+    {
+        let a = game_logic.host_object_mut(shooter).unwrap();
+        a.target = Some(tank_id);
+        a.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        a.active_weapon_slot = 0;
+        if let Some(w) = a.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.pre_attack_delay = 0.0;
+        }
+    }
+    let before = game_logic.dragon_tank_residual_fires;
+    for _ in 0..4 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_combat(&[shooter, tank_id], LOGIC_FRAME_TIMESTEP);
+    }
+    assert!(
+        game_logic.dragon_tank_residual_fires > before,
+        "authored DragonTankFlameWeapon hit takes the flame residual route regardless of chassis name"
+    );
+}

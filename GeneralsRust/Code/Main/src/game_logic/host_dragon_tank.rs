@@ -193,10 +193,6 @@ pub fn dragon_flame_flight_frames(distance: f32) -> u32 {
     (distance / step).ceil() as u32
 }
 
-pub fn should_apply_dragon_flame_residual(is_dragon: bool) -> bool {
-    is_dragon
-}
-
 /// Whether BlackNapalm upgrade is active on residual unit (tag present).
 pub fn has_black_napalm_upgrade(applied_upgrades: &std::collections::HashSet<String>) -> bool {
     applied_upgrades.iter().any(|u| {
@@ -457,8 +453,6 @@ mod tests {
         assert_eq!(DRAGON_FLAME_MISSILE_FUEL_FRAMES, 11);
         assert_eq!(DRAGON_FLAME_MISSILE_FUEL_MS, 350);
         assert!(dragon_flame_flight_frames(75.0) >= 1);
-        assert!(should_apply_dragon_flame_residual(true));
-        assert!(!should_apply_dragon_flame_residual(false));
     }
 
     #[test]

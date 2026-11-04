@@ -1403,18 +1403,18 @@ impl GameLogic {
                     );
                     // DEPLOY residual deals no meaningful HP damage (PrimaryDamage ~0).
                 } else if {
-                    // China Dragon Tank residual: DragonTankFlameProjectile flight + dual-radius splash.
+                    // Dragon flame residual: DragonTankFlameProjectile flight + dual-radius
+                    // splash, keyed on the fired authored weapon (C++ Weapon::fireWeapon uses
+                    // the WeaponTemplate; no chassis-name gate).
                     use crate::game_logic::host_dragon_tank::{
-                        is_dragon_tank_template, should_apply_dragon_flame_residual,
+                        DRAGON_TANK_FLAME_WEAPON, DRAGON_TANK_FLAME_WEAPON_UPGRADED,
                     };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_dragon_flame_residual(is_dragon_tank_template(
-                                &a.template_name,
-                            ))
+                    self.objects.get(&attacker_id).is_some_and(|a| {
+                        a.weapon_name_for_slot(slot).is_some_and(|w| {
+                            w.eq_ignore_ascii_case(DRAGON_TANK_FLAME_WEAPON)
+                                || w.eq_ignore_ascii_case(DRAGON_TANK_FLAME_WEAPON_UPGRADED)
                         })
-                        .unwrap_or(false)
+                    })
                 } {
                     let impact = target_position;
                     let from = self
