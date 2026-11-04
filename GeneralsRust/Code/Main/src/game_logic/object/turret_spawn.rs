@@ -282,10 +282,6 @@ fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
         STRATEGY_CENTER_TURRET_TURN_RATE_DEG_PER_SEC, is_strategy_center_template,
     };
     use crate::game_logic::host_technical::{TECHNICAL_TURRET_TURN_RATE, is_technical_template};
-    use crate::game_logic::host_tomahawk::{
-        TOMAHAWK_FIRE_PITCH, TOMAHAWK_TURRET_PITCH_RATE, TOMAHAWK_TURRET_TURN_RATE,
-        is_tomahawk_template,
-    };
     use crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_TURRET_TURN_RATE;
     use crate::game_logic::host_usa_tanks::USA_TANK_TURRET_TURN_RATE;
 
@@ -309,17 +305,8 @@ fn turret_spawn_from_name_honesty(template_name: &str) -> TurretSpawnSpec {
         return spec;
     }
 
-    if is_tomahawk_template(template_name) {
-        let mut spec = TurretSpawnSpec::enabled_with_turn_rate(TOMAHAWK_TURRET_TURN_RATE);
-        spec.pitch_rate_rad = turret_deg_per_sec_to_rad_per_frame(TOMAHAWK_TURRET_PITCH_RATE);
-        spec.allows_pitch = true;
-        spec.fire_pitch_rad = TOMAHAWK_FIRE_PITCH.to_radians();
-        spec.min_idle_scan_angle_rad = 0.0;
-        spec.max_idle_scan_angle_rad = 45.0_f32.to_radians();
-        spec.min_idle_scan_interval = 15;
-        spec.max_idle_scan_interval = 30;
-        return spec;
-    }
+    // Tomahawk turret comes from the authored AIUpdate Turret block
+    // (hq-2qedt.120); no name peel here.
 
     if is_humvee_template(template_name) {
         let mut spec = TurretSpawnSpec::enabled_with_turn_rate(HUMVEE_TURRET_TURN_RATE);
@@ -580,5 +567,12 @@ mod tests {
         only_alt.set_turret_secondary(TurretAIData::default());
         assert!(alt_turret_spawn_from_ai(&only_alt).is_none());
     }
-}
 
+    /// hq-2qedt.120: C++ TurretAI facts come from the authored AIUpdate
+    /// Turret block (AIUpdate.cpp parse), never a template-name table. The
+    /// name-honesty table must not invent a Tomahawk turret.
+    #[test]
+    fn tomahawk_name_does_not_invent_turret_spawn() {
+        assert!(!turret_spawn_for_template("AmericaVehicleTomahawk").has_turret);
+    }
+}
