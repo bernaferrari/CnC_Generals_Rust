@@ -1133,10 +1133,7 @@ impl GameLogic {
         recipients: UpgradeRecipients,
         upgrade_name: &str,
     ) -> u32 {
-        use crate::game_logic::host_base_defense::is_gattling_cannon_structure;
-        use crate::game_logic::host_gattling_tank::{
-            UPGRADE_CHINA_CHAIN_GUNS, is_gattling_tank_template,
-        };
+        use crate::game_logic::host_gattling_tank::UPGRADE_CHINA_CHAIN_GUNS;
         use crate::game_logic::host_minigunner::is_minigunner_template;
 
         let ids: Vec<(ObjectId, u8)> = self
@@ -1146,9 +1143,7 @@ impl GameLogic {
             .filter_map(|(id, o)| {
                 if is_minigunner_template(&o.template_name) {
                     Some((*id, 0u8))
-                } else if is_gattling_tank_template(&o.template_name)
-                    || is_gattling_cannon_structure(&o.template_name)
-                {
+                } else if Self::gattling_chain_guns_lane(o).is_some() {
                     Some((*id, 1))
                 } else {
                     None

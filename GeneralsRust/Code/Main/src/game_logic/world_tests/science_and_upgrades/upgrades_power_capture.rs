@@ -269,7 +269,9 @@ fn host_upgrade_complete_chain_guns_includes_gattling_tank() {
         .players
         .insert(0, Player::new(0, Team::China, "China", true));
     let mut g = ThingTemplate::new("ChinaTankGattling");
-    g.add_kind_of(KindOf::Vehicle).set_health(300.0);
+    g.add_kind_of(KindOf::Vehicle)
+        .set_health(300.0)
+        .set_primary_weapon_name(crate::game_logic::host_gattling_tank::GATTLING_TANK_GUN);
     logic.templates.insert("ChinaTankGattling".into(), g);
     let id = logic
         .create_object(
@@ -3065,4 +3067,63 @@ fn player_grant_science_script_readies_shared_special_power() {
         p.is_shared_special_power_ready(&SpecialPowerType::Airstrike),
         "script purchase must express sharedNSync ready-now"
     );
+}
+
+#[test]
+fn chain_guns_upgrade_keys_on_authored_gattling_weapon_not_chassis_name_hq_2qedt_241() {
+    use crate::game_logic::host_base_defense::is_gattling_cannon_structure;
+    use crate::game_logic::host_gattling_tank::{
+        GATTLING_TANK_GUN, UPGRADE_CHINA_CHAIN_GUNS, is_gattling_tank_template,
+    };
+    use crate::game_logic::host_overlord_addons::GATTLING_BUILDING_GUN;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+
+    ensure_host_weapon_store();
+    for (carrier_name, weapon, kind) in [
+        ("AuthoredChainGunTankCarrier", GATTLING_TANK_GUN, KindOf::Vehicle),
+        ("AuthoredChainGunBuildingCarrier", GATTLING_BUILDING_GUN, KindOf::Structure),
+    ] {
+        let mut logic = GameLogic::new();
+        logic
+            .players
+            .insert(0, Player::new(0, Team::China, "China", true));
+        let mut t = ThingTemplate::new(carrier_name);
+        t.add_kind_of(kind)
+            .set_health(300.0)
+            .set_primary_weapon_name(weapon);
+        assert!(!is_gattling_tank_template(&t.name));
+        assert!(!is_gattling_cannon_structure(&t.name));
+        logic.templates.insert(carrier_name.into(), t);
+        let id = logic
+            .create_object(carrier_name, Team::China, glam::Vec3::ZERO)
+            .expect("carrier");
+        let n = logic.apply_chain_guns_to_team(Team::China.into(), UPGRADE_CHINA_CHAIN_GUNS);
+        assert_eq!(n, 1, "authored {weapon} carrier receives Chain Guns");
+        assert!(logic.host_object(id).unwrap().has_upgrade_tag(UPGRADE_CHINA_CHAIN_GUNS));
+        let (tank, bldg) = (
+            logic.gattling_tank_residual_chain_gun_upgrades,
+            logic.gattling_building_residual_chain_gun_upgrades,
+        );
+        if weapon == GATTLING_TANK_GUN {
+            assert_eq!((tank, bldg), (1, 0));
+        } else {
+            assert_eq!((tank, bldg), (0, 1));
+        }
+    }
+
+    // Chassis name alone, with a non-Gattling authored weapon, no longer qualifies.
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::China, "China", true));
+    let mut t = ThingTemplate::new("ChinaTankGattling");
+    t.add_kind_of(KindOf::Vehicle)
+        .set_health(300.0)
+        .set_primary_weapon_name("DragonTankFlameWeapon");
+    logic.templates.insert("ChinaTankGattling".into(), t);
+    let id = logic
+        .create_object("ChinaTankGattling", Team::China, glam::Vec3::ZERO)
+        .expect("chassis");
+    assert!(!logic.apply_gattling_chain_guns_upgrade(id));
 }

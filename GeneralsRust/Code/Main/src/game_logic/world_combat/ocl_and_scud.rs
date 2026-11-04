@@ -2586,25 +2586,39 @@ impl GameLogic {
         true
     }
 
+    /// Authored-weapon lane for Chain Guns: `Some(true)` for `GattlingTankGun`,
+    /// `Some(false)` for `GattlingBuildingGun`, `None` otherwise.
+    pub(in super::super) fn gattling_chain_guns_lane(obj: &Object) -> Option<bool> {
+        use crate::game_logic::host_gattling_tank::GATTLING_TANK_GUN;
+        use crate::game_logic::host_overlord_addons::GATTLING_BUILDING_GUN;
+        let w = obj.authored_weapon_name_for_slot(0)?;
+        if w.eq_ignore_ascii_case(GATTLING_TANK_GUN) {
+            Some(true)
+        } else if w.eq_ignore_ascii_case(GATTLING_BUILDING_GUN) {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
     /// Apply Chain Guns residual to a Gattling Tank or Gattling Cannon structure
     /// (PLAYER_UPGRADE damage residual × 1.25).
     pub fn apply_gattling_chain_guns_upgrade(&mut self, object_id: ObjectId) -> bool {
         use crate::game_logic::host_base_defense::{
             gattling_building_air_weapon, gattling_building_ground_weapon,
-            is_gattling_cannon_structure,
         };
         use crate::game_logic::host_gattling_tank::{
             GattlingFireLevel, UPGRADE_CHINA_CHAIN_GUNS, gattling_air_weapon,
-            gattling_ground_weapon, is_gattling_tank_template,
+            gattling_ground_weapon,
         };
         let Some(obj) = self.objects.get_mut(&object_id) else {
             return false;
         };
-        let is_tank = is_gattling_tank_template(&obj.template_name);
-        let is_building = is_gattling_cannon_structure(&obj.template_name);
-        if !is_tank && !is_building {
+        // Chain Guns is a WeaponBonusUpgrade on the authored Gattling weapon,
+        // not a chassis-name special case.
+        let Some(is_tank) = Self::gattling_chain_guns_lane(obj) else {
             return false;
-        }
+        };
         obj.applied_upgrades
             .insert(UPGRADE_CHINA_CHAIN_GUNS.to_string());
         let level = GattlingFireLevel::from_u8(obj.continuous_fire_level);
