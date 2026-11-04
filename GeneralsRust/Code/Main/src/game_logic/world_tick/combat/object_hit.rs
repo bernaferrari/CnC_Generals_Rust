@@ -1495,20 +1495,24 @@ impl GameLogic {
                     false
                 } {
                     let _ = slot;
-                } else if {
-                    // GLA Combat Cycle residual: rider weapon fire / suicide residual.
+                } else if self.objects.get(&attacker_id).is_some_and(|a| {
+                    // GLA Combat Cycle residual keyed on the authored rider weapon,
+                    // not the template name (hq-2qedt.177).
                     use crate::game_logic::host_combat_cycle::{
-                        is_combat_cycle_template, should_apply_combat_cycle_residual,
+                        BIKER_KELL_SNIPER, REBEL_BIKER_MG, SUICIDE_BIKE_BOMB,
+                        TERRORIST_SUICIDE_WEAPON, TUNNEL_DEFENDER_BIKER_ROCKET,
                     };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_combat_cycle_residual(is_combat_cycle_template(
-                                &a.template_name,
-                            ))
-                        })
-                        .unwrap_or(false)
-                } {
+                    matches!(
+                        a.selected_weapon_name(slot),
+                        Some(
+                            REBEL_BIKER_MG
+                                | TUNNEL_DEFENDER_BIKER_ROCKET
+                                | BIKER_KELL_SNIPER
+                                | TERRORIST_SUICIDE_WEAPON
+                                | SUICIDE_BIKE_BOMB
+                        )
+                    )
+                }) {
                     let impact = target_position;
                     let (hits, _destroyed_any) = self.apply_combat_cycle_residual_at_with_effects(
                         impact,
