@@ -132,7 +132,9 @@ impl BorrowedAiWorld<'_> {
             return Ok(damage.output.actual_damage_dealt);
         }
         // Neither the Object nor its Body is borrowed across callbacks.
-        if outcome.damaged {
+        // CPP ActiveBody.cpp:573-583: setAttackedBy runs for any amount > 0,
+        // before the m_currentHealth < m_prevHealth onDamage gate.
+        if outcome.applied {
             if let (Some(victim), Some(source)) = (&controller, self.object(outcome.last_source)) {
                 let source_controller = {
                     let source = source
@@ -151,6 +153,8 @@ impl BorrowedAiWorld<'_> {
                         .set_attacked_by_at(index as Int, self.services.frame);
                 }
             }
+        }
+        if outcome.damaged {
             for (handle, proxy) in auto_heals.into_iter().zip(proxies) {
                 let wake = handle.with_module(|module| {
                     module

@@ -425,3 +425,33 @@ fn attacked_by_same_id_two_worlds_records_only_receiving_player_in_delivery_orde
     assert_eq!(attacked_state(&game, 1, 0), (true, 47));
     });
 }
+
+#[test]
+fn attacked_by_restamps_on_positive_damage_without_health_drop() {
+    // CPP ActiveBody.cpp:497-583: inside `amount > 0 || m_kill`, setAttackedBy runs
+    // from m_lastDamageInfo before the `m_currentHealth < m_prevHealth` onDamage gate.
+    // A sub-ulp Real amount (90.0f - 1e-6f == 90.0f) is amount>0 with no HP drop.
+    let services = crate::system::engine_stores::new_world_services();
+    crate::system::engine_stores::with_world_services(&services, || {
+        let mut game = super::lethal_damage::native_world_with_templates(
+            damage_actor(false),
+            damage_actor(false),
+        );
+        let source = game.source.read().unwrap().get_id();
+        let target = Arc::clone(&game.target);
+        game.operate(40, |world| {
+            world.attempt_damage_owned(&target, &mut hit(source, 10.0)).unwrap()
+        });
+        assert_eq!(health(&target), 90.0);
+        assert_eq!(attacked_state(&game, 1, 0), (true, 40));
+        game.operate(47, |world| {
+            world.attempt_damage_owned(&target, &mut hit(source, 1.0e-6)).unwrap()
+        });
+        assert_eq!(health(&target), 90.0, "sub-ulp damage: no HP drop");
+        assert_eq!(
+            attacked_state(&game, 1, 0),
+            (true, 47),
+            "positive damage restamps attacked frame even without HP drop"
+        );
+    });
+}
