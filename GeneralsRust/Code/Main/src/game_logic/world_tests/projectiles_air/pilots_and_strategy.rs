@@ -1218,15 +1218,15 @@ fn strategy_center_turret_idle_scan_residual() {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(sc.weapon.is_some(), "Bombardment ACTIVE equips gun");
         assert!(
-            turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
+            turret_angles_are_natural(sc.turret_ai.turret_angle_deg, sc.turret_ai.turret_pitch_deg),
             "idle scan residual starts at natural angles"
         );
         // BecameActive schedules next = frame + MinIdleScanInterval (15).
         assert!(
-            sc.turret_idle_scan_next_frame > 0,
+            sc.turret_ai.turret_idle_scan_next_frame > 0,
             "first idle-scan residual must be scheduled"
         );
-        assert!(!sc.turret_idle_scanning);
+        assert!(!sc.turret_ai.turret_idle_scanning);
         let _ = STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES;
     }
 
@@ -1240,11 +1240,11 @@ fn strategy_center_turret_idle_scan_residual() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
-        sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
-        sc.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
-        sc.turret_idle_scan_next_frame = due_frame;
-        sc.turret_idle_scan_index = 0;
-        sc.turret_idle_scanning = false;
+        sc.turret_ai.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
+        sc.turret_ai.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
+        sc.turret_ai.turret_idle_scan_next_frame = due_frame;
+        sc.turret_ai.turret_idle_scan_index = 0;
+        sc.turret_ai.turret_idle_scanning = false;
     }
 
     // Observe the actual admitted scan; CPP permits even zero/short offsets.
@@ -1258,22 +1258,22 @@ fn strategy_center_turret_idle_scan_residual() {
     assert_eq!(game_logic.battle_plans().turret_idle_scan_start_count(), 1);
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
-        let desired = sc.turret_idle_scan_desired_angle_deg;
+        let desired = sc.turret_ai.turret_idle_scan_desired_angle_deg;
         let natural = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
         assert!(desired.is_finite());
         assert!((desired - natural).abs() <= STRATEGY_CENTER_MAX_IDLE_SCAN_ANGLE_DEG);
         let rate = STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME;
         let stepped = natural + (desired - natural).clamp(-rate, rate);
         assert!(
-            (sc.turret_angle_deg - stepped).abs() < 0.01,
+            (sc.turret_ai.turret_angle_deg - stepped).abs() < 0.01,
             "scan admission must step toward its actual selected goal"
         );
         assert_eq!(
-            sc.turret_pitch_deg,
+            sc.turret_ai.turret_pitch_deg,
             STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG
         );
         assert!(
-            sc.turret_idle_scanning || sc.turret_holding,
+            sc.turret_ai.turret_idle_scanning || sc.turret_ai.turret_holding,
             "short aligned scans may enter HOLD immediately"
         );
     }
@@ -1284,12 +1284,12 @@ fn strategy_center_turret_idle_scan_residual() {
     let desired = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG + 30.0;
     {
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
-        sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
-        sc.turret_idle_scan_desired_angle_deg = desired;
-        sc.turret_idle_scanning = true;
-        sc.turret_holding = false;
-        sc.turret_hold_until_frame = 0;
-        sc.turret_idle_scan_next_frame = 0;
+        sc.turret_ai.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
+        sc.turret_ai.turret_idle_scan_desired_angle_deg = desired;
+        sc.turret_ai.turret_idle_scanning = true;
+        sc.turret_ai.turret_holding = false;
+        sc.turret_ai.turret_hold_until_frame = 0;
+        sc.turret_ai.turret_idle_scan_next_frame = 0;
     }
     game_logic.frame = game_logic.frame.wrapping_add(1);
     game_logic
@@ -1298,7 +1298,7 @@ fn strategy_center_turret_idle_scan_residual() {
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
-            (sc.turret_angle_deg
+            (sc.turret_ai.turret_angle_deg
                 - (STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG
                     + STRATEGY_CENTER_TURRET_TURN_DEG_PER_FRAME))
                 .abs()
@@ -1306,10 +1306,10 @@ fn strategy_center_turret_idle_scan_residual() {
             "idle-scan body must step toward desired angle"
         );
         assert!(
-            !turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
+            !turret_angles_are_natural(sc.turret_ai.turret_angle_deg, sc.turret_ai.turret_pitch_deg),
             "idle-scan leaves natural"
         );
-        assert!(sc.turret_idle_scanning, "must be mid idle-scan body");
+        assert!(sc.turret_ai.turret_idle_scanning, "must be mid idle-scan body");
     }
 
     // Advance enough frames for remaining offset at 2 deg/frame.
@@ -1319,7 +1319,7 @@ fn strategy_center_turret_idle_scan_residual() {
             .tick_battle_plan_door_residuals()
             .expect("valid battle-plan test state");
         let sc = game_logic.host_object(sc_id).unwrap();
-        if !sc.turret_idle_scanning
+        if !sc.turret_ai.turret_idle_scanning
             && game_logic.battle_plans().turret_idle_scan_complete_count() > 0
         {
             break;
@@ -1332,22 +1332,22 @@ fn strategy_center_turret_idle_scan_residual() {
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
-            !sc.turret_idle_scanning,
+            !sc.turret_ai.turret_idle_scanning,
             "scan complete residual clears scanning flag"
         );
         // C++ IDLESCAN → HOLD: enter HoldTurret residual (no next-scan yet).
         assert!(
-            sc.turret_holding,
+            sc.turret_ai.turret_holding,
             "scan complete residual must enter HoldTurret"
         );
         assert_eq!(
-            sc.turret_idle_scan_next_frame, 0,
+            sc.turret_ai.turret_idle_scan_next_frame, 0,
             "Hold residual defers next idle-scan schedule"
         );
         assert!(
-            (sc.turret_angle_deg - desired).abs() < 0.5,
+            (sc.turret_ai.turret_angle_deg - desired).abs() < 0.5,
             "angles at desired after complete residual, angle={} desired={}",
-            sc.turret_angle_deg,
+            sc.turret_ai.turret_angle_deg,
             desired
         );
     }
@@ -1359,9 +1359,9 @@ fn strategy_center_turret_idle_scan_residual() {
     // Busy residual: attacking cancels mid-scan / hold.
     {
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
-        sc.turret_idle_scanning = true;
-        sc.turret_holding = false;
-        sc.turret_idle_scan_desired_angle_deg = desired;
+        sc.turret_ai.turret_idle_scanning = true;
+        sc.turret_ai.turret_holding = false;
+        sc.turret_ai.turret_idle_scan_desired_angle_deg = desired;
         sc.set_status_attacking(true);
         sc.set_ai_state(
             AIState::Attacking,
@@ -1375,11 +1375,11 @@ fn strategy_center_turret_idle_scan_residual() {
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
-            !sc.turret_idle_scanning,
+            !sc.turret_ai.turret_idle_scanning,
             "busy residual must cancel idle-scan"
         );
         assert!(
-            !sc.turret_holding && !sc.turret_idle_recentering,
+            !sc.turret_ai.turret_holding && !sc.turret_ai.turret_idle_recentering,
             "busy residual must cancel hold / idle-recenter"
         );
     }
@@ -1428,30 +1428,30 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
-        sc.turret_angle_deg = desired;
-        sc.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
-        sc.turret_idle_scanning = true;
-        sc.turret_idle_scan_desired_angle_deg = desired;
-        sc.turret_idle_scan_index = 0;
-        sc.turret_holding = false;
-        sc.turret_idle_recentering = false;
-        sc.turret_hold_until_frame = 0;
-        sc.turret_idle_scan_next_frame = 0;
+        sc.turret_ai.turret_angle_deg = desired;
+        sc.turret_ai.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
+        sc.turret_ai.turret_idle_scanning = true;
+        sc.turret_ai.turret_idle_scan_desired_angle_deg = desired;
+        sc.turret_ai.turret_idle_scan_index = 0;
+        sc.turret_ai.turret_holding = false;
+        sc.turret_ai.turret_idle_recentering = false;
+        sc.turret_ai.turret_hold_until_frame = 0;
+        sc.turret_ai.turret_idle_scan_next_frame = 0;
     }
     game_logic
         .tick_battle_plan_door_residuals()
         .expect("valid battle-plan test state");
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
-        assert!(sc.turret_holding, "scan complete → HoldTurret residual");
-        assert!(!sc.turret_idle_scanning);
+        assert!(sc.turret_ai.turret_holding, "scan complete → HoldTurret residual");
+        assert!(!sc.turret_ai.turret_idle_scanning);
         assert_eq!(
-            sc.turret_hold_until_frame,
+            sc.turret_ai.turret_hold_until_frame,
             hold_turret_until_frame(hold_start)
         );
         assert_eq!(STRATEGY_CENTER_RECENTER_TIME_FRAMES, 60);
         // Angles frozen at desired during hold.
-        assert!((sc.turret_angle_deg - desired).abs() < 0.5);
+        assert!((sc.turret_ai.turret_angle_deg - desired).abs() < 0.5);
     }
     assert!(game_logic.honesty_strategy_center_turret_hold_ok());
     assert_eq!(game_logic.battle_plans().turret_hold_start_count(), 1);
@@ -1463,9 +1463,9 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
         .expect("valid battle-plan test state");
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
-        assert!(sc.turret_holding, "must still be holding mid RecenterTime");
-        assert!(!sc.turret_idle_recentering);
-        assert!((sc.turret_angle_deg - desired).abs() < 0.5);
+        assert!(sc.turret_ai.turret_holding, "must still be holding mid RecenterTime");
+        assert!(!sc.turret_ai.turret_idle_recentering);
+        assert!((sc.turret_ai.turret_angle_deg - desired).abs() < 0.5);
     }
 
     // Hold elapses → idle-recenter residual starts toward natural.
@@ -1479,20 +1479,20 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
     );
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
-        assert!(!sc.turret_holding, "hold complete clears holding");
+        assert!(!sc.turret_ai.turret_holding, "hold complete clears holding");
         // Either mid idle-recenter or already finished (if already natural).
         assert!(
-            sc.turret_idle_recentering
-                || turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
+            sc.turret_ai.turret_idle_recentering
+                || turret_angles_are_natural(sc.turret_ai.turret_angle_deg, sc.turret_ai.turret_pitch_deg),
             "after hold must idle-recenter or already natural"
         );
         // First step toward natural: from desired (-60) toward -90 → -62.
-        if sc.turret_idle_recentering {
+        if sc.turret_ai.turret_idle_recentering {
             assert!(
-                (sc.turret_angle_deg - desired).abs() > 0.5
-                    || (sc.turret_angle_deg - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs() < 0.5,
+                (sc.turret_ai.turret_angle_deg - desired).abs() > 0.5
+                    || (sc.turret_ai.turret_angle_deg - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs() < 0.5,
                 "idle-recenter residual must step toward natural, got {}",
-                sc.turret_angle_deg
+                sc.turret_ai.turret_angle_deg
             );
         }
     }
@@ -1509,8 +1509,8 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
             .tick_battle_plan_door_residuals()
             .expect("valid battle-plan test state");
         let sc = game_logic.host_object(sc_id).unwrap();
-        if !sc.turret_idle_recentering
-            && turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg)
+        if !sc.turret_ai.turret_idle_recentering
+            && turret_angles_are_natural(sc.turret_ai.turret_angle_deg, sc.turret_ai.turret_pitch_deg)
         {
             break;
         }
@@ -1518,24 +1518,24 @@ fn strategy_center_turret_hold_and_idle_recenter_residual() {
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
-            turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
+            turret_angles_are_natural(sc.turret_ai.turret_angle_deg, sc.turret_ai.turret_pitch_deg),
             "idle-recenter residual must restore natural angles, a={} p={}",
-            sc.turret_angle_deg,
-            sc.turret_pitch_deg
+            sc.turret_ai.turret_angle_deg,
+            sc.turret_ai.turret_pitch_deg
         );
-        assert!(!sc.turret_idle_recentering);
+        assert!(!sc.turret_ai.turret_idle_recentering);
         // Next idle-scan scheduled via leftover GameLogicRandomValue(min, max).
         assert!(
-            sc.turret_idle_scan_next_frame
+            sc.turret_ai.turret_idle_scan_next_frame
                 >= game_logic
                     .frame
                     .saturating_add(STRATEGY_CENTER_MIN_IDLE_SCAN_INTERVAL_FRAMES)
-                && sc.turret_idle_scan_next_frame
+                && sc.turret_ai.turret_idle_scan_next_frame
                     <= game_logic
                         .frame
                         .saturating_add(STRATEGY_CENTER_MAX_IDLE_SCAN_INTERVAL_FRAMES),
             "idle-recenter complete must reschedule next idle scan, next={} frame={}",
-            sc.turret_idle_scan_next_frame,
+            sc.turret_ai.turret_idle_scan_next_frame,
             game_logic.frame
         );
     }
@@ -1594,12 +1594,12 @@ fn strategy_center_turret_mood_target_residual() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
-        sc.turret_mood_target = false;
-        sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
-        sc.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
-        sc.turret_idle_scanning = false;
-        sc.turret_holding = false;
-        sc.turret_idle_recentering = false;
+        sc.turret_ai.turret_mood_target = false;
+        sc.turret_ai.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
+        sc.turret_ai.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
+        sc.turret_ai.turret_idle_scanning = false;
+        sc.turret_ai.turret_holding = false;
+        sc.turret_ai.turret_idle_recentering = false;
     }
     let frame = game_logic.frame;
     let _ = game_logic.tick_turret_state_machine(sc_id, frame as f32 * LOGIC_FRAME_TIMESTEP, frame);
@@ -1609,29 +1609,29 @@ fn strategy_center_turret_mood_target_residual() {
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
-            sc.turret_mood_target,
+            sc.turret_ai.turret_mood_target,
             "idle mood-target residual must flag m_targetWasSetByIdleMood"
         );
         {
             assert_eq!(sc.target, Some(enemy_id));
         }
         assert!(
-            (sc.turret_pitch_deg - STRATEGY_CENTER_FIRE_PITCH_DEG).abs() < 0.01,
+            (sc.turret_ai.turret_pitch_deg - STRATEGY_CENTER_FIRE_PITCH_DEG).abs() < 0.01,
             "mood-target residual aims FirePitch, got {}",
-            sc.turret_pitch_deg
+            sc.turret_ai.turret_pitch_deg
         );
         // C++ acquisition only installs the goal. The next turret AIM update
         // owns rotation; an acquisition must not snap to a target angle.
-        assert_eq!(sc.turret_target_id, Some(enemy_id));
+        assert_eq!(sc.turret_ai.turret_target_id, Some(enemy_id));
         assert_eq!(
-            sc.turret_substate,
+            sc.turret_ai.turret_substate,
             crate::game_logic::object::TurretSubState::Aim
         );
         assert_eq!(
-            sc.turret_angle_deg,
+            sc.turret_ai.turret_angle_deg,
             STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG
         );
-        assert!(!sc.turret_idle_scanning);
+        assert!(!sc.turret_ai.turret_idle_scanning);
     }
     assert!(
         game_logic.honesty_strategy_center_turret_mood_target_ok(),
@@ -1660,11 +1660,11 @@ fn strategy_center_turret_mood_target_residual() {
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
-            !sc.turret_mood_target,
+            !sc.turret_ai.turret_mood_target,
             "out-of-range residual must clear mood target"
         );
         assert!(sc.target.is_none());
-        assert!(sc.turret_target_id.is_none());
+        assert!(sc.turret_ai.turret_target_id.is_none());
     }
     assert!(
         game_logic.battle_plans().turret_mood_target_clear_count() >= 1,

@@ -139,9 +139,9 @@ fn primary_turret_spawn_does_not_take_alternate_turret_fields() {
     assert_eq!(a, b);
     for (world, id, angle) in [(&first, a, -25.0), (&peer, b, 10.0)] {
         let object = world.host_object(id).unwrap();
-        assert!((object.turret_natural_angle_deg - angle).abs() < 1e-5);
-        assert!((object.turret_turn_rate_rad - 30.0_f32.to_radians() / 30.0).abs() < 1e-6);
-        assert!(!object.turret_enabled);
+        assert!((object.turret_ai.turret_natural_angle_deg - angle).abs() < 1e-5);
+        assert!((object.turret_ai.turret_turn_rate_rad - 30.0_f32.to_radians() / 30.0).abs() < 1e-6);
+        assert!(!object.turret_ai.turret_enabled);
         assert!(object.is_weapon_slot_on_turret(0));
     }
     let snapshot = SnapshotBuilder::new()
@@ -152,8 +152,8 @@ fn primary_turret_spawn_does_not_take_alternate_turret_fields() {
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
     let object = restored.host_object(a).unwrap();
-    assert!((object.turret_natural_angle_deg + 25.0).abs() < 1e-5);
-    assert!(!object.turret_enabled);
+    assert!((object.turret_ai.turret_natural_angle_deg + 25.0).abs() < 1e-5);
+    assert!(!object.turret_ai.turret_enabled);
     assert!(object.is_weapon_slot_on_turret(0));
 }
 
@@ -169,7 +169,7 @@ fn disabled_turret_retains_receiving_controlled_slots_independent_of_peer() {
     let c = none.create_object(TEMPLATE, Team::USA, Vec3::ZERO).unwrap();
     assert_eq!((a, a), (b, c));
     let object = first.host_object(a).unwrap();
-    assert!(!object.turret_enabled);
+    assert!(!object.turret_ai.turret_enabled);
     assert!(!object.is_weapon_slot_on_turret(0));
     assert!(object.is_weapon_slot_on_turret(1));
     assert!(!object.is_weapon_slot_on_turret(2));
@@ -187,7 +187,7 @@ fn disabled_turret_retains_receiving_controlled_slots_independent_of_peer() {
         .restore_from_snapshot(&snapshot, &mut restored)
         .unwrap();
     let object = restored.host_object(a).unwrap();
-    assert!(!object.turret_enabled);
+    assert!(!object.turret_ai.turret_enabled);
     assert!(object.is_weapon_slot_on_turret(1));
     assert!(!object.is_weapon_slot_on_turret(0));
 
@@ -270,18 +270,18 @@ fn assert_spawn(
 ) {
     let object = world.host_object(id).expect("created object");
     if let Some((turn_rate, angle, pitch)) = expected {
-        assert!(object.turret_enabled);
-        assert!((object.turret_turn_rate_rad - turn_rate.to_radians() / 30.0).abs() < 1e-6);
-        assert!((object.turret_natural_angle_deg - angle).abs() < 1e-5);
-        assert!((object.turret_natural_pitch_deg - pitch).abs() < 1e-5);
-        assert!((object.turret_angle_deg - angle).abs() < 1e-5);
-        assert!((object.turret_pitch_deg - pitch).abs() < 1e-5);
+        assert!(object.turret_ai.turret_enabled);
+        assert!((object.turret_ai.turret_turn_rate_rad - turn_rate.to_radians() / 30.0).abs() < 1e-6);
+        assert!((object.turret_ai.turret_natural_angle_deg - angle).abs() < 1e-5);
+        assert!((object.turret_ai.turret_natural_pitch_deg - pitch).abs() < 1e-5);
+        assert!((object.turret_ai.turret_angle_deg - angle).abs() < 1e-5);
+        assert!((object.turret_ai.turret_pitch_deg - pitch).abs() < 1e-5);
     } else {
         // An admitted definition without AIUpdate/TurretAI is authoritative;
         // the Crusader name must not activate the compatibility name heuristic.
-        assert!(!object.turret_enabled);
-        assert_eq!(object.turret_natural_angle_deg, 0.0);
-        assert_eq!(object.turret_natural_pitch_deg, 0.0);
+        assert!(!object.turret_ai.turret_enabled);
+        assert_eq!(object.turret_ai.turret_natural_angle_deg, 0.0);
+        assert_eq!(object.turret_ai.turret_natural_pitch_deg, 0.0);
     }
 }
 
@@ -310,16 +310,16 @@ fn admitted_turret_spawn_facts_are_isolated_and_rebuilt_after_snapshot_load() {
     // A non-natural barrel pose is instance state; rates and natural pose are
     // definition state. Restore into the peer's same-name but different INI to
     // check both channels are sourced from the proper owner.
-    owner.host_object_mut(owner_id).unwrap().turret_angle_deg = -5.0;
+    owner.host_object_mut(owner_id).unwrap().turret_ai.turret_angle_deg = -5.0;
     let snapshot = builder.create_world_snapshot(&owner).expect("snapshot");
     let mut restored = world(Some((120, 60, 75, -12)));
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("restore against receiving Object INI");
     let loaded = restored.host_object(owner_id).expect("restored object");
-    assert!((loaded.turret_turn_rate_rad - 120.0_f32.to_radians() / 30.0).abs() < 1e-6);
-    assert!((loaded.turret_natural_angle_deg - 75.0).abs() < 1e-5);
-    assert!((loaded.turret_natural_pitch_deg + 12.0).abs() < 1e-5);
-    assert!((loaded.turret_angle_deg + 5.0).abs() < 1e-5);
+    assert!((loaded.turret_ai.turret_turn_rate_rad - 120.0_f32.to_radians() / 30.0).abs() < 1e-6);
+    assert!((loaded.turret_ai.turret_natural_angle_deg - 75.0).abs() < 1e-5);
+    assert!((loaded.turret_ai.turret_natural_pitch_deg + 12.0).abs() < 1e-5);
+    assert!((loaded.turret_ai.turret_angle_deg + 5.0).abs() < 1e-5);
     assert_spawn(&peer, peer_id, Some((120.0, 75.0, -12.0)));
 }

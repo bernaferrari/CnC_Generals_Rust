@@ -104,39 +104,39 @@ fn capture(game_logic: &GameLogic) -> TurretAimPersistPayload {
         }
         objects.push(TurretAimPersist {
             object_id: id.0,
-            turret_angle_deg: object.turret_angle_deg,
-            turret_pitch_deg: object.turret_pitch_deg,
-            turret_idle_scan_next_frame: object.turret_idle_scan_next_frame,
-            turret_idle_scanning: object.turret_idle_scanning,
-            turret_idle_scan_desired_angle_deg: object.turret_idle_scan_desired_angle_deg,
-            turret_idle_scan_index: object.turret_idle_scan_index,
-            turret_holding: object.turret_holding,
-            turret_hold_until_frame: object.turret_hold_until_frame,
-            turret_idle_recentering: object.turret_idle_recentering,
-            turret_mood_target: object.turret_mood_target,
-            turret_target_id: object.turret_target_id.map(|id| id.0),
-            turret_force_attacking: object.turret_force_attacking,
-            turret_enabled: object.turret_enabled,
-            turret_substate: object.turret_substate.ordinal(),
-            turret_rotating: object.turret_rotating,
+            turret_angle_deg: object.turret_ai.turret_angle_deg,
+            turret_pitch_deg: object.turret_ai.turret_pitch_deg,
+            turret_idle_scan_next_frame: object.turret_ai.turret_idle_scan_next_frame,
+            turret_idle_scanning: object.turret_ai.turret_idle_scanning,
+            turret_idle_scan_desired_angle_deg: object.turret_ai.turret_idle_scan_desired_angle_deg,
+            turret_idle_scan_index: object.turret_ai.turret_idle_scan_index,
+            turret_holding: object.turret_ai.turret_holding,
+            turret_hold_until_frame: object.turret_ai.turret_hold_until_frame,
+            turret_idle_recentering: object.turret_ai.turret_idle_recentering,
+            turret_mood_target: object.turret_ai.turret_mood_target,
+            turret_target_id: object.turret_ai.turret_target_id.map(|id| id.0),
+            turret_force_attacking: object.turret_ai.turret_force_attacking,
+            turret_enabled: object.turret_ai.turret_enabled,
+            turret_substate: object.turret_ai.turret_substate.ordinal(),
+            turret_rotating: object.turret_ai.turret_rotating,
         });
     }
     TurretAimPersistPayload { objects }
 }
 
 fn object_has_turret_residual(object: &crate::game_logic::Object) -> bool {
-    object.turret_target_id.is_some()
-        || object.turret_substate != TurretSubState::Idle
-        || object.turret_rotating
-        || object.turret_holding
-        || object.turret_idle_scanning
-        || object.turret_mood_target
-        || object.turret_force_attacking
-        || object.turret_idle_recentering
-        || object.turret_hold_until_frame != 0
-        || object.turret_idle_scan_next_frame != 0
-        || (object.turret_angle_deg - object.turret_natural_angle_deg).abs() > 1e-3
-        || (object.turret_pitch_deg - object.turret_natural_pitch_deg).abs() > 1e-3
+    object.turret_ai.turret_target_id.is_some()
+        || object.turret_ai.turret_substate != TurretSubState::Idle
+        || object.turret_ai.turret_rotating
+        || object.turret_ai.turret_holding
+        || object.turret_ai.turret_idle_scanning
+        || object.turret_ai.turret_mood_target
+        || object.turret_ai.turret_force_attacking
+        || object.turret_ai.turret_idle_recentering
+        || object.turret_ai.turret_hold_until_frame != 0
+        || object.turret_ai.turret_idle_scan_next_frame != 0
+        || (object.turret_ai.turret_angle_deg - object.turret_ai.turret_natural_angle_deg).abs() > 1e-3
+        || (object.turret_ai.turret_pitch_deg - object.turret_ai.turret_natural_pitch_deg).abs() > 1e-3
 }
 
 fn reset_turret_aim(game_logic: &mut GameLogic) {
@@ -151,18 +151,18 @@ fn reset_turret_aim(game_logic: &mut GameLogic) {
         };
         // Keep constructed natural angle/pitch/enabled so old saves without a
         // TRAI suffix do not snap every turret to 0°.
-        object.turret_idle_scan_next_frame = 0;
-        object.turret_idle_scanning = false;
-        object.turret_idle_scan_desired_angle_deg = 0.0;
-        object.turret_idle_scan_index = 0;
-        object.turret_holding = false;
-        object.turret_hold_until_frame = 0;
-        object.turret_idle_recentering = false;
-        object.turret_mood_target = false;
-        object.turret_target_id = None;
-        object.turret_force_attacking = false;
-        object.turret_substate = TurretSubState::Idle;
-        object.turret_rotating = false;
+        object.turret_ai.turret_idle_scan_next_frame = 0;
+        object.turret_ai.turret_idle_scanning = false;
+        object.turret_ai.turret_idle_scan_desired_angle_deg = 0.0;
+        object.turret_ai.turret_idle_scan_index = 0;
+        object.turret_ai.turret_holding = false;
+        object.turret_ai.turret_hold_until_frame = 0;
+        object.turret_ai.turret_idle_recentering = false;
+        object.turret_ai.turret_mood_target = false;
+        object.turret_ai.turret_target_id = None;
+        object.turret_ai.turret_force_attacking = false;
+        object.turret_ai.turret_substate = TurretSubState::Idle;
+        object.turret_ai.turret_rotating = false;
     }
 }
 
@@ -171,21 +171,21 @@ fn apply_payload(game_logic: &mut GameLogic, payload: TurretAimPersistPayload) {
         let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) else {
             continue;
         };
-        object.turret_angle_deg = entry.turret_angle_deg;
-        object.turret_pitch_deg = entry.turret_pitch_deg;
-        object.turret_idle_scan_next_frame = entry.turret_idle_scan_next_frame;
-        object.turret_idle_scanning = entry.turret_idle_scanning;
-        object.turret_idle_scan_desired_angle_deg = entry.turret_idle_scan_desired_angle_deg;
-        object.turret_idle_scan_index = entry.turret_idle_scan_index;
-        object.turret_holding = entry.turret_holding;
-        object.turret_hold_until_frame = entry.turret_hold_until_frame;
-        object.turret_idle_recentering = entry.turret_idle_recentering;
-        object.turret_mood_target = entry.turret_mood_target;
-        object.turret_target_id = entry.turret_target_id.map(ObjectId);
-        object.turret_force_attacking = entry.turret_force_attacking;
-        object.turret_enabled = entry.turret_enabled;
-        object.turret_substate = TurretSubState::from_ordinal(entry.turret_substate);
-        object.turret_rotating = entry.turret_rotating;
+        object.turret_ai.turret_angle_deg = entry.turret_angle_deg;
+        object.turret_ai.turret_pitch_deg = entry.turret_pitch_deg;
+        object.turret_ai.turret_idle_scan_next_frame = entry.turret_idle_scan_next_frame;
+        object.turret_ai.turret_idle_scanning = entry.turret_idle_scanning;
+        object.turret_ai.turret_idle_scan_desired_angle_deg = entry.turret_idle_scan_desired_angle_deg;
+        object.turret_ai.turret_idle_scan_index = entry.turret_idle_scan_index;
+        object.turret_ai.turret_holding = entry.turret_holding;
+        object.turret_ai.turret_hold_until_frame = entry.turret_hold_until_frame;
+        object.turret_ai.turret_idle_recentering = entry.turret_idle_recentering;
+        object.turret_ai.turret_mood_target = entry.turret_mood_target;
+        object.turret_ai.turret_target_id = entry.turret_target_id.map(ObjectId);
+        object.turret_ai.turret_force_attacking = entry.turret_force_attacking;
+        object.turret_ai.turret_enabled = entry.turret_enabled;
+        object.turret_ai.turret_substate = TurretSubState::from_ordinal(entry.turret_substate);
+        object.turret_ai.turret_rotating = entry.turret_rotating;
     }
 }
 
@@ -229,14 +229,14 @@ mod tests {
             .expect("tank");
         {
             let object = source.host_object_mut(id).expect("tank obj");
-            object.turret_enabled = true;
-            object.turret_angle_deg = 45.0;
-            object.turret_pitch_deg = 8.0;
-            object.turret_substate = TurretSubState::Aim;
-            object.turret_target_id = Some(ObjectId(9));
-            object.turret_holding = true;
-            object.turret_hold_until_frame = 240;
-            object.turret_rotating = true;
+            object.turret_ai.turret_enabled = true;
+            object.turret_ai.turret_angle_deg = 45.0;
+            object.turret_ai.turret_pitch_deg = 8.0;
+            object.turret_ai.turret_substate = TurretSubState::Aim;
+            object.turret_ai.turret_target_id = Some(ObjectId(9));
+            object.turret_ai.turret_holding = true;
+            object.turret_ai.turret_hold_until_frame = 240;
+            object.turret_ai.turret_rotating = true;
         }
 
         let builder = super::super::SnapshotBuilder::new();
@@ -254,14 +254,14 @@ mod tests {
             .expect("restore");
 
         let loaded = restored.host_object(id).expect("restored tank");
-        assert!((loaded.turret_angle_deg - 45.0).abs() < 1e-4);
-        assert!((loaded.turret_pitch_deg - 8.0).abs() < 1e-4);
-        assert_eq!(loaded.turret_substate, TurretSubState::Aim);
-        assert_eq!(loaded.turret_target_id, Some(ObjectId(9)));
-        assert!(loaded.turret_holding);
-        assert_eq!(loaded.turret_hold_until_frame, 240);
-        assert!(loaded.turret_rotating);
-        assert!(loaded.turret_enabled);
+        assert!((loaded.turret_ai.turret_angle_deg - 45.0).abs() < 1e-4);
+        assert!((loaded.turret_ai.turret_pitch_deg - 8.0).abs() < 1e-4);
+        assert_eq!(loaded.turret_ai.turret_substate, TurretSubState::Aim);
+        assert_eq!(loaded.turret_ai.turret_target_id, Some(ObjectId(9)));
+        assert!(loaded.turret_ai.turret_holding);
+        assert_eq!(loaded.turret_ai.turret_hold_until_frame, 240);
+        assert!(loaded.turret_ai.turret_rotating);
+        assert!(loaded.turret_ai.turret_enabled);
     }
 
     #[test]
@@ -277,16 +277,16 @@ mod tests {
             .expect("tank");
         {
             let object = logic.host_object_mut(id).expect("tank");
-            object.turret_substate = TurretSubState::Aim;
-            object.turret_target_id = Some(ObjectId(9));
-            object.turret_holding = true;
-            object.turret_hold_until_frame = 99;
+            object.turret_ai.turret_substate = TurretSubState::Aim;
+            object.turret_ai.turret_target_id = Some(ObjectId(9));
+            object.turret_ai.turret_holding = true;
+            object.turret_ai.turret_hold_until_frame = 99;
         }
         apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
         let object = logic.host_object(id).expect("tank");
-        assert_eq!(object.turret_substate, TurretSubState::Idle);
-        assert!(object.turret_target_id.is_none());
-        assert!(!object.turret_holding);
-        assert_eq!(object.turret_hold_until_frame, 0);
+        assert_eq!(object.turret_ai.turret_substate, TurretSubState::Idle);
+        assert!(object.turret_ai.turret_target_id.is_none());
+        assert!(!object.turret_ai.turret_holding);
+        assert_eq!(object.turret_ai.turret_hold_until_frame, 0);
     }
 }

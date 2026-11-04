@@ -1122,7 +1122,7 @@ impl Object {
         fn controls(mask: u32, slot: u8) -> bool {
             slot < 3 && (mask & (1u32 << slot)) != 0
         }
-        if (self.turret_runtime.has_authored_turret || self.turret_enabled)
+        if (self.turret_runtime.has_authored_turret || self.turret_ai.turret_enabled)
             && controls(self.turret_runtime.controlled_weapon_slots, slot)
         {
             return Some(0);
@@ -1449,13 +1449,13 @@ impl Object {
         rel_thresh: f32,
     ) -> bool {
         let desired = Self::normalize_angle_rad(desired_rel_rad);
-        let orig = self.turret_angle_deg.to_radians();
+        let orig = self.turret_ai.turret_angle_deg.to_radians();
         let mut actual = Self::normalize_angle_rad(orig);
-        let turn_rate = (self.turret_turn_rate_rad * rate_modifier.max(0.0)).max(0.0);
+        let turn_rate = (self.turret_ai.turret_turn_rate_rad * rate_modifier.max(0.0)).max(0.0);
         let angle_diff = Self::normalize_angle_rad(desired - actual);
         if angle_diff.abs() < turn_rate {
             actual = desired;
-            self.turret_rotating = false;
+            self.turret_ai.turret_rotating = false;
         } else {
             if angle_diff > 0.0 {
                 actual += turn_rate;
@@ -1463,9 +1463,9 @@ impl Object {
                 actual -= turn_rate;
             }
             actual = Self::normalize_angle_rad(actual);
-            self.turret_rotating = true;
+            self.turret_ai.turret_rotating = true;
         }
-        self.turret_angle_deg = actual.to_degrees();
+        self.turret_ai.turret_angle_deg = actual.to_degrees();
         let aligned = Self::normalize_angle_rad(actual - desired).abs() <= rel_thresh.max(0.0);
         aligned
     }
@@ -1479,8 +1479,8 @@ impl Object {
         rate_modifier: f32,
     ) -> bool {
         let desired = Self::normalize_angle_rad(desired_pitch_rad);
-        let mut actual = Self::normalize_angle_rad(self.turret_pitch_deg.to_radians());
-        let pitch_rate = (self.turret_turn_rate_rad * rate_modifier.max(0.0)).max(0.0);
+        let mut actual = Self::normalize_angle_rad(self.turret_ai.turret_pitch_deg.to_radians());
+        let pitch_rate = (self.turret_ai.turret_turn_rate_rad * rate_modifier.max(0.0)).max(0.0);
         let diff = Self::normalize_angle_rad(desired - actual);
         if diff.abs() < pitch_rate {
             actual = desired;
@@ -1489,36 +1489,36 @@ impl Object {
         } else {
             actual = Self::normalize_angle_rad(actual - pitch_rate);
         }
-        self.turret_pitch_deg = actual.to_degrees();
+        self.turret_ai.turret_pitch_deg = actual.to_degrees();
         let aligned = Self::normalize_angle_rad(actual - desired).abs() <= 1e-4;
         aligned
     }
 
     pub fn set_turret_target_object(&mut self, victim: Option<ObjectId>, force_attacking: bool) {
-        if !self.turret_enabled {
+        if !self.turret_ai.turret_enabled {
             return;
         }
         self.turret_runtime.target_pos = None;
         self.turret_runtime.victim_team = None;
         match victim {
             None => {
-                self.turret_target_id = None;
-                self.turret_force_attacking = false;
+                self.turret_ai.turret_target_id = None;
+                self.turret_ai.turret_force_attacking = false;
                 if matches!(
-                    self.turret_substate,
+                    self.turret_ai.turret_substate,
                     TurretSubState::Aim | TurretSubState::Fire
                 ) {
-                    self.turret_substate = TurretSubState::Hold;
+                    self.turret_ai.turret_substate = TurretSubState::Hold;
                 }
             }
             Some(id) => {
-                self.turret_target_id = Some(id);
-                self.turret_force_attacking = force_attacking;
+                self.turret_ai.turret_target_id = Some(id);
+                self.turret_ai.turret_force_attacking = force_attacking;
                 if !matches!(
-                    self.turret_substate,
+                    self.turret_ai.turret_substate,
                     TurretSubState::Aim | TurretSubState::Fire
                 ) {
-                    self.turret_substate = TurretSubState::Aim;
+                    self.turret_ai.turret_substate = TurretSubState::Aim;
                 }
             }
         }
@@ -1526,7 +1526,7 @@ impl Object {
 
     /// C++ TurretAI::isTryingToAimAtTarget residual.
     pub fn is_trying_to_aim_at_target(&self, victim: ObjectId) -> bool {
-        self.turret_substate == TurretSubState::Aim && self.turret_target_id == Some(victim)
+        self.turret_ai.turret_substate == TurretSubState::Aim && self.turret_ai.turret_target_id == Some(victim)
     }
 
     pub fn relative_angle_2d_to(&self, target_pos: Vec3) -> f32 {

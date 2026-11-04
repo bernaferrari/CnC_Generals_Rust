@@ -342,7 +342,7 @@ fn admit(logic: &mut GameLogic, case: Case, journal: &mut fs::File) -> Ids {
         .create_object_for_player(ANCHOR, 1, Vec3::new(2000.0, 0.0, 0.0))
         .unwrap();
     assert!(logic.host_object(center).unwrap().weapon.is_none());
-    assert!(!logic.host_object(center).unwrap().turret_enabled);
+    assert!(!logic.host_object(center).unwrap().turret_ai.turret_enabled);
     assert!(logic.activate_battle_plan(0, HostBattlePlan::Bombardment, Some(center)));
     for processed in 0..=210 {
         assert_eq!(logic.get_frame(), processed);
@@ -353,15 +353,15 @@ fn admit(logic: &mut GameLogic, case: Case, journal: &mut fs::File) -> Ids {
             &json!({"phase":"activation","processed_frame":processed,
             "next_frame":logic.get_frame(),"center":center.0,"anchor":anchor.0,
             "center_owner":object.owner_player_id,"weapon":object.weapon,
-            "turret_enabled":object.turret_enabled,"plan":logic.battle_plans(),
+            "turret_enabled":object.turret_ai.turret_enabled,"plan":logic.battle_plans(),
             "players_alive":[logic.player_is_alive(0),logic.player_is_alive(1)]}),
         );
         assert_eq!(logic.get_frame(), processed + 1);
         assert!(logic.player_is_alive(0) && logic.player_is_alive(1));
-        assert!(object.target.is_none() && object.turret_target_id.is_none());
+        assert!(object.target.is_none() && object.turret_ai.turret_target_id.is_none());
         assert_eq!(object.weapon_discharge_marker().sequence, 0);
         if processed < 210 {
-            assert!(object.weapon.is_none() && !object.turret_enabled);
+            assert!(object.weapon.is_none() && !object.turret_ai.turret_enabled);
         }
     }
     let door = logic.battle_plans().door_state_for_center(center).unwrap();
@@ -379,9 +379,9 @@ fn admit(logic: &mut GameLogic, case: Case, journal: &mut fs::File) -> Ids {
     };
     assert_admission(logic, ids);
     let object = logic.host_object(center).unwrap();
-    assert!(object.target.is_none() && object.turret_target_id.is_none());
-    assert_eq!(object.turret_angle_deg.to_bits(), (-90.0_f32).to_bits());
-    assert_eq!(object.turret_pitch_deg.to_bits(), 45.0_f32.to_bits());
+    assert!(object.target.is_none() && object.turret_ai.turret_target_id.is_none());
+    assert_eq!(object.turret_ai.turret_angle_deg.to_bits(), (-90.0_f32).to_bits());
+    assert_eq!(object.turret_ai.turret_pitch_deg.to_bits(), 45.0_f32.to_bits());
     if case.explicit {
         logic.queue_command(GameCommand {
             command_type: CommandType::AttackObject { target_id: target },
@@ -395,11 +395,11 @@ fn admit(logic: &mut GameLogic, case: Case, journal: &mut fs::File) -> Ids {
         let object = logic.host_object(center).unwrap();
         assert_eq!(object.ai_state(), AIState::Attacking);
         assert_eq!(object.attack_substate(), AttackSubState::AimAtTarget);
-        assert_eq!(object.turret_substate, TurretSubState::Aim);
+        assert_eq!(object.turret_ai.turret_substate, TurretSubState::Aim);
         assert_eq!(object.target, Some(target));
-        assert_eq!(object.turret_target_id, Some(target));
+        assert_eq!(object.turret_ai.turret_target_id, Some(target));
         assert!(object.status.attacking && object.status.is_aiming_weapon);
-        assert!(!object.turret_mood_target);
+        assert!(!object.turret_ai.turret_mood_target);
     }
     ids
 }
@@ -434,7 +434,7 @@ fn assert_admission(logic: &GameLogic, ids: Ids) {
     }
     let center = logic.host_object(ids.center).unwrap();
     let weapon = center.weapon.as_ref().unwrap();
-    assert!(center.turret_enabled && center.can_attack());
+    assert!(center.turret_ai.turret_enabled && center.can_attack());
     assert_eq!(center.weapon_name_for_slot(0), None);
     assert_eq!(
         (
@@ -513,16 +513,16 @@ fn observe(logic: &GameLogic, ids: Ids, processed: Option<u32>) -> Value {
             "ai_state":format!("{:?}",center.ai_state()),"attacking":center.status.attacking,
             "body_orientation":float(center.get_orientation()),
             "turret":{
-                "goal":center.turret_target_id.map(|id|id.0),"mood":center.turret_mood_target,
-                "force":center.turret_force_attacking,"state":format!("{:?}",center.turret_substate),
-                "enabled":center.turret_enabled,"rotating":center.turret_rotating,
-                "yaw":float(center.turret_angle_deg),"pitch":float(center.turret_pitch_deg),
-                "natural_yaw":float(center.turret_natural_angle_deg),"natural_pitch":float(center.turret_natural_pitch_deg),
-                "turn_rate":float(center.turret_turn_rate_rad),"recenter_frames":center.turret_recenter_frames,
-                "idle_next":center.turret_idle_scan_next_frame,"idle_scanning":center.turret_idle_scanning,
-                "idle_desired":float(center.turret_idle_scan_desired_angle_deg),"idle_index":center.turret_idle_scan_index,
-                "holding":center.turret_holding,"hold_until":center.turret_hold_until_frame,
-                "recentering":center.turret_idle_recentering
+                "goal":center.turret_ai.turret_target_id.map(|id|id.0),"mood":center.turret_ai.turret_mood_target,
+                "force":center.turret_ai.turret_force_attacking,"state":format!("{:?}",center.turret_ai.turret_substate),
+                "enabled":center.turret_ai.turret_enabled,"rotating":center.turret_ai.turret_rotating,
+                "yaw":float(center.turret_ai.turret_angle_deg),"pitch":float(center.turret_ai.turret_pitch_deg),
+                "natural_yaw":float(center.turret_ai.turret_natural_angle_deg),"natural_pitch":float(center.turret_ai.turret_natural_pitch_deg),
+                "turn_rate":float(center.turret_ai.turret_turn_rate_rad),"recenter_frames":center.turret_ai.turret_recenter_frames,
+                "idle_next":center.turret_ai.turret_idle_scan_next_frame,"idle_scanning":center.turret_ai.turret_idle_scanning,
+                "idle_desired":float(center.turret_ai.turret_idle_scan_desired_angle_deg),"idle_index":center.turret_ai.turret_idle_scan_index,
+                "holding":center.turret_ai.turret_holding,"hold_until":center.turret_ai.turret_hold_until_frame,
+                "recentering":center.turret_ai.turret_idle_recentering
             },
             "weapons":weapons,"selected_slot":center.selected_weapon_slot(),
             "weapon_fire_status":format!("{:?}",center.weapon_fire_status),
@@ -570,19 +570,19 @@ fn assert_checkpoint(logic: &GameLogic, ids: Ids, case: Case, observation: &Valu
     let center = logic.host_object(ids.center).unwrap();
     let target = logic.host_object(ids.target).unwrap();
     assert_eq!(center.target, Some(ids.target));
-    assert_eq!(center.turret_target_id, Some(ids.target));
-    assert_eq!(center.turret_mood_target, !case.explicit);
+    assert_eq!(center.turret_ai.turret_target_id, Some(ids.target));
+    assert_eq!(center.turret_ai.turret_mood_target, !case.explicit);
     let sequence = center.weapon_discharge_marker().sequence;
     match case.name {
         "automatic_acquired" => {
-            assert_eq!(center.turret_substate, TurretSubState::Aim);
-            assert_eq!(center.turret_angle_deg.to_bits(), (-90.0_f32).to_bits());
-            assert_eq!(center.turret_pitch_deg.to_bits(), 45.0_f32.to_bits());
+            assert_eq!(center.turret_ai.turret_substate, TurretSubState::Aim);
+            assert_eq!(center.turret_ai.turret_angle_deg.to_bits(), (-90.0_f32).to_bits());
+            assert_eq!(center.turret_ai.turret_pitch_deg.to_bits(), 45.0_f32.to_bits());
             assert_eq!((sequence, target.health.current), (0, 1000.0));
         }
         "automatic_mid_aim" | "explicit_mid_aim" => {
-            assert_eq!(center.turret_substate, TurretSubState::Aim);
-            assert!(center.turret_angle_deg > -90.0 && center.turret_angle_deg < 0.0);
+            assert_eq!(center.turret_ai.turret_substate, TurretSubState::Aim);
+            assert!(center.turret_ai.turret_angle_deg > -90.0 && center.turret_ai.turret_angle_deg < 0.0);
             assert_eq!((sequence, target.health.current), (0, 1000.0));
         }
         "automatic_cooldown" => {
@@ -688,7 +688,7 @@ fn roster(logic: &GameLogic) -> Value {
         .map(|(id, object)| {
             json!({"id":id.0,"template":object.get_template().name,
             "owner":object.owner_player_id,"position":object.get_position(),
-            "health":object.health,"target":object.target,"turret_target":object.turret_target_id})
+            "health":object.health,"target":object.target,"turret_target":object.turret_ai.turret_target_id})
         })
         .collect();
     objects.sort_by_key(|object| object["id"].as_u64().unwrap());

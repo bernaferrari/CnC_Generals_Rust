@@ -2550,12 +2550,12 @@ fn deploy_style_must_center_turret_before_pack() {
         .expect("sentry");
     {
         let obj = logic.host_object_mut(id).unwrap();
-        obj.turret_enabled = true;
-        obj.turret_turn_rate_rad = 0.1;
-        obj.turret_angle_deg = 45.0;
-        obj.turret_natural_angle_deg = 0.0;
-        obj.turret_pitch_deg = 0.0;
-        obj.turret_natural_pitch_deg = 0.0;
+        obj.turret_ai.turret_enabled = true;
+        obj.turret_ai.turret_turn_rate_rad = 0.1;
+        obj.turret_ai.turret_angle_deg = 45.0;
+        obj.turret_ai.turret_natural_angle_deg = 0.0;
+        obj.turret_ai.turret_pitch_deg = 0.0;
+        obj.turret_ai.turret_natural_pitch_deg = 0.0;
     }
 
     logic.host_object_mut(id).unwrap().set_ai_state(
@@ -2589,7 +2589,7 @@ fn deploy_style_must_center_turret_before_pack() {
 
     {
         let obj = logic.host_object_mut(id).unwrap();
-        obj.turret_angle_deg = 45.0;
+        obj.turret_ai.turret_angle_deg = 45.0;
     }
     logic.set_current_frame(31);
     assert!(
@@ -2627,7 +2627,7 @@ fn deploy_style_must_center_turret_before_pack() {
 
     {
         let obj = logic.host_object_mut(id).unwrap();
-        obj.turret_angle_deg = 0.0;
+        obj.turret_ai.turret_angle_deg = 0.0;
     }
     logic.set_current_frame(33);
     logic.tick_deploy_style_updates();

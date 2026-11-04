@@ -67,7 +67,7 @@ impl Persist {
         owner: &Object,
     ) -> Result<(), EntityLifecycleCodecError> {
         validate(self)?;
-        if owner.turret_target_id.is_some() && self.runtime.target_pos.is_some() {
+        if owner.turret_ai.turret_target_id.is_some() && self.runtime.target_pos.is_some() {
             return Err(invalid());
         }
         Ok(())
@@ -109,7 +109,7 @@ pub(crate) fn encode(owner: &Object) -> Result<Vec<u8>, EntityLifecycleCodecErro
             .then(|| Tuning::capture(&owner.turret_runtime)),
     };
     validate(&payload)?;
-    if owner.turret_target_id.is_some() && payload.runtime.target_pos.is_some() {
+    if owner.turret_ai.turret_target_id.is_some() && payload.runtime.target_pos.is_some() {
         return Err(invalid());
     }
     let mut bytes = MAGIC.to_vec();
@@ -174,7 +174,7 @@ mod tests {
     #[test]
     fn malformed_turret_runtime_rejects_before_any_owner_field_changes() {
         let mut owner = Object::new(ThingTemplate::new("InvalidTurret"), ObjectId(1), Team::USA);
-        owner.turret_enabled = true;
+        owner.turret_ai.turret_enabled = true;
         owner.path_extra_distance = 7.0;
         owner.turret_runtime.enable_sweep_until = 40;
         let mut bad = Persist {
@@ -236,7 +236,7 @@ mod mixed_goal_tests {
     #[test]
     fn component_mixed_goal_rejects_without_mutating_receiver() {
         let mut owner = Object::new(ThingTemplate::new("MixedTurret"), ObjectId(1), Team::USA);
-        owner.turret_target_id = Some(ObjectId(2));
+        owner.turret_ai.turret_target_id = Some(ObjectId(2));
         owner.turret_runtime.enable_sweep_until = 40;
         let mut payload = Persist {
             runtime: owner.turret_runtime.clone(),
@@ -246,7 +246,7 @@ mod mixed_goal_tests {
         assert!(payload.apply(&mut owner).is_err());
         assert_eq!(owner.turret_runtime.enable_sweep_until, 40);
         assert!(owner.turret_runtime.target_pos.is_none());
-        assert_eq!(owner.turret_target_id, Some(ObjectId(2)));
+        assert_eq!(owner.turret_ai.turret_target_id, Some(ObjectId(2)));
     }
 
     #[test]
@@ -261,7 +261,7 @@ mod mixed_goal_tests {
         let victim = world
             .create_object("MixedTurret", Team::China, glam::Vec3::X)
             .unwrap();
-        world.host_object_mut(owner).unwrap().turret_enabled = true;
+        world.host_object_mut(owner).unwrap().turret_ai.turret_enabled = true;
         world.set_turret_target_object(owner, Some(victim), false);
         let builder = crate::save_load::snapshot::SnapshotBuilder::new();
         let mut snapshot = builder.create_world_snapshot(&world).unwrap();
@@ -296,7 +296,7 @@ mod mixed_goal_tests {
         );
         // The running world is an independent owner, not the failed candidate.
         assert_eq!(
-            world.host_object(owner).unwrap().turret_target_id,
+            world.host_object(owner).unwrap().turret_ai.turret_target_id,
             Some(victim)
         );
         assert!(

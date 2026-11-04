@@ -317,25 +317,25 @@ fn turret_extended_channel_via_set_turret() {
         .expect("tgt");
     {
         let o = logic.host_object_mut(oid).expect("o");
-        o.turret_angle_deg = 45.0;
-        o.turret_pitch_deg = 10.0;
-        o.turret_holding = true;
-        o.turret_idle_scanning = false;
-        o.turret_turn_rate_rad = 0.05;
-        o.turret_recenter_frames = 60;
-        o.turret_hold_until_frame = 200;
-        o.turret_idle_recentering = true;
-        o.turret_enabled = true;
-        o.turret_rotating = true;
-        o.turret_natural_angle_deg = 0.0;
-        o.turret_natural_pitch_deg = 5.0;
-        o.turret_target_id = Some(tgt);
-        o.turret_force_attacking = true;
-        o.turret_mood_target = false;
-        o.turret_idle_scan_next_frame = 30;
-        o.turret_idle_scan_desired_angle_deg = 90.0;
-        o.turret_idle_scan_index = 2;
-        o.turret_substate = TurretSubState::Aim;
+        o.turret_ai.turret_angle_deg = 45.0;
+        o.turret_ai.turret_pitch_deg = 10.0;
+        o.turret_ai.turret_holding = true;
+        o.turret_ai.turret_idle_scanning = false;
+        o.turret_ai.turret_turn_rate_rad = 0.05;
+        o.turret_ai.turret_recenter_frames = 60;
+        o.turret_ai.turret_hold_until_frame = 200;
+        o.turret_ai.turret_idle_recentering = true;
+        o.turret_ai.turret_enabled = true;
+        o.turret_ai.turret_rotating = true;
+        o.turret_ai.turret_natural_angle_deg = 0.0;
+        o.turret_ai.turret_natural_pitch_deg = 5.0;
+        o.turret_ai.turret_target_id = Some(tgt);
+        o.turret_ai.turret_force_attacking = true;
+        o.turret_ai.turret_mood_target = false;
+        o.turret_ai.turret_idle_scan_next_frame = 30;
+        o.turret_ai.turret_idle_scan_desired_angle_deg = 90.0;
+        o.turret_ai.turret_idle_scan_index = 2;
+        o.turret_ai.turret_substate = TurretSubState::Aim;
     }
 
     let mut shadow = GameWorldShadow::new(64);
@@ -354,11 +354,11 @@ fn turret_extended_channel_via_set_turret() {
     shadow.sync_from_host(&logic);
 
     let o = logic.host_objects().lookup(&oid).unwrap();
-    assert!((o.turret_angle_deg - 45.0).abs() < 1e-5);
-    assert!((o.turret_turn_rate_rad - 0.05).abs() < 1e-5);
-    assert!(o.turret_enabled);
-    assert_eq!(o.turret_target_id, Some(tgt));
-    assert_eq!(o.turret_substate, TurretSubState::Aim);
+    assert!((o.turret_ai.turret_angle_deg - 45.0).abs() < 1e-5);
+    assert!((o.turret_ai.turret_turn_rate_rad - 0.05).abs() < 1e-5);
+    assert!(o.turret_ai.turret_enabled);
+    assert_eq!(o.turret_ai.turret_target_id, Some(tgt));
+    assert_eq!(o.turret_ai.turret_substate, TurretSubState::Aim);
 }
 
 #[test]

@@ -393,9 +393,9 @@ fn leftover_choose_best_turret_aim_demotes_ready_slot() {
     let mut attacker = Object::new(ThingTemplate::new("TurretChooser"), ObjectId(1), Team::USA);
     attacker.weapon = Some(weapon(100.0));
     attacker.secondary_weapon = Some(weapon(10.0));
-    attacker.turret_enabled = true;
-    attacker.turret_substate = TurretSubState::Aim;
-    attacker.turret_target_id = Some(ObjectId(2));
+    attacker.turret_ai.turret_enabled = true;
+    attacker.turret_ai.turret_substate = TurretSubState::Aim;
+    attacker.turret_ai.turret_target_id = Some(ObjectId(2));
     let mut target = Object::new(ThingTemplate::new("Target"), ObjectId(2), Team::GLA);
     target.set_position(glam::Vec3::new(50.0, 0.0, 0.0));
     assert!(attacker.is_weapon_slot_on_turret_and_aiming_at_target(0, &target));

@@ -82,8 +82,8 @@ fn aim_enter_admits_receiving_jet_before_turret_target_and_peer_is_independent()
 fn turret_aim_re_admits_targeter_before_observing_prevention() {
     let (mut world, source, target) = world(30);
     let actor = world.objects.get_mut(&source).unwrap();
-    actor.turret_enabled = true;
-    actor.turret_turn_rate_rad = 0.2;
+    actor.turret_ai.turret_enabled = true;
+    actor.turret_ai.turret_turn_rate_rad = 0.2;
     world.set_turret_target_object(source, Some(target), false);
     assert!(
         world

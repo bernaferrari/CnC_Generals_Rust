@@ -2483,21 +2483,21 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
             pre_attack_target: object.pre_attack_target.map(|id| id.0),
             consecutive_shot_target: object.consecutive_shot_target.map(|id| id.0),
             max_shots_to_fire: object.max_shots_to_fire,
-            turret_angle_deg: object.turret_angle_deg,
-            turret_pitch_deg: object.turret_pitch_deg,
-            turret_idle_scan_next_frame: object.turret_idle_scan_next_frame,
-            turret_idle_scanning: object.turret_idle_scanning,
-            turret_idle_scan_desired_angle_deg: object.turret_idle_scan_desired_angle_deg,
-            turret_idle_scan_index: object.turret_idle_scan_index,
-            turret_holding: object.turret_holding,
-            turret_hold_until_frame: object.turret_hold_until_frame,
-            turret_idle_recentering: object.turret_idle_recentering,
-            turret_mood_target: object.turret_mood_target,
-            turret_target_id: object.turret_target_id.map(|id| id.0),
-            turret_force_attacking: object.turret_force_attacking,
-            turret_enabled: object.turret_enabled,
-            turret_substate: object.turret_substate.ordinal(),
-            turret_rotating: object.turret_rotating,
+            turret_angle_deg: object.turret_ai.turret_angle_deg,
+            turret_pitch_deg: object.turret_ai.turret_pitch_deg,
+            turret_idle_scan_next_frame: object.turret_ai.turret_idle_scan_next_frame,
+            turret_idle_scanning: object.turret_ai.turret_idle_scanning,
+            turret_idle_scan_desired_angle_deg: object.turret_ai.turret_idle_scan_desired_angle_deg,
+            turret_idle_scan_index: object.turret_ai.turret_idle_scan_index,
+            turret_holding: object.turret_ai.turret_holding,
+            turret_hold_until_frame: object.turret_ai.turret_hold_until_frame,
+            turret_idle_recentering: object.turret_ai.turret_idle_recentering,
+            turret_mood_target: object.turret_ai.turret_mood_target,
+            turret_target_id: object.turret_ai.turret_target_id.map(|id| id.0),
+            turret_force_attacking: object.turret_ai.turret_force_attacking,
+            turret_enabled: object.turret_ai.turret_enabled,
+            turret_substate: object.turret_ai.turret_substate.ordinal(),
+            turret_rotating: object.turret_ai.turret_rotating,
             temporary_stealth_expires_frame: object.temporary_stealth_expires_frame,
             weapon_bonus_solo: object.weapon_bonus_solo,
             which_exit_path: object.which_exit_path,
@@ -2763,16 +2763,16 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
         object.pre_attack_target = None;
         object.consecutive_shot_target = None;
         object.max_shots_to_fire = -1;
-        object.turret_idle_scan_next_frame = 0;
-        object.turret_idle_scanning = false;
-        object.turret_holding = false;
-        object.turret_hold_until_frame = 0;
-        object.turret_idle_recentering = false;
-        object.turret_mood_target = false;
-        object.turret_target_id = None;
-        object.turret_force_attacking = false;
-        object.turret_substate = TurretSubState::Idle;
-        object.turret_rotating = false;
+        object.turret_ai.turret_idle_scan_next_frame = 0;
+        object.turret_ai.turret_idle_scanning = false;
+        object.turret_ai.turret_holding = false;
+        object.turret_ai.turret_hold_until_frame = 0;
+        object.turret_ai.turret_idle_recentering = false;
+        object.turret_ai.turret_mood_target = false;
+        object.turret_ai.turret_target_id = None;
+        object.turret_ai.turret_force_attacking = false;
+        object.turret_ai.turret_substate = TurretSubState::Idle;
+        object.turret_ai.turret_rotating = false;
         object.temporary_stealth_expires_frame = 0;
         object.weapon_bonus_solo = 0;
         object.is_receiving_difficulty_bonus = false;
@@ -2898,21 +2898,21 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
             object.pre_attack_target = entry.pre_attack_target.map(ObjectId);
             object.consecutive_shot_target = entry.consecutive_shot_target.map(ObjectId);
             object.max_shots_to_fire = entry.max_shots_to_fire;
-            object.turret_angle_deg = entry.turret_angle_deg;
-            object.turret_pitch_deg = entry.turret_pitch_deg;
-            object.turret_idle_scan_next_frame = entry.turret_idle_scan_next_frame;
-            object.turret_idle_scanning = entry.turret_idle_scanning;
-            object.turret_idle_scan_desired_angle_deg = entry.turret_idle_scan_desired_angle_deg;
-            object.turret_idle_scan_index = entry.turret_idle_scan_index;
-            object.turret_holding = entry.turret_holding;
-            object.turret_hold_until_frame = entry.turret_hold_until_frame;
-            object.turret_idle_recentering = entry.turret_idle_recentering;
-            object.turret_mood_target = entry.turret_mood_target;
-            object.turret_target_id = entry.turret_target_id.map(ObjectId);
-            object.turret_force_attacking = entry.turret_force_attacking;
-            object.turret_enabled = entry.turret_enabled;
-            object.turret_substate = TurretSubState::from_ordinal(entry.turret_substate);
-            object.turret_rotating = entry.turret_rotating;
+            object.turret_ai.turret_angle_deg = entry.turret_angle_deg;
+            object.turret_ai.turret_pitch_deg = entry.turret_pitch_deg;
+            object.turret_ai.turret_idle_scan_next_frame = entry.turret_idle_scan_next_frame;
+            object.turret_ai.turret_idle_scanning = entry.turret_idle_scanning;
+            object.turret_ai.turret_idle_scan_desired_angle_deg = entry.turret_idle_scan_desired_angle_deg;
+            object.turret_ai.turret_idle_scan_index = entry.turret_idle_scan_index;
+            object.turret_ai.turret_holding = entry.turret_holding;
+            object.turret_ai.turret_hold_until_frame = entry.turret_hold_until_frame;
+            object.turret_ai.turret_idle_recentering = entry.turret_idle_recentering;
+            object.turret_ai.turret_mood_target = entry.turret_mood_target;
+            object.turret_ai.turret_target_id = entry.turret_target_id.map(ObjectId);
+            object.turret_ai.turret_force_attacking = entry.turret_force_attacking;
+            object.turret_ai.turret_enabled = entry.turret_enabled;
+            object.turret_ai.turret_substate = TurretSubState::from_ordinal(entry.turret_substate);
+            object.turret_ai.turret_rotating = entry.turret_rotating;
             object.temporary_stealth_expires_frame = entry.temporary_stealth_expires_frame;
             object.weapon_bonus_solo = entry.weapon_bonus_solo;
             object.is_receiving_difficulty_bonus = entry.weapon_bonus_solo != 0;
@@ -3355,9 +3355,9 @@ mod tests {
             object.pre_attack_target = Some(ObjectId(9));
             object.consecutive_shot_target = Some(ObjectId(9));
             object.max_shots_to_fire = 3;
-            object.turret_angle_deg = 45.0;
-            object.turret_substate = TurretSubState::Aim;
-            object.turret_target_id = Some(ObjectId(9));
+            object.turret_ai.turret_angle_deg = 45.0;
+            object.turret_ai.turret_substate = TurretSubState::Aim;
+            object.turret_ai.turret_target_id = Some(ObjectId(9));
             object.temporary_stealth_expires_frame = 600;
             object.weapon_bonus_solo = 16;
             object.which_exit_path = 2;
@@ -3414,9 +3414,9 @@ mod tests {
         assert_eq!(loaded.pre_attack_target, Some(ObjectId(9)));
         assert_eq!(loaded.consecutive_shot_target, Some(ObjectId(9)));
         assert_eq!(loaded.max_shots_to_fire, 3);
-        assert!((loaded.turret_angle_deg - 45.0).abs() < 1e-4);
-        assert_eq!(loaded.turret_substate, TurretSubState::Aim);
-        assert_eq!(loaded.turret_target_id, Some(ObjectId(9)));
+        assert!((loaded.turret_ai.turret_angle_deg - 45.0).abs() < 1e-4);
+        assert_eq!(loaded.turret_ai.turret_substate, TurretSubState::Aim);
+        assert_eq!(loaded.turret_ai.turret_target_id, Some(ObjectId(9)));
         assert_eq!(loaded.temporary_stealth_expires_frame, 600);
         assert_eq!(loaded.weapon_bonus_solo, 16);
         assert!(

@@ -211,7 +211,7 @@ fn base_defense_world(
     assert_eq!(logic.objects[&source].weapon_slot(0).unwrap().damage, 13.0);
     assert_eq!(logic.objects[&source].weapon_bonus_fields().1, 1.0);
     assert!(
-        !logic.objects[&source].turret_enabled,
+        !logic.objects[&source].turret_ai.turret_enabled,
         "no authored turret: existing direct acquisition/fire lane"
     );
     assert_eq!(

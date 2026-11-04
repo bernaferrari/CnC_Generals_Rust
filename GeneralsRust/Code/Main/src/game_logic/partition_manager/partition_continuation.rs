@@ -561,7 +561,7 @@ mod tests {
                         range: 1000.,
                         ..Default::default()
                     });
-                    object.turret_enabled = false;
+                    object.turret_ai.turret_enabled = false;
                 }
                 assert!(owner.set_owned_fallback_attack_target_with_effects(
                     jet,

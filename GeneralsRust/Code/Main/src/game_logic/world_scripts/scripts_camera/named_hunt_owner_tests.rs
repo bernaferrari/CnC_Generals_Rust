@@ -263,7 +263,7 @@ fn hunt_exits_attack_submachine_before_reentering_parent() {
         1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_ATTACKING;
     unit.leech_range_active_primary = true;
     unit.leech_range_active_secondary = true;
-    unit.turret_enabled = true;
+    unit.turret_ai.turret_enabled = true;
     unit.set_turret_target_object(Some(target), true);
     hunt(&mut world, "NamedUnit");
     let unit = world.host_object(id).unwrap();
@@ -279,7 +279,7 @@ fn hunt_exits_attack_submachine_before_reentering_parent() {
     );
     assert!(!unit.leech_range_active_primary);
     assert!(!unit.leech_range_active_secondary);
-    assert_eq!(unit.turret_target_id, None);
+    assert_eq!(unit.turret_ai.turret_target_id, None);
 }
 
 #[test]

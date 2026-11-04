@@ -50,14 +50,14 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
-        sc.turret_mood_target = false;
+        sc.turret_ai.turret_mood_target = false;
         sc.set_ai_attitude(HostAiAttitude::Sleep);
         sc.last_damage_source = None;
-        sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
-        sc.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
-        sc.turret_idle_scanning = false;
-        sc.turret_holding = false;
-        sc.turret_idle_recentering = false;
+        sc.turret_ai.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
+        sc.turret_ai.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
+        sc.turret_ai.turret_idle_scanning = false;
+        sc.turret_ai.turret_holding = false;
+        sc.turret_ai.turret_idle_recentering = false;
     }
     let frame = game_logic.frame;
     let _ = game_logic.tick_turret_state_machine(sc_id, frame as f32 * LOGIC_FRAME_TIMESTEP, frame);
@@ -67,7 +67,7 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
-            !sc.turret_mood_target,
+            !sc.turret_ai.turret_mood_target,
             "Sleep mood residual must not auto-acquire"
         );
         assert!(sc.target.is_none());
@@ -78,7 +78,7 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.set_ai_attitude(HostAiAttitude::Passive);
         sc.last_damage_source = None;
-        sc.turret_mood_target = false;
+        sc.turret_ai.turret_mood_target = false;
         sc.target = None;
         sc.set_ai_state(
             AIState::Idle,
@@ -94,7 +94,7 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
-            !sc.turret_mood_target,
+            !sc.turret_ai.turret_mood_target,
             "Passive without last damage must not free-acquire"
         );
     }
@@ -104,7 +104,7 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
         let sc = game_logic.host_object_mut(sc_id).expect("sc");
         sc.set_ai_attitude(HostAiAttitude::Passive);
         sc.last_damage_source = Some(enemy_id);
-        sc.turret_mood_target = false;
+        sc.turret_ai.turret_mood_target = false;
         sc.target = None;
         sc.set_ai_state(
             AIState::Idle,
@@ -120,27 +120,27 @@ fn strategy_center_turret_mood_matrix_sleep_passive_residual() {
     {
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
-            sc.turret_mood_target,
+            sc.turret_ai.turret_mood_target,
             "Passive WaitForAttack residual must retaliate vs last damage source"
         );
         {
             assert_eq!(sc.target, Some(enemy_id));
         }
         assert!(
-            (sc.turret_pitch_deg - STRATEGY_CENTER_FIRE_PITCH_DEG).abs() < 0.01,
+            (sc.turret_ai.turret_pitch_deg - STRATEGY_CENTER_FIRE_PITCH_DEG).abs() < 0.01,
             "passive retaliate aims FirePitch, got {}",
-            sc.turret_pitch_deg
+            sc.turret_ai.turret_pitch_deg
         );
         // Bone pitch drawable residual from TurretAI angles.
-        let bone = strategy_center_turret_bone_drawable(sc.turret_angle_deg, sc.turret_pitch_deg);
+        let bone = strategy_center_turret_bone_drawable(sc.turret_ai.turret_angle_deg, sc.turret_ai.turret_pitch_deg);
         assert!((bone.pitch_deg - STRATEGY_CENTER_FIRE_PITCH_DEG).abs() < 0.01);
         assert!(
             bone.is_natural,
             "mood acquisition leaves the initial natural pose unchanged"
         );
-        assert_eq!(sc.turret_target_id, Some(enemy_id));
+        assert_eq!(sc.turret_ai.turret_target_id, Some(enemy_id));
         assert_eq!(
-            sc.turret_substate,
+            sc.turret_ai.turret_substate,
             crate::game_logic::object::TurretSubState::Aim
         );
     }
@@ -501,11 +501,11 @@ fn strategy_center_bombardment_turret_fire_residual() {
         };
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
-            turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
+            turret_angles_are_natural(sc.turret_ai.turret_angle_deg, sc.turret_ai.turret_pitch_deg),
             "turret residual starts at NaturalTurretAngle/Pitch"
         );
-        assert!((sc.turret_angle_deg - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs() < 0.01);
-        assert!((sc.turret_pitch_deg - STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG).abs() < 0.01);
+        assert!((sc.turret_ai.turret_angle_deg - STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG).abs() < 0.01);
+        assert!((sc.turret_ai.turret_pitch_deg - STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG).abs() < 0.01);
     }
 
     for _ in 0..90 {
@@ -533,11 +533,11 @@ fn strategy_center_bombardment_turret_fire_residual() {
         };
         let sc = game_logic.host_object(sc_id).expect("sc");
         assert!(
-            !turret_angles_are_natural(sc.turret_angle_deg, sc.turret_pitch_deg),
+            !turret_angles_are_natural(sc.turret_ai.turret_angle_deg, sc.turret_ai.turret_pitch_deg),
             "fire residual must aim turret off NaturalTurretAngle"
         );
         assert!(
-            (sc.turret_pitch_deg - STRATEGY_CENTER_FIRE_PITCH_DEG).abs() < 0.01,
+            (sc.turret_ai.turret_pitch_deg - STRATEGY_CENTER_FIRE_PITCH_DEG).abs() < 0.01,
             "FirePitch residual 45"
         );
         assert!(
@@ -575,8 +575,8 @@ fn strategy_center_bombardment_turret_fire_residual() {
             &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
         );
         sc.set_status_attacking(false);
-        sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
-        sc.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
+        sc.turret_ai.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG;
+        sc.turret_ai.turret_pitch_deg = STRATEGY_CENTER_NATURAL_TURRET_PITCH_DEG;
         if let Some(w) = sc.weapon.as_mut() {
             w.last_fire_time = -100.0;
         }
@@ -1216,8 +1216,8 @@ fn strategy_center_delayed_set_battle_plan_and_turret_recenter_residual() {
         sc.set_status_attacking(true);
         sc.target = Some(ally_id);
         // 60° off natural → 30 frames at 2 deg/frame residual.
-        sc.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG + 60.0;
-        sc.turret_pitch_deg = 45.0;
+        sc.turret_ai.turret_angle_deg = STRATEGY_CENTER_NATURAL_TURRET_ANGLE_DEG + 60.0;
+        sc.turret_ai.turret_pitch_deg = 45.0;
         if let Some(w) = sc.weapon.as_mut() {
             w.last_fire_time = fire_time;
         }
@@ -1255,7 +1255,7 @@ fn strategy_center_delayed_set_battle_plan_and_turret_recenter_residual() {
     // 60° at 2 deg/frame → exactly 30 steps to NaturalTurretAngle.
     {
         use crate::game_logic::host_strategy_center::turret_angles_are_natural;
-        let mut last_angle = game_logic.host_object(sc_id).unwrap().turret_angle_deg;
+        let mut last_angle = game_logic.host_object(sc_id).unwrap().turret_ai.turret_angle_deg;
         for step in 1..=BATTLE_PLAN_TURRET_RECENTER_FRAMES {
             game_logic.frame = switch_frame.saturating_add(step);
             let centering = game_logic
@@ -1266,13 +1266,13 @@ fn strategy_center_delayed_set_battle_plan_and_turret_recenter_residual() {
             assert!(centering, "must still be recentering at step {step}");
             if let Some(sc) = game_logic.host_object_mut(sc_id) {
                 let (a, p) = crate::game_logic::host_strategy_center::step_turret_toward_natural(
-                    sc.turret_angle_deg,
-                    sc.turret_pitch_deg,
+                    sc.turret_ai.turret_angle_deg,
+                    sc.turret_ai.turret_pitch_deg,
                 );
-                sc.turret_angle_deg = a;
-                sc.turret_pitch_deg = p;
+                sc.turret_ai.turret_angle_deg = a;
+                sc.turret_ai.turret_pitch_deg = p;
             }
-            let a_now = game_logic.host_object(sc_id).unwrap().turret_angle_deg;
+            let a_now = game_logic.host_object(sc_id).unwrap().turret_ai.turret_angle_deg;
             // Angle should move toward natural (-90 from -30) or already natural.
             assert!(
                 a_now <= last_angle + 0.01,
@@ -1283,12 +1283,12 @@ fn strategy_center_delayed_set_battle_plan_and_turret_recenter_residual() {
         // After full recenter frames, angles natural residual.
         assert!(
             turret_angles_are_natural(
-                game_logic.host_object(sc_id).unwrap().turret_angle_deg,
-                game_logic.host_object(sc_id).unwrap().turret_pitch_deg,
+                game_logic.host_object(sc_id).unwrap().turret_ai.turret_angle_deg,
+                game_logic.host_object(sc_id).unwrap().turret_ai.turret_pitch_deg,
             ),
             "recenter residual must restore NaturalTurretAngle/Pitch, angle={} pitch={}",
-            game_logic.host_object(sc_id).unwrap().turret_angle_deg,
-            game_logic.host_object(sc_id).unwrap().turret_pitch_deg,
+            game_logic.host_object(sc_id).unwrap().turret_ai.turret_angle_deg,
+            game_logic.host_object(sc_id).unwrap().turret_ai.turret_pitch_deg,
         );
     }
 
