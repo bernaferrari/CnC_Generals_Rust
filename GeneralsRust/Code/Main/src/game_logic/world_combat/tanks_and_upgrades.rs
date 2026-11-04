@@ -805,8 +805,8 @@ impl GameLogic {
     ) -> (u32, bool) {
         use crate::game_logic::host_red_guard::{
             BAYONET_DAMAGE, BAYONET_DAMAGE_TYPE, BAYONET_FIRE_AUDIO, REDGUARD_DAMAGE,
-            REDGUARD_DAMAGE_TYPE, REDGUARD_DEATH_TYPE, REDGUARD_FIRE_AUDIO, distance_2d,
-            should_apply_bayonet_residual,
+            REDGUARD_BAYONET, REDGUARD_DAMAGE_TYPE, REDGUARD_DEATH_TYPE, REDGUARD_FIRE_AUDIO,
+            distance_2d, should_apply_bayonet_residual,
         };
 
         let source_team = source
@@ -828,7 +828,14 @@ impl GameLogic {
         let target_pos = target.get_position();
         let dist = distance_2d(source_pos.x, source_pos.z, target_pos.x, target_pos.z);
         let target_is_infantry = target.is_kind_of(KindOf::Infantry);
-        let bayonet = should_apply_bayonet_residual(true, target_is_infantry, true, dist);
+        // Bayonet only when the firer's authored WeaponSet carries the bayonet weapon.
+        let has_bayonet = source.and_then(|sid| self.objects.get(&sid)).is_some_and(|o| {
+            (0..3u8).any(|slot| {
+                o.authored_weapon_name_for_slot(slot)
+                    .is_some_and(|n| n.eq_ignore_ascii_case(REDGUARD_BAYONET))
+            })
+        });
+        let bayonet = should_apply_bayonet_residual(has_bayonet, target_is_infantry, true, dist);
         let damage = if bayonet {
             BAYONET_DAMAGE
         } else {

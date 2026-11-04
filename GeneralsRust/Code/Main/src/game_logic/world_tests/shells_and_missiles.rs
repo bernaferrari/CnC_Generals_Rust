@@ -3504,7 +3504,8 @@ fn red_guard_residual_gun_horde_nationalism_and_bayonet() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(120.0)
-        .set_primary_weapon_name(REDGUARD_MACHINE_GUN);
+        .set_primary_weapon_name(REDGUARD_MACHINE_GUN)
+        .set_secondary_weapon_name(crate::game_logic::host_red_guard::REDGUARD_BAYONET);
     game_logic
         .templates
         .insert("ChinaInfantryRedguard".to_string(), rg_tpl);
