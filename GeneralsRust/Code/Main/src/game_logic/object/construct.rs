@@ -315,6 +315,7 @@ impl Object {
         let locomotor_set_names = template.locomotor_set_names.clone();
         let locomotor_name = template.locomotor_name.clone();
         let turret = turret_spawn_for_thing_template(&template);
+        let alt_turret = super::turret_spawn::turret_spawn_alt_for_thing_template(&template);
         let is_fs_fake = template.is_kind_of(crate::game_logic::KindOf::FSFake);
 
         let occlusion_delay_frames = template_occlusion_delay_frames(&template);
@@ -1129,6 +1130,9 @@ impl Object {
             hive_slaves: [crate::game_logic::host_base_defense::ResidualHiveSlave::default(); 3],
             turret_angle_deg: turret.angle_deg,
             turret_runtime: super::turret_runtime::HostTurretExtra::from_spawn(&turret),
+            alt_turret_runtime: alt_turret
+                .as_ref()
+                .map(super::turret_runtime::HostTurretExtra::from_spawn),
             turret_pitch_deg: turret.pitch_deg,
             turret_idle_scan_next_frame: 0,
             turret_idle_scanning: false,
@@ -1243,6 +1247,7 @@ impl Object {
             TemporaryWeaponRuntimeBundle::from_thing_template(&template, 0);
         let selection_radius = template.geometry_info.bounding_circle_radius();
         let turret = turret_spawn_for_thing_template(&template);
+        let alt_turret = super::turret_spawn::turret_spawn_alt_for_thing_template(&template);
 
         let pitch_roll_yaw_factor =
             if template.pitch_roll_yaw_factor.is_finite() && template.pitch_roll_yaw_factor > 0.0 {
@@ -2087,6 +2092,9 @@ impl Object {
             hive_slaves: [crate::game_logic::host_base_defense::ResidualHiveSlave::default(); 3],
             turret_angle_deg: turret.angle_deg,
             turret_runtime: super::turret_runtime::HostTurretExtra::from_spawn(&turret),
+            alt_turret_runtime: alt_turret
+                .as_ref()
+                .map(super::turret_runtime::HostTurretExtra::from_spawn),
             turret_pitch_deg: turret.pitch_deg,
             turret_idle_scan_next_frame: 0,
             turret_idle_scanning: false,

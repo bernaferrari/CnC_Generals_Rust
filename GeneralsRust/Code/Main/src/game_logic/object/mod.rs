@@ -2789,6 +2789,12 @@ pub struct Object {
     pub turret_angle_deg: f32,
     #[serde(skip)]
     pub(crate) turret_runtime: turret_runtime::HostTurretExtra,
+    /// C++ `AIUpdateInterface::m_turretAI[TURRET_ALT]` (AIUpdate.cpp:112-113):
+    /// second TurretAI seeded from the `AltTurret` block. Index 0 stays
+    /// `turret_runtime`; `None` for primary-only templates. Storage only:
+    /// slot pick / aim / draw land in hq-2qedt.2.2-.2.4.
+    #[serde(skip)]
+    pub(crate) alt_turret_runtime: Option<turret_runtime::HostTurretExtra>,
     /// Host residual: TurretAI pitch (deg). Defaults **0**; Strategy Center
     /// authors NaturalTurretPitch **45**.
     #[serde(default)]

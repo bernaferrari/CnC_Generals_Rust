@@ -124,6 +124,26 @@ pub(super) fn turret_spawn_for_thing_template(
         .unwrap_or_else(TurretSpawnSpec::absent)
 }
 
+/// C++ `AIUpdateModuleData::m_turretData[TURRET_ALT]` (AIUpdate.cpp:112-113):
+/// second TurretAI spawn spec when both `Turret` and `AltTurret` are authored.
+/// A lone `AltTurret` already feeds the primary slot above, so it stays one-slot.
+pub(super) fn turret_spawn_alt_for_thing_template(
+    template: &crate::game_logic::ThingTemplate,
+) -> Option<TurretSpawnSpec> {
+    let ai = template
+        .receiving_client_template
+        .as_ref()
+        .and_then(|source| source.receiving_ai_base_data())?;
+    alt_turret_spawn_from_ai(ai)
+}
+
+fn alt_turret_spawn_from_ai(
+    ai: &gamelogic::object::update::ai_update_interface::AIUpdateModuleData,
+) -> Option<TurretSpawnSpec> {
+    ai.turret_primary()?;
+    ai.turret_secondary().map(turret_spawn_from_typed_data)
+}
+
 fn turret_spawn_from_typed_data(
     data: &gamelogic::object::update::ai_update_interface::TurretAIData,
 ) -> TurretSpawnSpec {
@@ -535,6 +555,30 @@ mod tests {
         assert!(!spec.enabled);
         // Explicit honesty path remains available for residual callers.
         assert!(turret_spawn_for_template("AmericaTankCrusader").has_turret);
+    }
+
+    #[test]
+    fn alt_turret_block_seeds_second_host_turret_slot() {
+        use gamelogic::object::update::ai_update_interface::{AIUpdateModuleData, TurretAIData};
+        let mut ai = AIUpdateModuleData::default();
+        let mut primary = TurretAIData::default();
+        primary.turn_rate = 0.1;
+        ai.set_turret_primary(primary);
+        assert!(alt_turret_spawn_from_ai(&ai).is_none(), "primary-only stays one-slot");
+
+        let mut alt = TurretAIData::default();
+        alt.turn_rate = 0.25;
+        alt.natural_turret_angle = 0.5;
+        ai.set_turret_secondary(alt);
+        let spec = alt_turret_spawn_from_ai(&ai).expect("AltTurret seeds slot 1");
+        let extra = crate::game_logic::object::turret_runtime::HostTurretExtra::from_spawn(&spec);
+        assert!(extra.has_authored_turret);
+        assert_eq!(spec.turn_rate_rad, 0.25);
+        assert!((spec.natural_angle_deg - 0.5f32.to_degrees()).abs() < 1e-4);
+        // Primary slot unchanged: still resolved from the Turret block.
+        let mut only_alt = AIUpdateModuleData::default();
+        only_alt.set_turret_secondary(TurretAIData::default());
+        assert!(alt_turret_spawn_from_ai(&only_alt).is_none());
     }
 }
 
