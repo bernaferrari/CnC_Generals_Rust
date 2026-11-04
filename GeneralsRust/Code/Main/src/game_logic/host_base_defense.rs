@@ -196,8 +196,6 @@ pub const LAZR_PATRIOT_ASSIST_DAMAGE: f32 = 35.0;
 pub const PATRIOT_ASSIST_DELAY_FRAMES: u32 = 8;
 /// Retail assist ClipReloadTime 1000ms → 30 frames residual honesty.
 pub const PATRIOT_ASSIST_CLIP_RELOAD_FRAMES: u32 = 30;
-/// Retail PatriotMissileAssistWeapon `ClipSize`.
-pub const PATRIOT_ASSIST_WEAPON_CLIP_SIZE: u32 = 4;
 /// Retail assist weapon template names (honesty / docs).
 pub const PATRIOT_ASSIST_WEAPON: &str = "PatriotMissileAssistWeapon";
 pub const LAZR_PATRIOT_ASSIST_WEAPON: &str = "Lazr_PatriotMissileAssistWeapon";
@@ -2188,34 +2186,6 @@ pub fn patriot_air_weapon_for_template(template_name: &str, primary_weapon: Opti
     }
 }
 
-/// Retail Patriot SECONDARY `PatriotMissileAssistWeapon` (Weapon.ini: dmg 25 /
-/// Lazr 35, AttackRange 450, DelayBetweenShots 250, ClipSize 4, ClipReloadTime 1000,
-/// AntiGround + AntiAirborne*). FactionBuilding.ini AssistingWeaponSlot = SECONDARY.
-pub fn patriot_assist_weapon_for_template(template_name: &str) -> Weapon {
-    let laser = is_laser_patriot_template(template_name);
-    Weapon {
-        damage: patriot_assist_damage_for_template(template_name),
-        range: PATRIOT_ASSIST_RANGE,
-        min_range: 0.0,
-        reload_time: delay_frames_to_reload_secs(PATRIOT_ASSIST_DELAY_FRAMES),
-        last_fire_time: 0.0,
-        ammo: Some(PATRIOT_ASSIST_WEAPON_CLIP_SIZE),
-        clip_size: PATRIOT_ASSIST_WEAPON_CLIP_SIZE,
-        clip_reload_time: delay_frames_to_reload_secs(PATRIOT_ASSIST_CLIP_RELOAD_FRAMES),
-        can_target_air: true,
-        can_target_ground: true,
-        projectile_speed: if laser { 999_999.0 } else { 600.0 },
-        pre_attack_delay: 0.0,
-        splash_radius: 0.0,
-        reloading_clip: false,
-        last_bonus_rof: 0.0,
-        suspend_fx_frame: 0,
-    }
-}
-
-/// Retail Patriot runtime slot that owns the AA weapon (TERTIARY).
-pub const PATRIOT_AIR_WEAPON_SLOT: u8 = 2;
-
 /// Residual assist damage for a Patriot template family (stock / Lazr / SupW).
 pub fn patriot_assist_damage_for_template(_template_name: &str, primary_weapon: Option<&str>) -> f32 {
     if is_laser_patriot_primary(primary_weapon) {
@@ -2324,55 +2294,6 @@ pub fn is_within_patriot_assist_weapon_range(dist_2d: f32) -> bool {
     dist_2d <= PATRIOT_ASSIST_RANGE
 }
 
-/// Authored AssistedTargetingUpdate module data bound onto a Main Object.
-///
-/// C++ AssistedTargetingUpdate.h:26-27 defaults (clip 1, PRIMARY_WEAPON);
-/// AssistedTargetingUpdate.cpp:74-75 locks `m_weaponSlot` and attacks with `m_clipSize`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct HostAssistedTargetingData {
-    pub clip_size: u32,
-    /// 0 = PRIMARY, 1 = SECONDARY, 2 = TERTIARY.
-    pub weapon_slot: u8,
-}
-
-impl HostAssistedTargetingData {
-    /// Retail AmericaPatriotBattery ModuleTag_07 residual for unadmitted templates.
-    pub const RETAIL_PATRIOT: Self = Self {
-        clip_size: PATRIOT_ASSISTING_CLIP_SIZE,
-        // FactionBuilding.ini ModuleTag_07: AssistingWeaponSlot = SECONDARY
-        // (PatriotMissileAssistWeapon, retail slots from hq-2qedt.32.2).
-        weapon_slot: 1,
-    };
-
-    /// Bind from the Object's admitted module declarations; `None` when the
-    /// Object declares no AssistedTargetingUpdate.
-    pub fn from_modules(
-        modules: &[crate::assets::ini_parser::BehaviorModuleDefinition],
-    ) -> Option<Self> {
-        let module = modules
-            .iter()
-            .find(|m| m.class_name.eq_ignore_ascii_case("AssistedTargetingUpdate"))?;
-        let mut data = Self {
-            clip_size: 1,
-            weapon_slot: 0,
-        };
-        if let Some(v) = module
-            .attribute("AssistingClipSize")
-            .and_then(|v| v.trim().parse::<i32>().ok())
-        {
-            data.clip_size = v.max(0) as u32;
-        }
-        if let Some(v) = module.attribute("AssistingWeaponSlot") {
-            data.weapon_slot = match v.trim().to_ascii_uppercase().as_str() {
-                "SECONDARY" | "SECONDARY_WEAPON" => 1,
-                "TERTIARY" | "TERTIARY_WEAPON" => 2,
-                _ => 0,
-            };
-        }
-        Some(data)
-    }
-}
-
 /// Pending assist clip residual (AssistingClipSize shots at DelayBetweenShots).
 #[derive(Debug, Clone, PartialEq)]
 pub struct PendingPatriotAssist {
@@ -2400,8 +2321,7 @@ impl PendingPatriotAssist {
             assistant_id,
             victim_id,
             requester_id,
-            shots_remaining: assist.clip_size,
-            weapon_slot: assist.weapon_slot,
+            shots_remaining: PATRIOT_ASSISTING_CLIP_SIZE,
             // First shot is immediate (C++ assistAttack locks and fires ASAP).
             next_shot_frame: start_frame,
             assistant_template: assistant_template.into(),

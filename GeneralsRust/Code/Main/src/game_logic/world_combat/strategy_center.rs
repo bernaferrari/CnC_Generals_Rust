@@ -422,10 +422,11 @@ impl GameLogic {
             })
             .unwrap_or(0.0);
         let air_range = attacker
-            .weapon_slot(air_slot)
+            .secondary_weapon
+            .as_ref()
             .map(|w| {
                 (attacker.effective_weapon_range_for_slot_with_solo_set(
-                    air_slot,
+                    1,
                     w.range,
                     &self.solo_weapon_bonus_set,
                 ) - under)
@@ -507,10 +508,7 @@ impl GameLogic {
             return Ok(());
         };
         let slot = if dual_slot {
-            match preferred_dual_defense_slot(target_is_air) {
-                1 => air_slot,
-                other => other,
-            }
+            preferred_dual_defense_slot(target_is_air)
         } else {
             0
         };
@@ -530,9 +528,17 @@ impl GameLogic {
             let Some(attacker) = self.objects.get(&defense_id) else {
                 return Ok(());
             };
-            attacker
-                .weapon_slot(slot)
-                .is_some_and(|w| Object::weapon_ready(w, current_time))
+            if slot == 1 {
+                attacker
+                    .secondary_weapon
+                    .as_ref()
+                    .is_some_and(|w| Object::weapon_ready(w, current_time))
+            } else {
+                attacker
+                    .weapon
+                    .as_ref()
+                    .is_some_and(|w| Object::weapon_ready(w, current_time))
+            }
         };
         // C++ TurretAIAimTurretState: do not discharge while the barrel is
         // still traversing. Structures without a Turret block fire immediately.
@@ -553,31 +559,18 @@ impl GameLogic {
             let Some(attacker) = self.objects.get(&defense_id) else {
                 return Ok(());
             };
-            attacker.weapon_slot(slot).map(|w| w.damage).unwrap_or(0.0)
+            if slot == 1 {
+                attacker
+                    .secondary_weapon
+                    .as_ref()
+                    .map(|w| w.damage)
+                    .unwrap_or(0.0)
+            } else {
+                attacker.weapon.as_ref().map(|w| w.damage).unwrap_or(0.0)
+            }
         };
         if damage <= 0.0 {
             return Ok(());
-        }
-        // C++ Weapon::fireWeapon reaches privateFireWeapon (and its
-        // processRequestAssistance) only when READY_TO_FIRE: DelayBetweenShots /
-        // clip reload must elapse first, so no every-frame request or shot.
-        if !ready {
-            return Ok(());
-        }
-        // C++ AssistedTargetingUpdate::assistAttack TEMP-locks the assist slot,
-        // whose AssistWeapon has no RequestAssistRange: an assisting Patriot
-        // never re-requests (Weapon.cpp:2476-2478 gate) until the lock releases.
-        let temp_locked_assisting = self.objects.get(&defense_id).is_some_and(|o| {
-            o.weapon_lock_type == crate::game_logic::WeaponLockType::LockedTemporarily
-        });
-
-        // C++ Weapon::privateFireWeapon (Weapon.cpp:2476-2478) requests assistance
-        // before the shot is delivered, so a killing shot still recruits helpers.
-        // AssistedTargetingUpdate residual: RequestAssistRange → neighboring
-        // equivalent Patriots fire AssistingClipSize assist-weapon shots +
-        // BinaryDataStream LaserFromAssisted / LaserToTarget residual beams.
-        if is_patriot && !temp_locked_assisting {
-            self.process_patriot_assist_request(defense_id, target_id, slot);
         }
 
         // America Fire Base residual: dual-radius howitzer splash owns damage.
@@ -626,7 +619,11 @@ impl GameLogic {
             let _ = hits;
         } else {
             let weapon_snap = self.objects.get(&defense_id).and_then(|a| {
-                a.weapon_slot(slot).cloned().or_else(|| a.weapon.clone())
+                if slot == 1 {
+                    a.secondary_weapon.clone().or_else(|| a.weapon.clone())
+                } else {
+                    a.weapon.clone()
+                }
             });
             // C++ ScatterRadiusVsInfantry residual: Patriot/Stinger ground fire vs infantry may miss.
             let mut skip_damage = false;
@@ -697,7 +694,11 @@ impl GameLogic {
                 Some(target_id),
                 None,
             );
-            if let Some(w) = attacker.weapon_slot_mut(slot) {
+            if slot == 1 {
+                if let Some(w) = attacker.secondary_weapon.as_mut() {
+                    crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
+                }
+            } else if let Some(w) = attacker.weapon.as_mut() {
                 crate::game_logic::Object::consume_ammo_on_fire(w, current_time);
             }
             // AI attack authority: residual fire-intent for GameWorld last-writer.
@@ -865,7 +866,7 @@ impl GameLogic {
             }
         }
         if is_patriot {
-            if slot == air_slot {
+            if slot == 1 {
                 self.patriot_residual_aa_fires = self.patriot_residual_aa_fires.saturating_add(1);
             } else {
                 self.patriot_residual_ground_fires =
@@ -880,6 +881,14 @@ impl GameLogic {
                     Some(target_id),
                     presentation_effects,
                 );
+            }
+            // AssistedTargetingUpdate residual: RequestAssistRange → neighboring
+            // equivalent Patriots fire AssistingClipSize assist-weapon shots +
+            // BinaryDataStream LaserFromAssisted / LaserToTarget residual beams.
+            // Fail-closed: not full W3DLaserDraw texture/arc GPU draw
+            // (endpoint track + draw-param honesty residual closed 2026-07-13).
+            if !destroyed {
+                self.process_patriot_assist_request(defense_id, target_id, slot);
             }
         }
         if is_tunnel {
@@ -903,7 +912,7 @@ impl GameLogic {
         use crate::game_logic::host_base_defense::{
             PATRIOT_ASSIST_LASER_AUDIO, PatriotAssistLaserKind, PendingPatriotAssist,
             is_patriot_battery_structure, is_patriot_free_to_assist,
-            is_within_patriot_request_assist_range,
+            is_within_patriot_assist_weapon_range, is_within_patriot_request_assist_range,
             make_patriot_assist_lasers, patriot_request_assist_range_for_template,
             patriots_are_assist_equivalent,
         };
@@ -965,12 +974,10 @@ impl GameLogic {
                 ) {
                     return None;
                 }
-                // C++ Weapon::processRequestAssistance: only Objects with an
-                // AssistedTargetingUpdate module can assist.
-                let assist = obj.assisted_targeting?;
-                // C++ isFreeToAssist (AssistedTargetingUpdate.cpp:61-70) only checks
-                // isAbleToAttack + READY_TO_FIRE: no already-assisting gate.
-                let already_assisting = false;
+                let already_assisting = self
+                    .pending_patriot_assists
+                    .iter()
+                    .any(|p| p.assistant_id == id && p.shots_remaining > 0);
                 let weapon_ready = obj
                     .weapon
                     .as_ref()
@@ -985,9 +992,15 @@ impl GameLogic {
                 ) {
                     return None;
                 }
-                // C++ makeAssistanceRequest (Weapon.cpp:2865-2893) has no
-                // assistant-to-victim range check.
                 let assistant_pos = obj.get_position();
+                let vdist = {
+                    let dx = assistant_pos.x - victim_pos.x;
+                    let dz = assistant_pos.z - victim_pos.z;
+                    (dx * dx + dz * dz).sqrt()
+                };
+                if !is_within_patriot_assist_weapon_range(vdist) {
+                    return None;
+                }
                 Some((
                     crate::game_logic::host_residual_acquire::ResidualAcquireCandidate {
                         id,
@@ -1003,7 +1016,6 @@ impl GameLogic {
                     },
                     obj.template_name.clone(),
                     assistant_pos,
-                    assist,
                 ))
             })
             .collect();
@@ -1011,7 +1023,7 @@ impl GameLogic {
             Some(requester_id),
             (requester_pos.x, requester_pos.z),
             request_range,
-            cand_snap.iter().map(|(c, _, _, _)| c.clone()),
+            cand_snap.iter().map(|(c, _, _)| c.clone()),
             |c| {
                 // Distance already gated by filter; keep request-assist helper for parity.
                 let dist = {
@@ -1022,13 +1034,13 @@ impl GameLogic {
                 is_within_patriot_request_assist_range(dist, request_range)
             },
         );
-        let candidates: Vec<(ObjectId, String, Vec3, _)> = filtered
+        let candidates: Vec<(ObjectId, String, Vec3)> = filtered
             .into_iter()
             .filter_map(|(id, _, _)| {
                 cand_snap
                     .iter()
-                    .find(|(c, _, _, _)| c.id == id)
-                    .map(|(_, tmpl, pos, assist)| (id, tmpl.clone(), *pos, *assist))
+                    .find(|(c, _, _)| c.id == id)
+                    .map(|(_, tmpl, pos)| (id, tmpl.clone(), *pos))
             })
             .collect();
 
@@ -1128,6 +1140,7 @@ impl GameLogic {
     ) {
         use crate::game_logic::host_base_defense::{
             LAZR_PATRIOT_FIRE_AUDIO, PATRIOT_ASSIST_DELAY_FRAMES, PATRIOT_FIRE_AUDIO,
+            is_within_patriot_assist_weapon_range,
         };
 
         if self.pending_patriot_assists.is_empty() {
@@ -1170,40 +1183,155 @@ impl GameLogic {
                 .objects
                 .get(&clip.assistant_id)
                 .map(|assistant| std::sync::Arc::downgrade(&assistant.visual_draw_identity_token));
-            // C++ assistAttack has no assistant-to-victim range gate; the
-            // attack machine owns range (hq-2qedt.24).
-            let _ = (assistant_pos, victim_pos);
+            let vdist = {
+                let dx = assistant_pos.x - victim_pos.x;
+                let dz = assistant_pos.z - victim_pos.z;
+                (dx * dx + dz * dz).sqrt()
+            };
+            if !is_within_patriot_assist_weapon_range(vdist) {
+                // Leave range → cancel remaining clip residual.
+                continue;
+            }
 
             if frame < clip.next_shot_frame {
                 keep.push(clip);
                 continue;
             }
 
-            // C++ AssistedTargetingUpdate::assistAttack (AssistedTargetingUpdate.cpp:74-75):
-            //   me->setWeaponLock(m_weaponSlot, LOCKED_TEMPORARILY);
-            //   me->getAI()->aiAttackObject(victim, m_clipSize, CMD_FROM_AI);
-            // The clip is fired by the real weapon lifecycle, not an HP loop.
-            let _ = (is_laser, is_supw, victim_birth, assistant_birth, PATRIOT_ASSIST_DELAY_FRAMES,
-                LAZR_PATRIOT_FIRE_AUDIO, PATRIOT_FIRE_AUDIO);
-            if let Some(asst) = self.objects.get_mut(&clip.assistant_id) {
-                asst.set_weapon_lock(
-                    clip.weapon_slot,
-                    crate::game_logic::WeaponLockType::LockedTemporarily,
+            // Fire one assist residual shot.
+            let damage = clip.damage();
+            let asst_pos = self
+                .objects
+                .get(&clip.assistant_id)
+                .map(|a| a.get_position())
+                .unwrap_or(glam::Vec3::ZERO);
+            let weapon_snap = self
+                .objects
+                .get(&clip.assistant_id)
+                .and_then(|a| a.weapon.clone());
+            let (destroyed, _) = self.residual_auto_fire_apply_damage_with_effects(
+                clip.assistant_id,
+                clip.victim_id,
+                damage,
+                asst_pos,
+                weapon_snap.as_ref(),
+                0,
+                presentation_effects,
+            );
+            if destroyed {
+                self.mark_object_for_destruction_with_effects(
+                    clip.victim_id,
+                    Some(assistant_team),
+                    presentation_effects,
                 );
             }
-            let attacked = self
-                .private_attack_object_with_effects(
+            if let Some(asst) = self.objects.get_mut(&clip.assistant_id) {
+                let _ = asst.capture_pending_weapon_visual_dispatch(
+                    0,
+                    frame,
+                    Some(clip.victim_id),
+                    Some(victim_pos),
+                );
+                // Assist residual marks engagement; keeps primary on clip-reload honesty.
+                if let Some(w) = asst.weapon.as_mut() {
+                    let t = frame as f32 * LOGIC_FRAME_TIMESTEP;
+                    crate::game_logic::Object::consume_ammo_on_fire(w, t);
+                }
+                // AI attack authority: residual fire-intent for GameWorld last-writer.
+                {}
+                asst.note_attack_target_with_operation(
+                    clip.victim_id,
+                    &mut self.attack_events,
+                    &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    self.frame,
+                    &mut presentation_effects.reborrow_for_object(&mut self.partition_manager),
+                );
+                let entered_attack = !matches!(
+                    asst.ai_state(),
+                    AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+                );
+                if entered_attack {
+                    asst.set_ai_state(
+                        AIState::Attacking,
+                        &mut crate::game_logic::ObjectAudio::queue(&mut self.queued_audio_events),
+                    );
+                }
+                {}
+                // Kill XP awarded after this borrow via award_experience.
+            }
+            // An assisted-targeting clip is a real primary WeaponSet shot,
+            // not one visual event per auto-fire victim.
+            let _ = self.record_accepted_weapon_discharge_with_effects(
+                clip.assistant_id,
+                0,
+                presentation_effects,
+            );
+            if destroyed
+                && self.objects.get(&clip.victim_id).is_some_and(|victim| {
+                    victim_birth.ptr_eq(&std::sync::Arc::downgrade(
+                        &victim.visual_draw_identity_token,
+                    ))
+                })
+            {
+                self.award_score_the_kill_experience_with_effects_and_interpreter(
                     clip.assistant_id,
                     clip.victim_id,
-                    clip.shots_remaining as i32,
+                    None,
                     presentation_effects,
                 )
-                .unwrap_or(false);
-            if attacked {
-                // Assist fires are counted at fire commit
-                // (Object::assist_clip_fire_commits), not per assist command.
-                self.base_defense_residual_fires =
-                    self.base_defense_residual_fires.saturating_add(1);
+                .expect("assisted shot kill XP callback must complete");
+                // Clear engagement via decision authority (log-only when GW applies).
+                if assistant_birth.as_ref().is_some_and(|birth| {
+                    self.objects
+                        .get(&clip.assistant_id)
+                        .is_some_and(|assistant| {
+                            birth.ptr_eq(&std::sync::Arc::downgrade(
+                                &assistant.visual_draw_identity_token,
+                            ))
+                        })
+                }) {
+                    self.stop_attack_decision_aware(clip.assistant_id);
+                }
+            }
+
+            let _ = self.combat_particles.spawn_weapon_fire_fx(
+                assistant_pos,
+                Some(victim_pos),
+                frame,
+                clip.assistant_id,
+                Some(clip.victim_id),
+            );
+            let audio = if is_laser {
+                LAZR_PATRIOT_FIRE_AUDIO
+            } else {
+                PATRIOT_FIRE_AUDIO
+            };
+            self.queue_audio_event(
+                AudioEventRequest::new(audio)
+                    .with_object(clip.assistant_id)
+                    .with_position(assistant_pos)
+                    .with_priority(160),
+            );
+
+            // SupW assist shells also seed EMPPatriotEffectSpheroid residual.
+            if is_supw {
+                self.apply_supw_patriot_emp_residual_at_with_effects(
+                    victim_pos,
+                    clip.assistant_id,
+                    assistant_team,
+                    Some(clip.victim_id),
+                    presentation_effects,
+                );
+            }
+
+            self.patriot_assist_residual_fires =
+                self.patriot_assist_residual_fires.saturating_add(1);
+            self.base_defense_residual_fires = self.base_defense_residual_fires.saturating_add(1);
+
+            clip.shots_remaining = clip.shots_remaining.saturating_sub(1);
+            if clip.shots_remaining > 0 && !destroyed {
+                clip.next_shot_frame = frame.saturating_add(PATRIOT_ASSIST_DELAY_FRAMES);
+                keep.push(clip);
             }
         }
 
