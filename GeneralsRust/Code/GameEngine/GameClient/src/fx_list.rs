@@ -805,9 +805,11 @@ impl Default for FXListStore {
 
 static FX_LIST_PARSER_REGISTERED: OnceLock<()> = OnceLock::new();
 
-// Fallback owner when no live GameClient is bound (unit and integration
-// tests, tools). C++ `TheFXListStore` is one persistent singleton; an
-// ephemeral per-call store would drop every `add_fx_list` (hq-2qedt.39).
+// Test-only fallback when no live GameClient is bound. C++ `TheFXListStore`
+// is one persistent singleton; an ephemeral per-call store would drop every
+// `add_fx_list` in tests (hq-2qedt.39). Kept behind cfg(test) so production
+// stays free of process-wide TLS (globals budget).
+#[cfg(test)]
 thread_local! {
     static TEST_FX_LIST_STORE: std::cell::RefCell<Option<std::sync::Arc<RwLock<FXListStore>>>> =
         const { std::cell::RefCell::new(None) };
@@ -820,11 +822,18 @@ pub fn fx_list_store_handle() -> std::sync::Arc<RwLock<FXListStore>> {
     }) {
         return handle;
     }
-    TEST_FX_LIST_STORE.with(|slot| {
-        slot.borrow_mut()
-            .get_or_insert_with(|| std::sync::Arc::new(RwLock::new(FXListStore::new())))
-            .clone()
-    })
+    #[cfg(test)]
+    {
+        return TEST_FX_LIST_STORE.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| std::sync::Arc::new(RwLock::new(FXListStore::new())))
+                .clone()
+        });
+    }
+    #[cfg(not(test))]
+    {
+        std::sync::Arc::new(RwLock::new(FXListStore::new()))
+    }
 }
 
 pub fn with_fx_list_store<R>(f: impl FnOnce(&FXListStore) -> R) -> R {
