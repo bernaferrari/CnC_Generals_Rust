@@ -3958,3 +3958,45 @@ fn base_defense_fire_time_exactly_one_muzzle_per_shot_hq_2qedt_125() {
     }
     assert!(fired, "base defense must fire");
 }
+
+/// hq-2qedt.126: inferno fire zone (impact-time, from shell detonation / MIG
+/// napalm) and Aurora bomb queue (called inside the accepted-shot path where
+/// shared dispatch already plays FireFX) must not add a WeaponMuzzleFlash
+/// owned by the shooter. C++ Weapon.cpp:923-939 plays FireFX once per shot at
+/// fire time; impact plays DetonationFX/OCL (OCL_FireFieldSmall), launch has
+/// no second muzzle. FireWall special power (no weapon FireFX dispatch) keeps
+/// its single segment flame presentation.
+#[test]
+fn angry_mob_aurora_zone_launch_muzzle_ownership_hq_2qedt_126() {
+    use crate::game_logic::combat_particles::CombatParticleKind;
+    use crate::game_logic::host_aurora_bomb::HostAuroraBombKind;
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let muzzles = |l: &GameLogic, src: ObjectId| {
+        l.combat_particles()
+            .systems_of_kind(CombatParticleKind::WeaponMuzzleFlash)
+            .iter()
+            .filter(|e| e.source_object == Some(src))
+            .count()
+    };
+    let mut logic = GameLogic::new();
+    ensure_test_tank_template(&mut logic);
+    let src = logic
+        .create_object("TestTank", Team::USA, glam::Vec3::ZERO)
+        .expect("src");
+    let impact = glam::Vec3::new(120.0, 0.0, 0.0);
+
+    let b = muzzles(&logic, src);
+    logic.spawn_inferno_fire_zone(src, Team::USA, impact, false);
+    assert_eq!(muzzles(&logic, src) - b, 0, "inferno zone at impact must not spawn shooter muzzle");
+
+    let b = muzzles(&logic, src);
+    logic.queue_aurora_bomb(HostAuroraBombKind::Standard, src, Team::USA, impact);
+    assert_eq!(muzzles(&logic, src) - b, 0, "aurora launch must not add a second muzzle over shared FireFX");
+
+    let b = muzzles(&logic, src);
+    if logic.activate_firewall(src, impact).is_some() {
+        assert_eq!(muzzles(&logic, src) - b, 1, "firewall keeps exactly one segment flame presentation");
+    }
+}
