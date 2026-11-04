@@ -720,26 +720,16 @@ impl Object {
             .receiving_jet_lockon_data()
     }
     pub(crate) fn jet_lockon_cursor_name(&self) -> Option<&str> {
-        if let Some(data) = self.jet_lockon_data() {
-            return (!data.lockon_cursor.is_empty()).then(|| data.lockon_cursor.as_str());
-        }
-        // Explicit assetless prototype templates retain their existing rules.
-        (self.jet_lockon_time_frames() != 0).then_some(STEALTH_FIGHTER_LOCKON_CURSOR)
+        let data = self.jet_lockon_data()?;
+        (!data.lockon_cursor.is_empty()).then(|| data.lockon_cursor.as_str())
     }
     pub(crate) fn refresh_jet_lockon_position(&mut self, now: u32) {
         self.position_jet_lockon(now);
     }
 
+    /// C++ `JetAIUpdateModuleData::m_lockonTime` defaults to 0 (JetAIUpdate.cpp:1640).
     pub fn jet_lockon_time_frames(&self) -> u32 {
-        if let Some(data) = self.jet_lockon_data() {
-            return data.lockon_time;
-        }
-        if crate::game_logic::host_stealth_fighter::is_stealth_fighter_template(&self.template_name)
-        {
-            STEALTH_FIGHTER_LOCKON_TIME_FRAMES
-        } else {
-            0
-        }
+        self.jet_lockon_data().map_or(0, |data| data.lockon_time)
     }
 
     pub fn jet_takeoff_pause_frames(&self) -> u32 {

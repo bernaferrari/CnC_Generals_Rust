@@ -1996,9 +1996,11 @@ fn jet_stop_idle_timer_sneaky_and_lockon() {
     aurora.status.attacking = true;
     let _ = aurora.tick_jet_ai_update(50);
 
-    let mut sf_t = ThingTemplate::new("AmericaJetStealthFighter");
-    sf_t.add_kind_of(KindOf::Aircraft);
-    let mut sf = Object::new(sf_t, ObjectId(2), Team::USA);
+    let mut sf = Object::new(
+        authored_lockon_stealth_fighter_template(),
+        ObjectId(2),
+        Team::USA,
+    );
     sf.set_position(Vec3::new(10.0, 40.0, 0.0));
     sf.add_jet_targeter(ObjectId(9), true, 100);
     assert!(sf.is_temporarily_preventing_aim_success(100));
@@ -2187,11 +2189,13 @@ fn jet_takeoff_recaptures_damage_conditioned_flight_lift_each_episode() {
 
 #[test]
 fn jet_lockon_rearms_after_targeter_removed() {
+    use crate::game_logic::Team;
     use crate::game_logic::object::STEALTH_FIGHTER_LOCKON_TIME_FRAMES;
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut sf_t = ThingTemplate::new("AmericaJetStealthFighter");
-    sf_t.add_kind_of(KindOf::Aircraft);
-    let mut sf = Object::new(sf_t, ObjectId(2), Team::USA);
+    let mut sf = Object::new(
+        authored_lockon_stealth_fighter_template(),
+        ObjectId(2),
+        Team::USA,
+    );
     sf.add_jet_targeter(ObjectId(9), true, 100);
     assert!(sf.is_temporarily_preventing_aim_success(100));
     assert!(!sf.is_temporarily_preventing_aim_success(100 + STEALTH_FIGHTER_LOCKON_TIME_FRAMES));
@@ -2890,4 +2894,54 @@ fn bind_blocking_fixture_locomotor(object: &mut Object, name: &str) {
     object.locomotor_set_names = vec![name.to_owned()];
     apply_host_locomotor_binding(object, &binding);
     assert!(crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(object));
+}
+
+fn authored_lockon_stealth_fighter_template() -> crate::game_logic::ThingTemplate {
+    let content = crate::assets::ReceivingObjectContent::from_sources([(
+        "authored_lockon_jet.ini".into(),
+        r#"
+Object AuthoredLockonJet
+  KindOf = VEHICLE AIRCRAFT
+  Body = ActiveBody ModuleTag_Body
+    MaxHealth = 100
+    InitialHealth = 100
+  End
+  Behavior = JetAIUpdate ModuleTag_AI
+    LockonTime = 1500
+    LockonCursor = LockonCursor
+  End
+End
+"#
+        .into(),
+    )])
+    .expect("authored lockon jet");
+    let mut world = crate::game_logic::GameLogic::new();
+    world
+        .admit_receiving_module_content(content)
+        .expect("receiving lockon jet");
+    world.templates["AuthoredLockonJet"].clone()
+}
+
+/// hq-2qedt.129: C++ JetAIUpdateModuleData::m_lockonTime defaults to 0
+/// (JetAIUpdate.cpp:1640); only authored `LockonTime` arms lockon.
+#[test]
+fn jet_lockon_time_comes_from_authored_jet_ai_not_template_name() {
+    use crate::game_logic::object::STEALTH_FIGHTER_LOCKON_TIME_FRAMES;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let authored = Object::new(
+        authored_lockon_stealth_fighter_template(),
+        ObjectId(1),
+        Team::USA,
+    );
+    assert_eq!(
+        authored.jet_lockon_time_frames(),
+        STEALTH_FIGHTER_LOCKON_TIME_FRAMES
+    );
+    assert_eq!(authored.jet_lockon_cursor_name(), Some("LockonCursor"));
+
+    let mut named_t = ThingTemplate::new("AmericaJetStealthFighter");
+    named_t.add_kind_of(KindOf::Aircraft);
+    let named = Object::new(named_t, ObjectId(2), Team::USA);
+    assert_eq!(named.jet_lockon_time_frames(), 0, "no name-sniff lockon");
+    assert_eq!(named.jet_lockon_cursor_name(), None);
 }
