@@ -2747,16 +2747,12 @@ impl GameLogic {
                 object.install_upgrade_die(up);
             }
 
-            // Host residual: GLA Technical TransportContain Slots=5 (infantry passengers)
-            // + PRIMARY TechnicalMachineGunWeapon residual (salvage tiers swap later).
+            // Host residual: GLA Technical TransportContain Slots=5 (infantry passengers).
+            // PRIMARY binds from the authored WeaponSet above (C++
+            // WeaponSet::updateWeaponSet), not a template-name peel (hq-2qedt.143).
             // Fail-closed: not chassis reskin / PassengersAllowedToFire.
             if crate::game_logic::host_technical::is_technical_template(template_name) {
-                use crate::game_logic::host_technical::{
-                    TechnicalWeaponTier, technical_weapon_for_tier,
-                };
                 object.install_technical_transport();
-                // Force residual MG when template lacked primary_weapon_name (Weapon::default path).
-                object.weapon = Some(technical_weapon_for_tier(TechnicalWeaponTier::Base));
             }
 
             // Host residual: China Battlemaster PRIMARY BattleMasterTankGun residual.
