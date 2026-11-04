@@ -342,8 +342,10 @@ impl BuildingData {
             // broad producer capability; this is the typed queue gate.
             BuildingType::SupplyCenter => template.is_kind_of(KindOf::Harvester),
             BuildingType::CommandCenter => {
-                // Command centers can produce workers/dozers
-                template.name.contains("Worker") || template.name.contains("Dozer")
+                // C++ BuildAssistant/command-set UNIT_BUILD for CC lists
+                // Dozer/Worker templates tagged KINDOF_DOZER. Name peel is
+                // not a C++ factory gate (same as Barracks KindOf::Infantry).
+                template.is_kind_of(KindOf::Dozer)
             }
             _ => false,
         }
@@ -1526,6 +1528,31 @@ mod tests {
         assert!(
             !bd.can_produce(&rebel),
             "missing KINDOF_INFANTRY must fail can_produce"
+        );
+    }
+
+    /// C++ CC production admits KINDOF_DOZER builders only; a template whose
+    /// name contains "Dozer" without the kind must not queue.
+    #[test]
+    fn command_center_can_produce_requires_dozer_kindof() {
+        let bd = BuildingData::new(BuildingType::CommandCenter);
+        let mut dozer = ThingTemplate::new("USA_Dozer");
+        dozer.add_kind_of(KindOf::Dozer);
+        assert!(
+            bd.can_produce(&dozer),
+            "shipped can_produce must accept KindOf::Dozer"
+        );
+        let mut named_only = ThingTemplate::new("AmericaFakeDozerTank");
+        named_only.add_kind_of(KindOf::Vehicle);
+        assert!(
+            !bd.can_produce(&named_only),
+            "name-contains Dozer is not a C++ factory gate"
+        );
+        let mut worker = ThingTemplate::new("GLA_Worker");
+        worker.add_kind_of(KindOf::Dozer);
+        assert!(
+            bd.can_produce(&worker),
+            "GLA Worker authors KindOf::Dozer"
         );
     }
 

@@ -1520,7 +1520,7 @@ impl GameLogic {
                 obj.target_location = None;
                 obj.set_status_force_attack(false);
                 // Halt workers/dozers mid-rebuild so paused AI does not finish distant CCs.
-                if obj.is_kind_of(KindOf::Worker) || obj.template_name.contains("Dozer") {
+                if obj.is_kind_of(KindOf::Worker) || obj.is_kind_of(KindOf::Dozer) {
                     obj.stop_moving(&mut crate::game_logic::ObjectAudio::queue(
                         &mut self.queued_audio_events,
                     ));
