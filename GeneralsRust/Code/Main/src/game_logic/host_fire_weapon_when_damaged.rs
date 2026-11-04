@@ -57,6 +57,12 @@ pub struct HostFireWeaponWhenDamagedData {
     /// m_ammoInClip); u32::MAX marks OUT_OF_AMMO without AutoReloadsClip.
     #[serde(default)]
     pub reaction_role_clip_used: [u32; 4],
+    /// C++ per-role continuous Weapon m_whenWeCanFireAgain (FWWDB.cpp:76-99).
+    #[serde(default)]
+    pub continuous_role_ready_frames: [u32; 4],
+    /// Continuous per-role clip usage; u32::MAX = OUT_OF_AMMO.
+    #[serde(default)]
+    pub continuous_role_clip_used: [u32; 4],
     pub last_continuous_frame: u32,
     pub continuous_reload_frames: u32,
 }
@@ -79,6 +85,8 @@ impl Default for HostFireWeaponWhenDamagedData {
             reaction_role_frames: [0; 4],
             reaction_role_ready_frames: [0; 4],
             reaction_role_clip_used: [0; 4],
+            continuous_role_ready_frames: [0; 4],
+            continuous_role_clip_used: [0; 4],
             last_continuous_frame: 0,
             continuous_reload_frames: FWWDB_CONTINUOUS_RELOAD_FRAMES,
         }
@@ -154,6 +162,19 @@ impl HostFireWeaponWhenDamagedData {
             self.reaction_role_clip_used[role] = 0;
             self.reaction_role_ready_frames[role] = creation_frame + clip_reload;
         }
+        // Continuous weapons get the same ctor reloadAmmo (FWWDB.cpp:76-99).
+        let roles = [
+            self.continuous_pristine.clone(),
+            self.continuous_damaged.clone(),
+            self.continuous_really_damaged.clone(),
+            self.continuous_rubble.clone(),
+        ];
+        for (role, name) in roles.iter().enumerate() {
+            let Some(name) = name else { continue };
+            let (_, clip_reload, _) = reaction_clip_params(name);
+            self.continuous_role_clip_used[role] = 0;
+            self.continuous_role_ready_frames[role] = creation_frame + clip_reload;
+        }
     }
 
     /// C++ onDamage residual. Returns weapon name to force-fire at self position.
@@ -179,37 +200,15 @@ impl HostFireWeaponWhenDamagedData {
         let name = self.weapon_for_state(state, false)?.to_string();
         // C++ getStatus()==READY_TO_FIRE on this role's own Weapon
         // (FireWeaponWhenDamagedBehavior.cpp:167-191). DelayBetweenShots 0 stays ready.
-        let role = match state {
-            HostBodyDamageType::Pristine => 0,
-            HostBodyDamageType::Damaged => 1,
-            HostBodyDamageType::ReallyDamaged => 2,
-            HostBodyDamageType::Rubble => 3,
-        };
-        // Weapon::getStatus (Weapon.cpp:2736-2751): ready once now >= m_whenWeCanFireAgain
-        // and ammo remains in the clip.
-        if self.reaction_role_clip_used[role] == u32::MAX
-            || current_frame < self.reaction_role_ready_frames[role]
-        {
+        let role = role_index(state);
+        if !role_try_fire(
+            &name,
+            current_frame,
+            &mut self.reaction_role_ready_frames[role],
+            &mut self.reaction_role_clip_used[role],
+            0,
+        ) {
             return None;
-        }
-        let (clip_size, clip_reload, auto_reload) = reaction_clip_params(&name);
-        let delay =
-            crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_nominal(&name)
-                .map(|secs| (secs * 30.0).round() as u32)
-                .unwrap_or(0);
-        // privateFireWeapon (Weapon.cpp:2622-2648): --ammo; empty clip reloads
-        // (ClipReloadTime) or goes OUT_OF_AMMO; else BETWEEN_FIRING_SHOTS.
-        let used = self.reaction_role_clip_used[role] + 1;
-        if clip_size > 0 && used >= clip_size {
-            if auto_reload {
-                self.reaction_role_clip_used[role] = 0;
-                self.reaction_role_ready_frames[role] = current_frame + clip_reload;
-            } else {
-                self.reaction_role_clip_used[role] = u32::MAX;
-            }
-        } else {
-            self.reaction_role_clip_used[role] = if clip_size > 0 { used } else { 0 };
-            self.reaction_role_ready_frames[role] = current_frame + delay;
         }
         self.reaction_role_frames[role] = current_frame.max(1);
         self.last_reaction_frame = current_frame.max(1);
@@ -225,25 +224,65 @@ impl HostFireWeaponWhenDamagedData {
         if !self.active {
             return None;
         }
-        // Continuous weapons typically only for damaged+ states in retail toxic bunkers.
-        if matches!(state, HostBodyDamageType::Pristine) && self.continuous_pristine.is_none() {
-            return None;
-        }
         let name = self.weapon_for_state(state, true)?.to_string();
-        let reload = leftover_weapon_reload_frames(&name).max(1);
-        // C++ ctor reloadAmmo: first observation starts the clip-reload clock.
-        if self.last_continuous_frame == 0 {
-            self.last_continuous_frame = current_frame;
-            self.continuous_reload_frames = reload;
+        let role = role_index(state);
+        // FWWDB.cpp:200-241: fire only when this role's Weapon is READY_TO_FIRE.
+        if !role_try_fire(
+            &name,
+            current_frame,
+            &mut self.continuous_role_ready_frames[role],
+            &mut self.continuous_role_clip_used[role],
+            FWWDB_CONTINUOUS_RELOAD_FRAMES,
+        ) {
             return None;
         }
-        if current_frame.saturating_sub(self.last_continuous_frame) < reload {
-            return None;
-        }
-        self.last_continuous_frame = current_frame;
-        self.continuous_reload_frames = reload;
+        self.last_continuous_frame = current_frame.max(1);
+        self.continuous_reload_frames = leftover_weapon_reload_frames(&name).max(1);
         Some(name)
     }
+}
+
+fn role_index(state: HostBodyDamageType) -> usize {
+    match state {
+        HostBodyDamageType::Pristine => 0,
+        HostBodyDamageType::Damaged => 1,
+        HostBodyDamageType::ReallyDamaged => 2,
+        HostBodyDamageType::Rubble => 3,
+    }
+}
+
+/// Weapon::getStatus (Weapon.cpp:2736-2751) READY_TO_FIRE gate + privateFireWeapon
+/// (Weapon.cpp:2622-2648) ammo spend for one role Weapon. Returns true if it fired.
+/// `missing_delay`: DelayBetweenShots frames when the store lacks the weapon.
+fn role_try_fire(
+    name: &str,
+    current_frame: u32,
+    ready: &mut u32,
+    used: &mut u32,
+    missing_delay: u32,
+) -> bool {
+    if *used == u32::MAX || current_frame < *ready {
+        return false;
+    }
+    let (clip_size, clip_reload, auto_reload) = reaction_clip_params(name);
+    let delay = crate::game_logic::weapon_bootstrap::host_delay_between_shots_secs_nominal(name)
+        .map(|secs| (secs * 30.0).round() as u32)
+        .unwrap_or(missing_delay);
+    // --ammo; empty clip reloads (ClipReloadTime) or goes OUT_OF_AMMO;
+    // else BETWEEN_FIRING_SHOTS.
+    let next = *used + 1;
+    if clip_size > 0 && next >= clip_size {
+        if auto_reload {
+            *used = 0;
+            *ready = current_frame + clip_reload;
+        } else {
+            *used = u32::MAX;
+        }
+    } else {
+        *used = if clip_size > 0 { next } else { 0 };
+        *ready = current_frame + delay;
+    }
+    true
 }
 
 /// (ClipSize, ClipReloadTime frames, AutoReloadsClip) from the WeaponStore.
@@ -359,21 +398,21 @@ mod tests {
     #[test]
     fn continuous_fires_when_damaged() {
         let mut d = HostFireWeaponWhenDamagedData::toxic_bunker_residual();
+        d.apply_ctor_reload_ammo(1);
         assert!(d.tick_continuous(HostBodyDamageType::Pristine, 1).is_none()); // pristine
-        // C++ reloadAmmo: first damaged tick arms the clip, does not fire.
-        assert!(d.tick_continuous(HostBodyDamageType::Damaged, 1).is_none());
         let reload = d.continuous_reload_frames.max(1);
+        // No ClipReloadTime on the unresolved template: ready after ctor.
         let w = d
-            .tick_continuous(HostBodyDamageType::Damaged, 1 + reload)
+            .tick_continuous(HostBodyDamageType::Damaged, 1)
             .expect("cont");
         assert!(w.contains("PoisonField"));
-        // reload gate
+        // DelayBetweenShots gate
         assert!(
-            d.tick_continuous(HostBodyDamageType::Damaged, 2 + reload)
+            d.tick_continuous(HostBodyDamageType::Damaged, reload)
                 .is_none()
         );
         let w2 = d
-            .tick_continuous(HostBodyDamageType::Damaged, 1 + reload + reload)
+            .tick_continuous(HostBodyDamageType::Damaged, 1 + reload)
             .unwrap();
         assert!(w2.contains("PoisonField"));
     }
@@ -488,6 +527,55 @@ mod tests {
             let dm = HostBodyDamageType::Damaged;
             assert!(d.on_damage(5.0, dm, 120, 0).is_none());
             assert!(d.on_damage(5.0, dm, 160, 0).is_some());
+        });
+    }
+
+    #[test]
+    fn continuous_roles_use_clip_ammo_ready_to_fire() {
+        // C++ FireWeaponWhenDamagedBehavior.cpp:76-99 allocates + reloadAmmo one
+        // Weapon per continuous role; update (200-241) fires only when that
+        // role's getStatus()==READY_TO_FIRE (Weapon.cpp:2736), and
+        // privateFireWeapon (2622-2648) spends clip ammo / reloads / OUT_OF_AMMO.
+        let services = gamelogic::system::engine_stores::new_world_services();
+        gamelogic::system::engine_stores::with_world_services(&services, || {
+            const AUTO: &str = "__RustFwwdContClipAuto";
+            const ONCE: &str = "__RustFwwdContClipOnce";
+            let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+            let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
+                for (name, auto) in [(AUTO, true), (ONCE, false)] {
+                    let mut t = gamelogic::weapon::WeaponTemplate::new(name.to_string());
+                    t.primary_damage = 10.0;
+                    t.clip_size = 2;
+                    t.clip_reload_time = 90;
+                    t.min_delay_between_shots = 10;
+                    t.max_delay_between_shots = 10;
+                    t.reload_type = if auto {
+                        gamelogic::weapon::WeaponReloadType::AutoReload
+                    } else {
+                        gamelogic::weapon::WeaponReloadType::NoReload
+                    };
+                    store.add_weapon_template(t);
+                }
+            });
+            let mut d = HostFireWeaponWhenDamagedData {
+                continuous_damaged: Some(AUTO.into()),
+                continuous_really_damaged: Some(ONCE.into()),
+                ..Default::default()
+            };
+            d.apply_ctor_reload_ammo(0);
+            let dm = HostBodyDamageType::Damaged;
+            assert!(d.tick_continuous(dm, 89).is_none(), "ctor ClipReloadTime pending");
+            assert!(d.tick_continuous(dm, 90).is_some(), "ready after ctor reload");
+            assert!(d.tick_continuous(dm, 99).is_none(), "DelayBetweenShots");
+            assert!(d.tick_continuous(dm, 100).is_some(), "second round");
+            assert!(d.tick_continuous(dm, 110).is_none(), "clip reloading");
+            assert!(d.tick_continuous(dm, 189).is_none(), "clip reloading");
+            assert!(d.tick_continuous(dm, 190).is_some(), "clip reloaded");
+            // Independent role Weapon: own ctor reload, own clip, OUT_OF_AMMO.
+            let rd = HostBodyDamageType::ReallyDamaged;
+            assert!(d.tick_continuous(rd, 191).is_some(), "own READY_TO_FIRE");
+            assert!(d.tick_continuous(rd, 201).is_some());
+            assert!(d.tick_continuous(rd, 5000).is_none(), "OUT_OF_AMMO");
         });
     }
 }
