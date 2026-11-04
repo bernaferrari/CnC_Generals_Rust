@@ -558,3 +558,30 @@ fn leftover_choose_best_ground_resets_primary_unless_locked() {
 
 #[path = "clip_pitch_contract_tests.rs"]
 mod clip_pitch_contract_tests;
+
+#[test]
+fn weapon_slot_picks_controlling_turret_primary_then_alt() {
+    // C++ AIUpdate.cpp:756-770 getWhichTurretForWeaponSlot: first TurretAI whose
+    // TurretAI::isWeaponSlotOnTurret(wslot) holds wins (MAIN before ALT).
+    use crate::game_logic::object::turret_runtime::HostTurretExtra;
+    let mut obj = Object::new(ThingTemplate::new("DualTurret"), ObjectId(1), Team::USA);
+    obj.turret_runtime.has_authored_turret = true;
+    obj.turret_runtime.controlled_weapon_slots = 0b001; // PRIMARY
+    assert_eq!(obj.which_turret_for_weapon_slot(0), Some(0));
+    assert_eq!(obj.which_turret_for_weapon_slot(1), None);
+    assert!(!obj.is_weapon_slot_on_turret(1));
+
+    let mut alt = HostTurretExtra::default();
+    alt.has_authored_turret = true;
+    alt.controlled_weapon_slots = 0b110; // SECONDARY | TERTIARY
+    obj.alt_turret_runtime = Some(alt);
+    assert_eq!(obj.which_turret_for_weapon_slot(0), Some(0));
+    assert_eq!(obj.which_turret_for_weapon_slot(1), Some(1));
+    assert_eq!(obj.which_turret_for_weapon_slot(2), Some(1));
+    assert!(obj.is_weapon_slot_on_turret(1), "alt turret controls slot 1");
+
+    // Overlap: MAIN wins (loop order i=0 first).
+    obj.turret_runtime.controlled_weapon_slots = 0b011;
+    assert_eq!(obj.which_turret_for_weapon_slot(1), Some(0));
+    assert_eq!(obj.which_turret_for_weapon_slot(7), None);
+}
