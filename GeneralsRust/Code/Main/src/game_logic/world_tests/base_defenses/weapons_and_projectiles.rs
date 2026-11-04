@@ -2841,3 +2841,57 @@ fn technical_rpg_missile_projectile_flies_and_impacts() {
         "rpg missile should detonate"
     );
 }
+
+/// hq-2qedt.170: object_hit keys the Rocket Buggy rocket on the authored
+/// BuggyRocketWeapon, not the firer's template name (Weapon::fireWeapon).
+#[test]
+fn rocket_buggy_object_hit_keys_on_authored_weapon_not_template_name() {
+    use crate::game_logic::host_rocket_buggy::{BUGGY_ROCKET_WEAPON, is_rocket_buggy_template};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    ensure_test_tank_template(&mut game_logic);
+
+    let mut tpl = crate::game_logic::ThingTemplate::new("GLAVehicleSalvageLauncher");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name(BUGGY_ROCKET_WEAPON);
+    game_logic
+        .templates
+        .insert("GLAVehicleSalvageLauncher".to_string(), tpl);
+    let shooter = game_logic
+        .create_object("GLAVehicleSalvageLauncher", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("shooter");
+    assert!(!is_rocket_buggy_template(
+        &game_logic.host_object(shooter).unwrap().template_name
+    ));
+    let tank_id = game_logic
+        .create_object("TestTank", Team::USA, Vec3::new(120.0, 0.0, 0.0))
+        .expect("tank");
+    {
+        let (b, attack_events, _a, part) = game_logic
+            .host_object_attack_audio_partition_mut(shooter)
+            .unwrap();
+        b.set_position_with_partition_owner(Vec3::ZERO, 0, &mut Default::default(), part);
+        b.attack_target(
+            tank_id,
+            attack_events,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        if let Some(w) = b.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.reload_time = 0.1;
+            w.min_range = 0.0;
+        }
+    }
+    game_logic.set_current_frame(30);
+    game_logic.update_combat(&[shooter, tank_id], LOGIC_FRAME_TIMESTEP);
+    assert_eq!(
+        game_logic.rocket_buggy_residual_fires(),
+        1,
+        "authored BuggyRocketWeapon must take the Rocket Buggy object_hit path"
+    );
+}

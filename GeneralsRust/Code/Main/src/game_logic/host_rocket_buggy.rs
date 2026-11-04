@@ -165,6 +165,12 @@ pub fn is_rocket_buggy_template(template_name: &str) -> bool {
         || n.contains("vehiclerocketbuggy")
 }
 
+/// Authored WeaponTemplate identity for the Rocket Buggy rocket residual.
+pub fn is_rocket_buggy_weapon_name(weapon_name: &str) -> bool {
+    weapon_name.eq_ignore_ascii_case(BUGGY_ROCKET_WEAPON)
+        || weapon_name.eq_ignore_ascii_case(BUGGY_ROCKET_WEAPON_UPGRADED)
+}
+
 /// Whether combat should apply Rocket Buggy residual splash path.
 pub fn should_apply_rocket_buggy_residual(is_buggy: bool) -> bool {
     is_buggy

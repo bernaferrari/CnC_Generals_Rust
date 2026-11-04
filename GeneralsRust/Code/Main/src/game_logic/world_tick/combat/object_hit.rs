@@ -445,16 +445,14 @@ impl GameLogic {
                         };
                 } else if {
                     // GLA Rocket Buggy residual: long-range rocket + splash / scatter.
-                    use crate::game_logic::host_rocket_buggy::{
-                        is_rocket_buggy_template, should_apply_rocket_buggy_residual,
-                    };
+                    // Keyed on the authored weapon fired from this slot
+                    // (Weapon::fireWeapon uses the WeaponTemplate, not the
+                    // firer's template name).
+                    use crate::game_logic::host_rocket_buggy::is_rocket_buggy_weapon_name;
                     self.objects
                         .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_rocket_buggy_residual(is_rocket_buggy_template(
-                                &a.template_name,
-                            ))
-                        })
+                        .and_then(|a| a.authored_weapon_name_for_slot(slot))
+                        .map(is_rocket_buggy_weapon_name)
                         .unwrap_or(false)
                 } {
                     let impact = target_position;
