@@ -1428,14 +1428,23 @@ impl RiderChangeContain {
         object: Weak<RwLock<Object>>,
         module_data: &RiderChangeContainModuleData,
     ) -> GameResult<Self> {
-        let base = TransportContain::new(object.clone(), &module_data.base)?;
+        let object_id = object
+            .upgrade()
+            .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+            .unwrap_or(crate::common::INVALID_ID);
+        Self::new_for_owner(object_id, module_data)
+    }
+
+    /// hq-2qedt.58: owner identity without the ambient object registry.
+    pub(crate) fn new_for_owner(
+        object_id: ObjectID,
+        module_data: &RiderChangeContainModuleData,
+    ) -> GameResult<Self> {
+        let base = TransportContain::new_for_owner(object_id, &module_data.base)?;
 
         Ok(Self {
             base,
-            object_id: object
-                .upgrade()
-                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id,
             module_data: module_data.clone(),
             scuttled_on_frame: 0,
             extra_slots_in_use: 0,
@@ -2288,6 +2297,68 @@ impl ContainModuleInterface for RiderChangeContain {
     }
     fn redeploy_riders_at(&mut self, owner_pos: &Coord3D, fire_points: &[Matrix3D]) {
         self.base.redeploy_riders_at(owner_pos, fire_points);
+    }
+
+    // hq-2qedt.58: owned first-rider boarding. C++ RiderChangeContain.cpp
+    // onContaining applies the matching RiderInfo + veterancy, then
+    // TransportContain::onContaining. Replacing an existing rider/payload
+    // and selection transfer are not on the owned path yet.
+    fn supports_owned_enter(&self) -> bool {
+        !self.base.passengers_in_turret()
+    }
+    fn add_to_contain_with_world(
+        &mut self,
+        id: ObjectID,
+        world: &mut dyn crate::modules::ai_world::AiWorld,
+    ) -> Result<(), String> {
+        if ContainModuleInterface::get_contained_count(&self.base) != 0
+            || self.base.is_payload_created()
+        {
+            return Err("owned rider-change replacement enter not admitted".into());
+        }
+        let rider = world.object(id).ok_or("owned rider-change rider missing")?;
+        let template = {
+            let guard = rider.read().map_err(|_| "rider lock poisoned")?;
+            if !self.matches_available_rider(&guard) {
+                return Err("owned rider-change rider not admitted".into());
+            }
+            guard.get_template().clone()
+        };
+        let Some(prepared) = self.base.base.begin_enter_with_world(id, world)? else {
+            return Ok(());
+        };
+        self.base.base.attach_enter_with_world(&prepared, world);
+        self.containing = true;
+        if let Some(info) = self
+            .module_data
+            .riders
+            .iter()
+            .find(|info| rider_info_matches_template(info, template.as_ref()))
+        {
+            let mut owner = prepared.owner.write().map_err(|_| "owner lock poisoned")?;
+            owner.set_model_condition_state(info.model_condition_flag);
+            owner.set_weapon_set_flag(info.weapon_set_flag);
+            owner.set_status(info.object_status, true);
+            owner.set_command_set_string_override(&info.command_set);
+            if let Some(ai) = owner.get_ai() {
+                let _ = ai
+                    .lock()
+                    .map_err(|_| "AI lock poisoned")?
+                    .choose_locomotor_set(info.locomotor_set);
+            }
+            if owner.test_status(ObjectStatusTypes::Stealthed) {
+                if let Some(stealth) = owner.get_stealth() {
+                    if let Ok(mut stealth) = stealth.lock() {
+                        stealth.mark_as_detected();
+                    }
+                }
+            }
+        }
+        transfer_veterancy(&prepared.passenger, &prepared.owner);
+        self.base.on_containing_with_world(&prepared, world);
+        self.containing = false;
+        self.base.base.finish_enter_with_world(&prepared, world);
+        Ok(())
     }
 
     fn passengers_in_turret(&self) -> bool {
