@@ -201,7 +201,6 @@ pub use super::host_gattling_tank::{
 pub use super::host_gla_rebel::{
     REBEL_DAMAGE, REBEL_MACHINE_GUN, REBEL_RANGE,
     UPGRADE_GLA_AP_BULLETS as REBEL_UPGRADE_AP_BULLETS, is_gla_rebel_template, rebel_weapon,
-    should_apply_rebel_residual,
 };
 pub use super::host_gla_worker::{
     HostGlaWorkerRegistry, UPGRADE_GLA_WORKER_SHOES, WORKER_SHOES_SPEED, WORKER_SHOES_SUPPLY_BOOST,

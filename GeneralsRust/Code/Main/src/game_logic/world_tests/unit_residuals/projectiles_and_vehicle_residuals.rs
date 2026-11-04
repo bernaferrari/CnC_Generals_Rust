@@ -2182,3 +2182,56 @@ fn gattling_tank_object_hit_routes_on_authored_weapon_not_chassis_name_hq_2qedt_
         "authored GattlingTankGun hit takes the Gattling residual route regardless of chassis name"
     );
 }
+
+#[test]
+fn rebel_object_hit_routes_on_authored_weapon_not_chassis_name_hq_2qedt_204() {
+    use crate::game_logic::host_gla_rebel::{REBEL_MACHINE_GUN, is_gla_rebel_template};
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut carrier = crate::game_logic::ThingTemplate::new("AuthoredMachineGunCarrier");
+    carrier
+        .add_kind_of(KindOf::Infantry)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name(REBEL_MACHINE_GUN);
+    assert!(!is_gla_rebel_template(&carrier.name));
+    game_logic.templates.insert(carrier.name.clone(), carrier);
+    let mut victim = crate::game_logic::ThingTemplate::new("MachineGunVictimTank");
+    victim
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(500.0);
+    game_logic.templates.insert(victim.name.clone(), victim);
+
+    let shooter = game_logic
+        .create_object("AuthoredMachineGunCarrier", Team::GLA, Vec3::ZERO)
+        .unwrap();
+    let victim_id = game_logic
+        .create_object("MachineGunVictimTank", Team::USA, Vec3::new(40.0, 0.0, 0.0))
+        .unwrap();
+    game_logic.frame = 100;
+    {
+        let a = game_logic.host_object_mut(shooter).unwrap();
+        a.target = Some(victim_id);
+        a.set_ai_state(
+            AIState::Attacking,
+            &mut crate::game_logic::ObjectAudio::record(&mut Vec::new()),
+        );
+        a.active_weapon_slot = 0;
+        if let Some(w) = a.weapon.as_mut() {
+            w.last_fire_time = -10.0;
+            w.pre_attack_delay = 0.0;
+        }
+    }
+    let before = game_logic.rebel_residual_fires;
+    for _ in 0..4 {
+        game_logic.frame = game_logic.frame.saturating_add(1);
+        game_logic.update_combat(&[shooter, victim_id], LOGIC_FRAME_TIMESTEP);
+    }
+    assert!(
+        game_logic.rebel_residual_fires > before,
+        "authored GLARebelMachineGun hit takes the Rebel residual route regardless of chassis name"
+    );
+}

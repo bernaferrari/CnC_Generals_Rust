@@ -1215,16 +1215,14 @@ impl GameLogic {
                         )
                     };
                 } else if {
-                    // GLA Rebel residual: machine gun intended-only residual.
-                    use crate::game_logic::host_gla_rebel::{
-                        is_gla_rebel_template, should_apply_rebel_residual,
-                    };
-                    self.objects
-                        .get(&attacker_id)
-                        .map(|a| {
-                            should_apply_rebel_residual(is_gla_rebel_template(&a.template_name))
-                        })
-                        .unwrap_or(false)
+                    // GLA Rebel residual: GLARebelMachineGun intended-only hit, keyed on the
+                    // fired authored weapon (C++ Weapon::fireWeapon uses the WeaponTemplate;
+                    // no chassis-name gate).
+                    use crate::game_logic::host_gla_rebel::REBEL_MACHINE_GUN;
+                    self.objects.get(&attacker_id).is_some_and(|a| {
+                        a.weapon_name_for_slot(slot)
+                            .is_some_and(|w| w.eq_ignore_ascii_case(REBEL_MACHINE_GUN))
+                    })
                 } {
                     let (hits, _destroyed_any) = self.apply_rebel_residual_at_with_effects(
                         target_position,

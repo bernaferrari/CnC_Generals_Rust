@@ -246,11 +246,6 @@ pub fn rebel_weapon(has_ap_bullets: bool) -> Weapon {
     }
 }
 
-/// Whether residual fire should apply GLA Rebel residual path (gun honesty).
-pub fn should_apply_rebel_residual(is_rebel: bool) -> bool {
-    is_rebel
-}
-
 /// Whether unit can issue capture residual (upgrade + alive).
 pub fn can_activate_rebel_capture(
     is_rebel: bool,
@@ -413,8 +408,6 @@ mod tests {
 
     #[test]
     fn residual_gate() {
-        assert!(should_apply_rebel_residual(true));
-        assert!(!should_apply_rebel_residual(false));
         assert!(is_legal_rebel_target(true, false, false, true));
         assert!(!is_legal_rebel_target(false, false, false, true));
         assert!(!is_legal_rebel_target(true, true, false, true));
