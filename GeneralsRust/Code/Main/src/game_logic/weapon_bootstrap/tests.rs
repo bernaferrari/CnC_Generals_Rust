@@ -122,10 +122,6 @@ fn secondary_weapon_name_for_known_units() {
     assert_eq!(secondary_weapon_name_for_unit("GLA_Soldier"), None);
     assert_eq!(secondary_weapon_name_for_unit("USA_Dozer"), None);
     assert_eq!(
-        secondary_weapon_name_for_unit("China_GattlingTank"),
-        Some(GATTLING_TANK_GUN_AIR)
-    );
-    assert_eq!(
         secondary_weapon_name_for_unit("Infa_ChinaInfantryMiniGunner"),
         Some(MINIGUNNER_GUN_AIR)
     );
@@ -161,10 +157,6 @@ fn primary_weapon_name_covers_china_gla_usa_residual_gaps() {
     assert_eq!(
         primary_weapon_name_for_unit("ChinaTankDragon"),
         Some(DRAGON_TANK_FLAME_WEAPON)
-    );
-    assert_eq!(
-        primary_weapon_name_for_unit("China_GattlingTank"),
-        Some(GATTLING_TANK_GUN)
     );
     assert_eq!(
         primary_weapon_name_for_unit("Infa_ChinaInfantryMiniGunner"),
@@ -1663,5 +1655,20 @@ fn troop_crawler_has_no_unit_map_primary_name_hq_2qedt_157() {
         "TestTroopCrawler",
     ] {
         assert_eq!(primary_weapon_name_for_unit(name), None, "{name}");
+    }
+}
+
+#[test]
+fn gattling_tank_has_no_unit_map_weapon_names_hq_2qedt_186() {
+    for name in [
+        "ChinaTankGattling",
+        "China_GattlingTank",
+        "TestGattlingTank",
+        "Tank_ChinaTankGattling",
+        "Nuke_ChinaTankGattling",
+        "Infa_ChinaTankGattling",
+    ] {
+        assert_eq!(primary_weapon_name_for_unit(name), None, "{name}");
+        assert_eq!(secondary_weapon_name_for_unit(name), None, "{name}");
     }
 }

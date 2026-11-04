@@ -257,13 +257,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "Tank_ChinaTankDragon"
         | "Nuke_ChinaTankDragon"
         | "Infa_ChinaTankDragon" => Some(DRAGON_TANK_FLAME_WEAPON),
-        // China Gattling Tank residual ground gun (AA secondary separate).
-        "ChinaTankGattling"
-        | "China_GattlingTank"
-        | "TestGattlingTank"
-        | "Tank_ChinaTankGattling"
-        | "Nuke_ChinaTankGattling"
-        | "Infa_ChinaTankGattling" => Some(GATTLING_TANK_GUN),
         // China Infantry General MiniGunner residual ground gun.
         "Infa_ChinaInfantryMiniGunner"
         | "China_MiniGunner"
@@ -408,9 +401,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_dragon_tank::is_dragon_tank_template(template_name) {
                 return Some(DRAGON_TANK_FLAME_WEAPON);
             }
-            if crate::game_logic::host_gattling_tank::is_gattling_tank_template(template_name) {
-                return Some(GATTLING_TANK_GUN);
-            }
             if crate::game_logic::host_minigunner::is_minigunner_template(template_name) {
                 return Some(MINIGUNNER_GUN);
             }
@@ -521,13 +511,6 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
         | "Chem_GLAVehicleToxinTruck"
         | "Demo_GLAVehicleToxinTruck"
         | "Slth_GLAVehicleToxinTruck" => Some(TOXIN_TRUCK_SPRAYER),
-        // China Gattling Tank residual AA secondary.
-        "ChinaTankGattling"
-        | "China_GattlingTank"
-        | "TestGattlingTank"
-        | "Tank_ChinaTankGattling"
-        | "Nuke_ChinaTankGattling"
-        | "Infa_ChinaTankGattling" => Some(GATTLING_TANK_GUN_AIR),
         // China MiniGunner residual AA secondary.
         "Infa_ChinaInfantryMiniGunner"
         | "China_MiniGunner"
@@ -571,10 +554,6 @@ pub fn secondary_weapon_name_for_unit(template_name: &str) -> Option<&'static st
                 // Comanche residual SECONDARY anti-tank; rocket pods are added
                 // as an independent TERTIARY after upgrade.
                 Some(COMANCHE_ANTITANK_WEAPON)
-            } else if crate::game_logic::host_gattling_tank::is_gattling_tank_template(
-                template_name,
-            ) {
-                Some(GATTLING_TANK_GUN_AIR)
             } else if crate::game_logic::host_minigunner::is_minigunner_template(template_name) {
                 Some(MINIGUNNER_GUN_AIR)
             } else {
