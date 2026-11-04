@@ -14,7 +14,28 @@ fn owner_heal(logic: &mut GameLogic, id: ObjectId, health: f32) {
     object.heal(health, health_events, body_frame);
 }
 
+/// Binds CommonServices + WorldServices + MainServices before the fixture
+/// constructs a GameLogic (same harness pattern as direct_destroy_owner).
+fn bind_three_services() {
+    if game_engine::common::common_services::try_common_services().is_none() {
+        game_engine::common::common_services::install_common_services(std::sync::Arc::new(
+            game_engine::common::common_services::CommonServices::new(),
+        ));
+    }
+    if gamelogic::system::engine_stores::try_active_services().is_none() {
+        gamelogic::system::engine_stores::install_services(
+            gamelogic::system::engine_stores::new_world_services(),
+        );
+    }
+    if crate::main_services::try_main_services().is_none() {
+        crate::main_services::install_main_services(std::sync::Arc::new(
+            crate::main_services::MainServices::new(),
+        ));
+    }
+}
+
 fn injured_world() -> (GameLogic, GameWorldShadow, ObjectId) {
+    bind_three_services();
     let mut logic = GameLogic::new();
 
     logic.add_player(Player::new(0, Team::USA, "Owner", true));
@@ -46,6 +67,7 @@ fn injured_world_with_reactions() -> (GameLogic, GameWorldShadow, ObjectId) {
 }
 
 fn injured_world_with_reaction_threshold(threshold: f32) -> (GameLogic, GameWorldShadow, ObjectId) {
+    bind_three_services();
     // Actual parsed module and weapon content is admitted BEFORE construction.
     // Distinct roles retain distinct Weapons, even when two use one template.
     let weapons = [
