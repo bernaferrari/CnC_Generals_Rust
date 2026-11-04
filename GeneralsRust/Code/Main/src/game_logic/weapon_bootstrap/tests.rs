@@ -1647,5 +1647,28 @@ fn aurora_seed_damage_type_is_aurora_bomb_not_explosion() {
     }
 }
 
+/// hq-2qedt.150: Humvee / Avenger / Helix PRIMARY comes from the authored
+/// WeaponSet (create peels removed in .138-.140); the unit_map name fallback
+/// must not invent a primary for them.
+#[test]
+fn unit_map_has_no_humvee_avenger_helix_primary_name_peel() {
+    for name in [
+        "USA_Humvee",
+        "AmericaVehicleHumvee",
+        "GoldenHumvee",
+        "TestHumvee",
+        "USA_Avenger",
+        "AmericaTankAvenger",
+        "AmericaVehicleAvenger",
+        "TestAvenger",
+        "ChinaVehicleHelix",
+        "China_Helix",
+        "Nuke_ChinaVehicleHelix",
+        "TestHelix",
+    ] {
+        assert_eq!(primary_weapon_name_for_unit(name), None, "{name}");
+    }
+}
+
 #[path = "bootstrap_owner_tests.rs"]
 mod bootstrap_owner_tests;

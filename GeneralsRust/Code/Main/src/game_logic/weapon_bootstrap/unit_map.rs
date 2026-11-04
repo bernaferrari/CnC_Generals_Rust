@@ -29,9 +29,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "Tank_ChinaVehicleTroopCrawler"
         | "Nuke_ChinaVehicleTroopCrawler"
         | "TestTroopCrawler" => Some(TROOP_CRAWLER_ASSAULT_WEAPON),
-        "USA_Humvee" | "AmericaVehicleHumvee" | "TestHumvee" | "GoldenHumvee" => {
-            Some(HUMVEE_PRIMARY_WEAPON)
-        }
         "USA_Crusader" | "USA_CrusaderTank" | "AmericaTankCrusader" | "TestCrusader" => {
             Some(CRUSADER_TANK_GUN)
         }
@@ -40,9 +37,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             Some(PALADIN_TANK_GUN)
         }
         "Lazr_AmericaTankPaladin" | "TestLazrPaladin" => Some(LAZR_PALADIN_TANK_GUN),
-        "USA_Avenger" | "AmericaTankAvenger" | "AmericaVehicleAvenger" | "TestAvenger" => {
-            Some(AVENGER_TARGET_DESIGNATOR)
-        }
         // Base-defense structures (Patriot / Gattling / Stinger residual auto-fire).
         "USA_Patriot"
         | "USA_PatriotMissile"
@@ -123,13 +117,7 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
         | "AirF_AmericaFireBase"
         | "SupW_AmericaFireBase"
         | "Lazr_AmericaFireBase" => Some(FIRE_BASE_HOWITZER_WEAPON),
-        // China Helix residual primary minigun.
-        "ChinaVehicleHelix"
-        | "China_Helix"
-        | "Nuke_ChinaVehicleHelix"
-        | "Infa_ChinaVehicleHelix"
-        | "Tank_ChinaVehicleHelix"
-        | "TestHelix" => Some(HELIX_MINIGUN_WEAPON),
+        // Humvee / Avenger / Helix: PRIMARY from authored WeaponSet (hq-2qedt.150).
         // Pathfinder sniper residual.
         "AmericaInfantryPathfinder"
         | "USA_Pathfinder"
@@ -343,9 +331,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
             if crate::game_logic::host_comanche_rocket_pods::is_comanche_template(template_name) {
                 return Some(COMANCHE_PRIMARY_WEAPON);
             }
-            if crate::game_logic::host_overlord_addons::is_helix_template(template_name) {
-                return Some(HELIX_MINIGUN_WEAPON);
-            }
             if crate::game_logic::host_pathfinder::is_pathfinder_template(template_name) {
                 return Some(PATHFINDER_SNIPER_WEAPON);
             }
@@ -426,12 +411,6 @@ pub fn primary_weapon_name_for_unit(template_name: &str) -> Option<&'static str>
                 crate::game_logic::host_usa_tanks::primary_weapon_name_for_usa_tank(template_name)
             {
                 return Some(w);
-            }
-            if crate::game_logic::host_avenger::is_avenger_template(template_name) {
-                return Some(AVENGER_TARGET_DESIGNATOR);
-            }
-            if crate::game_logic::host_humvee::is_humvee_template(template_name) {
-                return Some(HUMVEE_PRIMARY_WEAPON);
             }
             if crate::game_logic::host_combat_cycle::is_combat_cycle_template(template_name) {
                 return Some(
