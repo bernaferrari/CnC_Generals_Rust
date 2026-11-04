@@ -712,7 +712,7 @@ impl GameLogic {
             use crate::game_logic::host_radar_stealth_vision_residual::{
                 STEALTH_FIGHTER_STEALTH_DELAY_FRAMES_RESIDUAL, residual_ms_to_frames,
                 stealth_fighter_allowed_to_stealth_residual,
-                STEALTH_FIGHTER_STEALTH_DELAY_FRAMES_RESIDUAL,
+                
             };
             // Keyed on the authored weapon, not the template name (hq-2qedt.225).
             use crate::game_logic::host_stealth_fighter::STEALTH_JET_MISSILE_WEAPON;
@@ -724,7 +724,7 @@ impl GameLogic {
                 })
                 .map(|(id, _)| *id)
                 .collect();
-            for (sid, authored_delay) in sf_ids {
+            for sid in sf_ids {
                 let Some(obj) = self.objects.get_mut(&sid) else {
                     continue;
                 };
@@ -732,7 +732,7 @@ impl GameLogic {
                     obj.innate_stealth = true;
                 }
                 if obj.stealth_delay_frames == 0 {
-                    obj.stealth_delay_frames = authored_delay;
+                    obj.stealth_delay_frames = STEALTH_FIGHTER_STEALTH_DELAY_FRAMES_RESIDUAL;
                 }
                 if !obj.status.stealthed
                     && obj.stealth_allowed_frame == 0

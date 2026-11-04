@@ -898,10 +898,10 @@ impl GameLogic {
             return false;
         };
         // hq-2qedt.249: key on authored Raptor missile PRIMARY (WeaponStore identity).
-        if !authors_raptor_missile(obj.authored_primary_weapon_names(), None) {
+        if !crate::game_logic::host_raptor::authors_raptor_missile(obj.authored_primary_weapon_names(), None) {
             return false;
         }
-        let king = authors_raptor_missile(obj.authored_primary_weapon_names(), Some(true));
+        let king = crate::game_logic::host_raptor::authors_raptor_missile(obj.authored_primary_weapon_names(), Some(true));
         obj.applied_upgrades
             .insert(UPGRADE_AMERICA_LASER_MISSILES.to_string());
         let laser = has_laser_missiles_upgrade(&obj.applied_upgrades);
@@ -1207,7 +1207,7 @@ impl GameLogic {
                 if let Some(obj) = self.objects.get(&sid) {
                     (
                         obj.team,
-                        authors_raptor_missile(obj.authored_primary_weapon_names(), Some(true)),
+                        crate::game_logic::host_raptor::authors_raptor_missile(obj.authored_primary_weapon_names(), Some(true)),
                         has_laser_missiles_upgrade(&obj.applied_upgrades),
                     )
                 } else {
@@ -1387,7 +1387,7 @@ impl GameLogic {
             return false;
         };
         // hq-2qedt.248: gate on authored standard MiG missile PRIMARY, not template name.
-        if !authors_mig_missile(obj.authored_primary_weapon_names(), Some(false)) {
+        if !crate::game_logic::host_mig::authors_mig_missile(obj.authored_primary_weapon_names(), Some(false)) {
             return false;
         }
         obj.applied_upgrades
@@ -1427,7 +1427,7 @@ impl GameLogic {
             return false;
         };
         // hq-2qedt.248: gate on authored Nuke MiG missile PRIMARY, not template name.
-        if !authors_mig_missile(obj.authored_primary_weapon_names(), Some(true)) {
+        if !crate::game_logic::host_mig::authors_mig_missile(obj.authored_primary_weapon_names(), Some(true)) {
             return false;
         }
         obj.applied_upgrades
@@ -1740,7 +1740,7 @@ impl GameLogic {
                     (
                         obj.team,
                         mig_loadout(
-                            authors_mig_missile(obj.authored_primary_weapon_names(), Some(true)),
+                            crate::game_logic::host_mig::authors_mig_missile(obj.authored_primary_weapon_names(), Some(true)),
                             &obj.applied_upgrades,
                         ),
                     )

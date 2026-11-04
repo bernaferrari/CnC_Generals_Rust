@@ -948,7 +948,8 @@ impl GameLogic {
     ) -> u32 {
         use crate::game_logic::host_base_defense::is_stinger_site_structure;
         use crate::game_logic::host_rpg_trooper::is_rpg_trooper_weapon_name;
-        use crate::game_logic::host_scorpion::{UPGRADE_GLA_AP_ROCKETS, is_scorpion_template};
+        use crate::game_logic::host_scorpion::UPGRADE_GLA_AP_ROCKETS;
+        use crate::game_logic::world_combat::ocl_and_scud::authored_scorpion_gun;
 
         let ids: Vec<(ObjectId, u8)> = self
             .objects
