@@ -2755,12 +2755,9 @@ impl GameLogic {
                 object.install_technical_transport();
             }
 
-            // Host residual: China Battlemaster PRIMARY BattleMasterTankGun residual.
-            // Fail-closed: Uranium/horde/nationalism applied via refresh_battlemaster_weapon.
-            if crate::game_logic::host_battlemaster::is_battlemaster_template(template_name) {
-                use crate::game_logic::host_battlemaster::battlemaster_weapon;
-                object.weapon = Some(battlemaster_weapon(false, false, false));
-            }
+            // China Battlemaster PRIMARY binds from the authored WeaponSet above (C++
+            // WeaponSet::updateWeaponSet), not a template-name peel (hq-2qedt.144).
+            // Uranium/horde/nationalism stay on refresh_battlemaster_weapon.
 
             // Host residual: GLA Marauder PRIMARY MarauderTankGun residual (salvage tiers).
             // Fail-closed: not full SalvageCrate W3D turret subobject matrix.

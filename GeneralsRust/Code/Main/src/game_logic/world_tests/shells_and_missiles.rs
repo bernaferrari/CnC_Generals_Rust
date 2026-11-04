@@ -4034,3 +4034,31 @@ fn technical_create_primary_comes_from_authored_weapon_set() {
         "authored PRIMARY overwritten by technical name peel: {prim:?}"
     );
 }
+
+/// hq-2qedt.144: China Battlemaster PRIMARY binds from the authored WeaponSet at
+/// create (C++ WeaponSet::updateWeaponSet), not a template-name peel.
+#[test]
+fn battlemaster_create_primary_comes_from_authored_weapon_set() {
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaTankBattleMaster");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(200.0)
+        .set_primary_weapon_name("RangerFlashBangGrenadeWeapon");
+    game_logic.templates.insert("ChinaTankBattleMaster".to_string(), tpl);
+    let id = game_logic
+        .create_object("ChinaTankBattleMaster", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("battlemaster");
+    let prim = game_logic
+        .host_object(id)
+        .and_then(|t| t.weapon.clone())
+        .expect("authored primary");
+    assert!(
+        (prim.damage - crate::game_logic::host_battlemaster::BATTLE_MASTER_DAMAGE).abs() > 0.01,
+        "authored PRIMARY overwritten by battlemaster name peel: {prim:?}"
+    );
+}
