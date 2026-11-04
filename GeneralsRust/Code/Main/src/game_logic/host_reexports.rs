@@ -391,8 +391,8 @@ pub use super::host_rng_residual::{
 };
 pub use super::host_rpg_trooper::{
     RPG_TROOPER_DAMAGE, RPG_TROOPER_RANGE, TUNNEL_DEFENDER_ROCKET_WEAPON,
-    UPGRADE_GLA_AP_ROCKETS as RPG_UPGRADE_AP_ROCKETS, is_rpg_trooper_template, rpg_trooper_weapon,
-    should_apply_rpg_trooper_residual,
+    UPGRADE_GLA_AP_ROCKETS as RPG_UPGRADE_AP_ROCKETS, is_rpg_trooper_template,
+    is_rpg_trooper_weapon_name, rpg_trooper_weapon,
 };
 pub use super::host_saboteur::{
     HostSaboteurRegistry, SABOTEUR_STEAL_CASH_AMOUNT, SABOTEUR_SUCCESS_AUDIO, SaboteurEffectKind,
