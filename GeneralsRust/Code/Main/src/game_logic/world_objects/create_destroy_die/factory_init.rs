@@ -116,20 +116,11 @@ impl GameLogic {
             }
         }
 
-        // Host residual: China Gattling Tank dual ground/AA + continuous-fire ramp state.
-        // Fail-closed: not Overlord/Helix/building gattling payloads.
+        // China Gattling Tank PRIMARY/SECONDARY bind from the authored WeaponSet
+        // (C++ WeaponSet::updateWeaponSet from ThingTemplate), not a
+        // template-name host table (hq-2qedt.159). Continuous-fire ramp state
+        // still resets at create; chain-guns refresh stays upgrade-time.
         if crate::game_logic::host_gattling_tank::is_gattling_tank_template(template_name) {
-            use crate::game_logic::host_gattling_tank::{
-                GattlingFireLevel, gattling_air_weapon, gattling_ground_weapon,
-                has_chain_guns_upgrade,
-            };
-            let chain = has_chain_guns_upgrade(if allow_upgrades {
-                &object.applied_upgrades
-            } else {
-                &no_upgrade_mask
-            });
-            object.weapon = Some(gattling_ground_weapon(GattlingFireLevel::Base, chain));
-            object.secondary_weapon = Some(gattling_air_weapon(GattlingFireLevel::Base, chain));
             reset_continuous_fire_state(object);
         }
 

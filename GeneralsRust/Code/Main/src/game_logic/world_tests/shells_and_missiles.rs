@@ -2608,6 +2608,49 @@ fn dragon_tank_create_primary_comes_from_authored_weapon_set_hq_2qedt_158() {
     );
 }
 
+/// hq-2qedt.159: C++ binds PRIMARY/SECONDARY from the template WeaponSet at
+/// create (WeaponSet::updateWeaponSet), not a template-name host table. A
+/// Gattling-Tank-named template authoring different weapons must keep them.
+#[test]
+fn gattling_tank_create_weapons_come_from_authored_weapon_set_hq_2qedt_159() {
+    use crate::game_logic::host_gattling_tank::{
+        GattlingFireLevel, gattling_air_weapon, gattling_ground_weapon,
+    };
+    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
+
+    ensure_host_weapon_store();
+    let mut game_logic = GameLogic::new();
+    let mut tpl = crate::game_logic::ThingTemplate::new("ChinaTankGattling");
+    tpl.add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .set_health(300.0)
+        .set_primary_weapon_name("HumveeGun")
+        .set_secondary_weapon_name("HumveeGun");
+    game_logic
+        .templates
+        .insert("ChinaTankGattling".to_string(), tpl);
+    let id = game_logic
+        .create_object("ChinaTankGattling", Team::China, Vec3::new(0.0, 0.0, 0.0))
+        .expect("gattling");
+    let obj = game_logic.host_object(id).expect("gattling");
+    let prim = obj.weapon.clone().expect("authored primary");
+    let g = gattling_ground_weapon(GattlingFireLevel::Base, false);
+    assert!(
+        (prim.range - g.range).abs() > 0.01 || (prim.damage - g.damage).abs() > 0.01,
+        "authored HumveeGun PRIMARY overwritten by gattling_ground_weapon() name peel: {prim:?}"
+    );
+    let a = gattling_air_weapon(GattlingFireLevel::Base, false);
+    let sec_is_peel = obj.secondary_weapon.as_ref().is_some_and(|s| {
+        (s.range - a.range).abs() < 0.01 && (s.damage - a.damage).abs() < 0.01 && s.can_target_air
+    });
+    assert!(
+        !sec_is_peel,
+        "authored SECONDARY overwritten to gattling_air_weapon() name peel: {:?}",
+        obj.secondary_weapon
+    );
+}
+
 /// Residual: USA Comanche 20mm intended + anti-tank dual-radius residual.
 #[test]
 fn comanche_residual_cannon_and_antitank() {
