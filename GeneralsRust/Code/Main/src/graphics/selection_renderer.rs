@@ -1263,9 +1263,10 @@ pub fn enqueue_selection_render(
         // through the SAME tactical viewport as the terrain and mesh lanes, so
         // its depth reads/writes line up row-for-row with theirs.
         let (vp_w, vp_h) = pipeline.tactical_viewport_pixel_size();
-        pipeline.enqueue_pre_scene_callback(move |frame| {
+        pipeline.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::DecalShadows, move |frame| {
             let color_view = frame.color_view_arc();
             let depth_view = frame.depth_view_arc();
+            frame.note_render_pass();
             let encoder = frame.encoder();
 
             let depth_stencil =
@@ -1320,8 +1321,9 @@ pub fn enqueue_selection_render(
         // widgets still render over both the marquee and RMB anchor exactly as
         // in the original.
         let drag_renderer = Arc::clone(&renderer);
-        pipeline.enqueue_post_frame_callback(move |frame| {
+        pipeline.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Overlay2D, move |frame| {
             let color_view = frame.color_view_arc();
+            frame.note_render_pass();
             let encoder = frame.encoder();
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("selection drag rectangle pass"),

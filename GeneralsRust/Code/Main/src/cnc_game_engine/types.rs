@@ -1353,6 +1353,8 @@ pub struct CnCGameEngine {
 
     pub(crate) active_menu_shell_hook: Option<&'static str>,
     pub(crate) runtime_host_headless: bool,
+    /// Deterministic golden-frame capture request (renderer plan R0).
+    pub(crate) golden_capture: Option<super::golden_capture::GoldenCapture>,
     /// True when `--runtime_host` is set (headless or windowed). Host cmds/status.
     pub(crate) runtime_host_active: bool,
     pub(crate) runtime_host_base_ui_screen: Option<String>,

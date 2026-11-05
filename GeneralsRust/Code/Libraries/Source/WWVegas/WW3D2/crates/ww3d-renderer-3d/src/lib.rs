@@ -379,6 +379,8 @@ impl Renderer {
                 (self.frame_uniform_index + 1) % self.frame_uniform_arenas.len();
             self.frame_uniform_arenas[self.frame_uniform_index].reset();
         }
+        // Arena-backed cached bind groups die with the arena reset above.
+        self.mesh_render_manager.begin_frame_caches();
         Ok(())
     }
 
@@ -559,6 +561,33 @@ impl Renderer {
         Ok(())
     }
 
+    /// Apply the camera's (tactical) viewport and matching scissor to `pass`.
+    /// C++ dx8wrapper Set_Viewport is device state shared by every scene draw,
+    /// so each scene pass must reuse the same rect for depth to line up.
+    fn apply_camera_viewport(
+        camera: Option<&rendering::camera_system::CameraClass>,
+        pass: &mut wgpu::RenderPass<'_>,
+        (aw, ah): (u32, u32),
+    ) {
+        let Some(camera) = camera else {
+            return;
+        };
+        if aw == 0 || ah == 0 {
+            return;
+        }
+        let vp = camera.get_viewport();
+        let x0 = vp.min.x * aw as f32;
+        let y0 = vp.min.y * ah as f32;
+        let vw = ((vp.max.x - vp.min.x) * aw as f32).max(1.0);
+        let vh = ((vp.max.y - vp.min.y) * ah as f32).max(1.0);
+        pass.set_viewport(x0, y0, vw, vh, 0.0, 1.0);
+        let sx = (x0 as u32).min(aw - 1);
+        let sy = (y0 as u32).min(ah - 1);
+        let sw = (vw as u32).clamp(1, aw - sx);
+        let sh = (vh as u32).clamp(1, ah - sy);
+        pass.set_scissor_rect(sx, sy, sw, sh);
+    }
+
     /// Record the queued meshes into the provided command encoder and render targets.
     pub fn render_with_targets(
         &mut self,
@@ -674,22 +703,7 @@ impl Renderer {
             // here; rendering full-attachment while the terrain writes a
             // frac-height sub-rect makes every mesh fragment compare against
             // the WRONG ROW of terrain depth (units vanish behind terrain).
-            if let Some(camera) = self.camera.as_ref() {
-                let (aw, ah) = (targets.size.0, targets.size.1);
-                if aw > 0 && ah > 0 {
-                    let vp = camera.get_viewport();
-                    let x0 = vp.min.x * aw as f32;
-                    let y0 = vp.min.y * ah as f32;
-                    let vw = ((vp.max.x - vp.min.x) * aw as f32).max(1.0);
-                    let vh = ((vp.max.y - vp.min.y) * ah as f32).max(1.0);
-                    render_pass.set_viewport(x0, y0, vw, vh, 0.0, 1.0);
-                    let sx = (x0 as u32).min(aw - 1);
-                    let sy = (y0 as u32).min(ah - 1);
-                    let sw = (vw as u32).clamp(1, aw - sx);
-                    let sh = (vh as u32).clamp(1, ah - sy);
-                    render_pass.set_scissor_rect(sx, sy, sw, sh);
-                }
-            }
+            Self::apply_camera_viewport(self.camera.as_ref(), &mut render_pass, targets.size);
 
             mesh_manager.render_pass(
                 &mut render_pass,
@@ -700,7 +714,65 @@ impl Renderer {
             )
         };
         render_result?;
-        if ww3d_gpu::sorting_renderer_stats().batch_count > 0 {
+
+        for render_obj in non_mesh_static.drain(..) {
+            render_obj.render(info)?;
+        }
+        if let Some(r3d) = self.renderer_3d.as_ref() { rendering::mesh_system::StaticSortManager::flush_static_sort_list(r3d); }
+        Ok(())
+    }
+
+    /// Render the queued meshes using the engine frame lifecycle.
+    pub fn render_frame(
+        &mut self,
+        frame: &mut ww3d_engine::RenderFrame,
+        clear_color: Option<wgpu::Color>,
+        render_info: Option<&RendererRenderInfoClass>,
+    ) -> RendererResult<()> {
+        let color_view = frame.color_view_arc();
+        let depth_view = frame.depth_view_arc();
+        let depth_ref = depth_view.as_deref();
+        let timing = frame.timing;
+        let animation_input = AnimationFrameInput::new(
+            timing.delta_seconds(),
+            Some(timing.total_seconds()),
+            Some(timing.frame_number),
+        );
+        let size = frame.size();
+        let result = self.render_with_targets(
+            RenderTargets {
+                encoder: frame.encoder(),
+                color_view: color_view.as_ref(),
+                depth_view: depth_ref,
+                size,
+            },
+            clear_color,
+            render_info,
+            Some(animation_input),
+        );
+        for _ in 0..=self.mesh_render_manager.last_cascade_passes() {
+            frame.note_render_pass();
+        }
+        result
+    }
+
+    /// Record this renderer's sorted translucent batches (C++
+    /// `SortingRendererClass::Flush`) into `frame` with loaded attachments.
+    pub fn render_sorted_frame(&mut self, frame: &mut ww3d_engine::RenderFrame) -> RendererResult<()> {
+        if self.mesh_render_manager.sorted_batch_count() == 0 {
+            return Ok(());
+        }
+        let color_view = frame.color_view_arc();
+        let depth_view = frame.depth_view_arc();
+        let size = frame.size();
+        frame.note_render_pass();
+        let targets = RenderTargets {
+            encoder: frame.encoder(),
+            color_view: color_view.as_ref(),
+            depth_view: depth_view.as_deref(),
+            size,
+        };
+        {
             let mut sort_pass = targets
                 .encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -728,44 +800,13 @@ impl Renderer {
                     timestamp_writes: None,
                     multiview_mask: None,
                 });
-            ww3d_gpu::flush_sorting_renderer(&mut sort_pass);
+            // The sorting flush draws through the same tactical viewport as
+            // the mesh flush (it used to cover the full attachment).
+            Self::apply_camera_viewport(self.camera.as_ref(), &mut sort_pass, targets.size);
+            self.mesh_render_manager.flush_sorted(&mut sort_pass);
         }
 
-        for render_obj in non_mesh_static.drain(..) {
-            render_obj.render(info)?;
-        }
-        if let Some(r3d) = self.renderer_3d.as_ref() { rendering::mesh_system::StaticSortManager::flush_static_sort_list(r3d); }
         Ok(())
-    }
-
-    /// Render the queued meshes using the engine frame lifecycle.
-    pub fn render_frame(
-        &mut self,
-        frame: &mut ww3d_engine::RenderFrame,
-        clear_color: Option<wgpu::Color>,
-        render_info: Option<&RendererRenderInfoClass>,
-    ) -> RendererResult<()> {
-        let color_view = frame.color_view_arc();
-        let depth_view = frame.depth_view_arc();
-        let depth_ref = depth_view.as_deref();
-        let timing = frame.timing;
-        let animation_input = AnimationFrameInput::new(
-            timing.delta_seconds(),
-            Some(timing.total_seconds()),
-            Some(timing.frame_number),
-        );
-        let size = frame.size();
-        self.render_with_targets(
-            RenderTargets {
-                encoder: frame.encoder(),
-                color_view: color_view.as_ref(),
-                depth_view: depth_ref,
-                size,
-            },
-            clear_color,
-            render_info,
-            Some(animation_input),
-        )
     }
 
     /// Handle post-render cleanup tasks

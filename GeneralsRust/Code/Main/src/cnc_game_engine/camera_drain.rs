@@ -528,6 +528,11 @@ impl CnCGameEngine {
         } else {
             None
         };
+        // A golden capture stops logic exactly on its freeze frame.
+        let step_budget = match self.golden_remaining_logic_steps() {
+            Some(remaining) => Some(step_budget.unwrap_or(1).min(remaining)),
+            None => step_budget,
+        };
         // The observer only copies completed Main state at each fixed step.
         let mut observer_slot = self.gameworld_shadow.take();
         let result =

@@ -22,7 +22,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use ww3d_core::ensure_class_registry_initialized;
 use ww3d_gpu::{DeviceAuthority, GpuDevice, GpuError};
 
+mod frame_stats;
 mod frame_submit;
+pub use frame_stats::{GpuObjectCounts, RenderFrameStats};
 /// Shared handle for explicit frame-submit ownership.
 pub type FrameSubmitHandle = Arc<Mutex<frame_submit::FrameSubmitState>>;
 
@@ -252,6 +254,8 @@ struct WindowSurfaceState {
     /// COPY_SRC target used when Metal returns Occluded/Timeout so present-frame
     /// gates can still read a real GPU backbuffer instead of the procedural PNG.
     occlusion_fallback: HeadlessTarget,
+    /// Present modes the surface supports (for swap-interval changes).
+    present_modes: Vec<wgpu::PresentMode>,
 }
 
 impl WindowSurfaceState {
@@ -314,6 +318,23 @@ impl WindowSurfaceState {
             config: surface_config,
             depth,
             occlusion_fallback,
+            present_modes: capabilities.present_modes,
+        }
+    }
+
+    /// C++ DX8 presentation interval: ONE (vsync) when `interval > 0`, else
+    /// IMMEDIATE. Reconfigures only when the chosen mode changes.
+    fn set_swap_interval(&mut self, device: &wgpu::Device, interval: i32) {
+        let desired = if interval > 0 {
+            wgpu::PresentMode::Fifo
+        } else {
+            wgpu::PresentMode::Immediate
+        };
+        let mode = select_present_mode(&self.present_modes, Some(desired));
+        if mode != self.config.present_mode {
+            self.config.present_mode = mode;
+            self.surface.configure(device, &self.config);
+            info!("WW3D swap interval {interval}: present_mode={mode:?}");
         }
     }
 
@@ -656,7 +677,8 @@ pub struct RenderFrame {
     surface_texture: Option<wgpu::SurfaceTexture>,
     /// True when this frame rendered into the window occlusion fallback target.
     rendered_offscreen: bool,
-    _start_time: Instant,
+    start_time: Instant,
+    stats_probe: frame_stats::FrameStatsProbe,
     frame_index: u64,
     color_format: wgpu::TextureFormat,
     /// Frame timing information
@@ -664,6 +686,11 @@ pub struct RenderFrame {
 }
 
 impl RenderFrame {
+    /// Count one render pass recorded into this frame's encoder (frame stats).
+    pub fn note_render_pass(&mut self) {
+        self.stats_probe.render_passes = self.stats_probe.render_passes.saturating_add(1);
+    }
+
     /// Whether ending this frame can present a real window surface.
     pub fn has_window_surface(&self) -> bool {
         self.surface_texture.is_some()
@@ -743,6 +770,14 @@ impl RenderFrame {
     pub fn color_texture(&self) -> &wgpu::Texture {
         &self.color_texture
     }
+}
+
+/// Frame clock override used by deterministic golden captures: every frame
+/// reports the same total time and delta instead of wall time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FixedClock {
+    pub total_time: Duration,
+    pub delta_time: Duration,
 }
 
 /// FPS calculation helper
@@ -838,6 +873,10 @@ pub struct Engine {
     /// Reference: ww3d.cpp:88, ww3d.h:297
     previous_sync_time: u32,
     pending_screenshot_readbacks: Vec<ScreenshotReadback>,
+    /// Counters of the last submitted frame (renderer plan R0).
+    last_frame_stats: RenderFrameStats,
+    /// Deterministic clock override (golden capture); `None` = wall clock.
+    fixed_clock: Option<FixedClock>,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -950,6 +989,8 @@ impl Engine {
             sync_time: 0,
             previous_sync_time: 0,
             pending_screenshot_readbacks: Vec::new(),
+            last_frame_stats: RenderFrameStats::default(),
+            fixed_clock: None,
         })
     }
 
@@ -1026,6 +1067,8 @@ impl Engine {
             sync_time: 0,
             previous_sync_time: 0,
             pending_screenshot_readbacks: Vec::new(),
+            last_frame_stats: RenderFrameStats::default(),
+            fixed_clock: None,
         })
     }
 
@@ -1037,7 +1080,12 @@ impl Engine {
             .map(|last| now.duration_since(last))
             .unwrap_or(Duration::from_secs_f32(1.0 / 60.0));
 
-        let total_time = now.duration_since(self.start_time);
+        let mut total_time = now.duration_since(self.start_time);
+        let mut delta_time = delta_time;
+        if let Some(fixed) = self.fixed_clock {
+            total_time = fixed.total_time;
+            delta_time = fixed.delta_time;
+        }
 
         self.fps_counter.record_frame(now);
 
@@ -1119,7 +1167,12 @@ impl Engine {
             .map(|last| start_time.duration_since(last))
             .unwrap_or(Duration::from_secs_f32(1.0 / 60.0));
 
-        let total_time = start_time.duration_since(self.start_time);
+        let mut total_time = start_time.duration_since(self.start_time);
+        let mut delta_time = delta_time;
+        if let Some(fixed) = self.fixed_clock {
+            total_time = fixed.total_time;
+            delta_time = fixed.delta_time;
+        }
 
         let timing = FrameTiming {
             frame_number: self.frame_index,
@@ -1142,9 +1195,8 @@ impl Engine {
         self.frame_clock_open = false;
         self.last_emitted_timing = Some(timing);
 
-        let encoder = self
-            .gpu_device
-            .create_command_encoder(Some("WW3D Frame Encoder"));
+        // Counters are sampled before any frame object (encoder included) exists.
+        let stats_probe = frame_stats::FrameStatsProbe::begin(&self.device);
 
         match &mut self.surface {
             SurfaceMode::Windowed(surface_state) => {
@@ -1161,13 +1213,16 @@ impl Engine {
                         Ok(RenderFrame {
                             device: Arc::clone(&self.device),
                             queue: Arc::clone(&self.queue),
-                            encoder,
+                            encoder: self
+                                .gpu_device
+                                .create_command_encoder(Some("WW3D Frame Encoder")),
                             color_view: view,
                             depth_view,
                             color_texture: frame.texture.clone(),
                             surface_texture: Some(frame),
                             rendered_offscreen: false,
-                            _start_time: start_time,
+                            start_time,
+                            stats_probe,
                             frame_index: self.frame_index,
                             color_format: self.color_format,
                             timing,
@@ -1195,13 +1250,16 @@ impl Engine {
                         Ok(RenderFrame {
                             device: Arc::clone(&self.device),
                             queue: Arc::clone(&self.queue),
-                            encoder,
+                            encoder: self
+                                .gpu_device
+                                .create_command_encoder(Some("WW3D Frame Encoder")),
                             color_view: view,
                             depth_view,
                             color_texture,
                             surface_texture: None,
                             rendered_offscreen: true,
-                            _start_time: start_time,
+                            start_time,
+                            stats_probe,
                             frame_index: self.frame_index,
                             color_format: self.color_format,
                             timing,
@@ -1219,13 +1277,16 @@ impl Engine {
                 Ok(RenderFrame {
                     device: Arc::clone(&self.device),
                     queue: Arc::clone(&self.queue),
-                    encoder,
+                    encoder: self
+                        .gpu_device
+                        .create_command_encoder(Some("WW3D Frame Encoder")),
                     color_view,
                     depth_view,
                     color_texture: target.color.clone(),
                     surface_texture: None,
                     rendered_offscreen: false,
-                    _start_time: start_time,
+                    start_time,
+                    stats_probe,
                     frame_index: self.frame_index,
                     color_format: self.color_format,
                     timing,
@@ -1264,13 +1325,16 @@ impl Engine {
             color_texture: _,
             mut surface_texture,
             rendered_offscreen: frame_rendered_offscreen,
-            _start_time: _,
+            start_time,
+            stats_probe,
             frame_index: _,
             color_format: _,
             timing: _,
         } = frame;
 
         let command_buffer = encoder.finish();
+        self.last_frame_stats =
+            stats_probe.finish(&self.device, self.frame_index, start_time.elapsed());
         // Frame-owned submit: uploads + this encoder + overlays in one queue.submit.
         self.frame_submit.lock().submit_owned_frame(&self.queue, command_buffer, self.frame_index);
 
@@ -1316,6 +1380,16 @@ impl Engine {
         }
 
         Ok(())
+    }
+
+    /// Replace wall time with a fixed clock (`None` restores wall time).
+    pub fn set_fixed_clock(&mut self, clock: Option<FixedClock>) {
+        self.fixed_clock = clock;
+    }
+
+    /// Counters of the most recently submitted frame.
+    pub fn last_frame_stats(&self) -> RenderFrameStats {
+        self.last_frame_stats
     }
 
     /// Get current frame timing information
@@ -1433,6 +1507,9 @@ impl Engine {
     /// Configure the swap interval (VSync) equivalent.
     pub fn set_swap_interval(&mut self, interval: i32) {
         self.settings.swap_interval = interval.max(0);
+        if let SurfaceMode::Windowed(surface_state) = &mut self.surface {
+            surface_state.set_swap_interval(&self.device, self.settings.swap_interval);
+        }
     }
 
     /// Retrieve the swap interval.

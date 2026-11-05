@@ -6,7 +6,6 @@
 
 use crate::{GpuBuffer, GpuError};
 use bytemuck::{Pod, Zeroable};
-use parking_lot::Mutex;
 use std::sync::Arc;
 
 /// Maximum vertex shader constants (matching DX8 capability)
@@ -241,71 +240,6 @@ impl ShaderConstantsManager {
         self.vertex_dirty = true;
         self.pixel_dirty = true;
     }
-}
-
-// Global shader constants manager
-lazy_static::lazy_static! {
-    pub static ref SHADER_CONSTANTS: Mutex<Option<ShaderConstantsManager>> = Mutex::new(None);
-}
-
-/// Initialize global shader constants manager
-pub fn init_shader_constants(device: Arc<crate::device::GpuDevice>) -> Result<(), GpuError> {
-    let manager = ShaderConstantsManager::new(device)?;
-    *SHADER_CONSTANTS.lock() = Some(manager);
-    Ok(())
-}
-
-/// Set vertex shader constant (global)
-pub fn set_vertex_shader_constant(index: usize, value: ShaderConstant) {
-    if let Some(manager) = SHADER_CONSTANTS.lock().as_mut() {
-        manager.set_vertex_constant(index, value);
-    }
-}
-
-/// Set multiple vertex shader constants (global)
-pub fn set_vertex_shader_constants(start_index: usize, values: &[ShaderConstant]) {
-    if let Some(manager) = SHADER_CONSTANTS.lock().as_mut() {
-        manager.set_vertex_constants(start_index, values);
-    }
-}
-
-/// Set pixel shader constant (global)
-pub fn set_pixel_shader_constant(index: usize, value: ShaderConstant) {
-    if let Some(manager) = SHADER_CONSTANTS.lock().as_mut() {
-        manager.set_pixel_constant(index, value);
-    }
-}
-
-/// Set multiple pixel shader constants (global)
-pub fn set_pixel_shader_constants(start_index: usize, values: &[ShaderConstant]) {
-    if let Some(manager) = SHADER_CONSTANTS.lock().as_mut() {
-        manager.set_pixel_constants(start_index, values);
-    }
-}
-
-/// Upload shader constants to GPU (global)
-pub fn upload_shader_constants() {
-    if let Some(manager) = SHADER_CONSTANTS.lock().as_mut() {
-        manager.upload();
-    }
-}
-
-/// Get vertex shader buffer (global)
-pub fn get_vertex_shader_buffer() -> Option<Arc<GpuBuffer>> {
-    SHADER_CONSTANTS
-        .lock()
-        .as_ref()
-        .and_then(|m| m.vertex_buffer())
-        .cloned()
-}
-
-/// Get pixel shader buffer (global)
-pub fn get_pixel_shader_buffer() -> Option<Arc<GpuBuffer>> {
-    SHADER_CONSTANTS
-        .lock()
-        .as_ref()
-        .and_then(|m| m.pixel_buffer())
-        .cloned()
 }
 
 #[cfg(test)]

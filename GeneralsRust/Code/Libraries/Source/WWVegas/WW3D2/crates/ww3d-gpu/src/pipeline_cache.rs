@@ -5,7 +5,6 @@
 //! pipeline state is critical for performance.
 
 use crate::{GpuError, pipeline};
-use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -224,47 +223,6 @@ impl Default for PipelineCache {
     fn default() -> Self {
         Self::new()
     }
-}
-
-// Global pipeline cache
-lazy_static::lazy_static! {
-    pub static ref PIPELINE_CACHE: Mutex<PipelineCache> = Mutex::new(PipelineCache::new());
-}
-
-/// Get or create a pipeline from global cache
-pub fn get_or_create_pipeline<F>(
-    key: PipelineCacheKey,
-    create_fn: F,
-) -> Result<Arc<pipeline::RenderPipeline>, GpuError>
-where
-    F: FnOnce() -> Result<pipeline::RenderPipeline, GpuError>,
-{
-    PIPELINE_CACHE.lock().get_or_create(key, create_fn)
-}
-
-/// Get pipeline from global cache
-pub fn get_cached_pipeline(key: &PipelineCacheKey) -> Option<Arc<pipeline::RenderPipeline>> {
-    PIPELINE_CACHE.lock().get(key)
-}
-
-/// Insert pipeline into global cache
-pub fn cache_pipeline(key: PipelineCacheKey, pipeline: Arc<pipeline::RenderPipeline>) {
-    PIPELINE_CACHE.lock().insert(key, pipeline);
-}
-
-/// Clear global pipeline cache
-pub fn clear_pipeline_cache() {
-    PIPELINE_CACHE.lock().clear();
-}
-
-/// Get global pipeline cache statistics
-pub fn pipeline_cache_stats() -> PipelineCacheStats {
-    PIPELINE_CACHE.lock().stats()
-}
-
-/// Trim global pipeline cache
-pub fn trim_pipeline_cache(max_pipelines: usize) {
-    PIPELINE_CACHE.lock().trim(max_pipelines);
 }
 
 #[cfg(test)]

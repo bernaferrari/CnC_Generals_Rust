@@ -11,6 +11,7 @@ use super::*;
 use crate::graphics::fow_uniform_integration::frozen_fow_model_fields;
 use crate::graphics::render_item::RenderItemBonePaletteSource;
 use ww3d_renderer_3d::rendering::mesh_system::FrozenFowVisibility;
+use ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase;
 
 struct LaserCallbackPack {
     pipeline: std::sync::Arc<wgpu::RenderPipeline>,
@@ -250,9 +251,10 @@ impl ForwardPass {
             return false;
         }
         if self.laser_draw_gpu.is_none() {
+            let color_format = self.renderer.engine.lock().color_format();
             self.laser_draw_gpu = Some(crate::graphics::laser_draw::LaserDrawGpu::new(
                 self.device.as_ref(),
-                wgpu::TextureFormat::Bgra8UnormSrgb,
+                color_format,
             ));
         }
         let view_proj = *projection_matrix * *view_matrix;
@@ -272,7 +274,8 @@ impl ForwardPass {
             buffer,
             vertex_count,
         };
-        self.renderer.enqueue_post_frame_callback(move |frame| {
+        self.renderer.enqueue_frame_work(FramePhase::Translucent, move |frame| {
+            frame.note_render_pass();
             let color_view = frame.color_view_arc();
             let depth_view = frame.depth_view_arc();
             let encoder = frame.encoder();
@@ -368,7 +371,8 @@ impl ForwardPass {
                 radius_items: native_radius_items,
                 particles: prepared_particles,
             });
-        self.renderer.enqueue_scoped_post_frame_pass(
+        self.renderer.enqueue_scoped_native_pass(
+            FramePhase::Particles,
             ww3d_renderer_3d::rendering::wgpu_main_renderer::ScopedNativePass::ClientEffects,
         );
         true
@@ -612,17 +616,17 @@ impl ForwardPass {
                     warn!(
                         "ForwardPass::render skipped surface acquisition: {message}; total_owned_submits={} last_frame_submit_count={} frame_is_active={}",
                         {
-                            let eng = self.renderer.engine.as_ref().expect("ww3d");
+                            let eng = &self.renderer.engine;
                             let fs = eng.lock().frame_submit_state();
                             ww3d_engine::total_owned_submits(&fs.lock())
                         },
                         {
-                            let eng = self.renderer.engine.as_ref().expect("ww3d");
+                            let eng = &self.renderer.engine;
                             let fs = eng.lock().frame_submit_state();
                             ww3d_engine::last_frame_submit_count(&fs.lock())
                         },
                         {
-                            let eng = self.renderer.engine.as_ref().expect("ww3d");
+                            let eng = &self.renderer.engine;
                             let fs = eng.lock().frame_submit_state();
                             ww3d_engine::frame_is_active(&fs.lock())
                         }
@@ -1209,22 +1213,13 @@ impl ForwardPass {
         Ok(Some(Arc::new(mesh)))
     }
 
-    pub(super) fn enqueue_post_frame_callback<F>(&mut self, callback: F)
+    pub(super) fn enqueue_frame_work<F>(&mut self, phase: FramePhase, work: F)
     where
         F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>
             + wgpu::WasmNotSend
             + 'static,
     {
-        self.renderer.enqueue_post_frame_callback(callback);
-    }
-
-    pub(super) fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
-    where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>
-            + wgpu::WasmNotSend
-            + 'static,
-    {
-        self.renderer.enqueue_pre_scene_callback(callback);
+        self.renderer.enqueue_frame_work(phase, work);
     }
 
     pub(super) fn ensure_mesh_model(

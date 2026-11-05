@@ -1,7 +1,8 @@
 # Renderer plan: map of the live wgpu stack, its problems, and migration steps
 
-Status: phase 1 (analysis and plan only, no code changes).
-Reviewed tree: `grok/logic-ownership` @ `71904d369` (read-only worktree).
+Status: phase 2 (implementation on `fix/render`). See "Progress" below.
+Reviewed tree for the analysis: `grok/logic-ownership` @ `71904d369`. Line numbers in
+sections 1-2 refer to that tree; several files moved or shrank since.
 All paths are relative to `GeneralsRust/Code/` unless they start with `GeneralsMD/`.
 
 Ground rules this plan respects:
@@ -16,6 +17,43 @@ Ground rules this plan respects:
   device/queue may be shared through `Arc`.
 - When a module is done, it goes into the existing `sealed_modules.toml` /
   `scripts/check_sealed_modules.sh` mechanism.
+
+
+## Progress (fix/render)
+
+How to verify any step: `cargo build -p generals_main --bin generals --bin golden_capture`,
+then `target/debug/golden_capture <out.png> --scene shell|lone-eagle --frame N
+[--compare ref.png]` with `GENERALS_ASSETS_DIR` pointing at the retail install
+(800x600 headless; see `Code/Main/src/cnc_game_engine/golden_capture.rs`). Each
+capture writes `<out>.stats.txt` with the last frame's counters. Captures of the
+same binary are byte-identical run to run (verified 2-3x for both scenes).
+
+| Step | State | Evidence |
+|---|---|---|
+| prerequisite | done | `drive_frame` self-deadlocked on the WW3D mutex on the first Menu frame (lock temporary in a `match` scrutinee); the shell then failed on object-less drawables (`missing native material observation`). Both fixed, so headless/windowed runs get past the menu again. |
+| R0 | done | `RenderFrameStats` (wgpu HAL counters sampled at begin_render and before submit, recorded passes, record CPU time) published as `render_frame_stats=`; `Engine::set_fixed_clock`; frame encoder created only after a successful acquire; golden freeze/capture mode + `golden_capture` bin; `count_globals.sh` / `check_sealed_modules.sh` count `lazy_static! { static ref }` (baseline 1 -> 35, now 31). |
+| R1 | done | GameClient `w3d/{renderer,device,post_processing}` + shaders, WgpuWrapper legacy backend, ww3d-gpu PIPELINE_CACHE/DYNAMIC_BUFFERS/SHADER_CONSTANTS/GPU_CONTEXT, second ShaderClass pipeline cache, GraphicsSystem uniform/material GPU state, `.bak*`, archive crate out of the workspace. ~16.8k lines removed. renderer-3d unit tests compile again (were 60 errors). |
+| R2 | done | `SortingRenderer` owned per `MeshRenderManager`; two-renderer isolation test. Golden-R identical. |
+| R3 | done | `FramePhase` + `FRAME_SCHEDULE` replace the FIFO callback queues; first commit encodes the old runtime order. Golden-R identical (shell + Lone Eagle). |
+| R4 | done | Schedule in `RTS3DScene::Flush` order; sorting flush uses the tactical viewport. Lone Eagle: unit/building ground shadows become visible (2716 px in the base area); shell: 28 px. Ground overlays (selection circles, order lines) are no longer recorded before the terrain clear. |
+| R5 | partial | Per-manager `MeshBindCache`: texture-stage and vertex-color bind groups reused across frames, samplers shared by state, texture views by texture, camera/UV groups once per pipeline per frame (UV uniform moved into the frame arena). Shared BGL scheme + dynamic offsets not done: model groups are still one per draw. |
+| R6 | partial | Particle batches share one persistent instance buffer (one `write_buffer` per frame). Weather/tracer/heat-haze/decal/shadow/water/terrain rebake buffers still per frame. |
+| R7-R13 | open | see table in section 4. Command-buffer exhaustion (hq-sjaur7) not reproduced; encoder-after-acquire removes one candidate. |
+
+Frame stats, 800x600 debug build, steady frozen frame (created per frame):
+
+| Scene | Step | bind groups | buffers | samplers | record ms |
+|---|---|---:|---:|---:|---:|
+| ShellMapMD step 60 | R0-R4 | 1344 | 1060 | 151 | 78-87 |
+| ShellMapMD step 60 | R5 cache (no sampler cache) | 455 | 603 | 151 | 63 |
+| ShellMapMD step 60 | R5 + sampler/view cache | 293 | 603 | 0 | 57 |
+| Lone Eagle frame 90 | R0-R4 | 554 | 453 | 63 | 46-48 |
+| Lone Eagle frame 90 | R5 cache (no sampler cache) | 182 | 269 | 63 | 40 |
+| Lone Eagle frame 90 | R5 + sampler/view cache | 119 | 269 | 0 | 37 |
+
+Known nondeterminism: one 28-pixel spot on the shell map (ship near x 761-799,
+y 452-465) flips between two states across *builds* (never across runs of one
+binary). Most likely a draw order keyed on an address; not yet located.
 
 ---
 

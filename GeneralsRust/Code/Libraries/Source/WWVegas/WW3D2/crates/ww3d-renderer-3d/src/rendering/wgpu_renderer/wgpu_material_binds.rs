@@ -132,6 +132,60 @@ impl Default for UVTransformUniform {
 }
 
 impl WgpuMaterialBinds {
+    fn camera_uniform(render_info: &RenderInfoClass) -> CameraUniform {
+        let camera = &render_info.camera;
+        let eye = camera.get_position();
+        CameraUniform {
+            view_proj: camera.get_cached_view_projection_matrix(),
+            view: camera.get_cached_view_matrix(),
+            projection: camera.get_cached_projection_matrix(),
+            eye_position: [eye.x, eye.y, eye.z, 1.0],
+        }
+    }
+
+    /// Contents hash of the camera uniform `camera` would upload.
+    pub fn camera_contents_hash(render_info: &RenderInfoClass) -> u64 {
+        content_hash(bytemuck::bytes_of(&Self::camera_uniform(render_info)))
+    }
+
+    /// Contents hash of the UV-transform uniform for `material_pass`.
+    pub fn uv_transform_contents_hash(
+        material_pass: Option<&MaterialPassClass>,
+        animation_time: f32,
+    ) -> u64 {
+        content_hash(bytemuck::bytes_of(&build_uv_transform_uniform(
+            material_pass,
+            animation_time,
+        )))
+    }
+
+    /// UV-transform uniform in the frame arena (no per-draw buffer creation).
+    pub fn uv_transform_in_arena(
+        gpu: &GpuDevice,
+        pipeline: &wgpu::RenderPipeline,
+        slot: u32,
+        material_pass: Option<&MaterialPassClass>,
+        animation_time: f32,
+        arena: &mut FrameUniformArena,
+    ) -> Result<UVTransformBinds> {
+        let uniform = build_uv_transform_uniform(material_pass, animation_time);
+        let slice = arena.allocate(gpu, bytemuck::bytes_of(&uniform), 256)?;
+        let bind_group = gpu
+            .wgpu_device()
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("UV Transform Bind Group"),
+                layout: &pipeline.get_bind_group_layout(slot),
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(slice.as_binding()),
+                }],
+            });
+        Ok(UVTransformBinds {
+            buffer: Arc::clone(&slice.buffer),
+            bind_group: Arc::new(bind_group),
+        })
+    }
+
     pub fn camera(
         gpu: &GpuDevice,
         pipeline: &wgpu::RenderPipeline,
@@ -139,18 +193,7 @@ impl WgpuMaterialBinds {
         arena: &mut FrameUniformArena,
         render_info: &RenderInfoClass,
     ) -> Result<CameraBinds> {
-        let camera = &render_info.camera;
-        let view_proj = camera.get_cached_view_projection_matrix();
-        let view = camera.get_cached_view_matrix();
-        let projection = camera.get_cached_projection_matrix();
-        let eye = camera.get_position();
-
-        let uniform = CameraUniform {
-            view_proj,
-            view,
-            projection,
-            eye_position: [eye.x, eye.y, eye.z, 1.0],
-        };
+        let uniform = Self::camera_uniform(render_info);
 
         let slice = arena.allocate(gpu, bytemuck::bytes_of(&uniform), 256)?;
         let bind_group = gpu
@@ -527,4 +570,11 @@ fn pack_light(light: &LightClass) -> PackedLight {
 
 fn vec3_to_array(vec: Vec3, w: f32) -> [f32; 4] {
     [vec.x, vec.y, vec.z, w]
+}
+
+fn content_hash(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::hash::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
 }

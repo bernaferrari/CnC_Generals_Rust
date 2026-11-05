@@ -372,55 +372,6 @@ impl Default for DynamicBufferManager {
     }
 }
 
-// Global dynamic buffer manager instance
-lazy_static::lazy_static! {
-    pub static ref DYNAMIC_BUFFERS: DynamicBufferManager = DynamicBufferManager::new();
-}
-
-/// Initialize dynamic buffers with default settings
-pub fn init_dynamic_buffers(device: Arc<crate::device::GpuDevice>) -> Result<(), GpuError> {
-    DYNAMIC_BUFFERS.init_vertex_ring(
-        device.clone(),
-        DEFAULT_VERTEX_COUNT,
-        crate::fvf::FvfFormat::XYZNDUV2, // Default dynamic format
-    )?;
-    DYNAMIC_BUFFERS.init_index_ring(device, DEFAULT_INDEX_COUNT, false)?;
-    Ok(())
-}
-
-/// Write vertices to dynamic buffer
-pub fn write_dynamic_vertices<T: bytemuck::Pod>(
-    vertices: &[T],
-) -> Result<(Arc<GpuBuffer>, u32), GpuError> {
-    DYNAMIC_BUFFERS
-        .with_vertex_ring(|ring| ring.write_vertices(vertices))
-        .ok_or(GpuError::NotInitialized)?
-}
-
-/// Write indices to dynamic buffer (u16)
-pub fn write_dynamic_indices_u16(indices: &[u16]) -> Result<(Arc<GpuBuffer>, u32), GpuError> {
-    DYNAMIC_BUFFERS
-        .with_index_ring(|ring| ring.write_indices_u16(indices))
-        .ok_or(GpuError::NotInitialized)?
-}
-
-/// Write indices to dynamic buffer (u32)
-pub fn write_dynamic_indices_u32(indices: &[u32]) -> Result<(Arc<GpuBuffer>, u32), GpuError> {
-    DYNAMIC_BUFFERS
-        .with_index_ring(|ring| ring.write_indices_u32(indices))
-        .ok_or(GpuError::NotInitialized)?
-}
-
-/// Advance dynamic buffers to next frame
-pub fn advance_dynamic_buffers() {
-    DYNAMIC_BUFFERS.next_frame();
-}
-
-/// Reset dynamic buffers for current frame
-pub fn reset_dynamic_buffers() {
-    DYNAMIC_BUFFERS.reset();
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -533,7 +533,9 @@ impl RenderPipeline {
                 device: graphics_system.device_arc(),
             };
             let shadow_viewport_px = self.tactical_viewport_pixel_size();
-            self.enqueue_post_frame_callback(move |gpu_frame| {
+            self.enqueue_frame_work(
+                ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::StencilShadows,
+                move |gpu_frame| {
                 let Some(depth_view) = gpu_frame.depth_view_arc() else {
                     return Ok(());
                 };
@@ -551,7 +553,8 @@ impl RenderPipeline {
                     shadow_viewport_px,
                 );
                 Ok(())
-            });
+                },
+            );
 
             // C++ W3DScene order: water (static sort level 2) renders after the
             // shadow passes and before translucent objects / post filters
@@ -572,19 +575,14 @@ impl RenderPipeline {
         let skip_filter_scene = native_receiver.view_filter().filter()
             == game_client::display::view::FilterType::MotionBlur
             && native_receiver.view_filter().skip_render()
-            && self
-                .forward_pass
-                .renderer
-                .engine
-                .as_ref()
-                .map(|eng| eng.lock().surface_size())
-                .is_some_and(|(width, height)| {
-                    self.view_filter_resources.has_scene_capture_for(
-                        width,
-                        height,
-                        graphics_system.color_format(),
-                    )
-                });
+            && {
+                let (width, height) = self.forward_pass.renderer.engine.lock().surface_size();
+                self.view_filter_resources.has_scene_capture_for(
+                    width,
+                    height,
+                    graphics_system.color_format(),
+                )
+            };
         #[cfg(feature = "game_client")]
         if skip_filter_scene {
             // Reusing an image is not a new accepted draw of its ghost objects.

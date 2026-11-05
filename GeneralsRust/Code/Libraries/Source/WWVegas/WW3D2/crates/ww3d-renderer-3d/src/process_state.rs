@@ -69,8 +69,6 @@ pub struct Renderer3dRuntime {
     pub shader_state: Mutex<ShaderGlobalState>,
     pub static_sort_state: Mutex<crate::rendering::mesh_system::StaticSortState>,
     pub ring_mesh_array: Mutex<Option<crate::rendering::ring_render_obj::RingMeshArray>>,
-    /// Session wgpu device/surface wrapper (formerly WGPU_WRAPPER_INSTANCE).
-    pub wgpu_wrapper: Mutex<Option<crate::rendering::wgpu_renderer::wgpu_wrapper::WgpuWrapper>>,
 }
 
 impl Default for Renderer3dRuntime {
@@ -97,7 +95,6 @@ impl Renderer3dRuntime {
             shader_state: Mutex::new(ShaderGlobalState::new()),
             static_sort_state: Mutex::new(crate::rendering::mesh_system::default_static_sort_state()),
             ring_mesh_array: Mutex::new(None),
-            wgpu_wrapper: Mutex::new(None),
         }
     }
 }

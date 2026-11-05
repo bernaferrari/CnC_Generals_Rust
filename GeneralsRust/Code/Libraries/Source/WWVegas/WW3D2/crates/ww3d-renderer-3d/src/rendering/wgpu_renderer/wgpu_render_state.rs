@@ -11,6 +11,11 @@ use bitflags::bitflags;
 use glam::{Mat4, Vec3, Vec4};
 use std::sync::Arc;
 
+/// Texture stages tracked per draw (C++ dx8wrapper.h MAX_TEXTURE_STAGES).
+pub const MAX_TEXTURE_STAGES: usize = 8;
+/// Vertex streams tracked per draw (C++ dx8wrapper.h MAX_VERTEX_STREAMS).
+pub const MAX_VERTEX_STREAMS: usize = 2;
+
 use super::wgpu_buffer::{WgpuIndexBuffer, WgpuVertexBuffer};
 use super::wgpu_vertex_format::VertexFormatFlags;
 
@@ -99,7 +104,7 @@ impl RenderStateStruct {
         Self {
             shader: None,
             material: None,
-            textures: vec![None; super::wgpu_wrapper::MAX_TEXTURE_STAGES],
+            textures: vec![None; MAX_TEXTURE_STAGES],
             lights: [D3DLight8::default(); 4],
             light_enable: [false; 4],
             world: Mat4::IDENTITY,
@@ -107,19 +112,19 @@ impl RenderStateStruct {
             world_matrix: Mat4::IDENTITY,
             view_matrix: Mat4::IDENTITY,
             projection_matrix: Mat4::IDENTITY,
-            vertex_buffer_types: vec![0; super::wgpu_wrapper::MAX_VERTEX_STREAMS],
+            vertex_buffer_types: vec![0; MAX_VERTEX_STREAMS],
             index_buffer_type: 0,
             vba_offset: 0,
             vba_count: 0,
             iba_offset: 0,
-            vertex_buffers: vec![None; super::wgpu_wrapper::MAX_VERTEX_STREAMS],
+            vertex_buffers: vec![None; MAX_VERTEX_STREAMS],
             index_buffer: None,
             index_base_offset: 0,
             viewport: None,
             vertex_format: None,
             texture_stage_settings: vec![
                 TextureStageSettings::default();
-                super::wgpu_wrapper::MAX_TEXTURE_STAGES
+                MAX_TEXTURE_STAGES
             ],
         }
     }

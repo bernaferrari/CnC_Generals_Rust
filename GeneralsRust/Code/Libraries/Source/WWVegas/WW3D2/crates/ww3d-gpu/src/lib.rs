@@ -511,24 +511,6 @@ impl FrameTimer {
     }
 }
 
-/// Global GPU context instance
-static GPU_CONTEXT: std::sync::OnceLock<GpuContext> = std::sync::OnceLock::new();
-/// Initialize global GPU context. Second call hard-fails (engine `AlreadyInitialised` style).
-pub async fn init_gpu_context() -> Result<(), GpuError> {
-    if GPU_CONTEXT.get().is_some() {
-        return Err(GpuError::AlreadyInitialised);
-    }
-    let context = GpuContext::init().await?;
-    GPU_CONTEXT
-        .set(context)
-        .map_err(|_| GpuError::AlreadyInitialised)
-}
-
-/// Get global GPU context
-pub fn get_gpu_context() -> Option<&'static GpuContext> {
-    GPU_CONTEXT.get()
-}
-
 /// GPU error types
 #[derive(Debug, thiserror::Error)]
 pub enum GpuError {

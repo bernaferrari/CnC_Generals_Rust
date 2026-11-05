@@ -851,37 +851,22 @@ impl RenderPipeline {
         }
     }
 
-    /// Schedule a callback to run after the WW3D renderer finishes its main passes.
+    /// Queue frame work for `phase` of the next WW3D frame
+    /// (see `ww3d_renderer_3d::rendering::frame_schedule`).
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn enqueue_post_frame_callback<F>(&mut self, callback: F)
+    pub fn enqueue_frame_work<F>(&mut self, phase: ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase, work: F)
     where
         F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
     {
-        self.forward_pass.enqueue_post_frame_callback(callback);
+        self.forward_pass.enqueue_frame_work(phase, work);
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn enqueue_post_frame_callback<F>(&mut self, callback: F)
+    pub fn enqueue_frame_work<F>(&mut self, phase: ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase, work: F)
     where
         F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + 'static,
     {
-        self.forward_pass.enqueue_post_frame_callback(callback);
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
-    where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
-    {
-        self.forward_pass.enqueue_pre_scene_callback(callback);
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
-    where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + 'static,
-    {
-        self.forward_pass.enqueue_pre_scene_callback(callback);
+        self.forward_pass.enqueue_frame_work(phase, work);
     }
 }
 

@@ -101,6 +101,7 @@ mod dispatch;
 mod display_clock;
 mod eva_delivery;
 mod fps_limiter;
+mod golden_capture;
 mod host;
 mod host_authority;
 mod hotkeys;

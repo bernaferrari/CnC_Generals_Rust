@@ -404,15 +404,10 @@ impl TextureBaseClass {
         use wgpu::TextureFormat as Tf;
 
         let srgb = srgb || crate::config::get(r3d).force_srgb_textures;
-        let bc_supported = {
-            let guard = crate::rendering::wgpu_renderer::wgpu_wrapper::get_wgpu_wrapper(r3d);
-            guard
-                .as_ref()
-                .map(|w| w.adapter_supports_bc())
-                .unwrap_or(false)
-        };
-        let prefer_16bit =
-            crate::rendering::wgpu_renderer::wgpu_wrapper::WgpuWrapper::prefer_16bit_textures(r3d);
+        // The game device is created without TEXTURE_COMPRESSION_BC, so BC
+        // formats always fall back to uncompressed RGBA here.
+        let bc_supported = false;
+        let prefer_16bit = crate::config::get(r3d).prefer_16bit_textures;
 
         let srgb_fallback = if srgb {
             Tf::Rgba8UnormSrgb
@@ -874,7 +869,6 @@ impl TextureBaseClass {
 
     /// C++ `TextureClass::Apply`: bind this texture on the DX8/wgpu stage.
     pub fn apply(&self, _stage: usize) {
-        // Binding is done via WgpuWrapper::set_texture with an explicit Renderer3dRuntime.
     }
 
     /// Peek at underlying texture handle

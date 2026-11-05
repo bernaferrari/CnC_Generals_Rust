@@ -1160,6 +1160,7 @@ impl CnCGameEngine {
 
             active_menu_shell_hook: None,
             runtime_host_headless,
+            golden_capture: super::golden_capture::GoldenCapture::from_env(),
             runtime_host_active,
             runtime_host_base_ui_screen: None,
             runtime_host_ui_screen_override: None,

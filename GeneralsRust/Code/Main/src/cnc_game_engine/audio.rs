@@ -368,15 +368,6 @@ impl CnCGameEngine {
         }
     }
 
-    /// Get or create a texture bind group for a material (delegated to graphics system)
-    pub(super) fn get_material_bind_group(
-        &mut self,
-        material: &crate::assets::W3DMaterial,
-    ) -> Option<&wgpu::BindGroup> {
-        // Delegate to graphics system which handles material bind group management
-        self.graphics_system.get_material_bind_group(material)
-    }
-
     /// Async texture loading method (for future implementation)
     /// This would be called from a background thread to load textures from BIG archives
     pub(super) async fn load_texture_async(

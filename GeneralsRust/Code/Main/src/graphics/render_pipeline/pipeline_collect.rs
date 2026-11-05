@@ -2207,7 +2207,8 @@ impl RenderPipeline {
             }
             let (vp_x, vp_y, vp_w, vp_h) = self.tactical_viewport.pixel_rect();
             if self.native_terrain.is_some() {
-                self.forward_pass.renderer.enqueue_scoped_post_frame_pass(
+                self.forward_pass.renderer.enqueue_scoped_native_pass(
+                    ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::StaticSort,
                     ww3d_renderer_3d::rendering::wgpu_main_renderer::ScopedNativePass::TerrainWater,
                 );
             }

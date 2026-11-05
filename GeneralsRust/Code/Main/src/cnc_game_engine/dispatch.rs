@@ -1365,6 +1365,7 @@ impl CnCGameEngine {
             present_collect_ms: self.render_pipeline.debug_last_collect_ms(),
             present_terrain_ms: self.render_pipeline.debug_last_terrain_ms(),
             present_forward_ms: self.render_pipeline.debug_last_forward_ms(),
+            render_frame_stats: self.ww3d.lock().last_frame_stats().to_string(),
             camera_pos: format!(
                 "{:.1},{:.1},{:.1}",
                 self.game_logic.session_view.camera.camera_position.x,
