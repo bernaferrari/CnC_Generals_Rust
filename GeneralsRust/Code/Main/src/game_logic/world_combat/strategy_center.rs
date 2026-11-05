@@ -901,7 +901,6 @@ impl GameLogic {
             is_patriot_battery_structure, is_patriot_free_to_assist,
             is_within_patriot_request_assist_range,
             make_patriot_assist_lasers, patriot_request_assist_range_for_template,
-            patriots_are_assist_equivalent,
         };
 
         let Some(requester) = self.objects.get(&requester_id) else {
@@ -950,7 +949,17 @@ impl GameLogic {
                 if !is_patriot_battery_structure(&obj.template_name) {
                     return None;
                 }
-                if !patriots_are_assist_equivalent(&requester_template, &obj.template_name) {
+                // C++ Weapon.cpp:2874 requestOf->getTemplate()->isEquivalentTo(
+                // requester->getTemplate()): same/final-override, reskin, or
+                // build variation, not a Lazr_/SupW_ name family.
+                let equivalent = match (
+                    self.templates.get(&requester_template),
+                    self.templates.get(&obj.template_name),
+                ) {
+                    (Some(a), Some(b)) => b.is_equivalent_to(a),
+                    _ => requester_template == obj.template_name,
+                };
+                if !equivalent {
                     return None;
                 }
                 // C++ Weapon::processRequestAssistance: only Objects with an
