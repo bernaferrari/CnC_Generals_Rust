@@ -364,6 +364,8 @@ pub struct GlobalData {
     pub base_regen_delay: u32,
     pub prison_bounty_multiplier: f32,
     pub prison_bounty_text_color: [f32; 3],
+    /// Alpha of C++ `m_prisonBountyTextColor` (`GameMakeColor` A channel).
+    pub prison_bounty_text_alpha: u8,
 
     // Colors
     pub hot_key_text_color: [f32; 4], // RGBA
@@ -675,6 +677,7 @@ impl Default for GlobalData {
             base_regen_delay: 0,
             prison_bounty_multiplier: 1.0,
             prison_bounty_text_color: [1.0, 1.0, 1.0],
+            prison_bounty_text_alpha: 255,
 
             // Colors
             hot_key_text_color: [1.0, 1.0, 0.0, 1.0],

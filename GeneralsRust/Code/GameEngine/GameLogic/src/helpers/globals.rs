@@ -295,11 +295,14 @@ impl TheGlobalData {
     /// Prison bounty floating text color (matches GlobalData::m_prisonBountyTextColor).
     pub fn get_prison_bounty_text_color(&self) -> crate::common::Color {
         let data = get_engine_global_data().unwrap_or_else(ensure_engine_global_data);
-        let color = data.read().prison_bounty_text_color;
-        crate::common::Color::rgb(
+        let guard = data.read();
+        let (color, alpha) = (guard.prison_bounty_text_color, guard.prison_bounty_text_alpha);
+        // GameMakeColor(r, g, b, a): the authored alpha is part of the value.
+        crate::common::Color::new(
             (color.r.clamp(0.0, 1.0) * 255.0) as u8,
             (color.g.clamp(0.0, 1.0) * 255.0) as u8,
             (color.b.clamp(0.0, 1.0) * 255.0) as u8,
+            alpha,
         )
     }
 

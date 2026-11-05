@@ -1999,6 +1999,7 @@ fn apply_to_runtime_global_data(data: &GlobalData, runtime: &mut runtime_global_
         data.prison_bounty_text_color.g,
         data.prison_bounty_text_color.b,
     ];
+    runtime.prison_bounty_text_alpha = data.prison_bounty_text_alpha;
     runtime.special_power_view_object_name = data.special_power_view_object_name.clone();
     runtime.standard_public_bones = data.standard_public_bones.clone();
     runtime.show_metrics = data.show_metrics;
@@ -2388,6 +2389,20 @@ mod tests {
         .unwrap();
         assert_eq!(data.hot_key_text_alpha, 32);
         assert_eq!(data.prison_bounty_text_alpha, 255);
+        let mut alpha_ini = INI::new();
+        alpha_ini
+            .with_inline_source(
+                "GameData\n PrisonBountyTextColor = R:1 G:2 B:3 A:77\nEnd\n",
+                |ini| {
+                    ini.read_line()?;
+                    parse_game_data_block(ini, &mut data)
+                },
+            )
+            .unwrap();
+        assert_eq!(data.prison_bounty_text_alpha, 77);
+        let mut alpha_runtime = runtime_global_data::GlobalData::default();
+        apply_to_runtime_global_data(&data, &mut alpha_runtime);
+        assert_eq!(alpha_runtime.prison_bounty_text_alpha, 77);
         assert_eq!(
             data.hot_key_text_color,
             RGBColor::new(64.0 / 255.0, 128.0 / 255.0, 1.0)
