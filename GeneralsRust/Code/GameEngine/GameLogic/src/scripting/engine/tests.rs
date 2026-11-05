@@ -200,7 +200,10 @@ fn end_game_timer_expiry_appends_clear_game_data_message() {
 fn close_window_timer_expiry_destroys_message_window() {
     // C++ ScriptEngine.cpp:5508-5512 TheScriptActions->closeWindows(FALSE)
     let _lock = crate::test_sync::lock();
+    struct HeadlessWindows;
+    impl ScriptActionHandler for HeadlessWindows {}
     let mut engine = ScriptEngine::new().unwrap();
+    engine.set_action_handler(Some(std::sync::Arc::new(HeadlessWindows)));
     engine.create_win_lose_window("Menus/LocalDefeat.wnd");
     assert_eq!(
         engine.current_win_lose_window().as_deref(),

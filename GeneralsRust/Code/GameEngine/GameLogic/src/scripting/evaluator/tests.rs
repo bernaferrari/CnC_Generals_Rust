@@ -1365,8 +1365,11 @@ fn test_victory_action() {
 
     let engine = get_script_engine();
     {
-        let guard = engine.write().unwrap();
-        let engine = guard.as_ref().unwrap();
+        let mut guard = engine.write().unwrap();
+        let engine = guard.as_mut().unwrap();
+        struct HeadlessWindows;
+        impl ScriptActionHandler for HeadlessWindows {}
+        engine.set_action_handler(Some(std::sync::Arc::new(HeadlessWindows)));
         engine.set_shown_mp_local_defeat_window(false);
         engine.close_windows(false);
         engine.set_campaign_victorious(false);
