@@ -2505,6 +2505,7 @@ impl Object {
     }
 
     pub fn is_faction_structure(&self) -> bool {
+        // C++ uses KINDOF_FS_* / CommandCenter kinds only — name peels invent.
         self.is_kind_of(KindOf::FSBarracks)
             || self.is_kind_of(KindOf::FSWarFactory)
             || self.is_kind_of(KindOf::FSAirfield)
@@ -2522,17 +2523,6 @@ impl Object {
             || self.is_command_center()
             || self.is_kind_of(KindOf::SupplyCenter)
             || self.is_kind_of(KindOf::PowerPlant)
-            || self.template_name.contains("Barracks")
-            || self.template_name.contains("WarFactory")
-            || self.template_name.contains("Airfield")
-            || self.template_name.contains("InternetCenter")
-            || self.template_name.contains("PowerPlant")
-            || self.template_name.contains("SupplyDropzone")
-            || self.template_name.contains("SupplyCenter")
-            || self.template_name.contains("Superweapon")
-            || self.template_name.contains("StrategyCenter")
-            || self.template_name.contains("BlackMarket")
-            || self.template_name.contains("TechCenter")
     }
 
     pub fn is_non_faction_structure(&self) -> bool {
@@ -2737,6 +2727,22 @@ mod tests {
         real_cc.add_kind_of(KindOf::CommandCenter);
         let cc = Object::new(real_cc, ObjectId(64), Team::USA);
         assert!(cc.is_command_center());
+    }
+
+    #[test]
+    fn is_faction_structure_uses_kindof_not_name_peel() {
+        let mut named = ThingTemplate::new("FakeBarracksHut");
+        named.add_kind_of(KindOf::Structure);
+        let hut = Object::new(named, ObjectId(71), Team::USA);
+        assert!(
+            !hut.is_faction_structure(),
+            "name-contains Barracks is invent"
+        );
+
+        let mut real = ThingTemplate::new("AmericaBarracks");
+        real.add_kind_of(KindOf::FSBarracks);
+        let barracks = Object::new(real, ObjectId(72), Team::USA);
+        assert!(barracks.is_faction_structure());
     }
 
     #[test]
