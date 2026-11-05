@@ -221,7 +221,7 @@ fn assert_catalog(logic: &GameLogic) {
         );
     })
     .unwrap();
-    assert_eq!(TheArmorStore::read().len(), 1);
+    assert_eq!(TheArmorStore::template_count(), 1);
     let mut names: Vec<_> = logic.templates.keys().map(String::as_str).collect();
     names.sort_unstable();
     assert_eq!(names, EXPECTED_TEMPLATES);

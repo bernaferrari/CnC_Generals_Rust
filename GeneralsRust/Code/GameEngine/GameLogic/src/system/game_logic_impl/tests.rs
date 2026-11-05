@@ -13,11 +13,19 @@ mod tests {
     fn clear_test_adapters() {
         // Dispose admitted objects through their owner before clearing the
         // lookup/partition adapters. Never abandon a strong global fixture.
-        get_game_logic().lock().unwrap().clear_all_objects();
+        // Runs from Drop, possibly while unwinding from a failed assertion:
+        // tolerate poisoned locks so one failure never aborts the process.
+        get_game_logic()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear_all_objects();
         OBJECT_REGISTRY.clear();
-        with_collision_system_mut(|system| system.clear()).unwrap();
-        crate::ai::integration::initialize_ai_integration().unwrap();
-        player_list().write().unwrap().clear();
+        let _ = with_collision_system_mut(|system| system.clear());
+        let _ = crate::ai::integration::initialize_ai_integration();
+        player_list()
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         crate::helpers::TheGameLogic::clear_start_new_game_request();
     }
 
@@ -659,6 +667,7 @@ mod tests {
     /// so gameStatePostProcessLoad is not a no-op after CHUNK_GameStateMap.
     #[test]
     fn game_state_post_process_load_updates_partition_after_snapshots() {
+        let _serial_test_lock = crate::test_sync::lock();
         let _guard = test_state_lock();
         use crate::object::registry::OBJECT_REGISTRY;
         use crate::object::Object;

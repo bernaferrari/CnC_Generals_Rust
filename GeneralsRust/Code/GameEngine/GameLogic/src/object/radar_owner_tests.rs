@@ -293,6 +293,7 @@ fn radar_owned_audio_edges_apply_all_cpp_gates_without_test_locks() {
 
 #[test]
 fn production_radar_upgrade_executor_uses_the_driving_store_and_preserves_grant_guards() {
+        let _serial_test_lock = crate::test_sync::lock();
     let (a, radar_a) = authored_owner();
     let (b, radar_b) = authored_owner();
     let mut world_a = GameLogic::new();
@@ -380,6 +381,7 @@ fn authored_radar_load_restores_concrete_phase_and_keeps_wake_bits_and_wire() {
 
 #[test]
 fn installed_production_completion_owns_grant_clock_notification_and_continuation() {
+        let _serial_test_lock = crate::test_sync::lock();
     use crate::system::game_logic::OwnedUpgradeCompletionServices;
     let (a, radar_a) = authored_owner();
     let (b, radar_b) = authored_owner();
@@ -467,6 +469,7 @@ fn installed_production_completion_owns_grant_clock_notification_and_continuatio
 
 #[test]
 fn installed_radar_capture_and_delete_use_exact_lifecycle_players_and_edge_order() {
+        let _serial_test_lock = crate::test_sync::lock();
     let (a, _) = authored_owner();
     let (b, _) = authored_owner();
     let mut world = GameLogic::new();
@@ -585,6 +588,7 @@ fn installed_radar_capture_and_delete_use_exact_lifecycle_players_and_edge_order
 
 #[test]
 fn installed_radar_disabled_lifecycle_keeps_cpp_executed_and_counts() {
+        let _serial_test_lock = crate::test_sync::lock();
     let (owner, _) = authored_owner();
     let mut world = GameLogic::new();
     world.admit_radar_owner_for_test(&owner);

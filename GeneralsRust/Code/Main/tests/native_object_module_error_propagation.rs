@@ -287,7 +287,7 @@ fn assert_catalog(template: &dyn ThingTemplate) {
             assert!(factory.find_template(absent, false).is_none());
         }
     }
-    assert_eq!(TheArmorStore::read().len(), 1);
+    assert_eq!(TheArmorStore::template_count(), 1);
     with_weapon_store(|store| {
         assert_eq!(store.get_template_count(), 0);
         assert!(store.host_bootstrap_is_complete());

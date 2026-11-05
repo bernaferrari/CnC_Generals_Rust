@@ -23,7 +23,8 @@ fn rank_action_retains_science_callback_on_its_receiving_interpreter() {
     init_global_rank_info_store();
     let science = NameKeyGenerator::name_to_key("SCIENCE_RankOwnerWitness") as i32;
     {
-        let mut ranks = the_rank_info_store_mut().unwrap();
+        let store = the_rank_info_store_mut().unwrap();
+        let mut ranks = store.write().unwrap();
         *ranks = RankInfoStore::new();
         ranks
             .apply_rank_definition(RankDefinition::new(1, RankDefinitionMode::Create))

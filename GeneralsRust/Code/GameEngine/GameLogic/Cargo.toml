@@ -80,12 +80,15 @@ rhai = {workspace = true, features = ["sync"]}
 # profile = { path = "../../Libraries/Source/WWVegas/WWDebug", optional = true }
 
 [dev-dependencies]
+game_engine = { path = "../Common", features = ["test-ambient-services"] }
 tokio-test = {workspace = true}
 criterion = {workspace = true}
 proptest = {workspace = true}
 env_logger = {workspace = true}
 
 [features]
+# Test-only: per-thread owned worlds for tests that never publish one (see engine_stores).
+test-ambient-services = ["game_engine/test-ambient-services"]
 default = ["async", "ai", "scripting", "legacy_port", "allow_surrender"]
 # Compatibility flags mirroring legacy build defines for conditional code paths.
 internal = []

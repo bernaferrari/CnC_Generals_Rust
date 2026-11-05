@@ -496,6 +496,14 @@ impl TheArmorStore {
             .make_armor_by_name(name)
     }
 
+    /// Number of templates registered in the published world's armor store.
+    pub fn template_count() -> usize {
+        Self::store_arc()
+            .read()
+            .expect("TheArmorStore read lock poisoned")
+            .len()
+    }
+
     /// Remove all registered templates (useful for resetting between missions/tests).
     pub fn reset() {
         let arc = Self::store_arc();

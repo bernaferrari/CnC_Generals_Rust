@@ -97,6 +97,8 @@ winit = {workspace = true, optional = true}
 
 
 [features]
+# Test-only: per-thread owned CommonServices for tests that never publish a world.
+test-ambient-services = []
 default = ["async", "graphics", "audio"]
 async = ["tokio", "async-trait", "futures"]
 audio = ["cpal", "symphonia", "realfft", "rubato"]

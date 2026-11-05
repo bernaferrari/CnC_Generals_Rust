@@ -78,6 +78,13 @@ mod tests {
     #[test]
     fn retail_cd_check_finds_discovered_genseczh_big() {
         crate::test_support::ensure_ambient_host();
+        if game_engine::common::system::install_layout::find_genseczh_big().is_none() {
+            eprintln!(
+                "SKIP retail_cd_check_finds_discovered_genseczh_big: no retail genseczh.big \
+                 discoverable from cwd/exe/env"
+            );
+            return;
+        }
         assert!(
             are_music_files_on_cd(),
             "areMusicFilesOnCD must find genseczh.big via install/CD discovery"

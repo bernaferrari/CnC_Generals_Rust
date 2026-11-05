@@ -259,7 +259,24 @@ pub fn common_services() -> Arc<CommonServices> {
 
 /// Active CommonServices for this thread, if published.
 pub fn try_common_services() -> Option<Arc<CommonServices>> {
-    ACTIVE_STACK.with(|stack| stack.borrow().last().cloned())
+    let head = ACTIVE_STACK.with(|stack| stack.borrow().last().cloned());
+    #[cfg(feature = "test-ambient-services")]
+    if head.is_none() {
+        return Some(test_ambient_services());
+    }
+    head
+}
+
+/// Unit-test convenience (feature `test-ambient-services`, enabled only through
+/// dev-dependencies): a test thread that never published a world gets its own
+/// owned `CommonServices`, published once for that thread. Never shared across
+/// threads and never compiled into production builds.
+#[cfg(feature = "test-ambient-services")]
+fn test_ambient_services() -> Arc<CommonServices> {
+    let services = Arc::new(CommonServices::new());
+    install_common_services(Arc::clone(&services));
+    services.finish_bootstrap_after_publish();
+    services
 }
 
 /// Push `services` as the active bind; returns the previous head if any.

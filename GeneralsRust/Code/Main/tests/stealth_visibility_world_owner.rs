@@ -139,11 +139,13 @@ fn live_visibility_uses_receiving_object_status_not_core_singletons() {
     // Seed the legacy Core singleton with a conflicting same-ID invisible
     // entry. Before the migration, its process-global answer hid both worlds.
     {
-        let mut detection = get_detection_manager().lock().unwrap();
+        let detection_manager = get_detection_manager();
+        let mut detection = detection_manager.lock().unwrap();
         let _ = detection.unregister_object(id);
     }
     {
-        let mut stealth = get_stealth_manager().lock().unwrap();
+        let stealth_manager = get_stealth_manager();
+        let mut stealth = stealth_manager.lock().unwrap();
         let _ = stealth.unregister_object(id);
         stealth.register_object(id).unwrap();
         stealth

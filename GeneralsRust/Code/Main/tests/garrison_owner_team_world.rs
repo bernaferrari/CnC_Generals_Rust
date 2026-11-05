@@ -2839,7 +2839,7 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
                 modifier_keys: ModifierKeys::default(),
             })
             .unwrap(),
-        Ok(CommandResult::Success),
+        CommandResult::Success,
     );
     first.try_physics_collide(second_rider, ta, 1.0).unwrap();
     assert_eq!(
@@ -2966,7 +2966,10 @@ fn full_shared_pools_do_not_readmit_a_contained_passenger_at_another_entrance() 
                     selected_units: vec![b],
                     modifier_keys: ModifierKeys::default(),
                 })
-                .unwrap() == CommandResult::Success, "cave={cave} capacity={capacity}");
+                .unwrap(),
+            CommandResult::Success,
+            "cave={cave} capacity={capacity}"
+        );
         assert_eq!(game.host_object(rider).unwrap().contained_by, None);
         assert!(game.host_authoritative_contained_units(b).is_empty());
     }

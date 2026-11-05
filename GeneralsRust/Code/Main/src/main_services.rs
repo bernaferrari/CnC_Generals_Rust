@@ -136,11 +136,16 @@ thread_local! {
 
 pub fn main_services() -> Arc<MainServices> {
     ACTIVE_STACK.with(|stack| {
-        stack
-            .borrow()
-            .last()
-            .cloned()
-            .expect("MainServices requires with_main_services / install_main_services")
+        let head = stack.borrow().last().cloned();
+        #[cfg(test)]
+        if head.is_none() {
+            // Unit-test convenience: each libtest thread is its own isolated
+            // instance and gets an owned MainServices published on first use.
+            let services = Arc::new(MainServices::new());
+            stack.borrow_mut().push(Arc::clone(&services));
+            return services;
+        }
+        head.expect("MainServices requires with_main_services / install_main_services")
     })
 }
 
