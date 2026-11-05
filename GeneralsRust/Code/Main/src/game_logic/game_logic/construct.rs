@@ -49,7 +49,7 @@ impl GameLogic {
     }
 
     pub fn new() -> Self {
-        crate::game_logic::world_ambient::ensure_registered();
+        crate::game_logic::ensure_world_ambient();
         log::debug!("GameLogic::new() - creating new GameLogic instance");
         let world_width = 512.0;
         let world_height = 512.0;
