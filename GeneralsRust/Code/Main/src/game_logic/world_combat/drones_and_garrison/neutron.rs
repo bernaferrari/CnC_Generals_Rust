@@ -311,10 +311,7 @@ impl GameLogic {
             .filter_map(|id| {
                 let obj = self.objects.get(id)?;
                 let mut occupants = obj.contained_units();
-                let is_tunnel = obj.is_tunnel_network_style_container()
-                    || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                        &obj.template_name,
-                    );
+                let is_tunnel = obj.is_tunnel_network_style_container();
                 if is_tunnel {
                     for uid in self
                         .tunnel_network

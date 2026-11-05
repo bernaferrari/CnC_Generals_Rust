@@ -10,6 +10,8 @@ pub enum DamageEvent {
         damage_type: DamageType,
         death_type: crate::game_logic::host_usa_pilot::HostDeathType,
         shooter_id: ObjectId,
+        /// Fired WeaponTemplate DamageStatusType (C++ DamageInfoInput).
+        damage_status_type: Option<gamelogic::common::ObjectStatusTypes>,
     },
     Area {
         position: Vec3,
@@ -49,6 +51,8 @@ pub enum DamageEvent {
         primary_victim: Option<ObjectId>,
         /// Effective WeaponTemplate identity resolved by the receiving match.
         radius_weapon_name: String,
+        /// Fired WeaponTemplate DamageStatusType (C++ DamageInfoInput).
+        damage_status_type: Option<gamelogic::common::ObjectStatusTypes>,
     },
 }
 
@@ -411,6 +415,11 @@ pub struct PendingProjectile {
     pub min_attack_range: f32,
     /// C++ HistoricBonus residual peels (stamped at fire).
     pub historic_weapon_key: String,
+    /// C++ DamageInfoInput::m_damageStatusType copied from the fired
+    /// WeaponTemplate (Weapon.cpp dealDamageInternal). Instant/laser status
+    /// weapons never persist in flight, so it is not part of the wire format.
+    #[serde(skip)]
+    pub damage_status_type: Option<gamelogic::common::ObjectStatusTypes>,
     pub historic_bonus_time_frames: u32,
     pub historic_bonus_count: i32,
     pub historic_bonus_radius: f32,
@@ -820,6 +829,7 @@ pub(in crate::game_logic) fn materialize_accepted_projectile(
         proj.shock_wave_taper_off = p.shock_wave_taper_off;
         proj.radius_damage_affects = p.radius_damage_affects;
         proj.historic_weapon_key = p.historic_weapon_key.clone();
+        proj.damage_status_type = p.damage_status_type;
         proj.stream_binding = stream_binding;
         proj.historic_bonus_time_frames = p.historic_bonus_time_frames;
         proj.historic_bonus_count = p.historic_bonus_count;

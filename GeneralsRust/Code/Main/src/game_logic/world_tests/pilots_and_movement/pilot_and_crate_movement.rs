@@ -1341,6 +1341,8 @@ fn aurora_fuel_air_impact_spawns_gas_object() {
     jet.add_kind_of(KindOf::Aircraft).set_health(80.0);
     logic.templates.insert("AirF_AmericaJetAurora".into(), jet);
     let mut tgt = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    tgt.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tgt.add_kind_of(KindOf::Structure).set_health(2000.0);
     logic.templates.insert("GLATunnelNetwork".into(), tgt);
 
@@ -1467,6 +1469,8 @@ fn burton_charges_use_retail_c4_special_objects() {
     th.add_kind_of(KindOf::Infantry).set_health(100.0);
     logic.templates.insert("ChinaInfantryTankHunter".into(), th);
     let mut bld = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    bld.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     bld.add_kind_of(KindOf::Structure).set_health(1000.0);
     logic.templates.insert("GLATunnelNetwork".into(), bld);
 

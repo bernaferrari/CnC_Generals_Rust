@@ -19,6 +19,7 @@ pub use template_metadata::{
     VeterancyGainCreateMetadata, apply_pack_unpack_variation_ms, pack_unpack_variation_multiplier,
 };
 
+mod authored_modules;
 mod template;
 pub(crate) use template::BodyKind;
 pub use template::ThingTemplate;

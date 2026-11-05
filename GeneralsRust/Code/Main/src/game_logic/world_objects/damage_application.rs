@@ -405,7 +405,7 @@ impl GameLogic {
         killer_team_override: Option<Team>,
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> Option<OwnedDamageResult> {
-        self.apply_owned_damage_with_killer_team_and_after_fx_with_effects(
+        let result = self.apply_owned_damage_with_killer_team_and_after_fx_with_effects(
             victim_id,
             damage,
             source_id,
@@ -416,7 +416,25 @@ impl GameLogic {
             killer_team_override,
             |_, _| {},
             effects,
-        )
+        );
+        // C++ ActiveBody::attemptDamage DAMAGE_KILL_GARRISONED kills
+        // floor(amount) occupants synchronously inside the damage call
+        // (ActiveBody.cpp:421-460); the body only records the count.
+        if matches!(
+            damage_type,
+            crate::game_logic::combat::DamageType::KillGarrisoned
+        ) {
+            let source_team = source_id
+                .and_then(|id| self.objects.get(&id))
+                .map_or(Team::Neutral, |source| source.team);
+            let _ = self.flush_pending_kill_garrisoned_with_effects(
+                victim_id,
+                source_id,
+                source_team,
+                effects,
+            );
+        }
+        result
     }
 
     /// The observer runs at this same real synchronous DamageFX boundary;
@@ -1842,10 +1860,12 @@ impl GameLogic {
             damage_type,
             death_type,
             shooter_id,
+            damage_status_type,
             ..
         } = *event
         {
-            let context = DamageHitContext::new(self.objects.get(&shooter_id), None, damage_type);
+            let context = DamageHitContext::new(self.objects.get(&shooter_id), None, damage_type)
+                .with_damage_status(damage_status_type);
             let before = self
                 .objects
                 .get(&target_id)
@@ -1905,6 +1925,7 @@ impl GameLogic {
             death_type,
             radius_weapon_name,
             shooter_owner_player_id,
+            damage_status_type,
             ..
         } = event
         else {
@@ -1959,6 +1980,7 @@ impl GameLogic {
             let result = if damage > 0.0 {
                 let context =
                     DamageHitContext::new(self.objects.get(shooter_id), None, *damage_type)
+                        .with_damage_status(*damage_status_type)
                         .with_shock_wave_force(shock)
                         .with_source_player_mask(source_player_mask);
                 self.apply_owned_damage_with_effects(

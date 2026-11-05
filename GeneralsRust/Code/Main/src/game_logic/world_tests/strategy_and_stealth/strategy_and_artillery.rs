@@ -492,6 +492,7 @@ fn projectiles_step_inside_game_logic_update() {
         attack_range: 0.0,
         min_attack_range: 0.0,
         historic_weapon_key: String::new(),
+        damage_status_type: None,
         historic_bonus_time_frames: 0,
         historic_bonus_count: 0,
         historic_bonus_radius: 0.0,

@@ -2811,36 +2811,21 @@ impl GameLogic {
                 // WeaponSet::updateWeaponSet), not a rider name peel (hq-2qedt.148).
             }
 
-            // Host residual: GLA Tunnel Network TunnelContain (shared MaxTunnelCapacity=10)
-            // + PRIMARY TunnelNetworkGun / sneak TunnelNetworkGunDUMMY
-            // + StealthDetectorUpdate DetectionRange 150 / DetectionRate 500ms.
-            // Fail-closed: not GuardTunnelNetwork AI / CaveSystem / heal matrix.
-            // Sneak-attack tunnels have no StealthDetectorUpdate in retail INI.
-            if crate::game_logic::host_tunnel_network::is_tunnel_network_template(template_name) {
-                object.install_tunnel_network_residual();
-                // PRIMARY binds from the authored WeaponSet above (C++
-                // WeaponSet::updateWeaponSet), not a template-name peel (hq-2qedt.147).
-                if crate::game_logic::host_tunnel_network::tunnel_network_spawn_is_detector(
-                    template_name,
-                ) {
-                    object.set_detector_state(
-                        true,
-                        crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_DETECTION_RANGE,
-                        crate::game_logic::host_tunnel_network::TUNNEL_NETWORK_DETECTION_RATE_FRAMES,
-                    );
-                }
+            // C++ StealthDetectorUpdate is an authored module: every template
+            // declaring it detects with its own data (StealthDetectorUpdate.cpp).
+            object.install_authored_stealth_detector();
+
+            // C++ TunnelContain: entrances share the player's TunnelTracker whose
+            // capacity is GameData MaxTunnelCapacity (TunnelTracker.cpp:81-84).
+            if object.thing().template.contain_module.kind.is_tunnel_contain() {
+                let capacity = usize::try_from(self.tunnel_network.capacity()).unwrap_or(0);
+                object.install_tunnel_network_residual(capacity);
             }
 
-            if crate::game_logic::host_cave_system::is_cave_template(template_name)
-                || object
-                    .thing()
-                    .template
-                    .contain_module
-                    .kind
-                    .is_cave_contain()
-            {
+            if object.thing().template.contain_module.kind.is_cave_contain() {
                 let cave_index = object.thing().template.contain_module.cave_index;
-                object.install_cave_contain_residual(cave_index);
+                let capacity = usize::try_from(self.cave_system.capacity()).unwrap_or(0);
+                object.install_cave_contain_residual(cave_index, capacity);
             }
 
             // Host residual: AirF Combat Chinook TransportContain Slots=8 + passenger fire.
@@ -2877,19 +2862,6 @@ impl GameLogic {
                 // PRIMARY binds from the authored WeaponSet above (C++
                 // WeaponSet::updateWeaponSet from ThingTemplate), not a
                 // template-name host table (hq-2qedt.141).
-                if crate::game_logic::host_troop_crawler::troop_crawler_spawn_is_detector(
-                    template_name,
-                ) {
-                    object.is_detector = true;
-
-                    if let Some(range) =
-                        crate::game_logic::host_troop_crawler::troop_crawler_detection_range(
-                            template_name,
-                        )
-                    {
-                        object.detection_range = range;
-                    }
-                }
                 // VisionRange residual (175) for effective_detection_range fallback.
                 object.template_mut().sight_range = object
                     .thing()
@@ -2932,13 +2904,6 @@ impl GameLogic {
             // Host residual: America Sentry Drone StealthDetectorUpdate (DetectionRange 225).
             // Always detector from spawn; gun is PLAYER_UPGRADE residual.
             if crate::game_logic::host_sentry_drone::sentry_spawn_is_detector(template_name) {
-                object.is_detector = true;
-
-                if let Some(range) =
-                    crate::game_logic::host_sentry_drone::sentry_detection_range(template_name)
-                {
-                    object.detection_range = range;
-                }
                 // C++ StealthUpdate ctor: m_stealthAllowedFrame = now + StealthDelay.
                 // InnateStealth only sets CAN_STEALTH, not STEALTHED (StealthUpdate.cpp:110-137).
                 // AmericaVehicleSentryDrone StealthDelay 2000ms = 60f.
@@ -2960,13 +2925,6 @@ impl GameLogic {
             // DetectionRange unset → VisionRange 200; stays stealthed while attacking;
             // uncloaks only while MOVING (StealthForbiddenConditions = MOVING).
             if crate::game_logic::host_pathfinder::pathfinder_spawn_is_detector(template_name) {
-                object.is_detector = true;
-
-                if let Some(range) =
-                    crate::game_logic::host_pathfinder::pathfinder_detection_range(template_name)
-                {
-                    object.detection_range = range;
-                }
                 object.set_status_stealthed(true);
                 object.innate_stealth = true;
                 object.is_pathfinder_unit = true;
@@ -2998,45 +2956,6 @@ impl GameLogic {
                         self.frame.saturating_add(object.stealth_delay_frames);
                     object.stealth_delay_pending = false;
                 }
-            }
-
-            // Host residual: GLA Stinger Site SPAWNS_ARE_THE_WEAPONS dual ground/AA +
-            // HiveStructureBody / SpawnBehavior. The admitted child roster is
-            // the only live source for slave identity and occupancy.
-            if object.is_kind_of(KindOf::SpawnsAreTheWeapons) {
-                use crate::game_logic::host_base_defense::{
-                    stinger_air_weapon, stinger_ground_weapon, stinger_has_ap_rockets,
-                };
-                if crate::game_logic::host_base_defense::stinger_site_spawn_is_detector(
-                    template_name,
-                ) {
-                    let range = crate::game_logic::host_base_defense::stinger_detection_range(
-                        template_name,
-                    )
-                    .unwrap_or(crate::game_logic::host_base_defense::STINGER_SITE_DETECTION_RANGE);
-                    object.set_detector_state(
-                        true,
-                        range,
-                        crate::game_logic::host_base_defense::STINGER_SITE_DETECTION_RATE_FRAMES,
-                    );
-                }
-            }
-
-            // C++ GLAInfantryStingerSoldier ModuleTag_16 leftover: DetectionRange 200 /
-            // DetectionRate 500ms. Live soldiers must scan; residual hive slots do not.
-            if crate::game_logic::host_base_defense::stinger_soldier_spawn_is_detector(
-                template_name,
-            ) {
-                let range =
-                    crate::game_logic::host_base_defense::stinger_detection_range(template_name)
-                        .unwrap_or(
-                            crate::game_logic::host_base_defense::STINGER_SOLDIER_DETECTION_RANGE,
-                        );
-                object.set_detector_state(
-                    true,
-                    range,
-                    crate::game_logic::host_base_defense::STINGER_SOLDIER_DETECTION_RATE_FRAMES,
-                );
             }
 
             // Patriot PRIMARY/SECONDARY(assist)/TERTIARY(AA) bind from the authored
@@ -3131,13 +3050,6 @@ impl GameLogic {
 
             // Host residual: America Scout Drone StealthDetectorUpdate (VisionRange 150).
             if crate::game_logic::host_slave_drones::scout_spawn_is_detector(template_name) {
-                object.is_detector = true;
-
-                if let Some(range) =
-                    crate::game_logic::host_slave_drones::scout_detection_range(template_name)
-                {
-                    object.detection_range = range;
-                }
                 // Sensor drone: strip kind-based default gun if no explicit primary.
                 // Reuse sentry_had_explicit_primary (same template fields, captured pre-move).
                 if !sentry_had_explicit_primary {
@@ -3702,9 +3614,6 @@ impl GameLogic {
         // C++ TunnelContain::onObjectCreated / onBuildComplete → onTunnelCreated.
         if let Some(obj) = self.objects.get_mut(&object_id) {
             if obj.is_tunnel_network_style_container()
-                || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                    &obj.template_name,
-                )
             {
                 let player_id = obj.tunnel_system_key();
                 self.tunnel_network.on_tunnel_created(player_id, object_id);

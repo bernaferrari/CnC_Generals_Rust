@@ -33,8 +33,10 @@ use std::collections::{HashMap, HashSet};
 /// Logic frames per second (host fixed step).
 pub const TUNNEL_NETWORK_LOGIC_FPS: f32 = 30.0;
 
-/// C++ `GameData.ini` `MaxTunnelCapacity = 10`.
-pub const MAX_TUNNEL_CAPACITY: usize = 10;
+/// Capacity of a world whose GameData was never admitted (synthetic fixtures).
+/// Production worlds always install the session's authored MaxTunnelCapacity
+/// (C++ TunnelTracker.cpp:81-84 reads `TheGlobalData->m_maxTunnelCapacity`).
+const UNADMITTED_GAMEDATA_CAPACITY: i32 = 10;
 
 /// Residual of TunnelContain `TimeForFullHeal = 5000` ms.
 pub const TUNNEL_FULL_HEAL_MS: u32 = 5000;
@@ -229,7 +231,7 @@ impl HostTunnelNetworkRegistry {
     }
 
     pub(crate) fn capacity(&self) -> i32 {
-        self.capacity.unwrap_or(10)
+        self.capacity.unwrap_or(UNADMITTED_GAMEDATA_CAPACITY)
     }
 
     /// C++ OneShot SpawnBehavior already delivered its batch for this tunnel.
@@ -685,8 +687,7 @@ pub fn honesty_tunnel_network_gun_residual_ok() -> bool {
 
 /// Wave 64 residual honesty: TunnelContain + capacity residual.
 pub fn honesty_tunnel_network_contain_residual_ok() -> bool {
-    MAX_TUNNEL_CAPACITY == 10
-        && TUNNEL_FULL_HEAL_MS == 5000
+    TUNNEL_FULL_HEAL_MS == 5000
         && TUNNEL_FULL_HEAL_FRAMES == tunnel_network_ms_to_frames(TUNNEL_FULL_HEAL_MS)
 }
 
@@ -936,7 +937,7 @@ mod tests {
         assert_eq!(reg.contain_count(gla_key()), 0);
 
         // Capacity fills to MAX.
-        for i in 0..MAX_TUNNEL_CAPACITY {
+        for i in 0..reg.capacity() as usize {
             assert!(reg.record_enter(gla_key(), ObjectId(100 + i as u32), t1));
         }
         assert!(!reg.has_capacity(gla_key()));
@@ -1112,13 +1113,13 @@ mod tests {
         let t_chem = ObjectId(20);
         reg.on_tunnel_created(demo, t_demo);
         reg.on_tunnel_created(chem, t_chem);
-        for i in 0..MAX_TUNNEL_CAPACITY {
+        for i in 0..reg.capacity() as usize {
             assert!(reg.record_enter(demo, ObjectId(100 + i as u32), t_demo));
         }
         assert!(!reg.has_capacity(demo));
         assert!(reg.has_capacity(chem));
         assert!(reg.record_enter(chem, ObjectId(1), t_chem));
-        assert_eq!(reg.contain_count(demo), MAX_TUNNEL_CAPACITY);
+        assert_eq!(reg.contain_count(demo), reg.capacity() as usize);
         assert_eq!(reg.contain_count(chem), 1);
         assert_eq!(reg.player_holding_unit(ObjectId(1)), Some(chem));
         assert_eq!(reg.player_holding_tunnel(t_demo), Some(demo));

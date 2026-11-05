@@ -2619,6 +2619,8 @@ fn status_bits_upgrade_booby_trap_sets_bit() {
 
     let mut logic = GameLogic::new();
     let mut tpl = crate::game_logic::ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    tpl.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tpl.set_health(400.0);
     logic.templates.insert("GLATunnelNetwork".to_string(), tpl);
     let id = logic
@@ -2905,7 +2907,7 @@ fn tunnel_network_residual_flags_and_capacity_installed() {
     assert!(tunnel.can_contain());
     assert_eq!(
         tunnel.garrison_capacity(),
-        crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY
+        game_logic.tunnel_network.capacity() as usize
     );
 }
 
@@ -3097,7 +3099,7 @@ fn tunnel_network_residual_shared_capacity_full_rejects_enter() {
     let tunnel_a = create_test_tunnel_network(&mut game_logic, Vec3::new(0.0, 0.0, 0.0));
     let tunnel_b = create_test_tunnel_network(&mut game_logic, Vec3::new(50.0, 0.0, 0.0));
 
-    let cap = crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY;
+    let cap = game_logic.tunnel_network.capacity() as usize;
     let mut unit_ids = Vec::new();
     for i in 0..cap {
         // Fill half via A, half via B to prove shared pool.

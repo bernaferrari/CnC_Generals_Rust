@@ -1,6 +1,10 @@
-//! Successful-shot bookkeeping, visual/audio/OCL dispatch and ammo/barrels.
-//! CPP Weapon.cpp:2617-2669 and FiringTracker.cpp:60 onward are the contract;
-//! current Main residual ordering remains unchanged by this extraction.
+//! Successful-shot commit for a slot with no admitted WeaponTemplate.
+//!
+//! Authored weapons commit inside the shared shot operation
+//! (`authored_shot.rs`, C++ Weapon.cpp:2617-2669 and FiringTracker.cpp:60-160).
+//! A bare host `Weapon` has no FireFX/FireSound/LaserName (C++ WeaponTemplate
+//! constructor defaults), so only the generic muzzle presentation for nameless
+//! probes, ammo/clip, FiringTracker, stealth break and barrel remain.
 use super::*;
 
 impl GameLogic {
@@ -18,7 +22,7 @@ impl GameLogic {
         input: CombatAttackInput,
         slot: u8,
         visual: Option<super::super::super::world_combat::AcceptedWeaponDischarge>,
-        effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
+        _effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         let CombatAttackInput {
             attacker_id,
@@ -27,16 +31,6 @@ impl GameLogic {
             target_location,
             ..
         } = input;
-        let native_rule = self
-            .objects
-            .get(&attacker_id)
-            .and_then(|source| source.selected_native_weapon_rule(slot));
-        let native_rank = |rank| match rank {
-            VeterancyLevel::Rookie => gamelogic::common::VeterancyLevel::Regular,
-            VeterancyLevel::Veteran => gamelogic::common::VeterancyLevel::Veteran,
-            VeterancyLevel::Elite => gamelogic::common::VeterancyLevel::Elite,
-            VeterancyLevel::Heroic => gamelogic::common::VeterancyLevel::Heroic,
-        };
         let target_has_faerie_fire = target_id
             .and_then(|id| self.objects.get(&id))
             .is_some_and(|target| target.is_faerie_fire());
@@ -52,182 +46,35 @@ impl GameLogic {
                         &rates,
                     )
                 });
-        // Pathfinder residual sniper honesty: keyed on the authored WeaponSet
-        // slot weapon (USAPathfinderSniperRifle), not the template name (hq-2qedt.261).
-        if self
-            .objects
-            .get(&attacker_id)
-            .and_then(|a| a.weapon_name_for_slot(slot))
-            .is_some_and(crate::game_logic::host_pathfinder::is_pathfinder_sniper_weapon)
-        {
-            self.pathfinder_residual_sniper_fires =
-                self.pathfinder_residual_sniper_fires.saturating_add(1);
-        }
-
-        // Quad Cannon residual honesty: ground vs AA fires, keyed on the
-        // authored WeaponSet slot weapon (QuadCannonGun* / *Air), not the
-        // template name (hq-2qedt.222).
-        {
-            use crate::game_logic::host_quad_cannon::{
-                QUAD_CANNON_GUN, QUAD_CANNON_GUN_AIR, QUAD_CANNON_GUN_UPGRADE_ONE,
-                QUAD_CANNON_GUN_UPGRADE_ONE_AIR, QUAD_CANNON_GUN_UPGRADE_TWO,
-                QUAD_CANNON_GUN_UPGRADE_TWO_AIR,
-            };
-            match self
-                .objects
-                .get(&attacker_id)
-                .and_then(|a| a.weapon_name_for_slot(slot))
-            {
-                Some(
-                    QUAD_CANNON_GUN_AIR
-                    | QUAD_CANNON_GUN_UPGRADE_ONE_AIR
-                    | QUAD_CANNON_GUN_UPGRADE_TWO_AIR,
-                ) => {
-                    self.quad_cannon_residual_aa_fires =
-                        self.quad_cannon_residual_aa_fires.saturating_add(1);
-                }
-                Some(QUAD_CANNON_GUN | QUAD_CANNON_GUN_UPGRADE_ONE | QUAD_CANNON_GUN_UPGRADE_TWO) => {
-                    self.quad_cannon_residual_ground_fires =
-                        self.quad_cannon_residual_ground_fires.saturating_add(1);
-                }
-                _ => {}
-            }
-        }
-
-        // Gattling lanes key on the fired authored weapon (C++ Weapon::fireWeapon /
-        // FiringTracker use the WeaponTemplate), not the chassis name.
-        let fired_weapon = |logic: &Self, names: [&str; 2]| {
-            logic.objects.get(&attacker_id).is_some_and(|a| {
-                a.weapon_name_for_slot(slot)
-                    .is_some_and(|w| names.iter().any(|n| w.eq_ignore_ascii_case(n)))
-            })
-        };
-        let gattling_tank_lane = fired_weapon(
-            self,
-            [
-                crate::game_logic::host_gattling_tank::GATTLING_TANK_GUN,
-                crate::game_logic::host_gattling_tank::GATTLING_TANK_GUN_AIR,
-            ],
-        );
-        let gattling_building_lane = fired_weapon(
-            self,
-            [
-                crate::game_logic::host_overlord_addons::GATTLING_BUILDING_GUN,
-                crate::game_logic::host_overlord_addons::GATTLING_BUILDING_GUN_AIR,
-            ],
-        );
-
-        // Gattling Tank residual: advance continuous-fire ramp + honesty.
-        if gattling_tank_lane {
-            self.advance_gattling_continuous_fire(attacker_id, target_id, slot);
-        }
-
-        // China MiniGunner residual: advance continuous-fire ramp + honesty.
-        if self
-            .objects
-            .get(&attacker_id)
-            .map(|a| {
-                a.authored_weapon_name_for_slot(slot).is_some_and(|n| {
-                    crate::game_logic::host_minigunner::is_minigunner_weapon_name(&n)
-                })
-            })
-            .unwrap_or(false)
-        {
-            self.advance_minigunner_continuous_fire(attacker_id, target_id, slot);
-        }
-
-        // A cannon reaching this shared accepted-discharge route still owns
-        // one structure FiringTracker transition. The dedicated base-defense
-        // driver performs this phase itself and never calls commit_combat_shot.
-        if gattling_building_lane {
-            self.advance_gattling_building_continuous_fire(attacker_id, target_id, slot);
-        }
-
-        // Combat particle residual: weapon fire → muzzle (+ impact) registry entries.
-        let muzzle_pos = self
-            .objects
-            .get(&attacker_id)
-            .map(|a| a.get_position())
-            .unwrap_or(Vec3::ZERO);
-        let fire_target = target_id.filter(|id| self.objects.contains_key(id));
-        let impact_pos = fire_target
-            .and_then(|id| self.objects.get(&id).map(|t| t.get_position()))
-            .or(target_location);
         let fire_frame = self.frame;
-        let (fire_fx, det_fx) = {
-            self.objects
-                .get(&attacker_id)
-                .and_then(|attacker| {
-                    let veterancy = attacker.experience.level;
-                    if let Some(rule) = native_rule.as_ref() {
-                        return Some((
-                            rule.get_fire_fx(native_rank(veterancy)).map(|fx| fx.name().to_owned()).unwrap_or_default(),
-                            rule.get_projectile_detonate_fx(native_rank(veterancy)).map(|fx| fx.name().to_owned()).unwrap_or_default(),
-                        ));
-                    }
-                    attacker.weapon_name_for_slot(slot).map(|weapon_name| {
-                        (
-                            crate::game_logic::weapon_bootstrap::host_fire_fx_for_weapon_name_at_veterancy(
-                                weapon_name,
-                                veterancy,
-                            ),
-                            crate::game_logic::weapon_bootstrap::host_detonation_fx_for_weapon_name_at_veterancy(
-                                weapon_name,
-                                veterancy,
-                            ),
-                        )
-                    })
-                })
-                .unwrap_or_default()
-        };
-        // C++ Weapon::fireWeaponTemplate FireFX stealth gate residual:
-        // stealthed+undetected+non-disguised suppress muzzle FX unless
-        // the observer locally controls the source, PlayFXWhenStealthed
-        // is set, or the source is KINDOF_MINE.
-        let suppress_fire_fx = {
-            let a = self.objects.get(&attacker_id);
-            a.map(|o| {
-                let locally_controlled = source_is_locally_controlled(
-                    o.owner_player_id,
-                    self.local_player_id(),
-                );
-                let is_mine = o.is_kind_of(KindOf::Mine);
-                let hidden = !locally_controlled
-                    && o.status.stealthed
-                    && !o.status.detected
-                    && !o.status.disguised
-                    && !is_mine;
-                if !hidden {
-                    return false;
-                }
-                let wname = o.weapon_name_for_slot(slot);
-                let play = native_rule.as_ref().map(|rule| rule.play_fx_when_stealthed).unwrap_or_else(|| wname
-                    .map(crate::game_logic::weapon_bootstrap::host_play_fx_when_stealthed_for_weapon_name)
-                    .unwrap_or(false));
-                !play
-            })
-            .unwrap_or(false)
-        };
-        // C++ Weapon.cpp:904-939: doFXPos only when FireFX is non-null.
-        // Dispatch play_dispatch_fire_fx fail-closes on empty FireFX
-        // (TestTank has no Weapon.ini name). Residual muzzle/impact
-        // still registers so fire is observable; named FireFX stays
-        // on the dispatch path. See combat_fire_fx.rs.
-        // A known native null FireFX is silent. The primitive fallback below
-        // belongs only to explicitly unadmitted, nameless probes.
-        // The accepted definition was sampled before callbacks. A promotion
-        // or a receiving-only definition must not create a second generic
-        // muzzle after its named FireFX already ran (or was suppressed).
-        if native_rule.is_none()
-            && self.weapon_definitions.is_none()
+        // Nameless probes outside any admitted content still show a primitive
+        // muzzle so the shot is observable; admitted content never does.
+        if self.weapon_definitions.is_none()
             && !visual
                 .as_ref()
                 .is_some_and(|shot| shot.has_authored_fire_fx)
         {
+            let suppress_fire_fx = self.objects.get(&attacker_id).is_some_and(|o| {
+                let locally_controlled =
+                    source_is_locally_controlled(o.owner_player_id, self.local_player_id());
+                !locally_controlled
+                    && o.status.stealthed
+                    && !o.status.detected
+                    && !o.status.disguised
+                    && !o.is_kind_of(KindOf::Mine)
+            });
+            let muzzle_pos = self
+                .objects
+                .get(&attacker_id)
+                .map_or(Vec3::ZERO, Object::get_position);
+            let fire_target = target_id.filter(|id| self.objects.contains_key(id));
+            let impact_pos = fire_target
+                .and_then(|id| self.objects.get(&id).map(Object::get_position))
+                .or(target_location);
             self.spawn_residual_muzzle_when_dispatch_has_no_fire_fx(
                 suppress_fire_fx,
-                &fire_fx,
-                &det_fx,
+                "",
+                "",
                 muzzle_pos,
                 impact_pos,
                 fire_frame,
@@ -235,130 +82,37 @@ impl GameLogic {
                 fire_target,
             );
         }
-        // C++ Weapon.ini LaserName residual: short-lived combat beam for
-        // presentation / laser_segment_upload observe path.
-        {
-            let weapon_name = self
-                .objects
-                .get(&attacker_id)
-                .and_then(|attacker| attacker.weapon_name_for_slot(slot));
-            let laser_name = native_rule
-                .as_ref()
-                .map(|rule| rule.laser_name.clone())
-                .unwrap_or_else(|| {
-                    weapon_name
-                        .map(crate::game_logic::weapon_bootstrap::host_laser_name_for_weapon_name)
-                        .unwrap_or_default()
-                });
-            if !laser_name.is_empty() {
-                let laser_bone = native_rule.as_ref().map(|rule| rule.laser_bone_name.clone()).unwrap_or_else(|| weapon_name.map(crate::game_logic::weapon_bootstrap::host_laser_bone_name_for_weapon_name).unwrap_or_default());
-                let to = impact_pos.unwrap_or(muzzle_pos);
-                let laser_name_owned = laser_name.clone();
-                self.weapon_lasers.push(
-                    crate::game_logic::host_weapon_laser::ResidualWeaponLaser::with_bone(
-                        laser_name,
-                        laser_bone,
-                        attacker_id,
-                        fire_target,
-                        (muzzle_pos.x, muzzle_pos.y, muzzle_pos.z),
-                        (to.x, to.y, to.z),
-                        fire_frame,
-                    ),
-                );
-                let _ = self.spawn_weapon_laser_beam_object_with_effects(
-                    &laser_name_owned,
-                    attacker_id,
-                    fire_target,
-                    muzzle_pos,
-                    to,
-                    effects,
-                );
-            }
-        }
-
-        // Audio residual (hq-7zxm slice): weapon fire → real AudioEventRequest.
-        // C++ FiringTracker::shotFired plays `weaponFired->getFireSound()`
-        // (FiringTracker.cpp:144-155) — the WeaponTemplate's authored
-        // AudioEventRTS parsed from `FireSound` (Weapon.cpp:171,
-        // Weapon.h:678). AudioManager::addAudioEvent returns AHSV_NoSound
-        // for an empty event name (GameAudio.cpp:384-386): a weapon with
-        // no authored FireSound is silent. Never queue an invented
-        // generic token — no "WeaponFire" AudioEvent exists in retail
-        // SoundEffects.ini, so it can only dead-end as ERR(no-info).
-        let fire_sound = if let Some(rule) = native_rule.as_ref() {
-            let name = rule.fire_sound.name();
-            (!name.is_empty()).then(|| name.to_owned())
-        } else {
-            self.objects
-                .get(&attacker_id)
-                .and_then(|attacker| attacker.weapon_name_for_slot(slot))
-                .map(crate::game_logic::weapon_bootstrap::host_fire_sound_for_weapon_name)
-                .filter(|sound| !sound.is_empty())
-        };
-        if let Some(fire_sound) = fire_sound {
-            self.queue_audio_event(
-                AudioEventRequest::new(fire_sound.as_str())
-                    .with_object(attacker_id)
-                    .with_position(muzzle_pos)
-                    .with_priority(160),
-            );
-        }
-
-        // Capture weapon name before mut borrow for RETURN_TO_BASE peels.
-        let fire_wname = self
-            .objects
-            .get(&attacker_id)
-            .and_then(|attacker| attacker.weapon_name_for_slot(slot).map(str::to_owned));
         let rates = self
             .objects
             .get(&attacker_id)
             .map(|attacker| self.receiving_weapon_rates_of_fire(attacker));
         if let (Some(attacker), Some(rates)) = (self.objects.get_mut(&attacker_id), rates) {
             let auto_reloaded_clip = if let Some(weapon) = attacker.weapon_slot_mut(slot) {
-                Object::consume_ammo_on_fire_named(weapon, current_time, fire_wname.as_deref());
-                Object::auto_reloaded_clip_after_firing(weapon, fire_wname.as_deref())
+                Object::consume_ammo_on_fire_named(weapon, current_time, None);
+                Object::auto_reloaded_clip_after_firing(weapon, None)
             } else {
                 false
             };
-            // Match Object::fireCurrentWeapon: only the actual
-            // temporarily locked slot can end that lock by finishing
-            // an auto-reloading clip.  Do not let an unrelated
-            // PRIMARY/SECONDARY fallback discharge a TERTIARY lock.
+            // Object::fireCurrentWeapon: only the locked slot finishing an
+            // auto-reloading clip ends a temporary lock.
             if auto_reloaded_clip
                 && attacker.weapon_lock_type == WeaponLockType::LockedTemporarily
                 && attacker.weapon_lock_slot == slot
             {
                 attacker.release_weapon_lock(WeaponLockType::LockedTemporarily);
             }
-            // Each lane owns one FiringTracker transition. Specialized lanes
-            // already advanced its canonical count/victim and derived ROF;
-            // finish only the shared post-shot effects here.
-            let specialized_lane = gattling_tank_lane
-                || gattling_building_lane
-                || crate::game_logic::host_minigunner::is_minigunner_template(
-                    &attacker.template_name,
-                );
-            if specialized_lane {
-                attacker.finish_shot_after_specialized_tracker_with_owned_rof(&rates);
-            } else {
-                attacker.record_shot_at_target_with_owned_rof(
-                    target_id,
-                    fire_frame,
-                    possible_next_shot_frame,
-                    &rates,
-                );
-            }
+            attacker.record_shot_at_target_with_owned_rof(
+                target_id,
+                fire_frame,
+                possible_next_shot_frame,
+                &rates,
+            );
             attacker.stamp_auto_reload_when_idle_from_slot(slot, fire_frame);
-            // C++ STEALTH_NOT_WHILE_ATTACKING residual: combat fire breaks stealth.
+            // C++ STEALTH_NOT_WHILE_ATTACKING: firing breaks stealth.
             if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
                 attacker.break_stealth();
             }
         }
-        // This direct normal-combat finalizer does not route through
-        // Object::fire_at_ex.  Its accepted shot already consumed
-        // ammo above, so normalize the exact pre-advance barrel here
-        // rather than leaving this live route cursor-static or
-        // synthesizing recoil from a fire-intent writeback.
         if let Some(visual) = visual {
             self.finish_accepted_weapon_discharge(visual);
         } else if let Some(attacker) = self.objects.get_mut(&attacker_id) {

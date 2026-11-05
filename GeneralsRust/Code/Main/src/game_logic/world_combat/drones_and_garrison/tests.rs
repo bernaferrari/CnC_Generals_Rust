@@ -2096,6 +2096,8 @@ fn tunnel_occupants_do_not_garrison_fire() {
         .players
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut tunnel_t = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    tunnel_t.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tunnel_t
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable)
@@ -2121,7 +2123,7 @@ fn tunnel_occupants_do_not_garrison_fire() {
     {
         let t = logic.host_object_mut(tunnel).unwrap();
         t.owner_player_id = Some(0);
-        t.install_tunnel_network_residual();
+        t.install_tunnel_network_residual(10);
     }
     let rebel = logic
         .create_object("GLARebel", Team::GLA, Vec3::ZERO)

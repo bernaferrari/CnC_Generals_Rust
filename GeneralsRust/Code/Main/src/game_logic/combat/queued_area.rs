@@ -112,6 +112,7 @@ impl<'a> AreaDamage<'a> {
             damage,
             damage_type: _,
             death_type: _,
+            damage_status_type: _,
             radius,
             secondary_damage,
             secondary_radius,

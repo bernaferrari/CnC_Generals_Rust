@@ -10,8 +10,9 @@ use super::{ObjectId, Team};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// C++ CaveContain default capacity follows the shared tracker (same 10).
-pub const MAX_CAVE_CAPACITY: usize = 10;
+/// Capacity of a world whose GameData was never admitted (synthetic fixtures).
+/// Production worlds always install the session's authored MaxTunnelCapacity.
+const UNADMITTED_GAMEDATA_CAPACITY: i32 = 10;
 
 /// C++ `TunnelTracker::onTunnelDestroyed` result for one CaveIndex.
 #[derive(Debug, Clone, Default)]
@@ -73,7 +74,7 @@ impl HostCaveSystem {
     }
 
     pub(crate) fn capacity(&self) -> i32 {
-        self.capacity.unwrap_or(10)
+        self.capacity.unwrap_or(UNADMITTED_GAMEDATA_CAPACITY)
     }
 
     pub fn index_of(&self, cave: ObjectId) -> Option<i32> {

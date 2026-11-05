@@ -354,8 +354,8 @@ impl CombatSystem {
                         damage: projectile.damage,
                         damage_type: projectile.damage_type,
                         death_type: projectile.death_type,
-
                         shooter_id: projectile.shooter_id,
+                        damage_status_type: projectile.damage_status_type,
                     });
                 }
                 if !projectile.detonation_fx_name.is_empty()
@@ -433,8 +433,8 @@ impl CombatSystem {
                                 damage: projectile.damage,
                                 damage_type: projectile.damage_type,
                                 death_type: projectile.death_type,
-
                                 shooter_id: projectile.shooter_id,
+                                damage_status_type: projectile.damage_status_type,
                             });
                         }
                         if !projectile.detonation_fx_name.is_empty()

@@ -161,6 +161,14 @@ impl<'a> DamageHitContext<'a> {
         self.neutral_player_id
     }
 
+    /// Carry the fired WeaponTemplate's DamageStatusType captured at launch.
+    pub(crate) fn with_damage_status(mut self, status: Option<ObjectStatusTypes>) -> Self {
+        if status.is_some() {
+            self.status = status;
+        }
+        self
+    }
+
     pub(in crate::game_logic) fn with_status(status: ObjectStatusTypes) -> Self {
         Self {
             source: None,

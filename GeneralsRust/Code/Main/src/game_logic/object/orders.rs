@@ -1670,17 +1670,17 @@ impl Object {
             || self.authors_innate_propaganda_tower()
     }
 
-    /// Install residual GLA Tunnel Network structure:
-    /// C++ TunnelContain shared MaxTunnelCapacity=10 per player.
-    /// Fail-closed: not GuardTunnelNetwork AI / TimeForFullHeal / CaveSystem.
-    pub fn install_tunnel_network_residual(&mut self) {
+    /// Install a TunnelContain entrance. `capacity` is the receiving session's
+    /// GameData `MaxTunnelCapacity` (C++ TunnelTracker.cpp:81-84 reads
+    /// `TheGlobalData->m_maxTunnelCapacity`); GameLogic enforces the
+    /// per-player shared pool count.
+    pub fn install_tunnel_network_residual(&mut self, capacity: usize) {
         self.is_tunnel_network = true;
         if let Some(bd) = self.building_data.as_mut() {
-            // Local max is the shared pool cap; GameLogic enforces per-player count.
-            bd.max_garrison = crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY;
+            bd.max_garrison = capacity;
         } else {
             let mut bd = BuildingData::new(BuildingType::Bunker);
-            bd.max_garrison = crate::game_logic::host_tunnel_network::MAX_TUNNEL_CAPACITY;
+            bd.max_garrison = capacity;
             self.building_data = Some(bd);
         }
     }
@@ -1697,14 +1697,16 @@ impl Object {
     }
 
     /// C++ CaveContain: CaveIndex-shared CaveSystem tracker.
-    pub fn install_cave_contain_residual(&mut self, cave_index: i32) {
+    /// `capacity` is the receiving session's GameData `MaxTunnelCapacity`
+    /// (CaveSystem trackers share TunnelTracker::getContainMax).
+    pub fn install_cave_contain_residual(&mut self, cave_index: i32, capacity: usize) {
         self.is_cave_contain = true;
         self.cave_index = cave_index;
         if let Some(bd) = self.building_data.as_mut() {
-            bd.max_garrison = crate::game_logic::host_cave_system::MAX_CAVE_CAPACITY;
+            bd.max_garrison = capacity;
         } else {
             let mut bd = BuildingData::new(BuildingType::Bunker);
-            bd.max_garrison = crate::game_logic::host_cave_system::MAX_CAVE_CAPACITY;
+            bd.max_garrison = capacity;
             self.building_data = Some(bd);
         }
     }

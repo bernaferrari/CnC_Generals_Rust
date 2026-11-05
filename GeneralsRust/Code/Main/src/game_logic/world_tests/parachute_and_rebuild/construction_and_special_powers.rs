@@ -3180,6 +3180,8 @@ fn demo_and_burton_charge_special_power_enum_residuals() {
         .templates
         .insert("AmericaInfantryColonelBurton".into(), unit);
     let mut structure = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    structure.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     structure.add_kind_of(KindOf::Structure).set_health(1000.0);
     logic.templates.insert("GLATunnelNetwork".into(), structure);
     let src = logic

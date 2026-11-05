@@ -206,10 +206,7 @@ impl GameLogic {
             if !obj.is_alive() || obj.status.under_construction {
                 continue;
             }
-            let is_tunnel = obj.is_tunnel_network_style_container()
-                || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                    &obj.template_name,
-                );
+            let is_tunnel = obj.is_tunnel_network_style_container();
             if !is_tunnel {
                 continue;
             }
@@ -258,10 +255,7 @@ impl GameLogic {
                     let tunnel = self.objects.registered_values().find(|o| {
                         o.tunnel_system_key() == player_id
                             && o.is_alive()
-                            && (o.is_tunnel_network_style_container()
-                                || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                                    &o.template_name,
-                                ))
+                            && (o.is_tunnel_network_style_container())
                     })?;
                     let rel = match (tunnel.owner_player_id, att_owner) {
                         (Some(a), Some(b)) => self.player_relationship(a, b),
@@ -547,9 +541,6 @@ impl GameLogic {
 
     fn is_living_tunnel_network(&self, obj: &crate::game_logic::Object) -> bool {
         obj.is_tunnel_network_style_container()
-            || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                &obj.template_name,
-            )
     }
 
     fn is_tunnel_network_guard_unit(&self, uid: ObjectId) -> bool {

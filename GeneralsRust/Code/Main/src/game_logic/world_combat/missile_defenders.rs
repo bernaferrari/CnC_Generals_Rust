@@ -2138,10 +2138,7 @@ impl GameLogic {
                         ) || b.max_garrison > 0
                     })
                     .unwrap_or(false);
-            let tunnel = target.is_tunnel_network_style_container()
-                || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                    &target.template_name,
-                );
+            let tunnel = target.is_tunnel_network_style_container();
             (
                 occ,
                 bunker,

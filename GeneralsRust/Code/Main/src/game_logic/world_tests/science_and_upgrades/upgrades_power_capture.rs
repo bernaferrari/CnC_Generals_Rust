@@ -1492,6 +1492,10 @@ fn capture_last_tunnel_ejects_shared_pool_for_old_owner() {
         .insert(1, Player::new(1, Team::GLA, "GLA", true));
 
     let mut tn = ThingTemplate::new("GLATunnelNetwork");
+
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+
+    tn.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tn.add_kind_of(KindOf::Structure).set_health(1000.0);
     logic.templates.insert("GLATunnelNetwork".into(), tn);
     let mut rebel = ThingTemplate::new("GLARebel");
@@ -1556,6 +1560,10 @@ fn capture_non_last_tunnel_keeps_old_team_pool() {
         .insert(1, Player::new(1, Team::GLA, "GLA", true));
 
     let mut tn = ThingTemplate::new("GLATunnelNetwork");
+
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+
+    tn.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tn.add_kind_of(KindOf::Structure).set_health(1000.0);
     logic.templates.insert("GLATunnelNetwork".into(), tn);
     let mut rebel = ThingTemplate::new("GLARebel");
@@ -1776,6 +1784,8 @@ fn capture_kicks_transport_passengers_but_not_tunnel_pool() {
         .templates
         .insert("AmericaInfantryRanger".into(), ranger);
     let mut tn = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    tn.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tn.add_kind_of(KindOf::Structure).set_health(1000.0);
     logic.templates.insert("GLATunnelNetwork".into(), tn);
     let mut rebel = ThingTemplate::new("GLARebel");
@@ -1969,6 +1979,8 @@ fn sell_last_tunnel_ejects_shared_pool() {
         .players
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut tn = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    tn.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tn.add_kind_of(KindOf::Structure).set_health(1000.0);
     tn.build_cost.supplies = 800;
     tn.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
