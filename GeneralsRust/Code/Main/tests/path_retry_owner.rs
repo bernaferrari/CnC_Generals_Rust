@@ -1237,7 +1237,7 @@ fn aircraft_registered_goal_is_owned_by_its_session_and_survives_save() {
         .unwrap()
         .is_final_goal = true;
     assert!(cancelled.assign_unit_path(cancelled_id, Vec3::new(100.0, 0.0, 150.0), &[]));
-    assert_eq!(cancelled.unit_command_stop(cancelled_id).unwrap(), Ok(true));
+    assert!(cancelled.unit_command_stop(cancelled_id).unwrap());
     for _ in 0..2 {
         cancelled.update_with_dt(1.0 / 30.0);
     }
