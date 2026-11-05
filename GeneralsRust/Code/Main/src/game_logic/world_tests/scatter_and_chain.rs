@@ -3680,7 +3680,8 @@ fn base_defense_fire_time_exactly_one_muzzle_per_shot_hq_2qedt_125() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .add_kind_of(KindOf::FSBaseDefense)
-        .set_health(1000.0);
+        .set_health(1000.0)
+        .set_primary_weapon_name("Lazr_PatriotMissileWeapon");
     logic
         .templates
         .insert("Lazr_AmericaPatriotBattery".to_string(), pat_tpl);

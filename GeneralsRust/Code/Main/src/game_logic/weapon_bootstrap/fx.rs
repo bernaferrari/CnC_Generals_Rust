@@ -97,11 +97,9 @@ pub fn host_laser_bone_name_for_unit_slot(
 ) -> String {
     let wname = if slot == 1 {
         secondary_weapon_name
-            .or_else(|| secondary_weapon_name_for_unit(template_name))
             .or(primary_weapon_name)
-            .or_else(|| primary_weapon_name_for_unit(template_name))
     } else {
-        primary_weapon_name.or_else(|| primary_weapon_name_for_unit(template_name))
+        primary_weapon_name
     };
     wname
         .map(host_laser_bone_name_for_weapon_name)
@@ -185,11 +183,9 @@ pub fn host_laser_name_for_unit_slot(
 ) -> String {
     let wname = if slot == 1 {
         secondary_weapon_name
-            .or_else(|| secondary_weapon_name_for_unit(template_name))
             .or(primary_weapon_name)
-            .or_else(|| primary_weapon_name_for_unit(template_name))
     } else {
-        primary_weapon_name.or_else(|| primary_weapon_name_for_unit(template_name))
+        primary_weapon_name
     };
     wname
         .map(host_laser_name_for_weapon_name)
@@ -297,11 +293,9 @@ pub fn host_projectile_exhaust_for_unit_slot_at_veterancy(
 ) -> String {
     let wname = if slot == 1 {
         secondary_weapon_name
-            .or_else(|| secondary_weapon_name_for_unit(template_name))
             .or(primary_weapon_name)
-            .or_else(|| primary_weapon_name_for_unit(template_name))
     } else {
-        primary_weapon_name.or_else(|| primary_weapon_name_for_unit(template_name))
+        primary_weapon_name
     };
     wname
         .map(|name| host_projectile_exhaust_for_weapon_name_at_veterancy(name, level))
@@ -390,11 +384,9 @@ pub fn host_weapon_ocl_for_unit_slot_at_veterancy(
 ) -> (String, String) {
     let wname = if slot == 1 {
         secondary_weapon_name
-            .or_else(|| secondary_weapon_name_for_unit(template_name))
             .or(primary_weapon_name)
-            .or_else(|| primary_weapon_name_for_unit(template_name))
     } else {
-        primary_weapon_name.or_else(|| primary_weapon_name_for_unit(template_name))
+        primary_weapon_name
     };
     match wname {
         Some(n) => (
@@ -432,11 +424,9 @@ pub fn host_weapon_fx_for_unit_slot_at_veterancy(
 ) -> (String, String) {
     let wname = if slot == 1 {
         secondary_weapon_name
-            .or_else(|| secondary_weapon_name_for_unit(template_name))
             .or(primary_weapon_name)
-            .or_else(|| primary_weapon_name_for_unit(template_name))
     } else {
-        primary_weapon_name.or_else(|| primary_weapon_name_for_unit(template_name))
+        primary_weapon_name
     };
     match wname {
         Some(n) => (
