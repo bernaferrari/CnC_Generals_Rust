@@ -253,8 +253,15 @@ pub async fn run_cnc_game(
                 if matches!(engine.get_state(), GameState::Menu) {
                     log::trace!("drive_frame: pre ww3d_engine::update Menu");
                 }
-                let timing = match engine.ww3d.lock().update() {
-                    Ok(_) => Some(engine.ww3d.lock().timing()),
+                // One guard for update + timing: a `lock()` temporary in the
+                // match scrutinee lives for the whole match, so locking again
+                // inside an arm self-deadlocks the non-reentrant mutex.
+                let timing = {
+                    let mut ww3d = engine.ww3d.lock();
+                    ww3d.update().map(|()| ww3d.timing())
+                };
+                let timing = match timing {
+                    Ok(timing) => Some(timing),
                     Err(err) => {
                         error!("WW3D engine update failed: {err:?}");
                         None
