@@ -122,15 +122,11 @@ pub fn compute_effective_reduction(
 mod tests {
     #[allow(unused_imports)]
     use super::*;
-    fn test_lock() {
-        let r3d = crate::process_state::Renderer3dRuntime::new();}
-
     #[test]
     fn respects_min_dimension() {
         let r3d = crate::process_state::Renderer3dRuntime::new();
-        let r3d = crate::process_state::Renderer3dRuntime::new();
-        set(TextureQualitySettings::default());
-        set_texture_reduction(3, 64);
+        set(&r3d, TextureQualitySettings::default());
+        set_texture_reduction(&r3d, 3, 64);
         assert_eq!(compute_effective_reduction(&r3d, 128, 128, 5), 2);
         assert_eq!(compute_effective_reduction(&r3d, 32, 64, 5), 0);
     }
@@ -138,18 +134,18 @@ mod tests {
     #[test]
     fn honours_large_texture_extra_reduction() {
         let r3d = crate::process_state::Renderer3dRuntime::new();
-        set(TextureQualitySettings::default());
-        set_texture_reduction(1, 1);
-        enable_large_texture_extra_reduction(true);
+        set(&r3d, TextureQualitySettings::default());
+        set_texture_reduction(&r3d, 1, 1);
+        enable_large_texture_extra_reduction(&r3d, true);
         assert_eq!(compute_effective_reduction(&r3d, 512, 512, 6), 2);
-        enable_large_texture_extra_reduction(false);
+        enable_large_texture_extra_reduction(&r3d, false);
     }
 
     #[test]
     fn never_drops_all_mips() {
         let r3d = crate::process_state::Renderer3dRuntime::new();
-        set(TextureQualitySettings::default());
-        set_texture_reduction(10, 1);
+        set(&r3d, TextureQualitySettings::default());
+        set_texture_reduction(&r3d, 10, 1);
         assert_eq!(compute_effective_reduction(&r3d, 1024, 1024, 3), 2);
     }
 }

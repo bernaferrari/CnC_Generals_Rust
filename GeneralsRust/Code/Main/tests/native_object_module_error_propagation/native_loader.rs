@@ -70,7 +70,7 @@ fn assert_catalog_pair(
     assert!(factory.find_template("GenericTracer", false).is_none());
     assert!(factory.find_template("GenericRope", false).is_none());
     assert!(generals_main::assets::get_asset_manager().is_none());
-    assert_eq!(TheArmorStore::read().len(), 1);
+    assert_eq!(TheArmorStore::template_count(), 1);
     with_weapon_store(|store| {
         assert_eq!(store.get_template_count(), 0);
         assert!(store.host_bootstrap_is_complete());

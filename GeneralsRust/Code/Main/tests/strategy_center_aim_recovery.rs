@@ -103,13 +103,13 @@ fn live_goal_becoming_stealthed_clears_mood_and_reacquires() {
         "STRATEGY_RECOVERY_CLEAR {}",
         json!({"next_frame":logic.get_frame(),
         "target":cleared.target.map(|id|id.0),"turret_target":cleared.turret_ai.turret_target_id.map(|id|id.0),
-        "mood":cleared.turret_ai.turret_mood_target,"ai":format!("{:?}",cleared.ai_state),
+        "mood":cleared.turret_ai.turret_mood_target,"ai":format!("{:?}",cleared.ai_state()),
         "hidden_alive":logic.host_object(hidden).unwrap().is_alive(),
         "hidden_stealthed":logic.host_object(hidden).unwrap().is_effectively_stealthed()})
     );
     assert!(cleared.target.is_none() && cleared.turret_ai.turret_target_id.is_none());
     assert!(!cleared.turret_ai.turret_mood_target);
-    assert_eq!(cleared.ai_state, AIState::Idle);
+    assert_eq!(cleared.ai_state(), AIState::Idle);
     assert_eq!(cleared.weapon_discharge_marker().sequence, 0);
     assert!(logic.battle_plans().turret_mood_target_clear_count() >= 1);
 

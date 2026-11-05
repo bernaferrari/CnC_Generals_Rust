@@ -247,6 +247,17 @@ fn direct_deletion_and_a_late_manual_mark_never_invent_score_or_death() {
 }
 #[test]
 fn encoded_pre_drain_save_retains_admitted_credit_and_ordered_removals() {
+    // Three full worlds, a snapshot, and a bincode round trip are live at once;
+    // the unoptimized debug frames exceed libtest's 2 MiB default thread stack.
+    let worker = std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(encoded_pre_drain_save_retains_admitted_credit_and_ordered_removals_body)
+        .expect("spawn large-stack test thread");
+    if let Err(panic) = worker.join() {
+        std::panic::resume_unwind(panic);
+    }
+}
+fn encoded_pre_drain_save_retains_admitted_credit_and_ordered_removals_body() {
     let (mut source_world, source, victim) = setup();
     plan(&mut source_world, Some(source), victim);
     tick(&mut source_world, victim);

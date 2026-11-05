@@ -317,6 +317,13 @@ mod tests {
     #[test]
     fn usa_gla_china_and_all_challenge_generals_playthrough() {
         crate::test_support::ensure_ambient_host();
+        if game_engine::common::system::install_layout::find_genseczh_big().is_none() {
+            eprintln!(
+                "SKIP usa_gla_china_and_all_challenge_generals_playthrough: retail assets \
+                 (genseczh.big install) not discoverable"
+            );
+            return;
+        }
         let report = run_retail_campaign_and_challenge_playthrough();
         assert!(
             report.playthrough_ok(),

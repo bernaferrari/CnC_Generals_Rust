@@ -172,12 +172,12 @@ pub struct WorldServices {
     /// Serializes host staging that still touches process-wide wrappers.
     runtime_transaction_lock: Arc<Mutex<()>>,
 }
-#[cfg(test)]
+#[cfg(any(test, feature = "test-ambient-services"))]
 thread_local! {
     static TEST_ADOPT_COMMON: std::cell::RefCell<Option<Arc<CommonServices>>> =
         const { std::cell::RefCell::new(None) };
 }
-#[cfg(test)]
+#[cfg(any(test, feature = "test-ambient-services"))]
 fn fresh_common_for_world() -> Arc<CommonServices> {
     TEST_ADOPT_COMMON
         .try_with(|slot| slot.borrow().clone())
@@ -185,7 +185,7 @@ fn fresh_common_for_world() -> Arc<CommonServices> {
         .flatten()
         .unwrap_or_else(|| Arc::new(CommonServices::new()))
 }
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "test-ambient-services")))]
 fn fresh_common_for_world() -> Arc<CommonServices> {
     Arc::new(CommonServices::new())
 }
@@ -818,14 +818,14 @@ pub fn set_ambient_pre_ensure(_f: fn()) {}
 
 fn published_owner() -> Option<PublishedOwner> {
     let head = stack_head();
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-ambient-services"))]
     if head.is_none() {
         return test_thread_default_owner();
     }
     head
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-ambient-services"))]
 thread_local! {
     // Unit-test convenience only: each libtest thread is its own isolated
     // "game instance" and lazily gets its own owned world when a test did not
@@ -836,7 +836,7 @@ thread_local! {
     static TEST_AMBIENT_SUPPRESSED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-ambient-services"))]
 fn test_thread_default_owner() -> Option<PublishedOwner> {
     if TEST_AMBIENT_SUPPRESSED.try_with(|flag| flag.get()).unwrap_or(true) {
         return None;

@@ -92,9 +92,8 @@ fn minimap_beacons_use_receiving_objects_with_same_ids_and_conflicting_global_ma
     // Seed a marker owned by the Core singleton without a matching receiving
     // Object. Neither hosted map may inherit it.
     {
-        let mut global = gamelogic::system::beacon_manager::get_beacon_manager()
-            .lock()
-            .unwrap();
+        let beacon_manager = gamelogic::system::beacon_manager::get_beacon_manager();
+        let mut global = beacon_manager.lock().unwrap();
         global.place_beacon(0, gamelogic::common::Coord3D::new(1400.0, 0.0, 1400.0), 99);
     }
 

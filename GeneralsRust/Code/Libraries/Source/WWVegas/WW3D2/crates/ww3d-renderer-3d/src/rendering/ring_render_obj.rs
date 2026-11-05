@@ -1423,13 +1423,12 @@ mod tests {
     #[test]
     fn test_ring_lod_costs() {
         let r3d = crate::process_state::Renderer3dRuntime::new();
-        let r3d = crate::process_state::Renderer3dRuntime::new();
         let _ring = RingRenderObj::new(&r3d);
 
         // Test that higher LODs have higher costs
         let mut prev_cost = 0.0;
         for lod in 1..=RING_NUM_LOD {
-            with_ring_mesh_array(r3d, |array| {
+            with_ring_mesh_array(&r3d, |array| {
                 if let Some(ref array) = *array {
                     let cost = array.get_cost(lod);
                     assert!(cost > prev_cost);

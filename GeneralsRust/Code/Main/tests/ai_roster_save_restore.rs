@@ -151,7 +151,7 @@ fn catalog(logic: &GameLogic) -> Value {
         assert_eq!(store.get_template_count(), 0);
     })
     .unwrap();
-    assert_eq!(TheArmorStore::read().len(), 1);
+    assert_eq!(TheArmorStore::template_count(), 1);
     let mut expected: Vec<_> = GLA_SUPPORT.into_iter().chain(ANCHORS).collect();
     expected.sort_unstable();
     let mut names: Vec<_> = logic.templates.keys().map(String::as_str).collect();
