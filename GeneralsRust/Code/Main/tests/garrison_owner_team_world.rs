@@ -559,7 +559,7 @@ fn cave_enter_queries_use_shared_capacity_and_occupants() {
             world
                 .host_object_mut(cave)
                 .unwrap()
-                .install_cave_contain_residual(7);
+                .install_cave_contain_residual(7, 10);
             world
                 .cave_system_residual_mut()
                 .register_cave(cave, 7, Team::USA);
@@ -622,7 +622,7 @@ fn cave_enter_queries_use_shared_capacity_and_occupants() {
         .unwrap();
     peer.host_object_mut(restricted)
         .unwrap()
-        .install_cave_contain_residual(8);
+        .install_cave_contain_residual(8, 10);
     assert!(peer.can_unit_enter_normal_target(peer_overflow, restricted));
     assert!(
         CommandExecutor::new(&mut game, 2)
@@ -678,7 +678,7 @@ fn reset_retires_only_the_receiving_worlds_cave_trackers() {
         world
             .host_object_mut(cave)
             .unwrap()
-            .install_cave_contain_residual(7);
+            .install_cave_contain_residual(7, 10);
         world
             .cave_system_residual_mut()
             .register_cave(cave, 7, Team::USA);
@@ -878,7 +878,7 @@ fn connected_caves_transfer_and_restore_exact_player_team_across_save() {
             world
                 .host_object_mut(cave)
                 .unwrap()
-                .install_cave_contain_residual(7);
+                .install_cave_contain_residual(7, 10);
             world
                 .cave_system_residual_mut()
                 .register_cave(cave, 7, Team::USA);
@@ -965,7 +965,7 @@ fn connected_caves_restore_the_exiting_entrances_original_team() {
     for cave in [a, b] {
         game.host_object_mut(cave)
             .unwrap()
-            .install_cave_contain_residual(7);
+            .install_cave_contain_residual(7, 10);
         game.cave_system_residual_mut()
             .register_cave(cave, 7, Team::USA);
     }
@@ -1022,7 +1022,7 @@ fn connected_caves_read_the_receiving_worlds_shared_inventory() {
             world
                 .host_object_mut(cave)
                 .unwrap()
-                .install_cave_contain_residual(7);
+                .install_cave_contain_residual(7, 10);
             world
                 .cave_system_residual_mut()
                 .register_cave(cave, 7, Team::USA);
@@ -1094,11 +1094,11 @@ fn tunnel_collision_uses_session_shared_pool_and_releases_held_state() {
         world
             .host_object_mut(first)
             .unwrap()
-            .install_tunnel_network_residual();
+            .install_tunnel_network_residual(10);
         world
             .host_object_mut(second)
             .unwrap()
-            .install_tunnel_network_residual();
+            .install_tunnel_network_residual(10);
         (first, second)
     };
     let (first, second) = setup(&mut game);
@@ -2309,14 +2309,14 @@ fn authored_tunnel_capacity_is_session_owned_and_retained_by_restore() {
         world
             .host_object_mut(tunnel)
             .unwrap()
-            .install_tunnel_network_residual();
+            .install_tunnel_network_residual(10);
         let cave = world
             .create_object_for_player("OwnedCave", 2, Vec3::new(70., 0., 50.))
             .unwrap();
         world
             .host_object_mut(cave)
             .unwrap()
-            .install_cave_contain_residual(7);
+            .install_cave_contain_residual(7, 10);
         world
             .cave_system_residual_mut()
             .register_cave(cave, 7, Team::USA);
@@ -2463,7 +2463,7 @@ fn tunnel_capacity_obeys_ordered_map_overrides_and_restores_baseline() {
         .unwrap();
     game.host_object_mut(tunnel)
         .unwrap()
-        .install_tunnel_network_residual();
+        .install_tunnel_network_residual(10);
     let key = game.host_object(tunnel).unwrap().tunnel_system_key();
     assert!(
         game.tunnel_network_residual_mut()
@@ -2485,7 +2485,7 @@ fn tunnel_capacity_obeys_ordered_map_overrides_and_restores_baseline() {
         .unwrap();
     game.host_object_mut(tunnel)
         .unwrap()
-        .install_tunnel_network_residual();
+        .install_tunnel_network_residual(10);
     let rider = game
         .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(50., 0., 50.))
         .unwrap();
@@ -2521,7 +2521,7 @@ fn tunnel_capacity_uses_receiving_rules_after_world_snapshot_restore() {
     source
         .host_object_mut(tunnel)
         .unwrap()
-        .install_tunnel_network_residual();
+        .install_tunnel_network_residual(10);
     assert!(
         source
             .unit_command_set_ai_state(rider, AIState::Entering)
@@ -2563,7 +2563,7 @@ fn full_shared_tunnel_rejects_docking_before_touching_local_roster() {
         .unwrap();
     game.host_object_mut(tunnel)
         .unwrap()
-        .install_tunnel_network_residual();
+        .install_tunnel_network_residual(10);
     let key = game.host_object(tunnel).unwrap().tunnel_system_key();
     assert!(
         game.tunnel_network_residual_mut()
@@ -2608,7 +2608,7 @@ fn full_shared_cave_rejects_docking_before_touching_local_roster() {
         .unwrap();
     game.host_object_mut(cave)
         .unwrap()
-        .install_cave_contain_residual(7);
+        .install_cave_contain_residual(7, 10);
     game.cave_system_residual_mut()
         .register_cave(cave, 7, Team::USA);
     assert!(
@@ -2661,7 +2661,7 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
         for cave in [ca, cb] {
             game.host_object_mut(cave)
                 .unwrap()
-                .install_cave_contain_residual(7);
+                .install_cave_contain_residual(7, 10);
             game.cave_system_residual_mut()
                 .register_cave(cave, 7, Team::USA);
         }
@@ -2674,7 +2674,7 @@ fn presentation_uses_receiving_shared_cave_and_tunnel_inventories() {
         for tunnel in [ta, tb] {
             game.host_object_mut(tunnel)
                 .unwrap()
-                .install_tunnel_network_residual();
+                .install_tunnel_network_residual(10);
         }
         let tunnel_rider = game
             .create_object_for_player("OwnedGarrisonRider", 2, Vec3::new(50., 0., 70.))
@@ -2874,7 +2874,7 @@ fn presentation_keeps_shared_inventory_above_thirty_two_items() {
         .unwrap();
     game.host_object_mut(tunnel)
         .unwrap()
-        .install_tunnel_network_residual();
+        .install_tunnel_network_residual(10);
     let key = game.host_object(tunnel).unwrap().tunnel_system_key();
     let mut riders = Vec::new();
     for _ in 0..33 {
@@ -2920,13 +2920,13 @@ fn full_shared_pools_do_not_readmit_a_contained_passenger_at_another_entrance() 
             if cave {
                 game.host_object_mut(entrance)
                     .unwrap()
-                    .install_cave_contain_residual(7);
+                    .install_cave_contain_residual(7, 10);
                 game.cave_system_residual_mut()
                     .register_cave(entrance, 7, Team::USA);
             } else {
                 game.host_object_mut(entrance)
                     .unwrap()
-                    .install_tunnel_network_residual();
+                    .install_tunnel_network_residual(10);
             }
         }
         assert!(
@@ -3000,14 +3000,14 @@ fn cave_and_tunnel_entry_eligibility_matches_shared_tracker() {
     for (id, index) in [(cave, 8), (faction_cave, 9)] {
         game.host_object_mut(id)
             .unwrap()
-            .install_cave_contain_residual(index);
+            .install_cave_contain_residual(index, 10);
         game.cave_system_residual_mut()
             .register_cave(id, index, Team::USA);
     }
     for id in [tunnel, faction_tunnel] {
         game.host_object_mut(id)
             .unwrap()
-            .install_tunnel_network_residual();
+            .install_tunnel_network_residual(10);
     }
     game.add_player(Player::new(3, Team::GLA, "Enemy", false).with_script_identity("Enemy"));
     let enemy = game
