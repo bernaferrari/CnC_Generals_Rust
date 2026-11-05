@@ -1933,6 +1933,35 @@ fn capture_team_flips_overlord_helix_portable_addon() {
 }
 
 #[test]
+fn helix_named_host_without_helix_contain_gets_overlord_payload() {
+    // hq-2qedt.301: C++ picks the Helix payload via the authored HelixContain
+    // module, not the template name.
+    use crate::game_logic::host_overlord_addon_damage::HELIX_PAYLOAD_GATTLING;
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::China, "China", true));
+    let mut t = ThingTemplate::new("TestHelix");
+    t.add_kind_of(KindOf::Vehicle).set_health(400.0);
+    logic.templates.insert("TestHelix".into(), t);
+    let host = logic
+        .create_object("TestHelix", Team::China, glam::Vec3::ZERO)
+        .expect("host");
+    {
+        let o = logic.host_object_mut(host).unwrap();
+        assert!(!o.is_helix_transport);
+        o.has_overlord_gattling_addon = true;
+    }
+    let addon = logic
+        .ensure_overlord_portable_addon_occupant(host)
+        .expect("payload");
+    assert_ne!(
+        logic.host_object(addon).unwrap().template_name,
+        HELIX_PAYLOAD_GATTLING
+    );
+}
+
+#[test]
 fn sell_last_tunnel_ejects_shared_pool() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();

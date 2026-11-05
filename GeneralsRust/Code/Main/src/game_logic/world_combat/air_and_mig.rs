@@ -675,7 +675,6 @@ impl GameLogic {
             HELIX_MINIGUN_DAMAGE, HELIX_MINIGUN_DAMAGE_TYPE, HELIX_MINIGUN_DEATH_TYPE,
             HELIX_MINIGUN_FIRE_AUDIO, is_legal_helix_minigun_target,
         };
-        use crate::game_logic::host_overlord_addons::is_helix_template;
 
         let source_team = source
             .and_then(|sid| self.objects.get(&sid).map(|o| o.team))

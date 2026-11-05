@@ -2916,8 +2916,6 @@ impl GameLogic {
 
                 object.overlord_bunker_capacity = Some(0);
             }
-            let helix_spawn =
-                crate::game_logic::host_overlord_addons::is_helix_template(template_name);
 
             // Host residual: America Humvee TransportContain Slots=5 + passenger fire.
             // Fail-closed: not multi-exit-path / drone ObjectCreationUpgrade matrix.
@@ -3286,7 +3284,6 @@ impl GameLogic {
             if emperor_spawn {
                 self.overlord_addons.record_propaganda_install();
             }
-            let _ = helix_spawn;
 
             // C++ VeterancyGainCreate.cpp:63-65 controlling player only, then
             // PlayerTemplate fallback. Ally training science must not veteran
