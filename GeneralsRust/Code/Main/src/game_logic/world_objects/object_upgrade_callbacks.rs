@@ -368,19 +368,20 @@ impl GameLogic {
                 &mut obj.model_condition_bits,
                 upgrade,
             );
-            // C++ WeaponBonusUpgrade residual.
-            if crate::game_logic::host_upgrade_module_residuals::is_weapon_bonus_upgrade(upgrade) {
-                obj.set_weapon_bonus_player_upgrade(true);
+            // C++ WeaponBonusUpgrade / WeaponSetUpgrade / ArmorUpgrade /
+            // CommandSetUpgrade::upgradeImplementation: only modules this
+            // template authors, triggered through UpgradeMux, set flags.
+            let flags = obj.apply_authored_flag_upgrades(|name| name.eq_ignore_ascii_case(upgrade));
+            if flags.weapon_bonus {
                 self.upgrade_module_residuals.record_weapon_bonus(upgrade);
             }
-            // C++ WeaponSetUpgrade residual → WEAPONSET_PLAYER_UPGRADE.
-            if crate::game_logic::host_upgrade_module_residuals::is_weapon_set_upgrade(upgrade) {
-                obj.set_weapon_set_flag(0, true);
+            if flags.weapon_set {
                 self.upgrade_module_residuals.record_weapon_set(upgrade);
             }
-            // C++ ArmorUpgrade residual → ARMORSET_PLAYER_UPGRADE (+ ChemSuit decal).
-            if crate::game_logic::host_upgrade_module_residuals::is_armor_upgrade(upgrade) {
-                obj.set_armor_set_player_upgrade(true);
+            if let Some(cs) = flags.command_set.as_deref() {
+                self.replace_grant_command_upgrades.record_command_set(cs);
+            }
+            if flags.armor_set {
                 if crate::game_logic::host_upgrade_module_residuals::is_chemical_suits_upgrade(
                     upgrade,
                 ) {
@@ -432,16 +433,6 @@ impl GameLogic {
                     }
                     self.upgrade_module_residuals.record_unpause(upgrade);
                 }
-            }
-            // C++ CommandSetUpgrade residual.
-            if let Some(cs) =
-                crate::game_logic::host_replace_object_upgrade::command_set_override_for_upgrade(
-                    upgrade,
-                    &obj.template_name,
-                )
-            {
-                obj.set_command_set_override(Some(cs.to_string()));
-                self.replace_grant_command_upgrades.record_command_set(cs);
             }
             if is_overlord_family_host(&obj.template_name) {
                 if is_gattling_addon_upgrade(upgrade) {
