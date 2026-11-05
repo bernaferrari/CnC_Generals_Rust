@@ -102,6 +102,8 @@ pub(super) struct RuntimeHostSnapshot {
     pub(super) present_collect_ms: f32,
     pub(super) present_terrain_ms: f32,
     pub(super) present_forward_ms: f32,
+    /// Last submitted WW3D frame counters (passes, GPU objects created).
+    pub(super) render_frame_stats: String,
     pub(super) camera_pos: String,
     pub(super) camera_target: String,
     pub(super) sample_unit_pos: String,
@@ -407,6 +409,7 @@ impl RuntimeHostBridge {
             present_collect_ms: 0.0,
             present_terrain_ms: 0.0,
             present_forward_ms: 0.0,
+            render_frame_stats: String::new(),
             camera_pos: String::new(),
             camera_target: String::new(),
             sample_unit_pos: String::new(),
@@ -607,6 +610,7 @@ impl RuntimeHostBridge {
             "present_forward_ms={:.3}\n",
             snapshot.present_forward_ms
         ));
+        payload.push_str(&format!("render_frame_stats={}\n", snapshot.render_frame_stats));
         payload.push_str(&format!("camera_pos={}\n", snapshot.camera_pos));
         payload.push_str(&format!("camera_target={}\n", snapshot.camera_target));
         payload.push_str(&format!("sample_unit_pos={}\n", snapshot.sample_unit_pos));

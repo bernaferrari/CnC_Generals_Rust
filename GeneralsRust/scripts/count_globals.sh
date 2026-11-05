@@ -26,6 +26,10 @@ pat_static = re.compile(
     r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?static[ \t]+(?:mut[ \t]+)?(\w+)[ \t]*:[ \t]*(.+?)[ \t]*="
 )
 pat_tls = re.compile(r"(?m)^[ \t]*thread_local!\s*\{")
+# `lazy_static! { static ref NAME: T = ...; }` is a process-wide Lazy<T>.
+pat_lazy_ref = re.compile(
+    r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?static[ \t]+ref[ \t]+(\w+)[ \t]*:[ \t]*(.+?)[ \t]*="
+)
 classic_mut = re.compile(r"\b(Mutex|RwLock|Atomic\w+|RefCell|Cell)\b")
 init_cell = re.compile(
     r"\b(?:std::sync::|once_cell::(?:sync|unsync)::|parking_lot::)?(?:OnceLock|LazyLock|OnceCell|Lazy)\b"
@@ -356,6 +360,22 @@ for label, rel in roots.items():
                         continue
                     counts[label] += 1
                     details[label].append(f"{rel_dir}/{fn}:{name}")
+
+            for m in pat_lazy_ref.finditer(text):
+                line = text.rfind("\n", 0, m.start()) + 1
+                if text[line : m.end()].lstrip().startswith("//"):
+                    continue
+                name, ty = m.group(1), m.group(2)
+                if not type_is_mutable(text, f"Lazy<{ty}>"):
+                    continue
+                if (
+                    m.start() in test_body
+                    or (not with_cfg_test and item_has_cfg_test_attr(text, m.start()))
+                    or name in ALLOWED_STATIC_EXCEPTIONS
+                ):
+                    continue
+                counts[label] += 1
+                details[label].append(f"{rel_dir}/{fn}:{name} (lazy_static)")
 
 if want_json:
     print(json.dumps(dict(counts), indent=2, sort_keys=True))

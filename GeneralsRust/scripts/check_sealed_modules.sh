@@ -34,7 +34,7 @@ if current and "path" in current:
     modules.append(current)
 
 pat_static = re.compile(
-    r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?static[ \t]+(?:mut[ \t]+)?(\w+)[ \t]*:[ \t]*([^;=]+)"
+    r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?static[ \t]+(?:mut[ \t]+|ref[ \t]+)?(\w+)[ \t]*:[ \t]*([^;=]+)"
 )
 pat_tls = re.compile(r"(?m)^[ \t]*thread_local!\s*\{")
 mut_ty = re.compile(r"\b(Mutex|RwLock|Atomic\w+|RefCell|Cell)\b")

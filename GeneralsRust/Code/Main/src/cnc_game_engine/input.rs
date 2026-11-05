@@ -1210,6 +1210,9 @@ impl CnCGameEngine {
     }
 
     pub fn update_with_timing(&mut self, timing: &FrameTiming) -> Result<(), String> {
+        if self.golden_logic_frozen() {
+            return Ok(());
+        }
         if matches!(self.current_state, GameState::Menu | GameState::Loading) {
             // C++ shell/loading progression is driven by the engine's fixed update cadence, not
             // by renderer timing. WW3D timing can remain effectively stuck during startup/menu
@@ -1243,6 +1246,9 @@ impl CnCGameEngine {
     /// Advance simulation using the internal fallback clock (no WW3D timing).
     pub fn update_with_frame_clock(&mut self) -> Result<(), String> {
         const SHELL_MENU_STEP: Duration = Duration::from_nanos(33_333_333);
+        if self.golden_logic_frozen() {
+            return Ok(());
+        }
 
         let now = Instant::now();
         let elapsed = now.saturating_duration_since(self.menu_loading_last_tick);
@@ -1260,6 +1266,10 @@ impl CnCGameEngine {
         let mut steps = 0u32;
         let catchup_started = Instant::now();
         while self.menu_loading_tick_accumulator >= SHELL_MENU_STEP && steps < 8 {
+            if self.golden_remaining_logic_steps() == Some(0) {
+                break;
+            }
+            self.golden_note_shell_step();
             // One slow shell step must not be repeated eight times in the same
             // present. That catch-up used to turn a ~100ms tick into a ~900ms
             // update and the next frame then caught up again.

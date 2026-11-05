@@ -345,6 +345,7 @@ pub async fn run_cnc_game(
                 }
                 match engine.render() {
                     Ok(_) => {
+                        engine.golden_after_present();
                         // Honest live_frame residual: a successful windowed render
                         // presented a wgpu surface (end_render present_surface_texture).
                         // Headless keeps capture-only promotion so headless smoke
