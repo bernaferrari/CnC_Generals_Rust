@@ -426,7 +426,7 @@ impl AIManager {
             ai.skillset_selector = INVALID_SKILLSET_SELECTION;
             ai.last_update_time = 0.0;
             ai.resource_check_time = 0.0;
-            ai.enemy_check_time = 0.0;
+            ai.frame_to_check_enemy = 0;
             ai.next_building_time = 0.0;
             ai.next_team_queue_time = 0.0;
             ai.next_team_time = 0.0;
@@ -665,7 +665,7 @@ impl AIManager {
             // Timing: allow next host AI tick to act immediately.
             ai_player.last_update_time = 0.0;
             ai_player.resource_check_time = 0.0;
-            ai_player.enemy_check_time = 0.0;
+            ai_player.frame_to_check_enemy = 0;
             ai_player.next_building_time = 0.0;
             ai_player.next_team_queue_time = 0.0;
             ai_player.next_team_time = 0.0;

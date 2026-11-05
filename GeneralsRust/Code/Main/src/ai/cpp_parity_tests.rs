@@ -3234,13 +3234,31 @@ fn acquire_enemy_keeps_healthy_current_target() {
     let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
     ai.base_center = Vec3::ZERO;
     ai.enemy_player_id = Some(2);
-    ai.enemy_check_time = -10.0;
     ai.update_enemy_assessment(&mut logic, 0.0);
     assert_eq!(
         ai.enemy_player_id,
         Some(2),
         "healthy current enemy with units and a factory must be kept"
     );
+}
+
+/// C++ `AISkirmishPlayer::getAiEnemy` (AISkirmishPlayer.cpp:530-537): the deadline
+/// starts at frame 0 (immediate first check), advances five seconds of logic
+/// frames when it fires, and fires again only at `frame >= deadline`.
+#[test]
+fn enemy_check_deadline_is_a_logic_frame_with_immediate_first_check() {
+    let mut logic = crate::game_logic::GameLogic::new();
+    logic.add_player(crate::game_logic::Player::new(1, Team::USA, "USA AI", false));
+    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    assert_eq!(ai.frame_to_check_enemy, 0);
+    ai.update_enemy_assessment(&mut logic, 0.0);
+    assert_eq!(ai.frame_to_check_enemy, 150, "first check is immediate");
+    logic.frame = 149;
+    ai.update_enemy_assessment(&mut logic, 4.97);
+    assert_eq!(ai.frame_to_check_enemy, 150, "no check before the deadline");
+    logic.frame = 150;
+    ai.update_enemy_assessment(&mut logic, 5.0);
+    assert_eq!(ai.frame_to_check_enemy, 300, "check fires at frame >= deadline");
 }
 
 #[test]

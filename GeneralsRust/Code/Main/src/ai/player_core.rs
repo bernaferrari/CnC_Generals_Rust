@@ -43,7 +43,7 @@ impl AIPlayer {
             defensive_units: Vec::new(),
             last_update_time: 0.0,
             resource_check_time: 0.0,
-            enemy_check_time: 0.0,
+            frame_to_check_enemy: 0,
             current_strategy: AIStrategy::EarlyGame,
             build_phase: AIBuildPhase::BaseConstruction,
             activity_count: 0,
@@ -81,7 +81,7 @@ impl AIPlayer {
         self.next_building_time = 0.0;
         self.next_team_queue_time = 0.0;
         self.next_team_time = 0.0;
-        self.enemy_check_time = 0.0;
+        self.frame_to_check_enemy = 0;
         // C++-aligned: no artificial negative last_attack to force immediate attacks.
         self.last_attack_time = 0.0;
     }
@@ -1205,11 +1205,13 @@ impl AIPlayer {
         game_logic: &mut GameLogic,
         current_time: f32,
     ) {
-        // C++ `getAiEnemy` only calls this every 5s.
-        if current_time - self.enemy_check_time < 5.0 {
+        // C++ `getAiEnemy`: `frame >= m_frameToCheckEnemy` (initially 0, so the first
+        // check is immediate), then the deadline advances 5 seconds of logic frames.
+        let frame = game_logic.get_frame();
+        if frame < self.frame_to_check_enemy {
             return;
         }
-        self.enemy_check_time = current_time;
+        self.frame_to_check_enemy = frame.wrapping_add(5 * LOGIC_FRAMES_PER_SECOND as u32);
 
         let build_facilities = AiWorldView::new(game_logic).build_facility_template_names();
         // C++ keeps the current enemy unless it is in bad shape; liveness and

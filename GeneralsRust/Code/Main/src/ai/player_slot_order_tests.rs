@@ -52,7 +52,6 @@ fn enemy_tie_world(first: u32, insertion: [u32; 3]) -> GameLogic {
         world.team_factory.clone(),
     );
     ai.skirmish_new_map_applied = true;
-    ai.enemy_check_time = -5.0;
     ai.next_building_time = f32::MAX;
     ai.next_team_time = f32::MAX;
     ai.next_team_queue_time = f32::MAX;
@@ -69,7 +68,8 @@ fn fixed_tick_enemy_ties_choose_lower_slot_in_independent_worlds() {
     for world in [&first, &second] {
         assert_eq!(world.frame, 1);
         assert_eq!(world.ai_manager.ai_players[&1].enemy_player_id, Some(2));
-        assert_eq!(world.ai_manager.ai_players[&1].enemy_check_time, 0.0);
+        // First check is immediate (deadline 0); the next is five seconds of frames later.
+        assert!(world.ai_manager.ai_players[&1].frame_to_check_enemy >= 150);
     }
 }
 

@@ -47,7 +47,6 @@ fn add_assessing_ai(world: &mut GameLogic, id: u32, center: Vec3) {
         AIPlayer::new_with_team_factory(id, team, AIDifficulty::Medium, world.team_factory.clone());
     ai.base_center = center;
     ai.skirmish_new_map_applied = true;
-    ai.enemy_check_time = -5.0;
     ai.next_building_time = f32::MAX;
     ai.next_team_time = f32::MAX;
     ai.next_team_queue_time = f32::MAX;
@@ -78,7 +77,7 @@ fn fixed_tick_later_ai_sees_earlier_slots_new_enemy_in_both_worlds() {
         assert_eq!(world.ai_manager.ai_players[&1].enemy_player_id, Some(3));
         // Slot1 has just selected slot3: its 500^2 penalty makes slot1 preferable.
         assert_eq!(world.ai_manager.ai_players[&2].enemy_player_id, Some(1));
-        assert_eq!(world.ai_manager.ai_players[&2].enemy_check_time, 0.0);
+        assert!(world.ai_manager.ai_players[&2].frame_to_check_enemy >= 150);
     }
 }
 
