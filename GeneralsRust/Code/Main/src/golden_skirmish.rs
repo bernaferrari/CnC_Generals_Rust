@@ -740,11 +740,11 @@ fn resolve_map_gather_target(logic: &mut GameLogic, base: Vec3) -> (Option<Objec
         return (Some(id), true);
     }
 
-    // 2) Map SupplyDock / SupplyPile / PileSmal by retail name (may lack Harvestable).
+    // 2) Map SupplyDock / SupplyPile by authored KindOf::SupplySource (not name peels).
     let map_supply_name = logic
         .host_objects()
         .registered_values()
-        .find(|o| o.is_alive() && is_retail_supply_source_name(&o.template_name))
+        .find(|o| o.is_alive() && o.is_kind_of(KindOf::SupplySource))
         .map(|o| o.id);
     if let Some(id) = map_supply_name {
         ensure_object_gatherable(logic, id);

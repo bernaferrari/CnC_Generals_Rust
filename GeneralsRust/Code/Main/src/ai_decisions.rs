@@ -567,20 +567,15 @@ impl AIDecisionSystem {
             let distance_factor = 1.0 - (distance / scan_radius);
             threat_level += threat_value * distance_factor;
 
-            // Check for specialized threats
-            if object.is_kind_of(KindOf::Infantry) {
-                // Infantry might have anti-air capabilities
-                if object.template_name.contains("Missile") || object.template_name.contains("RPG")
-                {
+            // Specialized threats from authored weapon/KindOf facts — never
+            // invent anti-air/armor from "Missile"/"RPG"/"Tank" name peels.
+            if let Some(weapon) = object.weapon.as_ref() {
+                if weapon.can_target_air {
                     has_anti_air = true;
                 }
             }
-
             if object.is_kind_of(KindOf::Vehicle) {
-                // Vehicles typically have anti-armor
-                if object.template_name.contains("Tank") {
-                    has_anti_armor = true;
-                }
+                has_anti_armor = true;
             }
         }
 
@@ -768,6 +763,65 @@ mod tests {
 
         assert_eq!(threat.enemy_count, 0);
         assert_eq!(threat.threat_level, 0.0);
+    }
+
+    #[test]
+    fn threat_assessment_does_not_invent_anti_masks_from_template_names() {
+        use crate::game_logic::{KindOf, ThingTemplate, Weapon};
+
+        let mut game_logic = GameLogic::new();
+
+        // Name peels alone must not invent anti-air (needs authored can_target_air).
+        let rpg_id = ObjectId(9101);
+        let mut rpg_tpl = ThingTemplate::new("GLAInfantryRPGTrooper");
+        rpg_tpl
+            .add_kind_of(KindOf::Infantry)
+            .add_kind_of(KindOf::Attackable);
+        game_logic.objects.insert(rpg_id, {
+            let mut o = Object::new(rpg_tpl, rpg_id, Team::GLA);
+            o.set_position(Vec3::new(5.0, 0.0, 0.0));
+            o.weapon = Some(Weapon {
+                range: 150.0,
+                damage: 20.0,
+                can_target_air: false,
+                can_target_ground: true,
+                ..Default::default()
+            });
+            o
+        });
+
+        let bare = AIDecisionSystem::assess_threat(&game_logic, Vec3::ZERO, Team::USA, 100.0);
+        assert_eq!(bare.enemy_count, 1);
+        assert!(
+            !bare.has_anti_air,
+            "RPG substring must not invent anti-air without can_target_air"
+        );
+
+        // Authored air mask is the C++ gate.
+        if let Some(o) = game_logic.objects.get_mut(&rpg_id) {
+            if let Some(w) = o.weapon.as_mut() {
+                w.can_target_air = true;
+            }
+        }
+        let with_air = AIDecisionSystem::assess_threat(&game_logic, Vec3::ZERO, Team::USA, 100.0);
+        assert!(with_air.has_anti_air);
+
+        // Vehicle KindOf carries anti-armor; "Tank" spelling is not required.
+        let humvee_id = ObjectId(9102);
+        let mut humvee_tpl = ThingTemplate::new("AmericaVehicleHumvee");
+        humvee_tpl
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Attackable);
+        game_logic.objects.insert(humvee_id, {
+            let mut o = Object::new(humvee_tpl, humvee_id, Team::GLA);
+            o.set_position(Vec3::new(8.0, 0.0, 0.0));
+            o
+        });
+        let armor = AIDecisionSystem::assess_threat(&game_logic, Vec3::ZERO, Team::USA, 100.0);
+        assert!(
+            armor.has_anti_armor,
+            "Vehicle KindOf must mark anti-armor without Tank name peel"
+        );
     }
 
     #[test]

@@ -345,6 +345,15 @@ pub fn is_legal_scorpion_splash_target(
 // --- Wave 62 thin residual honesty pack (optional peel) ---
 
 /// Scorpion gun + salvage residual honesty.
+
+/// Test/fixture helper: admitted Scorpion tank templates (exact retail/test names).
+pub fn is_scorpion_template(template_name: &str) -> bool {
+    matches!(
+        template_name,
+        "GLATankScorpion" | "GLA_Scorpion" | "GLA_ScorpionTank" | "TestScorpion"
+    )
+}
+
 pub fn honesty_scorpion_gun_residual_ok() -> bool {
     (SCORPION_GUN_DAMAGE - 20.0).abs() < 0.01
         && (SCORPION_GUN_DAMAGE_PLUS - 25.0).abs() < 0.01

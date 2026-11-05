@@ -279,6 +279,15 @@ pub fn dragon_firewall_range_ok(distance: f32) -> bool {
 // --- Wave 59 residual honesty packs ---
 
 /// Fire wall residual (weapon + segment + OCL).
+
+/// Test/fixture helper: admitted Dragon tank templates (exact retail/test names).
+pub fn is_dragon_tank_template(template_name: &str) -> bool {
+    matches!(
+        template_name,
+        "ChinaTankDragon" | "China_Dragon" | "TestDragonTank"
+    )
+}
+
 pub fn honesty_dragon_fire_wall_residual_ok() -> bool {
     DRAGON_TANK_FIREWALL_WEAPON == "DragonTankFireWallWeapon"
         && DRAGON_TANK_FIREWALL_WEAPON_UPGRADED == "DragonTankFireWallWeaponUpgraded"

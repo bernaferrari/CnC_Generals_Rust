@@ -239,15 +239,11 @@ fn lazr_patriot_assist_equivalent_family_residual() {
         assert!(authors_laser_patriot_weapon_set(a));
         assert!(patriots_are_assist_equivalent(
             &a.template_name,
-            a.authored_weapon_name_for_slot(0),
             &b.template_name,
-            b.authored_weapon_name_for_slot(0)
         ));
         assert!(!patriots_are_assist_equivalent(
             &a.template_name,
-            a.authored_weapon_name_for_slot(0),
             &s.template_name,
-            s.authored_weapon_name_for_slot(0)
         ));
     }
 

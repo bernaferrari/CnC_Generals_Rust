@@ -349,9 +349,8 @@ pub fn locomotor_name_for_unit(template_name: &str) -> Option<&'static str> {
     if crate::game_logic::host_angry_mob::is_angry_mob_nexus_template(template_name) {
         return Some(ANGRY_MOB_NEXUS_LOCOMOTOR);
     }
-    if template_name.contains("AngryMob") {
-        return Some(BASIC_HUMAN_LOCOMOTOR);
-    }
+    // Member AngryMob templates must author Locomotor= like C++; do not invent
+    // BasicHumanLocomotor from a "AngryMob" name peel.
     match template_name {
         // USA infantry (AmericaInfantryRanger → BasicHumanLocomotor)
         "USA_Ranger" | "GoldenRanger" | "AmericaInfantryRanger" => Some(BASIC_HUMAN_LOCOMOTOR),

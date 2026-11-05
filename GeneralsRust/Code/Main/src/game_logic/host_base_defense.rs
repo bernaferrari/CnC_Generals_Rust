@@ -2209,6 +2209,13 @@ pub fn patriot_assist_weapon_name_for_template(template_name: &str) -> &'static 
 ///
 /// C++ `ThingTemplate::isEquivalentTo` residual: same general family (stock / Lazr /
 /// SupW). Fail-closed: not full reskin / faction-building inheritance matrix.
+/// True when the live object authors a Lazr Patriot primary (WeaponSet), not a name peel.
+pub fn authors_laser_patriot_weapon_set(object: &crate::game_logic::object::Object) -> bool {
+    object
+        .authored_weapon_name_for_slot(0)
+        .is_some_and(|name| name == LAZR_PATRIOT_PRIMARY_WEAPON)
+}
+
 pub fn patriots_are_assist_equivalent(requester: &str, assistant: &str) -> bool {
     if !is_patriot_battery_structure(requester) || !is_patriot_battery_structure(assistant) {
         return false;

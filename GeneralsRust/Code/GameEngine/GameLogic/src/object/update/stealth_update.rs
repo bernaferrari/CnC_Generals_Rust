@@ -1252,13 +1252,8 @@ impl StealthUpdateController {
                 if let Some(base_arc) = base_arc {
                     // Work with the base Object for template and status queries
                     if let Ok(base) = base_arc.read() {
-                        // Heuristic: match template name to Black Market building
-                        let template_name = base.get_template_name().to_ascii_lowercase();
-                        let is_black_market = template_name.contains("blackmarket")
-                            || template_name.contains("black_market")
-                            || template_name.contains("black-market");
-
-                        if !is_black_market {
+                        // C++ StealthUpdate.cpp:157-175 isBlackMarket — KindOf, not name.
+                        if !base.is_kind_of(KindOf::FsBlackMarket) {
                             continue;
                         }
 
