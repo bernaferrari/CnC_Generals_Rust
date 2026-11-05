@@ -22,13 +22,13 @@ impl BaseAiObjectSnapshot {
     }
 
     pub(crate) fn capture(object: &Object) -> SaveLoadResult<Self> {
-        let source = object
-            .thing()
-            .template
-            .receiving_client_template
-            .as_ref()
-            .and_then(|template| template.receiving_ai_identity());
-        if source.is_none() && !object.base_ai_control_is_inert() {
+        let admitted = object.thing().template.receiving_client_template.as_ref();
+        let source = admitted.and_then(|template| template.receiving_ai_identity());
+        // An admitted template whose active control has no AI source cannot
+        // be continued. A synthetic template outside any receiving content has
+        // no native AI machine at all; its movement/attack state is carried by
+        // the ordinary object wire, so there is nothing to continue here.
+        if admitted.is_some() && source.is_none() && !object.base_ai_control_is_inert() {
             return Err(bad("active control has no admitted AI source"));
         }
         let continuation = source
@@ -65,13 +65,9 @@ impl BaseAiObjectSnapshot {
     ) -> SaveLoadResult<()> {
         match &self.continuation {
             Some(value) if &value.projected_state() == state => Ok(()),
-            None if matches!(
-                state,
-                crate::game_logic::AIState::Idle | crate::game_logic::AIState::Uninitialized
-            ) =>
-            {
-                Ok(())
-            }
+            // No native machine (synthetic, unadmitted template): the status
+            // scalar is the only AI state and projects nothing to compare.
+            None if self.source.is_none() => Ok(()),
             _ => Err(bad("status AI state disagrees with native14 owner/source")),
         }
     }
