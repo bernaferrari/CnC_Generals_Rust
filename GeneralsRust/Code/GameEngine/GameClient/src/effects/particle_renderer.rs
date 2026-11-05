@@ -113,8 +113,6 @@ pub struct ParticleBatch {
     pub texture_name: String,
     /// Particle vertices
     pub vertices: Vec<ParticleVertex>,
-    /// GPU vertex buffer
-    pub vertex_buffer: Option<wgpu::Buffer>,
     /// Needs buffer update
     pub dirty: bool,
 }
@@ -271,7 +269,6 @@ impl ParticleBatch {
             shader_type,
             texture_name,
             vertices: Vec::with_capacity(MAX_PARTICLES_PER_BATCH),
-            vertex_buffer: None,
             dirty: true,
         }
     }
@@ -363,22 +360,6 @@ impl ParticleBatch {
     pub fn clear(&mut self) {
         self.vertices.clear();
         self.dirty = true;
-    }
-
-    /// Update GPU buffer
-    pub fn update_buffer(&mut self, device: &wgpu::Device) {
-        if !self.dirty || self.vertices.is_empty() {
-            return;
-        }
-
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Particle Vertex Buffer"),
-            contents: bytemuck::cast_slice(&self.vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        self.vertex_buffer = Some(buffer);
-        self.dirty = false;
     }
 }
 
@@ -593,6 +574,9 @@ pub struct ParticleRenderer {
     /// equal texture/shader systems through a `HashMap`, because alpha and
     /// additive composition are order-visible.
     batches: Vec<ParticleBatch>,
+    /// Persistent instance buffer shared by every batch of a frame (one
+    /// `write_buffer` per frame instead of one new buffer per batch).
+    instance_buffer: Option<wgpu::Buffer>,
 
     /// Default texture for particles without specific texture
     default_texture: wgpu::Texture,
@@ -1279,6 +1263,7 @@ impl ParticleRenderer {
             unavailable_textures: HashSet::new(),
 
             batches: Vec::new(),
+            instance_buffer: None,
 
             default_texture,
             default_bind_group,
@@ -1290,6 +1275,46 @@ impl ParticleRenderer {
 
             stats: ParticleRenderStats::default(),
         })
+    }
+
+    /// Copy all batch vertices into the persistent instance buffer (growing it
+    /// when needed) and return each batch's byte range (`None` = empty batch).
+    fn upload_batch_instances(&mut self) -> Vec<Option<std::ops::Range<u64>>> {
+        let byte_len = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
+        let total: u64 = self
+            .batches
+            .iter()
+            .map(|batch| byte_len(std::mem::size_of_val(batch.vertices.as_slice())))
+            .sum();
+        if total == 0 {
+            return vec![None; self.batches.len()];
+        }
+        let capacity = self.instance_buffer.as_ref().map_or(0, wgpu::Buffer::size);
+        if capacity < total {
+            self.instance_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Particle Instance Buffer"),
+                size: total.next_power_of_two().max(64 * 1024),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+        }
+        let mut bytes = Vec::with_capacity(usize::try_from(total).unwrap_or(0));
+        let ranges = self
+            .batches
+            .iter()
+            .map(|batch| {
+                if batch.vertices.is_empty() {
+                    return None;
+                }
+                let start = byte_len(bytes.len());
+                bytes.extend_from_slice(bytemuck::cast_slice(&batch.vertices));
+                Some(start..byte_len(bytes.len()))
+            })
+            .collect();
+        if let Some(buffer) = self.instance_buffer.as_ref() {
+            self.queue.write_buffer(buffer, 0, &bytes);
+        }
+        ranges
     }
 
     /// Render all particle systems
@@ -1344,10 +1369,9 @@ impl ParticleRenderer {
             self.ensure_authored_texture_loaded(&texture_name);
         }
 
-        // Update GPU buffers for batches
-        for batch in &mut self.batches {
-            batch.update_buffer(&self.device);
-        }
+        // Upload every batch into one persistent instance buffer; each batch
+        // draws its own contiguous range.
+        let instance_ranges = self.upload_batch_instances();
 
         // Render batches
         {
@@ -1384,10 +1408,14 @@ impl ParticleRenderer {
             let mut rendered_batches = 0usize;
 
             // Render each batch
-            for batch in &self.batches {
-                if batch.vertices.is_empty() || batch.vertex_buffer.is_none() {
+            for (batch, instances) in self.batches.iter().zip(&instance_ranges) {
+                let Some((instance_buffer, instances)) = self
+                    .instance_buffer
+                    .as_ref()
+                    .zip(instances.as_ref())
+                else {
                     continue;
-                }
+                };
 
                 // Select pipeline based on shader type
                 match batch.shader_type {
@@ -1414,7 +1442,7 @@ impl ParticleRenderer {
                 render_pass.set_bind_group(1, texture_bind_group, &[]);
 
                 // Set particle data
-                render_pass.set_vertex_buffer(1, batch.vertex_buffer.as_ref().unwrap().slice(..));
+                render_pass.set_vertex_buffer(1, instance_buffer.slice(instances.clone()));
 
                 // Draw instanced
                 render_pass.draw(0..4, 0..batch.vertices.len() as u32);

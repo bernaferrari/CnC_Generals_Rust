@@ -254,6 +254,8 @@ struct WindowSurfaceState {
     /// COPY_SRC target used when Metal returns Occluded/Timeout so present-frame
     /// gates can still read a real GPU backbuffer instead of the procedural PNG.
     occlusion_fallback: HeadlessTarget,
+    /// Present modes the surface supports (for swap-interval changes).
+    present_modes: Vec<wgpu::PresentMode>,
 }
 
 impl WindowSurfaceState {
@@ -316,6 +318,23 @@ impl WindowSurfaceState {
             config: surface_config,
             depth,
             occlusion_fallback,
+            present_modes: capabilities.present_modes,
+        }
+    }
+
+    /// C++ DX8 presentation interval: ONE (vsync) when `interval > 0`, else
+    /// IMMEDIATE. Reconfigures only when the chosen mode changes.
+    fn set_swap_interval(&mut self, device: &wgpu::Device, interval: i32) {
+        let desired = if interval > 0 {
+            wgpu::PresentMode::Fifo
+        } else {
+            wgpu::PresentMode::Immediate
+        };
+        let mode = select_present_mode(&self.present_modes, Some(desired));
+        if mode != self.config.present_mode {
+            self.config.present_mode = mode;
+            self.surface.configure(device, &self.config);
+            info!("WW3D swap interval {interval}: present_mode={mode:?}");
         }
     }
 
@@ -1488,6 +1507,9 @@ impl Engine {
     /// Configure the swap interval (VSync) equivalent.
     pub fn set_swap_interval(&mut self, interval: i32) {
         self.settings.swap_interval = interval.max(0);
+        if let SurfaceMode::Windowed(surface_state) = &mut self.surface {
+            surface_state.set_swap_interval(&self.device, self.settings.swap_interval);
+        }
     }
 
     /// Retrieve the swap interval.
