@@ -3176,6 +3176,7 @@ fn patriot_assist_request_ignores_helper_victim_range_and_already_assisting() {
         0,
         "USA_Patriot",
         assist,
+        false,
     ));
     game_logic.frame = 1;
     game_logic.process_patriot_assist_request(requester_id, enemy_id, 0);
@@ -3254,7 +3255,7 @@ fn patriot_re_ask_replaces_pending_assist_and_resets_clip() {
         .assisted_targeting
         .expect("assist module");
     // Mid-clip: one shot left on the old victim.
-    let mut mid = PendingPatriotAssist::new(helper, old_victim, old_requester, 0, "USA_Patriot", assist);
+    let mut mid = PendingPatriotAssist::new(helper, old_victim, old_requester, 0, "USA_Patriot", assist, false);
     mid.shots_remaining = 1;
     game_logic.pending_patriot_assists.push(mid);
     game_logic.frame = 1;

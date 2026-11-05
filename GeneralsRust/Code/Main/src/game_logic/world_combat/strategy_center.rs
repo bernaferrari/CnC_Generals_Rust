@@ -365,9 +365,9 @@ impl GameLogic {
         defense_id: ObjectId,
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> gamelogic::GameLogicResult<()> {
-        use crate::game_logic::host_base_defense::{is_authored_gattling_building, 
+        use crate::game_logic::host_base_defense::{
             GATTLING_BUILDING_FIRE_AUDIO, PATRIOT_FIRE_AUDIO, STINGER_FIRE_AUDIO,
-            is_dual_slot_base_defense, is_gattling_cannon_structure, is_patriot_battery_structure,
+            is_authored_gattling_building, is_dual_slot_base_defense, is_patriot_battery_structure,
             is_stinger_site_structure, preferred_dual_defense_slot,
         };
 
@@ -396,16 +396,18 @@ impl GameLogic {
         };
         // SPAWNS_ARE_THE_WEAPONS residual: Stinger Site cannot fire with 0 soldiers.
         if is_stinger {
-            let has_live_spawn = attacker.spawn_behavior_children().into_iter().any(
-                |(child_id, birth)| {
-                    self.objects.get(&child_id).is_some_and(|child| {
-                        attacker.spawn_behavior_child_birth_matches(child_id, &birth, child)
-                            && child.is_alive()
-                            && !child.status.destroyed
-                            && !child.status.effectively_dead
-                    })
-                },
-            );
+            let has_live_spawn =
+                attacker
+                    .spawn_behavior_children()
+                    .into_iter()
+                    .any(|(child_id, birth)| {
+                        self.objects.get(&child_id).is_some_and(|child| {
+                            attacker.spawn_behavior_child_birth_matches(child_id, &birth, child)
+                                && child.is_alive()
+                                && !child.status.destroyed
+                                && !child.status.effectively_dead
+                        })
+                    });
             if !has_live_spawn {
                 return Ok(());
             }
@@ -587,7 +589,11 @@ impl GameLogic {
         // America Fire Base residual: dual-radius howitzer splash owns damage.
         // ScatterRadiusVsInfantry residual closed via shell aim offset / instant impact.
         // Fail-closed: not full ScaleWeaponSpeed lob matrix.
-        let is_fire_base = crate::game_logic::host_fire_base::is_fire_base_template(&template_name);
+        // Keyed on the authored howitzer weapon, not the template name (hq-2qedt.213).
+        let is_fire_base = self.objects.get(&defense_id).is_some_and(|d| {
+            d.selected_weapon_name(slot)
+                == Some(crate::game_logic::host_fire_base::FIRE_BASE_HOWITZER_WEAPON)
+        });
         let mut destroyed = false;
         if is_fire_base {
             let impact = self
@@ -787,8 +793,10 @@ impl GameLogic {
         );
         let is_tunnel =
             crate::game_logic::host_tunnel_network::is_tunnel_network_template(&template_name);
-        let is_laser_patriot =
-            crate::game_logic::host_base_defense::is_laser_patriot_template(&template_name);
+        let is_laser_patriot = self
+            .objects
+            .get(&defense_id)
+            .is_some_and(crate::game_logic::host_base_defense::authors_laser_patriot_weapon_set);
         // C++ base defenses fire their WeaponTemplate's authored FireSound
         // (FiringTracker.cpp:152-155, Weapon.h:678). Known residual kinds keep
         // their authored retail event names; the generic arm resolves the
@@ -911,6 +919,10 @@ impl GameLogic {
         }
         let requester_team = requester.team;
         let requester_template = requester.template_name.clone();
+        let requester_primary = requester.authored_weapon_name_for_slot(0).map(str::to_owned);
+        let requester_slot_weapon = requester
+            .authored_weapon_name_for_slot(if slot == 1 { 1 } else { 0 })
+            .map(str::to_owned);
         let requester_pos = requester.get_position();
 
         let Some(victim) = self.objects.get(&victim_id) else {
@@ -927,6 +939,7 @@ impl GameLogic {
             patriot_request_assist_range_for_template(
                 &requester_template,
                 slot == crate::game_logic::host_base_defense::PATRIOT_AIR_WEAPON_SLOT,
+                requester_slot_weapon.as_deref(),
             )
         });
         if request_range <= 0.0 {
@@ -1034,6 +1047,9 @@ impl GameLogic {
             // resets max shots (AIUpdate.cpp:3417): replace, never stack.
             self.pending_patriot_assists
                 .retain(|p| p.assistant_id != assistant_id);
+            let assistant_laser = self.objects.get(&assistant_id).is_some_and(
+                crate::game_logic::host_base_defense::authors_laser_patriot_weapon_set,
+            );
             self.pending_patriot_assists.push(PendingPatriotAssist::new(
                 assistant_id,
                 victim_id,
@@ -1041,6 +1057,7 @@ impl GameLogic {
                 self.frame,
                 assistant_template,
                 assist,
+                assistant_laser,
             ));
             self.patriot_assist_residual_accepts =
                 self.patriot_assist_residual_accepts.saturating_add(1);
@@ -1151,9 +1168,8 @@ impl GameLogic {
             let assistant_team = assistant.team;
             let assistant_pos = assistant.get_position();
             let assistant_template = assistant.template_name.clone();
-            let is_laser = crate::game_logic::host_base_defense::is_laser_patriot_template(
-                &assistant_template,
-            );
+            let is_laser =
+                crate::game_logic::host_base_defense::authors_laser_patriot_weapon_set(assistant);
             let is_supw =
                 crate::game_logic::host_base_defense::is_supw_patriot_template(&assistant_template);
 
@@ -1709,7 +1725,7 @@ impl GameLogic {
         presentation_effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) {
         use crate::game_logic::host_point_defense::{
-            PDL_INTERCEPT_AUDIO, intercept_priority, is_point_defense_carrier,
+            PDL_INTERCEPT_AUDIO, intercept_priority, is_live_point_defense_carrier,
             is_primary_intercept_target, is_secondary_intercept_target, pdl_damage,
             pdl_delay_frames, pdl_fire_range, pdl_module_count,
         };
@@ -1728,7 +1744,7 @@ impl GameLogic {
                 if !obj.is_alive() || obj.is_disabled() {
                     return None;
                 }
-                if !is_point_defense_carrier(&obj.template_name) {
+                if !is_live_point_defense_carrier(obj) {
                     return None;
                 }
                 // Under construction / unmanned residual: no laser.

@@ -31,7 +31,8 @@ fn colonel_burton_residual_sniper_and_knife() {
         .add_kind_of(KindOf::Selectable)
         .add_kind_of(KindOf::Attackable)
         .set_health(200.0)
-        .set_primary_weapon_name(BURTON_SNIPER_WEAPON);
+        .set_primary_weapon_name(BURTON_SNIPER_WEAPON)
+        .set_secondary_weapon_name(crate::game_logic::host_colonel_burton::BURTON_KNIFE_WEAPON);
     game_logic
         .templates
         .insert("AmericaInfantryColonelBurton".to_string(), burton_tpl);
@@ -740,9 +741,8 @@ fn supw_patriot_emp_residual_dual_slot_and_disable() {
         .add_kind_of(KindOf::FSBaseDefense)
         .set_health(1000.0)
         .set_primary_weapon_name(crate::game_logic::host_base_defense::SUPW_PATRIOT_PRIMARY_WEAPON)
-        .set_secondary_weapon_name(
-            crate::game_logic::host_base_defense::SUPW_PATRIOT_SECONDARY_WEAPON,
-        );
+        .set_secondary_weapon_name(crate::game_logic::host_base_defense::SUPW_PATRIOT_ASSIST_WEAPON)
+        .set_tertiary_weapon_name(crate::game_logic::host_base_defense::SUPW_PATRIOT_SECONDARY_WEAPON);
     game_logic
         .templates
         .insert("SupW_AmericaPatriotBattery".to_string(), pat_tpl);
@@ -791,7 +791,8 @@ fn supw_patriot_emp_residual_dual_slot_and_disable() {
             "SupW ground range 275, got {}",
             g.range
         );
-        let a = p.secondary_weapon.as_ref().expect("SupW AA residual");
+        // hq-2qedt.32.2: retail AA lives in TERTIARY (SECONDARY = assist weapon).
+        let a = p.tertiary_weapon.as_ref().expect("SupW AA residual");
         assert!(
             (a.damage - SUPW_PATRIOT_AIR_DAMAGE).abs() < 0.5,
             "SupW Patriot AA 30, got {}",

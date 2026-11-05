@@ -3039,18 +3039,8 @@ impl GameLogic {
                 );
             }
 
-            // Host residual: USA Patriot dual ground/AA secondary.
-            // Laser General residual uses Lazr_Patriot* damage (40/35) via template.
-            // Fail-closed: not full AssistedTargetingModule assist clips / RequestAssistRange.
-            if crate::game_logic::host_base_defense::authors_patriot_weapon_set(&object) {
-                use crate::game_logic::host_base_defense::{
-                    patriot_air_weapon_for_template, patriot_ground_weapon_for_template,
-                };
-                // Lazr family keys on authored PRIMARY, not the Lazr_ name (hq-2qedt.270).
-                let primary = object.authored_weapon_name_for_slot(0).map(str::to_owned);
-                object.weapon = Some(patriot_ground_weapon_for_template(template_name));
-                object.secondary_weapon = Some(patriot_air_weapon_for_template(template_name));
-            }
+            // Patriot PRIMARY/SECONDARY(assist)/TERTIARY(AA) bind from the authored
+            // WeaponSet above (C++ WeaponSet::updateWeaponSet), no host override.
 
             // USA Crusader / Paladin (incl. Lazr_) PRIMARY binds from the
             // authored WeaponSet above (C++ WeaponSet::updateWeaponSet), not a
