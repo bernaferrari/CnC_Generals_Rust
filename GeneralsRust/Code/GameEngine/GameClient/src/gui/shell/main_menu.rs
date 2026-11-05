@@ -860,7 +860,14 @@ impl MainMenu {
         log::info!("MainMenuInit: layout shown and dropdown hide attempted");
 
         // Map-cache rebuild off the main thread (was a multi-minute stall).
-        std::thread::spawn(|| {
+        // CommonServices is TLS — re-bind the parent's publish on the worker or
+        // update_cache panics in get_map_cache / global_data_arc.
+        let map_cache_common =
+            game_engine::common::common_services::try_common_services();
+        std::thread::spawn(move || {
+            let _common_tls = map_cache_common.map(
+                game_engine::common::common_services::CommonServicesScope::from_services,
+            );
             if let Ok(mut map_cache) = get_map_cache_manager().lock() {
                 map_cache.update_cache();
             }
