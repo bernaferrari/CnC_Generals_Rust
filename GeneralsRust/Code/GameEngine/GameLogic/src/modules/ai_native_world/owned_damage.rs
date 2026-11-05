@@ -355,7 +355,7 @@ impl BorrowedAiWorld<'_> {
         owner: &Arc<RwLock<Object>>,
         damage: &DamageInfo,
     ) -> Result<Option<HiveOwnedRedirect>, String> {
-        let (flags, slaves, contain) = {
+        let flags = {
             let object = owner.try_read().map_err(|_| "damage owner unavailable")?;
             let Some(body) = object.get_body_module() else {
                 return Ok(None);
@@ -364,18 +364,24 @@ impl BorrowedAiWorld<'_> {
                 .try_lock()
                 .map_err(|_| "damage body unavailable")?
                 .hive_redirect_flags(damage.input.damage_type);
-            (
-                flags,
-                object.with_spawn_behavior_full_interface(|spawn| spawn.slave_ids()),
-                object.get_contain(),
-            )
+            flags
         };
+        // Only a HiveStructureBody propagating this damage type consults its
+        // spawn/contain modules (HiveStructureBody.cpp attemptDamage); every
+        // other body must not touch unrelated module entries here.
         let Some((propagate, swallow)) = flags else {
             return Ok(None);
         };
         if !propagate {
             return Ok(None);
         }
+        let (slaves, contain) = {
+            let object = owner.try_read().map_err(|_| "damage owner unavailable")?;
+            (
+                object.with_spawn_behavior_full_interface(|spawn| spawn.slave_ids()),
+                object.get_contain(),
+            )
+        };
         // C++ checks spawn first, then contain; a missing shooter falls through.
         let riders = match (slaves, contain) {
             (Some(slaves), _) => slaves,
