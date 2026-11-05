@@ -21,7 +21,22 @@ fn append_smoke_failure_diagnostics(
             .push_str(&format!("; shell_last={}", st.shell_wnd_detail));
     }
 
-    use std::io::{Read as _, Seek as _, SeekFrom};
+    use std::io::{BufRead as _, Read as _, Seek as _, SeekFrom};
+    // Opt-in: keep the whole child stderr for post-mortem before tmp is removed.
+    if let Some(keep) = std::env::var_os("GENERALS_SMOKE_KEEP_STDERR") {
+        let _ = fs::copy(tmp.join("child_stderr.txt"), keep);
+    }
+    // The tail is usually all backtrace frames; surface the panic message itself.
+    if let Ok(file) = fs::File::open(tmp.join("child_stderr.txt")) {
+        let mut lines = std::io::BufReader::new(file).lines().map_while(Result::ok);
+        if let Some(panic_line) = lines.by_ref().find(|line| line.contains("panicked at")) {
+            let message = lines.next().unwrap_or_default();
+            result.detail.push_str("; child_panic=");
+            result.detail.push_str(panic_line.trim());
+            result.detail.push(' ');
+            result.detail.push_str(message.trim());
+        }
+    }
     let Ok(mut stderr) = fs::File::open(tmp.join("child_stderr.txt")) else {
         return;
     };

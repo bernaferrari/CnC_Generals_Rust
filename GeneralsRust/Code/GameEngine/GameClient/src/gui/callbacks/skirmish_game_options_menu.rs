@@ -1705,7 +1705,7 @@ fn check_for_cd_at_game_start(
     set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
     crate::cd_check::check_for_cd_at_game_start(
         Box::new(|effects| {
-            with_state(|state| start_skirmish_game(state, effects));
+            with_state_on_owner(effects.window_manager_owner, |state| start_skirmish_game(state, effects));
         }),
         effects,
     );
@@ -1996,8 +1996,17 @@ pub fn skirmish_game_options_menu_shutdown(
 /// Requires layout/init so `button_start_id` is bound. Returns true if the system
 /// handler claimed the message (start may still fail on map/CD checks).
 pub fn set_skirmish_menu_selected_map(map: impl Into<String>) {
+    set_skirmish_menu_selected_map_on(None, map);
+}
+
+/// Owner-explicit form: hosts that hold their `GameClient` (headless runtime
+/// host) pass its `WindowManagerOwner` instead of relying on a live-client slot.
+pub fn set_skirmish_menu_selected_map_on(
+    owner: Option<&crate::gui::window_manager::WindowManagerOwner>,
+    map: impl Into<String>,
+) {
     let map = map.into();
-    with_state(|state| {
+    with_state_on_owner(owner, |state| {
         state.selected_map = Some(map.clone());
     });
     let setup_handle = get_skirmish_setup();
@@ -2012,6 +2021,8 @@ pub fn set_skirmish_menu_selected_map(map: impl Into<String>) {
 pub fn simulate_skirmish_start_button_gadget_selected(
     effects: &mut WindowEventEffects<'_>,
 ) -> bool {
+    // Headless hosts drive this without a live-client slot: use the effects' owner.
+    let owner = effects.window_manager_owner;
     ensure_default_slots();
     set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
     let mut button_id = name_to_id("SkirmishGameOptionsMenu.wnd:ButtonStart");
@@ -2021,7 +2032,7 @@ pub fn simulate_skirmish_start_button_gadget_selected(
         button_id = 0x5342_5354; // 'SBST' residual ButtonStart
     }
     // Ensure menu state control ids are bound even if layout init did not finish.
-    with_state(|state| {
+    with_state_on_owner(owner, |state| {
         if state.button_start_id == 0 {
             state.button_start_id = button_id;
         } else {
@@ -2037,7 +2048,7 @@ pub fn simulate_skirmish_start_button_gadget_selected(
             state.button_select_map_id = name_to_id("SkirmishGameOptionsMenu.wnd:ButtonSelectMap");
         }
     });
-    button_id = with_state(|state| {
+    button_id = with_state_on_owner(owner, |state| {
         if state.button_start_id != 0 {
             state.button_start_id
         } else {
@@ -2073,7 +2084,7 @@ pub fn simulate_skirmish_start_button_gadget_selected(
     // through start_skirmish_game so NewGame posts when map/slots are latched.
     // Return true only when button stays pushed (start_skirmish_game clears it on fail).
     set_skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner"), false);
-    with_state(|state| {
+    with_state_on_owner(owner, |state| {
         if state.button_pushed || skirmish_button_pushed(effects.window_manager_owner.expect("menu shell flags require WindowManagerOwner")) {
             return;
         }
@@ -2308,7 +2319,7 @@ pub fn skirmish_game_options_menu_system(
         return write_input_focus_response(data1, data2, true);
     }
     let mut handled = false;
-    with_state(|state| match msg {
+    with_state_on_owner(effects.window_manager_owner, |state| match msg {
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             // C++ parity: if(buttonPushed) break; guards ALL button handling

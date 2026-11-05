@@ -158,7 +158,10 @@ impl CnCGameEngine {
                     let info = setup.game_info_mut().game_info_mut();
                     info.set_map(map.clone());
                 }
-                game_client::gui::callbacks::set_skirmish_menu_selected_map(map.clone());
+                game_client::gui::callbacks::set_skirmish_menu_selected_map_on(
+                    Some(self.game_client.window_manager_owner_ref()),
+                    map.clone(),
+                );
             }
         }
         let _ = self
@@ -228,7 +231,10 @@ impl CnCGameEngine {
                         let info = setup.game_info_mut().game_info_mut();
                         info.set_map(map.clone());
                     }
-                    game_client::gui::callbacks::set_skirmish_menu_selected_map(map.clone());
+                    game_client::gui::callbacks::set_skirmish_menu_selected_map_on(
+                    Some(self.game_client.window_manager_owner_ref()),
+                    map.clone(),
+                );
                     if map_select_wnd_ok
                         || !game_client::gui::get_skirmish_setup().lock().unwrap_or_else(|e| e.into_inner())
                             .game_info()
