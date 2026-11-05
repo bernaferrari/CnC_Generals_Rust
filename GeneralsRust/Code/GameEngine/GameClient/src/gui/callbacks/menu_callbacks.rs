@@ -2350,7 +2350,9 @@ impl MapSelectMenu {
             button_pushed: false,
             is_shutting_down: false,
             start_game: false,
-            difficulty: gamelogic::helpers::TheScriptEngine::get_global_difficulty(),
+            // C++ MapSelectMenu.cpp:35 `s_AIDiff = DIFFICULTY_NORMAL`; the script
+            // engine is only consulted at MapSelectMenuInit (SetDifficultyRadioButton).
+            difficulty: 1,
         }
     }
 

@@ -13,12 +13,22 @@ fn add_briefing(client: &mut GameClient, text: &str) {
     });
 }
 
+/// Publish a Common + Core world for this test thread; `GameClient::new`
+/// builds its View/menus against the receiving services (no process bag).
+fn bind_world() -> game_engine::common::common_services::CommonServicesScope {
+    let scope = game_engine::common::common_services::CommonServicesScope::new();
+    let core = gamelogic::system::engine_stores::new_for_world();
+    gamelogic::system::engine_stores::install_active(core);
+    scope
+}
+
 fn history(client: &GameClient) -> Vec<String> {
     get_briefing_text_list(client.diplomacy())
 }
 
 #[test]
 fn public_xfer_briefing_history_decodes_before_replacing_each_client() {
+    let _world = bind_world();
     let mut source = GameClient::new().unwrap();
     add_briefing(&mut source, "SCRIPT:SourceOne");
     add_briefing(&mut source, "SCRIPT:SourceTwo");
