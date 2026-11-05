@@ -6,6 +6,17 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
+/// Deletion services backed by the GameLogic that is driving the destroy.
+struct GameLogicDeletionServices<'a> {
+    logic: &'a mut GameLogic,
+}
+
+impl crate::object::ObjectDeletionServices for GameLogicDeletionServices<'_> {
+    fn destroy_object(&mut self, object_id: ObjectID) {
+        self.logic.destroy_object(object_id);
+    }
+}
+
 impl GameLogic {
     /// Execute object cleanup services synchronously on the driving owner.
     fn apply_object_destroy_service(
@@ -28,6 +39,9 @@ impl GameLogic {
             }
             ObjectDestroyServiceAction::SendObjectDestroyed => {
                 self.send_object_destroyed(object_id);
+            }
+            ObjectDestroyServiceAction::DestroyObject(child) => {
+                self.destroy_object(child);
             }
         }
     }
@@ -466,7 +480,11 @@ impl GameLogic {
         // obj->onDestroy() then remove WALK_ON_TOP_OF_WALL from the pathfinder
         // and mark the control bar dirty for local special-power objects.
         // Do not split onDestroy across destroyObject / processDestroyList.
-        Object::on_destroy_from_handle_with_radar_services(&obj_arc, radar);
+        Object::on_destroy_from_handle_with_radar_services(
+            &obj_arc,
+            radar,
+            Some(&mut GameLogicDeletionServices { logic: self }),
+        );
         let (is_wall, has_special_power, is_local) = if let Ok(obj) = obj_arc.read() {
             (
                 obj.is_kind_of(KindOf::WalkOnTopOfWall),

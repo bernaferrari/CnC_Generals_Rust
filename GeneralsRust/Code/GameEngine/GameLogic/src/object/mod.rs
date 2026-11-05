@@ -2107,6 +2107,16 @@ pub(crate) enum ObjectDestroyServiceAction {
     MarkTriggerAreasChanged,
     NotifyObjectCountChanged,
     SendObjectDestroyed,
+    /// C++ `TheGameLogic->destroyObject(child)` issued from a module
+    /// destructor; the driving owner appends the child to its destroy list.
+    DestroyObject(ObjectID),
+}
+
+/// Narrow deletion services the driving GameLogic hands to onDelete phases so
+/// a module can destroy a child object synchronously through that owner
+/// (C++ `TheGameLogic->destroyObject`) without any global world lookup.
+pub(crate) trait ObjectDeletionServices {
+    fn destroy_object(&mut self, object_id: ObjectID);
 }
 
 /// Runtime cleanup phase; save data continues to use the C++ status bits.

@@ -496,18 +496,17 @@ impl RebuildHoleBehavior {
         let _ = TheGameLogic::destroy_object_by_id(self.get_object_id());
     }
 
-    /// Matches C++ `~RebuildHoleBehavior`: destroy the generated worker when
-    /// the hole is destroyed (not killed) so it cannot leak as UNSELECTABLE.
-    fn on_delete(&mut self) {
+    /// C++ `~RebuildHoleBehavior` (RebuildHoleBehavior.cpp:73-92) runs during
+    /// the owner's destructor, not onDelete. The destructor phase takes the
+    /// worker id and asks the driving owner to destroy it; the worker stays
+    /// untouched until the parent is finalized.
+    pub(crate) fn take_worker_for_destructor(&mut self) -> Option<ObjectID> {
         if self.worker_id == INVALID_ID {
-            return;
+            return None;
         }
-        if let Some(worker) = TheGameLogic::find_object_by_id(self.worker_id) {
-            if let Ok(worker_guard) = worker.read() {
-                let _ = TheGameLogic::destroy_object(&*worker_guard);
-            }
-            self.worker_id = INVALID_ID;
-        }
+        let worker = self.worker_id;
+        self.worker_id = INVALID_ID;
+        Some(worker)
     }
 }
 
@@ -811,10 +810,6 @@ impl Module for RebuildHoleBehaviorModule {
 
     fn on_object_created(&mut self) {}
 
-    fn on_delete(&mut self) {
-        self.behavior.on_delete();
-    }
-
     /// C++ `UpdateModule : Module` interface query
     /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
     /// to the wrapped behavior's per-frame hooks. Replaces the former
@@ -851,5 +846,78 @@ mod tests {
     #[test]
     fn parse_duration_real_frames_truncates_fractional_frames() {
         assert_eq!(parse_duration_real_frames(&["50ms"]).expect("duration"), 1);
+    }
+}
+
+#[cfg(test)]
+mod destructor_phase_tests {
+    use super::*;
+    use crate::object::ModuleEntry;
+    use crate::object::registry::test_isolation_lock;
+    use game_engine::common::thing::module::{ModuleData as EngineModuleData, ModuleInterfaceType};
+
+    fn world_with_hole(
+        hole_id: ObjectID,
+        worker_id: ObjectID,
+    ) -> (
+        crate::GameLogic,
+        Arc<RwLock<Object>>,
+        Arc<RwLock<Object>>,
+    ) {
+        let mut logic = crate::GameLogic::new();
+        let hole = Arc::new(RwLock::new(Object::new_test(hole_id, 100.0)));
+        let worker = Arc::new(RwLock::new(Object::new_test(worker_id, 100.0)));
+        let data = Arc::new(RebuildHoleBehaviorModuleData::default());
+        let mut behavior = RebuildHoleBehavior::new(hole_id, data.clone());
+        behavior.worker_id = worker_id;
+        let module = RebuildHoleBehaviorModule::new(
+            behavior,
+            &AsciiString::from("RebuildHoleBehavior"),
+            data.clone(),
+        );
+        let engine_data: Arc<dyn EngineModuleData> = data;
+        hole.write().unwrap().modules.push(Arc::new(ModuleEntry::new(
+            "RebuildHoleBehavior".into(),
+            "ModuleTag_Rebuild".into(),
+            ModuleInterfaceType::UPDATE,
+            engine_data,
+            Box::new(module),
+        )));
+        logic.register_object(worker.clone()).unwrap();
+        logic.register_object(hole.clone()).unwrap();
+        (logic, hole, worker)
+    }
+
+    #[test]
+    fn worker_stays_live_until_parent_finalization_then_drains_same_pass() {
+        let _lock = test_isolation_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let common = Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+            crate::system::engine_stores::with_active_stores(&stores, || {
+                destructor_body();
+            });
+        });
+    }
+
+    fn destructor_body() {
+        let (mut world_a, _hole_a, worker_a) = world_with_hole(0x00B0_7501, 0x00B0_7502);
+        let (_world_b, _hole_b, worker_b) = world_with_hole(0x00B0_7501, 0x00B0_7502);
+
+        world_a.destroy_object(0x00B0_7501);
+        assert!(
+            !worker_a.read().unwrap().is_destroyed(),
+            "the destructor, not onDelete, destroys the worker"
+        );
+
+        world_a.cleanup_dead_objects().unwrap();
+        assert!(worker_a.read().unwrap().is_destroyed());
+        assert!(
+            world_a.find_object_by_id(0x00B0_7501).is_none()
+                && world_a.find_object_by_id(0x00B0_7502).is_none()
+        );
+        assert!(!worker_b.read().unwrap().is_destroyed());
     }
 }
