@@ -1741,7 +1741,20 @@ impl Object {
 
 impl Drop for Object {
     fn drop(&mut self) {
-        if self.ambient_lifecycle_admitted {
+        if !self.ambient_lifecycle_admitted {
+            return;
+        }
+        // The destructor tail reads the bound WorldServices; with none bound
+        // there is no owner to retire into, so fail closed instead of panicking
+        // inside Drop (a double panic aborts the whole process).
+        if crate::system::engine_stores::try_active_services().is_none() {
+            return;
+        }
+        if std::thread::panicking() {
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.run_destructor_tail();
+            }));
+        } else {
             self.run_destructor_tail();
         }
     }
