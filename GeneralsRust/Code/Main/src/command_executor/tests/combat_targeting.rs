@@ -92,12 +92,14 @@ fn follow_waypoint_as_team_preserves_offsets() {
 }
 
 #[test]
-fn do_command_button_using_waypoints_attack_moves() {
+fn do_command_button_using_waypoints_does_not_invent_attack_move_path() {
     use super::CommandExecutor;
     use crate::command_system::CommandResult;
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
     use glam::Vec3;
 
+    // C++ Object.cpp:5737-5800 — AttackMove lacks CAN_USE_WAYPOINTS and must
+    // do nothing (no invented follow-path).
     let mut logic = GameLogic::new();
     let mut tpl = ThingTemplate::new("BW_V");
     tpl.add_kind_of(KindOf::Vehicle);
@@ -108,13 +110,16 @@ fn do_command_button_using_waypoints_attack_moves() {
     let wps = vec![Vec3::new(10.0, 0.0, 0.0), Vec3::new(80.0, 0.0, 0.0)];
     {
         let mut exec = CommandExecutor::new(&mut logic, 0);
-        assert!(
-            exec.execute_do_command_button_using_waypoints(&[id], "Command_AttackMove", &wps).unwrap() == CommandResult::Success);
+        assert_eq!(
+            exec.execute_do_command_button_using_waypoints(&[id], "Command_AttackMove", &wps)
+                .unwrap(),
+            CommandResult::Success
+        );
     }
     let u = logic.host_object(id).unwrap();
     assert!(
-        !u.movement.path.is_empty() || u.movement.target_position.is_some(),
-        "should path along waypoints"
+        u.movement.path.is_empty() && u.movement.target_position.is_none(),
+        "AttackMove without CAN_USE_WAYPOINTS must not invent a path"
     );
 }
 

@@ -83,36 +83,33 @@ impl<'a> CommandExecutor<'a> {
         if waypoints.is_empty() {
             return self.execute_do_command_button(units, button, None, None);
         }
-        let Some(ct) = command_type_from_button_name(button) else {
-            // Unknown button: still follow the waypoint path.
-            return Ok(self.execute_follow_waypoint_path(units, waypoints, false, true)?);
+
+        // C++ Object::doCommandButtonUsingWaypoints (Object.cpp:5737-5800):
+        // require CAN_USE_WAYPOINTS; only GUI_COMMAND_SPECIAL_POWER with a
+        // template acts. Unknown/AttackMove/Move/Guard must not invent a path.
+        let definition = game_engine::common::ini::ini_command_button::get_control_bar()
+            .and_then(|bar| bar.find_command_button_resolved(button).cloned());
+        let Some(definition) = definition else {
+            return Ok(CommandResult::Success);
         };
+        // C++ ControlBar.h: CAN_USE_WAYPOINTS = 0x00400000
+        if !definition.options.can_use_waypoints
+            && (definition.options_bits & 0x0040_0000) == 0
+        {
+            return Ok(CommandResult::Success);
+        }
+        let ct = command_type_from_button_name(button)
+            .or_else(|| command_type_from_button_name(&definition.command));
         match ct {
-            CommandType::AttackMoveTo { .. } | CommandType::ForceMoveTo { .. } => {
-                // Attack-move / force-move along waypoints as a team path.
-                Ok(self.execute_follow_waypoint_path(units, waypoints, false, true)?)
-            }
-            CommandType::MoveTo { .. } | CommandType::FollowWaypointPath { .. } => {
-                Ok(self.execute_follow_waypoint_path(units, waypoints, false, true)?)
-            }
-            CommandType::Guard { .. } => {
-                // Guard at final waypoint.
+            Some(CommandType::DoSpecialPower { .. })
+            | Some(CommandType::DoSpecialPowerWithMetadata { .. }) => {
+                // Authored special-power waypoint cast; reuse positional dispatch
+                // at the final waypoint (script COMMAND_FIRED_BY_SCRIPT residual
+                // is applied inside special-power admission).
                 let last = *waypoints.last().unwrap();
                 self.execute_do_command_button(units, button, Some(last), None)
             }
-            _ => {
-                // Default: path as team, then fire button at final point.
-                let last = *waypoints.last().unwrap();
-                let path_res = self.execute_follow_waypoint_path(units, waypoints, false, true)?;
-                let btn_res = self.execute_do_command_button(units, button, Some(last), None)?;
-                if matches!(path_res, CommandResult::Success)
-                    || matches!(btn_res, CommandResult::Success)
-                {
-                    Ok(CommandResult::Success)
-                } else {
-                    Ok(path_res)
-                }
-            }
+            _ => Ok(CommandResult::Success),
         }
     }
 
