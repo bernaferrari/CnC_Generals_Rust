@@ -533,6 +533,7 @@ impl GameClient {
     /// Sets the current frame number
     pub fn set_frame(&mut self, frame: u32) {
         self.frame = frame;
+        refresh_live_game_client_address(self);
         publish_live_game_client_frame(self);
     }
 

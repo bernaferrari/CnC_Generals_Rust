@@ -32,18 +32,23 @@ pub(crate) fn register_live_game_client(client: &mut GameClient) {
             // GameClient` would invalidate the callback's exclusivity.  This is
             // not a valid lifecycle transition, so leave the existing slot live.
             log::error!("refusing to replace a borrowed live GameClient snapshot slot");
-            return false;
+            return None;
         }
 
         slot.generation = slot.generation.wrapping_add(1).max(1);
+        slot.token = slot.generation;
         slot.raw = Some(raw);
         slot.owner_thread = Some(std::thread::current().id());
         slot.frame = frame;
-        true
-    });
-    if registered != Some(true) {
+        Some(slot.token)
+    })
+    .flatten();
+    let Some(token) = registered else {
         return;
-    }
+    };
+    // Ownership follows this identity, which moves with the value; the address
+    // above is only the snapshot access path.
+    client.live_slot_token = token;
     crate::terrain::terrain_visual::publish_terrain_visual(std::sync::Arc::clone(
         &client.terrain_visual_gpu,
     ));
@@ -52,13 +57,39 @@ pub(crate) fn register_live_game_client(client: &mut GameClient) {
     set_local_player_id(player_id);
 }
 
+/// Re-anchor the snapshot access path after the owner may have been moved
+/// (C++ TheGameClient never moves; a Rust value can). Only the registered
+/// owner, outside a snapshot callback, may update the address.
+pub(crate) fn refresh_live_game_client_address(client: &mut GameClient) {
+    let token = client.live_slot_token;
+    if token == 0 {
+        return;
+    }
+    let raw = std::ptr::from_mut(client) as usize;
+    let current_thread = std::thread::current().id();
+    let _ = with_live_bridge_mut(|slot| {
+        if slot.token == token && slot.raw.is_some() && !slot.borrowed
+            && slot.owner_thread == Some(current_thread)
+        {
+            slot.raw = Some(raw);
+        }
+    });
+}
+
 /// Return whether this client owned the published slot. Only that client may
 /// tear down process-visible presentation state during its destructor.
+/// Identity is the client's registration token, so a client that was moved
+/// (including `drop(client)`) still clears exactly its own registration and an
+/// older client never clears a newer one.
 pub(crate) fn clear_live_game_client(client: &mut GameClient) -> bool {
-    let current = std::ptr::from_mut(client) as usize;
+    let token = std::mem::take(&mut client.live_slot_token);
+    if token == 0 {
+        return false;
+    }
     with_live_bridge_mut(|slot| {
-        if slot.raw.is_some_and(|stored| stored == current) {
+        if slot.token == token && slot.raw.is_some() {
             slot.raw = None;
+            slot.token = 0;
             slot.owner_thread = None;
             slot.borrowed = false;
             slot.frame = 0;
@@ -71,25 +102,29 @@ pub(crate) fn clear_live_game_client(client: &mut GameClient) -> bool {
 }
 
 pub(crate) fn owns_live_game_client_slot(client: &GameClient) -> bool {
-    let current = std::ptr::from_ref(client) as usize;
+    let token = client.live_slot_token;
     let current_thread = std::thread::current().id();
-    with_live_bridge_mut(|slot| {
-        slot.raw == Some(current) && slot.owner_thread == Some(current_thread)
-    })
-    .unwrap_or(false)
+    token != 0
+        && with_live_bridge_mut(|slot| {
+            slot.token == token && slot.raw.is_some() && slot.owner_thread == Some(current_thread)
+        })
+        .unwrap_or(false)
 }
 
 /// Refresh the scalar frame observable for input translators without borrowing
 /// the live singleton.  A non-registered test/local client intentionally does
 /// not replace the active engine's value.
 pub(crate) fn publish_live_game_client_frame(client: &GameClient) {
-    publish_client_frame_for_identity(std::ptr::from_ref(client) as usize, client.frame);
+    publish_client_frame_for_identity(client.live_slot_token, client.frame);
 }
 
-fn publish_client_frame_for_identity(identity: usize, frame: u32) {
+fn publish_client_frame_for_identity(token: u64, frame: u32) {
+    if token == 0 {
+        return;
+    }
     let current_thread = std::thread::current().id();
     let _ = with_live_bridge_mut(|slot| {
-        if slot.raw == Some(identity) && slot.owner_thread == Some(current_thread) {
+        if slot.token == token && slot.raw.is_some() && slot.owner_thread == Some(current_thread) {
             slot.frame = frame;
         }
     });
@@ -475,6 +510,52 @@ assert_eq!(live_game_client_frame(), Some(41));
     }
 
     #[test]
+    fn moved_client_is_still_identified_and_cleared_by_explicit_drop() {
+        crate::test_support::ensure_ambient_host();
+        let _serial = live_slot_test_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut client = GameClient::new().expect("client");
+        register_live_game_client(&mut client);
+        client.set_frame(9);
+        assert_eq!(live_game_client_frame(), Some(9));
+        // Move the value (address changes), then keep driving it: the owner
+        // re-anchors the access path and remains the registered owner.
+        let mut moved = Box::new(client);
+        moved.set_frame(10);
+        assert!(owns_live_game_client_slot(&moved));
+        assert_eq!(live_game_client_frame(), Some(10));
+        assert_eq!(with_live_game_client_mut(|c| c.frame), Some(10));
+        // `drop(value)` moves before Drop; ownership is by identity so the slot
+        // is cleared rather than left naming a freed address.
+        drop(*moved);
+        assert_eq!(live_game_client_frame(), None);
+        assert!(with_live_game_client_mut(|_| ()).is_none());
+    }
+
+    #[test]
+    fn stale_older_client_cannot_clear_or_publish_into_a_newer_registration() {
+        crate::test_support::ensure_ambient_host();
+        let _serial = live_slot_test_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut older = Box::new(GameClient::new().expect("older"));
+        let mut newer = Box::new(GameClient::new().expect("newer"));
+        register_live_game_client(older.as_mut());
+        register_live_game_client(newer.as_mut());
+        newer.set_frame(77);
+        assert!(!owns_live_game_client_slot(&older));
+        assert!(owns_live_game_client_slot(&newer));
+        older.set_frame(5);
+        assert_eq!(live_game_client_frame(), Some(77));
+        assert!(!clear_live_game_client(older.as_mut()));
+        drop(older);
+        assert_eq!(live_game_client_frame(), Some(77));
+        assert!(clear_live_game_client(newer.as_mut()));
+        assert_eq!(live_game_client_frame(), None);
+    }
+
+    #[test]
     fn explicit_drawable_visual_restore_targets_only_its_client() {
         crate::test_support::ensure_ambient_host();
         let _serial = live_slot_test_lock()
@@ -684,10 +765,10 @@ assert_eq!(live_game_client_frame(), Some(41));
 #[path = "fx_client_bone_tests.rs"]
 mod fx_client_bone_tests;
 
-/// Disjoint frame loan. Address is comparison identity only, never dereferenced.
+/// Disjoint frame loan. The live-slot token is its comparison identity.
 pub struct ClientFrameWriter<'a> {
     frame: &'a mut u32,
-    identity: usize,
+    identity: u64,
 }
 impl ClientFrameWriter<'_> {
     /// Read the admitted frame from this exact receiving Client loan.
@@ -720,7 +801,8 @@ impl GameClient {
     pub fn split_frame_and_snow(
         &mut self,
     ) -> (ClientFrameWriter<'_>, &mut crate::snow::SnowManager) {
-        let identity = std::ptr::from_mut(self) as usize;
+        refresh_live_game_client_address(self);
+        let identity = self.live_slot_token;
         (
             ClientFrameWriter {
                 frame: &mut self.frame,
@@ -736,7 +818,8 @@ impl GameClient {
         &mut crate::snow::SnowManager,
         NativeDrawablePresence<'_>,
     ) {
-        let identity = std::ptr::from_mut(self) as usize;
+        refresh_live_game_client_address(self);
+        let identity = self.live_slot_token;
         (
             ClientFrameWriter {
                 frame: &mut self.frame,
@@ -755,7 +838,8 @@ impl GameClient {
         &mut crate::snow::SnowManager,
         NativeDrawableOwner<'_>,
     ) {
-        let identity = std::ptr::from_mut(self) as usize;
+        refresh_live_game_client_address(self);
+        let identity = self.live_slot_token;
         let mut drawable_owner = self.drawables.borrow_native();
         drawable_owner.audio_device = self.native_audio_device.as_ref();
         (
@@ -775,7 +859,8 @@ impl GameClient {
         NativeDrawableOwner<'_>,
         &mut crate::gui::campaign_manager::CampaignManager,
     ) {
-        let identity = std::ptr::from_mut(self) as usize;
+        refresh_live_game_client_address(self);
+        let identity = self.live_slot_token;
         let mut drawable_owner = self.drawables.borrow_native();
         drawable_owner.audio_device = self.native_audio_device.as_ref();
         (
@@ -797,7 +882,8 @@ impl GameClient {
         &mut crate::gui::campaign_manager::CampaignManager,
         &mut crate::gui::command_hints::CommandHintState,
     ) {
-        let identity = std::ptr::from_mut(self) as usize;
+        refresh_live_game_client_address(self);
+        let identity = self.live_slot_token;
         let mut drawable_owner = self.drawables.borrow_native();
         drawable_owner.audio_device = self.native_audio_device.as_ref();
         (
@@ -826,7 +912,8 @@ impl GameClient {
         &'a mut crate::message_stream::message_stream::MessageStream,
     ) {
         let client_frame = self.frame;
-        let identity = std::ptr::from_mut(self) as usize;
+        refresh_live_game_client_address(self);
+        let identity = self.live_slot_token;
         let mut drawable_owner = self.drawables.borrow_native();
         drawable_owner.audio_device = self.native_audio_device.as_ref();
         self.script_display

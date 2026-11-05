@@ -169,6 +169,7 @@ impl GameClient {
                 crate::system::anim2_d::Anim2DCollection::new(),
             )),
             drawables: drawable_world::DrawableWorld::new(),
+            live_slot_token: 0,
             pending_drawable_post_process_order: None,
             drawable_toc: Vec::new(),
             loaded_map: None,

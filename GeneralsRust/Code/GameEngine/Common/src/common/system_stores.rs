@@ -57,6 +57,9 @@ pub struct LiveGameClientBridge {
     pub raw: Option<usize>,
     pub owner_thread: Option<ThreadId>,
     pub generation: u64,
+    /// Identity of the registered client (its `live_slot_token`); the address
+    /// above is only the snapshot access path and is not used for ownership.
+    pub token: u64,
     pub borrowed: bool,
     /// Cached frame so readers avoid aliasing `GameClient::update`.
     pub frame: u32,

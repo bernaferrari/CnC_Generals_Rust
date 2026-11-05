@@ -165,6 +165,10 @@ pub struct GameClient {
     /// C++ TheAnim2DCollection residual.
     client_anim2d_instances: std::sync::Arc<parking_lot::Mutex<crate::system::anim2_d::Anim2DCollection>>,
 
+    /// Stable identity of this client's live-slot registration (0 = none). It
+    /// travels with the value across moves, unlike its address.
+    pub(crate) live_slot_token: u64,
+
     // Drawable management
     pub(crate) drawables: drawable_world::DrawableWorld,
     /// Drawable snapshot IDs in successful native Xfer visitation order.
