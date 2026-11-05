@@ -9,7 +9,7 @@ use gamelogic::common::ObjectStatusTypes;
 /// Original onDie observes this hit, independently of the Body's preferred
 /// damage history. This value crosses bounded callbacks, never a world registry.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct OnDieInput {
+pub struct OnDieInput {
     pub(crate) source: Option<ObjectId>,
     pub(crate) damage_type: DamageType,
     pub(crate) death_type: crate::game_logic::host_usa_pilot::HostDeathType,
