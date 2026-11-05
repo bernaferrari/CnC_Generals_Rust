@@ -319,6 +319,9 @@ pub struct MeshRenderManager {
     /// "texture not found" debug spam guard; prevents per-frame log floods.
     fallback_bind_warnings: HashMap<(String, &'static str), ()>,
 
+    /// Bind groups and static vertex-color buffers reused across draws (R5).
+    bind_cache: super::bind_cache::MeshBindCache,
+
     /// This renderer's sorted-translucency queue (C++ `SortingRendererClass`).
     /// Owned per instance: flushing it can only draw this renderer's triangles.
     sorting: ww3d_gpu::SortingRenderer,
@@ -365,6 +368,7 @@ impl MeshRenderManager {
             gpu_texture_views: HashMap::new(),
             owned_texture_views: HashMap::new(),
             fallback_bind_warnings: HashMap::new(),
+            bind_cache: super::bind_cache::MeshBindCache::default(),
             sorting: ww3d_gpu::SortingRenderer::new(),
             stats: MeshRenderStats::default(),
             pipeline_mgr,
@@ -561,6 +565,18 @@ impl MeshRenderManager {
             .expect("prepared model must exist")
             .clone();
         Ok(prepared)
+    }
+
+    /// Start a frame: the frame uniform arena was just reset, so arena-backed
+    /// cached groups are dropped and idle persistent groups age out.
+    pub fn begin_frame_caches(&mut self) {
+        self.bind_cache.begin_frame();
+        self.bind_cache.begin_pass();
+    }
+
+    /// Bind-group cache hits/misses since the last [`Self::begin_frame_caches`].
+    pub fn bind_cache_stats(&self) -> super::bind_cache::MeshBindCacheStats {
+        self.bind_cache.stats
     }
 
     /// Number of sorted batches queued since the last [`Self::flush_sorted`].
@@ -997,13 +1013,22 @@ impl MeshRenderManager {
             false,
         );
 
-        let camera_binds = WgpuMaterialBinds::camera(
-            self.gpu_device.as_ref(),
-            pipeline.as_ref(),
-            0,
-            arena,
-            render_info,
-        )?;
+        let pipeline_id = super::bind_cache::addr(&pipeline);
+        let camera_binds = {
+            let gpu = Arc::clone(&self.gpu_device);
+            let key = super::bind_cache::UniformGroupKey {
+                pipeline: pipeline_id,
+                group: 0,
+                contents: WgpuMaterialBinds::camera_contents_hash(render_info),
+            };
+            self.bind_cache.per_pass_group(key, || {
+                WgpuMaterialBinds::camera(gpu.as_ref(), pipeline.as_ref(), 0, arena, render_info)
+                    .map(|binds| super::bind_cache::CachedGroup {
+                        bind_group: binds.bind_group,
+                        buffers: vec![binds.buffer],
+                    })
+            })?
+        };
         let projection = projected.projection();
         let model_binds = WgpuMaterialBinds::model(
             self.gpu_device.as_ref(),
@@ -1038,7 +1063,10 @@ impl MeshRenderManager {
         )?;
 
         resources.set_pipeline(render_pass, Arc::clone(&pipeline));
-        resources.retain_buffer(Arc::clone(&camera_binds.buffer));
+        camera_binds
+            .buffers
+            .iter()
+            .for_each(|buffer| resources.retain_buffer(Arc::clone(buffer)));
         resources.set_bind_group(render_pass, 0, Arc::clone(&camera_binds.bind_group));
         resources.retain_buffer(Arc::clone(&model_binds.model_buffer));
         resources.retain_buffer(Arc::clone(&model_binds.lighting_buffer));
@@ -1211,13 +1239,22 @@ impl MeshRenderManager {
         );
         let mut sorted_groups: Vec<Arc<wgpu::BindGroup>> = Vec::with_capacity(8);
 
-        let camera_binds = WgpuMaterialBinds::camera(
-            self.gpu_device.as_ref(),
-            pipeline.as_ref(),
-            0,
-            arena,
-            render_info,
-        )?;
+        let pipeline_id = super::bind_cache::addr(&pipeline);
+        let camera_binds = {
+            let gpu = Arc::clone(&self.gpu_device);
+            let key = super::bind_cache::UniformGroupKey {
+                pipeline: pipeline_id,
+                group: 0,
+                contents: WgpuMaterialBinds::camera_contents_hash(render_info),
+            };
+            self.bind_cache.per_pass_group(key, || {
+                WgpuMaterialBinds::camera(gpu.as_ref(), pipeline.as_ref(), 0, arena, render_info)
+                    .map(|binds| super::bind_cache::CachedGroup {
+                        bind_group: binds.bind_group,
+                        buffers: vec![binds.buffer],
+                    })
+            })?
+        };
 
         let (mut material_diffuse, material_specular, material_emissive) =
             material_properties(pass.get_vertex_material());
@@ -1254,7 +1291,10 @@ impl MeshRenderManager {
 
         resources.set_pipeline(render_pass, Arc::clone(&pipeline));
 
-        resources.retain_buffer(Arc::clone(&camera_binds.buffer));
+        camera_binds
+            .buffers
+            .iter()
+            .for_each(|buffer| resources.retain_buffer(Arc::clone(buffer)));
         resources.set_bind_group(render_pass, 0, Arc::clone(&camera_binds.bind_group));
         sorted_groups.push(Arc::clone(&camera_binds.bind_group));
 
@@ -1287,20 +1327,35 @@ impl MeshRenderManager {
             sorted_groups.push(Arc::clone(&binds.bind_group));
         } else {
             // Non-skinned shaders expect UV transform at group 2.
-            let uv_transform_binds = WgpuMaterialBinds::uv_transform(
-                self.gpu_device.wgpu_device(),
-                pipeline.as_ref(),
-                2,
-                Some(pass),
-                render_info.time,
-            )?;
-            resources.retain_buffer(Arc::clone(&uv_transform_binds.buffer));
+            let gpu = Arc::clone(&self.gpu_device);
+            let key = super::bind_cache::UniformGroupKey {
+                pipeline: pipeline_id,
+                group: 2,
+                contents: WgpuMaterialBinds::uv_transform_contents_hash(Some(pass), render_info.time),
+            };
+            let uv_transform_binds = self.bind_cache.per_pass_group(key, || {
+                WgpuMaterialBinds::uv_transform_in_arena(
+                    gpu.as_ref(),
+                    pipeline.as_ref(),
+                    2,
+                    Some(pass),
+                    render_info.time,
+                    arena,
+                )
+                .map(|binds| super::bind_cache::CachedGroup {
+                    bind_group: binds.bind_group,
+                    buffers: vec![binds.buffer],
+                })
+            })?;
+            uv_transform_binds
+                .buffers
+                .iter()
+                .for_each(|buffer| resources.retain_buffer(Arc::clone(buffer)));
             resources.set_bind_group(render_pass, 2, Arc::clone(&uv_transform_binds.bind_group));
             sorted_groups.push(Arc::clone(&uv_transform_binds.bind_group));
         }
 
-        let texture_bind_groups =
-            self.create_texture_bind_groups(pipeline.as_ref(), pass, next_slot);
+        let texture_bind_groups = self.create_texture_bind_groups(&pipeline, pass, next_slot);
         for (offset, bind_group) in texture_bind_groups.iter().enumerate() {
             resources.set_bind_group(
                 render_pass,
@@ -1310,8 +1365,7 @@ impl MeshRenderManager {
             sorted_groups.push(Arc::clone(bind_group));
         }
         let color_group_index = next_slot + texture_bind_groups.len() as u32;
-        let vertex_color =
-            self.create_vertex_color_resources(pipeline.as_ref(), pass, color_group_index);
+        let vertex_color = self.create_vertex_color_resources(&pipeline, pass, color_group_index);
         resources.retain_buffer(Arc::clone(&vertex_color.diffuse_buffer));
         resources.retain_buffer(Arc::clone(&vertex_color.illumination_buffer));
         resources.set_bind_group(
@@ -1439,69 +1493,82 @@ impl MeshRenderManager {
     }
 
     fn create_vertex_color_resources(
-        &self,
-        pipeline: &wgpu::RenderPipeline,
+        &mut self,
+        pipeline: &Arc<wgpu::RenderPipeline>,
         pass: &MaterialPassClass,
         group_index: u32,
     ) -> VertexColorResources {
-        let device = self.gpu_device.wgpu_device();
-
-        let diffuse_buffer = pass.diffuse_vertex_colors.as_ref().map(|colors| {
-            let mut data = Vec::with_capacity(colors.len() * 4);
-            for color in colors {
-                data.push(color.x);
-                data.push(color.y);
-                data.push(color.z);
-                data.push(color.w);
+        // Static per material pass: buffers are shared by contents and the
+        // bind group by (pipeline, contents) instead of being rebuilt per draw.
+        let bytes = |colors: &Option<Vec<Vec4>>| {
+            colors
+                .as_ref()
+                .map(|colors| bytemuck::cast_slice::<Vec4, u8>(colors).to_vec())
+        };
+        let diffuse_bytes = bytes(&pass.diffuse_vertex_colors);
+        let illumination_bytes = bytes(&pass.illumination_vertex_colors);
+        let content_key = |bytes: &Option<Vec<u8>>| {
+            bytes
+                .as_ref()
+                .map(|bytes| (super::bind_cache::content_hash(bytes), bytes.len()))
+        };
+        let key = super::bind_cache::VertexColorKey {
+            pipeline: super::bind_cache::addr(pipeline),
+            group: group_index,
+            diffuse: content_key(&diffuse_bytes),
+            illumination: content_key(&illumination_bytes),
+        };
+        let device = Arc::clone(&self.gpu_device);
+        let empty_diffuse = Arc::clone(&self.empty_vertex_color_buffer);
+        let empty_illumination = Arc::clone(&self.empty_illumination_buffer);
+        let group = self.bind_cache.vertex_color_group(key, pipeline, |cache| {
+            let device = device.wgpu_device();
+            let mut storage = |bytes: Option<Vec<u8>>, label, empty: Arc<wgpu::Buffer>| {
+                bytes.map_or(empty, |bytes| {
+                    cache.color_buffer(&bytes, || {
+                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some(label),
+                            contents: &bytes,
+                            usage: wgpu::BufferUsages::STORAGE,
+                        })
+                    })
+                })
+            };
+            let diffuse = storage(
+                diffuse_bytes,
+                "MeshManager Diffuse Vertex Colors",
+                empty_diffuse,
+            );
+            let illumination = storage(
+                illumination_bytes,
+                "MeshManager Illumination Vertex Colors",
+                empty_illumination,
+            );
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("MeshManager Vertex Color Bind Group"),
+                layout: &pipeline.get_bind_group_layout(group_index),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: diffuse.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: illumination.as_entire_binding(),
+                    },
+                ],
+            });
+            super::bind_cache::CachedGroup {
+                bind_group: Arc::new(bind_group),
+                buffers: vec![diffuse, illumination],
             }
-            Arc::new(
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("MeshManager Diffuse Vertex Colors"),
-                    contents: bytemuck::cast_slice(&data),
-                    usage: wgpu::BufferUsages::STORAGE,
-                }),
-            )
         });
-
-        let illumination_buffer = pass.illumination_vertex_colors.as_ref().map(|colors| {
-            let mut data = Vec::with_capacity(colors.len() * 4);
-            for color in colors {
-                data.push(color.x);
-                data.push(color.y);
-                data.push(color.z);
-                data.push(color.w);
-            }
-            Arc::new(
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("MeshManager Illumination Vertex Colors"),
-                    contents: bytemuck::cast_slice(&data),
-                    usage: wgpu::BufferUsages::STORAGE,
-                }),
-            )
-        });
-
-        let diffuse_buffer =
-            diffuse_buffer.unwrap_or_else(|| self.empty_vertex_color_buffer.clone());
+        let mut buffers = group.buffers.into_iter();
+        let diffuse_buffer = buffers.next().unwrap_or_else(|| Arc::clone(&self.empty_vertex_color_buffer));
         let illumination_buffer =
-            illumination_buffer.unwrap_or_else(|| self.empty_illumination_buffer.clone());
-
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("MeshManager Vertex Color Bind Group"),
-            layout: &pipeline.get_bind_group_layout(group_index),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: diffuse_buffer.as_ref().as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: illumination_buffer.as_ref().as_entire_binding(),
-                },
-            ],
-        });
-
+            buffers.next().unwrap_or_else(|| Arc::clone(&self.empty_illumination_buffer));
         VertexColorResources {
-            bind_group: Arc::new(bind_group),
+            bind_group: group.bind_group,
             diffuse_buffer,
             illumination_buffer,
         }
@@ -1509,54 +1576,68 @@ impl MeshRenderManager {
 
     fn create_texture_bind_groups(
         &mut self,
-        pipeline: &wgpu::RenderPipeline,
+        pipeline: &Arc<wgpu::RenderPipeline>,
         pass: &MaterialPassClass,
         first_group_index: u32,
     ) -> Vec<Arc<wgpu::BindGroup>> {
         let mut bind_groups = Vec::with_capacity(MAX_TEXTURE_STAGE_GROUPS);
+        let pipeline_id = super::bind_cache::addr(pipeline);
         for group in 0..MAX_TEXTURE_STAGE_GROUPS {
-            let layout = pipeline.get_bind_group_layout(first_group_index + group as u32);
+            let group_index = first_group_index + group as u32;
             let stage_base = group * TEXTURES_PER_GROUP;
-            let mut views_2d: Vec<Arc<wgpu::TextureView>> = Vec::with_capacity(TEXTURES_PER_GROUP);
-            let mut views_cube: Vec<Arc<wgpu::TextureView>> =
-                Vec::with_capacity(TEXTURES_PER_GROUP);
+            let mut views: Vec<Arc<wgpu::TextureView>> = Vec::with_capacity(TEXTURES_PER_GROUP * 2);
             let mut samplers: Vec<Arc<wgpu::Sampler>> = Vec::with_capacity(TEXTURES_PER_GROUP);
-
             for stage_offset in 0..TEXTURES_PER_GROUP {
-                let stage_index = stage_base + stage_offset;
-                let resources = self.stage_resources_for(pass, stage_index);
-                views_2d.push(resources.view_2d);
-                views_cube.push(resources.view_cube);
+                let resources = self.stage_resources_for(pass, stage_base + stage_offset);
+                views.push(resources.view_2d);
+                views.push(resources.view_cube);
                 samplers.push(resources.sampler);
             }
-
-            let mut entries = Vec::with_capacity(TEXTURES_PER_GROUP * 3);
-            for stage_offset in 0..TEXTURES_PER_GROUP {
-                let binding_base = (stage_offset * 3) as u32;
-                entries.push(wgpu::BindGroupEntry {
-                    binding: binding_base,
-                    resource: wgpu::BindingResource::TextureView(views_2d[stage_offset].as_ref()),
-                });
-                entries.push(wgpu::BindGroupEntry {
-                    binding: binding_base + 1,
-                    resource: wgpu::BindingResource::TextureView(views_cube[stage_offset].as_ref()),
-                });
-                entries.push(wgpu::BindGroupEntry {
-                    binding: binding_base + 2,
-                    resource: wgpu::BindingResource::Sampler(samplers[stage_offset].as_ref()),
-                });
-            }
-
-            let bind_group =
-                self.gpu_device
+            let key = super::bind_cache::TextureGroupKey {
+                pipeline: pipeline_id,
+                group: group_index,
+                resources: views
+                    .iter()
+                    .map(super::bind_cache::addr)
+                    .chain(samplers.iter().map(super::bind_cache::addr))
+                    .collect(),
+            };
+            let device = Arc::clone(&self.gpu_device);
+            let create = || {
+                let layout = pipeline.get_bind_group_layout(group_index);
+                let mut entries = Vec::with_capacity(TEXTURES_PER_GROUP * 3);
+                for stage_offset in 0..TEXTURES_PER_GROUP {
+                    let binding_base = (stage_offset * 3) as u32;
+                    entries.push(wgpu::BindGroupEntry {
+                        binding: binding_base,
+                        resource: wgpu::BindingResource::TextureView(
+                            views[stage_offset * 2].as_ref(),
+                        ),
+                    });
+                    entries.push(wgpu::BindGroupEntry {
+                        binding: binding_base + 1,
+                        resource: wgpu::BindingResource::TextureView(
+                            views[stage_offset * 2 + 1].as_ref(),
+                        ),
+                    });
+                    entries.push(wgpu::BindGroupEntry {
+                        binding: binding_base + 2,
+                        resource: wgpu::BindingResource::Sampler(samplers[stage_offset].as_ref()),
+                    });
+                }
+                device
                     .wgpu_device()
                     .create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("MeshManager Texture Bind Group"),
                         layout: &layout,
                         entries: &entries,
-                    });
-
-            bind_groups.push(Arc::new(bind_group));
+                    })
+            };
+            let (pinned_views, pinned_samplers) = (views.clone(), samplers.clone());
+            let bind_group =
+                self.bind_cache
+                    .texture_group(key, pipeline, pinned_views, pinned_samplers, create);
+            bind_groups.push(bind_group);
         }
         bind_groups
     }
@@ -1564,11 +1645,10 @@ impl MeshRenderManager {
     fn stage_resources_for(&mut self, pass: &MaterialPassClass, stage: usize) -> StageResources {
         let texture_opt = pass.get_texture(stage);
         let resources = if let Some(texture) = texture_opt {
-            if let Some(view) = texture.get_texture_view() {
-                let sampler_desc = sampler_descriptor_for_settings(&texture.stage_settings);
-                let sampler = Arc::new(self.gpu_device.wgpu_device().create_sampler(&sampler_desc));
+            if let Some(gpu_texture) = texture.gpu_texture.as_ref() {
+                let sampler = self.stage_sampler(&texture.stage_settings);
                 StageResources {
-                    view_2d: Arc::new(view),
+                    view_2d: self.bind_cache.texture_view(gpu_texture),
                     view_cube: self.fallback_textures.view_cube.clone(),
                     sampler,
                 }
@@ -1579,8 +1659,7 @@ impl MeshRenderManager {
             } else {
                 self.ensure_owned_gpu_texture_view(texture)
             } {
-                let sampler_desc = sampler_descriptor_for_settings(&texture.stage_settings);
-                let sampler = Arc::new(self.gpu_device.wgpu_device().create_sampler(&sampler_desc));
+                let sampler = self.stage_sampler(&texture.stage_settings);
                 StageResources {
                     view_2d: view,
                     view_cube: self.fallback_textures.view_cube.clone(),
@@ -1601,11 +1680,7 @@ impl MeshRenderManager {
                 {
                     Some(hydrated) => {
                         if let Some(view) = self.ensure_gpu_texture_view(&hydrated) {
-                            let sampler_desc =
-                                sampler_descriptor_for_settings(&hydrated.stage_settings);
-                            let sampler = Arc::new(
-                                self.gpu_device.wgpu_device().create_sampler(&sampler_desc),
-                            );
+                            let sampler = self.stage_sampler(&hydrated.stage_settings);
                             StageResources {
                                 view_2d: view,
                                 view_cube: self.fallback_textures.view_cube.clone(),
@@ -1632,6 +1707,14 @@ impl MeshRenderManager {
             self.fallback_stage_resources()
         };
         resources
+    }
+
+    /// Shared sampler for a texture stage's sampler state.
+    fn stage_sampler(&mut self, settings: &TextureStageSettings) -> Arc<wgpu::Sampler> {
+        let desc = sampler_descriptor_for_settings(settings);
+        let device = Arc::clone(&self.gpu_device);
+        self.bind_cache
+            .sampler(&desc, || device.wgpu_device().create_sampler(&desc))
     }
 
     /// The shared magenta missing texture. Every true miss funnels through
@@ -2754,7 +2837,7 @@ pub(crate) fn live_cascade_light_direction(render_info: &RenderInfoClass) -> gla
 mod sorting_queue_isolation_tests {
     use super::*;
 
-    fn test_gpu() -> Option<Arc<GpuDevice>> {
+    pub(super) fn test_gpu() -> Option<Arc<GpuDevice>> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -2769,7 +2852,7 @@ mod sorting_queue_isolation_tests {
         // STANDALONE DEVICE: #[cfg(test)] sorting-queue isolation probe, not on the game path.
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("sorting-queue-isolation-test"),
-            required_limits: wgpu::Limits::downlevel_defaults(),
+            required_limits: adapter.limits(),
             ..Default::default()
         }))
         .ok()?;
@@ -2859,5 +2942,122 @@ mod sorting_queue_isolation_tests {
         assert_eq!(second.sorted_batch_count(), 1, "peer queue is untouched");
         second.discard_sorted();
         assert_eq!(second.sorted_batch_count(), 0);
+    }
+}
+
+#[cfg(test)]
+mod bind_cache_reuse_tests {
+    use super::*;
+    use crate::rendering::camera_system::CameraClass;
+
+    /// R5: a mesh drawn again on the next frame reuses its texture-stage and
+    /// vertex-color bind groups; only arena-backed camera/UV groups are
+    /// rebuilt (once per pipeline and frame, not once per draw).
+    #[test]
+    fn second_frame_reuses_static_bind_groups() {
+        let Some(gpu) = super::sorting_queue_isolation_tests::test_gpu() else {
+            return;
+        };
+        let mut manager = MeshRenderManager::new(gpu.clone());
+        manager.set_render_formats(
+            wgpu::TextureFormat::Rgba8Unorm,
+            Some(wgpu::TextureFormat::Depth32Float),
+        );
+        let mut model = MeshModelClass::new("bind_cache_triangle");
+        model.vertices = vec![
+            W3dVectorStruct { x: -1.0, y: -1.0, z: 0.0 },
+            W3dVectorStruct { x: 1.0, y: -1.0, z: 0.0 },
+            W3dVectorStruct { x: 0.0, y: 1.0, z: 0.0 },
+        ];
+        model.triangles = vec![W3dTriangleStruct {
+            vindex: [0, 1, 2],
+            attributes: 0,
+            normal: W3dVectorStruct { x: 0.0, y: 0.0, z: 1.0 },
+            distance: 0.0,
+        }];
+        model.vertex_count = 3;
+        model.index_count = 3;
+        let model = Arc::new(model);
+        let meshes: Vec<Arc<MeshClass>> = (0..3)
+            .map(|_| {
+                let mut mesh = MeshClass::new();
+                mesh.model = Some(Arc::clone(&model));
+                mesh.transform = Mat4::IDENTITY;
+                Arc::new(mesh)
+            })
+            .collect();
+        let mut camera = CameraClass::new();
+        camera.set_view_matrix(Mat4::look_at_rh(Vec3::new(0.0, 0.0, 5.0), Vec3::ZERO, Vec3::Y));
+        camera.set_projection_matrix(Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0));
+        let info = RenderInfoClass::new(Arc::new(camera));
+        let mut arena = crate::rendering::frame_uniform_arena::FrameUniformArena::new(&gpu, 1 << 20);
+        let target = gpu.wgpu_device().create_texture(&wgpu::TextureDescriptor {
+            label: Some("bind-cache-target"),
+            size: wgpu::Extent3d { width: 8, height: 8, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+        let depth = gpu.wgpu_device().create_texture(&wgpu::TextureDescriptor {
+            label: Some("bind-cache-depth"),
+            size: wgpu::Extent3d { width: 8, height: 8, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut frame_stats = Vec::new();
+        for _ in 0..2 {
+            arena.reset();
+            manager.begin_frame_caches();
+            let mut encoder = gpu
+                .wgpu_device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("bind-cache-pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                    multiview_mask: None,
+                });
+                manager
+                    .render_pass(&mut pass, &meshes, &[], &info, &mut arena)
+                    .expect("mesh draw");
+            }
+            gpu.queue().submit([encoder.finish()]);
+            frame_stats.push(manager.bind_cache_stats());
+        }
+        let (first, second) = (frame_stats[0], frame_stats[1]);
+        let lookups_per_draw = MAX_TEXTURE_STAGE_GROUPS as u32 + 3;
+        assert_eq!(first.hits + first.misses, 3 * lookups_per_draw);
+        // Frame 1 creates each distinct group once; the 2nd and 3rd draws hit.
+        assert_eq!(first.misses, lookups_per_draw);
+        // Frame 2 only rebuilds the arena-backed camera and UV groups.
+        assert_eq!(second.misses, 2, "{second:?}");
+        assert_eq!(second.hits, 3 * lookups_per_draw - 2);
     }
 }

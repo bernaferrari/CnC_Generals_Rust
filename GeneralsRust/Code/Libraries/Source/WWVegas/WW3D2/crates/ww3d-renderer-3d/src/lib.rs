@@ -379,6 +379,8 @@ impl Renderer {
                 (self.frame_uniform_index + 1) % self.frame_uniform_arenas.len();
             self.frame_uniform_arenas[self.frame_uniform_index].reset();
         }
+        // Arena-backed cached bind groups die with the arena reset above.
+        self.mesh_render_manager.begin_frame_caches();
         Ok(())
     }
 
