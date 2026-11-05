@@ -48,9 +48,15 @@ fn selected_authored_ai_provider_enters_default_idle_during_creation() {
         .as_ref()
         .and_then(|template| template.receiving_ai_identity())
         .expect("authored JetAIUpdate provider is selected");
-    assert_eq!(selected.0, 0);
+    // Body is module 0; authored JetAIUpdate is the selected AI provider
+    // wherever it sits — C++ finds AIUpdateInterface, not "always index 0".
     assert_eq!(selected.1, "FirstJet");
     assert_eq!(selected.2, "JetAIUpdate");
+    assert!(
+        selected.0 >= 1,
+        "JetAIUpdate follows Body in the authored Behavior list, index {}",
+        selected.0
+    );
     assert!(actor.unit_ai_runtime.machine().idle_initialized);
     assert_eq!(actor.unit_ai_runtime.current_leaf_state(), AIState::Idle);
     assert_eq!(
