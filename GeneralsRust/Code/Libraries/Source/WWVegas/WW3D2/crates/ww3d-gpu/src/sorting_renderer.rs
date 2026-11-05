@@ -3,9 +3,12 @@
 //! This module implements an alpha-sorted rendering system for transparent objects.
 //! Objects are sorted back-to-front based on camera distance to ensure correct
 //! alpha blending.
+//!
+//! C++ `SortingRendererClass` is a static class; here every renderer owns its
+//! own [`SortingRenderer`] queue so two game instances never flush each
+//! other's triangles.
 
 use crate::{GpuBuffer, pipeline};
-use parking_lot::Mutex;
 use std::sync::Arc;
 
 /// Render batch for sorting
@@ -161,6 +164,37 @@ impl SortingRenderer {
             vertex_count,
             distance,
         );
+        self.add_batch(batch);
+    }
+
+    /// Queue a sorted triangle range that carries its own pipeline and bind
+    /// groups (the W3D mesh path's material state at insertion time).
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_triangles_with_state(
+        &mut self,
+        vertex_buffer: GpuBuffer,
+        index_buffer: GpuBuffer,
+        start_index: u32,
+        polygon_count: u32,
+        min_vertex_index: u32,
+        vertex_count: u32,
+        distance: f32,
+        pipeline: Arc<wgpu::RenderPipeline>,
+        bind_groups: Vec<Arc<wgpu::BindGroup>>,
+        index_format: wgpu::IndexFormat,
+    ) {
+        let mut batch = RenderBatch::new(
+            vertex_buffer,
+            index_buffer,
+            start_index,
+            polygon_count * 3,
+            min_vertex_index as i32,
+            vertex_count,
+            distance,
+        );
+        batch.wgpu_pipeline = Some(pipeline);
+        batch.bind_groups = bind_groups;
+        batch.index_format = index_format;
         self.add_batch(batch);
     }
 
@@ -328,111 +362,6 @@ pub struct SortingRendererStats {
     pub batch_count: usize,
     pub vertex_count: usize,
     pub triangle_count: usize,
-}
-
-// Global sorting renderer instance
-lazy_static::lazy_static! {
-    pub static ref SORTING_RENDERER: Mutex<SortingRenderer> = Mutex::new(SortingRenderer::new());
-}
-
-/// Add triangles to global sorting renderer
-pub fn add_sorted_triangles(
-    vertex_buffer: GpuBuffer,
-    index_buffer: GpuBuffer,
-    start_index: u32,
-    polygon_count: u32,
-    min_vertex_index: u32,
-    vertex_count: u32,
-    distance: f32,
-) {
-    SORTING_RENDERER.lock().add_triangles(
-        vertex_buffer,
-        index_buffer,
-        start_index,
-        polygon_count,
-        min_vertex_index,
-        vertex_count,
-        distance,
-    );
-}
-
-pub fn add_sorted_triangles_with_state(
-    vertex_buffer: GpuBuffer,
-    index_buffer: GpuBuffer,
-    start_index: u32,
-    polygon_count: u32,
-    min_vertex_index: u32,
-    vertex_count: u32,
-    distance: f32,
-    pipeline: Arc<wgpu::RenderPipeline>,
-    bind_groups: Vec<Arc<wgpu::BindGroup>>,
-    index_format: wgpu::IndexFormat,
-) {
-    let mut batch = RenderBatch::new(
-        vertex_buffer,
-        index_buffer,
-        start_index,
-        polygon_count * 3,
-        min_vertex_index as i32,
-        vertex_count,
-        distance,
-    );
-    batch.wgpu_pipeline = Some(pipeline);
-    batch.bind_groups = bind_groups;
-    batch.index_format = index_format;
-    SORTING_RENDERER.lock().add_batch(batch);
-}
-
-/// Add volume particle to global sorting renderer
-#[allow(clippy::too_many_arguments)]
-pub fn add_sorted_volume_particle(
-    vertex_buffer: GpuBuffer,
-    index_buffer: GpuBuffer,
-    start_index: u32,
-    polygon_count: u32,
-    min_vertex_index: u32,
-    vertex_count: u32,
-    layer_count: u32,
-    distance: f32,
-) {
-    SORTING_RENDERER.lock().add_volume_particle(
-        vertex_buffer,
-        index_buffer,
-        start_index,
-        polygon_count,
-        min_vertex_index,
-        vertex_count,
-        layer_count,
-        distance,
-    );
-}
-
-/// Draw the global sorter into `render_pass`.
-///
-/// The lock is only held for this call. Batches stay in the sorter until
-/// `flush_sorting_renderer`, so their `Arc` buffers remain alive through submit.
-pub fn render_sorted(render_pass: &mut wgpu::RenderPass<'_>) {
-    SORTING_RENDERER.lock().render(render_pass);
-}
-
-/// Draw queued sorting batches into `render_pass`, then clear them.
-pub fn flush_sorting_renderer(render_pass: &mut wgpu::RenderPass<'_>) {
-    SORTING_RENDERER.lock().flush(render_pass);
-}
-
-/// Get sorting renderer statistics
-pub fn sorting_renderer_stats() -> SortingRendererStats {
-    SORTING_RENDERER.lock().stats()
-}
-
-/// Enable/disable triangle drawing
-pub fn set_triangle_draw_enabled(enabled: bool) {
-    SORTING_RENDERER.lock().set_triangle_draw_enabled(enabled);
-}
-
-/// Check if triangle drawing is enabled
-pub fn is_triangle_draw_enabled() -> bool {
-    SORTING_RENDERER.lock().is_triangle_draw_enabled()
 }
 
 #[cfg(test)]

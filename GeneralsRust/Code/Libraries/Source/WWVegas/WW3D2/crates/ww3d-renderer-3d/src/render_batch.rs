@@ -90,7 +90,7 @@ impl Renderer {
         }
         // Sorted polygon materials submit into the existing backend sorter.
         // Flush this batch before the caller paints UI, using load attachments.
-        if ww3d_gpu::sorting_renderer_stats().batch_count > 0 {
+        if self.mesh_render_manager.sorted_batch_count() > 0 {
             let mut pass = frame
                 .encoder()
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -119,7 +119,7 @@ impl Renderer {
                     multiview_mask: None,
                 });
             set_batch_viewport(&mut pass, &info.camera, size);
-            ww3d_gpu::flush_sorting_renderer(&mut pass);
+            self.mesh_render_manager.flush_sorted(&mut pass);
         }
         Ok(())
     }

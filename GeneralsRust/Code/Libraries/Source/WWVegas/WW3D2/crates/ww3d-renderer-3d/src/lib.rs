@@ -700,7 +700,7 @@ impl Renderer {
             )
         };
         render_result?;
-        if ww3d_gpu::sorting_renderer_stats().batch_count > 0 {
+        if mesh_manager.sorted_batch_count() > 0 {
             let mut sort_pass = targets
                 .encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -728,7 +728,7 @@ impl Renderer {
                     timestamp_writes: None,
                     multiview_mask: None,
                 });
-            ww3d_gpu::flush_sorting_renderer(&mut sort_pass);
+            mesh_manager.flush_sorted(&mut sort_pass);
         }
 
         for render_obj in non_mesh_static.drain(..) {

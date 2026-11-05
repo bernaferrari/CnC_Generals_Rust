@@ -316,6 +316,10 @@ pub struct MeshRenderManager {
     /// (lowercased texture name, reason). Mirrors C++ WW3D's single
     /// "texture not found" debug spam guard; prevents per-frame log floods.
     fallback_bind_warnings: HashMap<(String, &'static str), ()>,
+
+    /// This renderer's sorted-translucency queue (C++ `SortingRendererClass`).
+    /// Owned per instance: flushing it can only draw this renderer's triangles.
+    sorting: ww3d_gpu::SortingRenderer,
 }
 
 impl MeshRenderManager {
@@ -359,6 +363,7 @@ impl MeshRenderManager {
             gpu_texture_views: HashMap::new(),
             owned_texture_views: HashMap::new(),
             fallback_bind_warnings: HashMap::new(),
+            sorting: ww3d_gpu::SortingRenderer::new(),
             stats: MeshRenderStats::default(),
             pipeline_mgr,
             pass_texture_provider: None,
@@ -553,6 +558,21 @@ impl MeshRenderManager {
             .expect("prepared model must exist")
             .clone();
         Ok(prepared)
+    }
+
+    /// Number of sorted batches queued since the last [`Self::flush_sorted`].
+    pub fn sorted_batch_count(&self) -> usize {
+        self.sorting.batch_count()
+    }
+
+    /// Draw this renderer's sorted batches back-to-front into `pass`, then clear them.
+    pub fn flush_sorted(&mut self, pass: &mut wgpu::RenderPass<'_>) {
+        self.sorting.flush(pass);
+    }
+
+    /// Drop queued sorted batches without drawing (frame abandoned).
+    pub fn discard_sorted(&mut self) {
+        self.sorting.clear();
     }
 
     pub fn get_stats(&self) -> &MeshRenderStats {
@@ -1329,7 +1349,7 @@ impl MeshRenderManager {
     }
 
     fn enqueue_sorted_material_pass(
-        &self,
+        &mut self,
         prepared: &PreparedMeshModel,
         pass: &MaterialPassClass,
         pipeline: &Arc<wgpu::RenderPipeline>,
@@ -1358,7 +1378,7 @@ impl MeshRenderManager {
             index_buffer.size(),
             wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
         );
-        ww3d_gpu::add_sorted_triangles_with_state(
+        self.sorting.add_triangles_with_state(
             vertex_buffer,
             index_gpu,
             start_index,
@@ -2719,4 +2739,116 @@ pub(crate) fn live_cascade_light_direction(render_info: &RenderInfoClass) -> gla
         }
     }
     glam::Vec3::new(0.35, -0.85, 0.35)
+}
+
+#[cfg(test)]
+mod sorting_queue_isolation_tests {
+    use super::*;
+
+    fn test_gpu() -> Option<Arc<GpuDevice>> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+            apply_limit_buckets: false,
+        }))
+        .ok()?;
+        // STANDALONE DEVICE: #[cfg(test)] sorting-queue isolation probe, not on the game path.
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("sorting-queue-isolation-test"),
+            required_limits: wgpu::Limits::downlevel_defaults(),
+            ..Default::default()
+        }))
+        .ok()?;
+        Some(Arc::new(GpuDevice::from_shared(Arc::new(device), Arc::new(queue))))
+    }
+
+    fn batch(device: &wgpu::Device, distance: f32) -> ww3d_gpu::RenderBatch {
+        let buffer = |usage| {
+            ww3d_gpu::GpuBuffer::from_existing(
+                device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("sorting-isolation"),
+                    size: 64,
+                    usage,
+                    mapped_at_creation: false,
+                }),
+                64,
+                usage,
+            )
+        };
+        ww3d_gpu::RenderBatch::new(
+            buffer(wgpu::BufferUsages::VERTEX),
+            buffer(wgpu::BufferUsages::INDEX),
+            0,
+            3,
+            0,
+            3,
+            distance,
+        )
+    }
+
+    /// C++ `SortingRendererClass` is static; two Rust renderers in one
+    /// process must not see or flush each other's sorted triangles.
+    #[test]
+    fn two_renderers_keep_independent_sorting_queues() {
+        let Some(gpu) = test_gpu() else {
+            return;
+        };
+        let device = gpu.wgpu_device();
+        let mut first = MeshRenderManager::new(gpu.clone());
+        let mut second = MeshRenderManager::new(gpu.clone());
+
+        first.sorting.add_batch(batch(device, 5.0));
+        first.sorting.add_batch(batch(device, 9.0));
+        second.sorting.add_batch(batch(device, 1.0));
+        assert_eq!(first.sorted_batch_count(), 2);
+        assert_eq!(second.sorted_batch_count(), 1);
+
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("sorting-isolation-target"),
+            size: wgpu::Extent3d {
+                width: 4,
+                height: 4,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("sorting-isolation-flush"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            first.flush_sorted(&mut pass);
+        }
+        gpu.queue().submit([encoder.finish()]);
+
+        assert_eq!(first.sorted_batch_count(), 0, "flush drains only its owner");
+        assert_eq!(second.sorted_batch_count(), 1, "peer queue is untouched");
+        second.discard_sorted();
+        assert_eq!(second.sorted_batch_count(), 0);
+    }
 }
