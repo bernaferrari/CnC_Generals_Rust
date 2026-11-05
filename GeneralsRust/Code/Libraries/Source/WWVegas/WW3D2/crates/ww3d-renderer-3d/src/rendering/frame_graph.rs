@@ -208,8 +208,16 @@ struct FrameGraphSubmission {
 }
 
 impl FrameGraphSubmission {
-    fn new(mesh: Arc<MeshClass>, traits: SubmissionMaterialTraits, sort_level: u32) -> Self {
-        let tie_breaker = Arc::as_ptr(&mesh) as usize;
+    /// `order` is the submission index: equal-state meshes keep submission
+    /// order (C++ renders category lists in insertion order). The mesh
+    /// address used here before made draw order depend on the allocator.
+    fn new(
+        mesh: Arc<MeshClass>,
+        traits: SubmissionMaterialTraits,
+        sort_level: u32,
+        order: usize,
+    ) -> Self {
+        let tie_breaker = order;
         let sphere = mesh.get_bounding_sphere();
         let sort_key = compose_sort_key(
             traits.z_write,
@@ -366,8 +374,8 @@ impl FrameGraphNode {
             None => queue_from_blend(traits.dominant_blend),
         };
         let sort_level = sort_level_override.unwrap_or(mesh.sort_level);
-        let submission = FrameGraphSubmission::new(Arc::clone(&mesh), traits, sort_level);
         let index = self.submissions.len();
+        let submission = FrameGraphSubmission::new(Arc::clone(&mesh), traits, sort_level, index);
         self.submissions.push(submission);
         self.enqueue(index, resolved_queue);
 
