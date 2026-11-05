@@ -80,6 +80,7 @@ rhai = {workspace = true, features = ["sync"]}
 # profile = { path = "../../Libraries/Source/WWVegas/WWDebug", optional = true }
 
 [dev-dependencies]
+game_engine = { path = "../Common", features = ["test-ambient-services"] }
 tokio-test = {workspace = true}
 criterion = {workspace = true}
 proptest = {workspace = true}

@@ -1761,6 +1761,7 @@ mod tests {
 
     #[test]
     fn under_attack_damage_classifies_harvester_per_cpp() {
+        let _serial_test_lock = crate::test_sync::lock();
         // C++ Radar.cpp:1174-1181 — infantry/vehicle + KINDOF_HARVESTER gets the
         // special harvester message, not the generic under-attack flavor.
         let _guard = test_state_lock();
@@ -1801,6 +1802,7 @@ mod tests {
 
     #[test]
     fn under_attack_damage_structure_counts_for_victory_plays_base_eva() {
+        let _serial_test_lock = crate::test_sync::lock();
         // C++ Radar.cpp:1194-1208 — STRUCTURE + MP_COUNT_FOR_VICTORY owned by the
         // local player plays EVA_BaseUnderAttack plus the structure message.
         let _guard = test_state_lock();

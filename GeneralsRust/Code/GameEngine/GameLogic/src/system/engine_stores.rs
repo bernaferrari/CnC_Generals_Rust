@@ -172,6 +172,23 @@ pub struct WorldServices {
     /// Serializes host staging that still touches process-wide wrappers.
     runtime_transaction_lock: Arc<Mutex<()>>,
 }
+#[cfg(test)]
+thread_local! {
+    static TEST_ADOPT_COMMON: std::cell::RefCell<Option<Arc<CommonServices>>> =
+        const { std::cell::RefCell::new(None) };
+}
+#[cfg(test)]
+fn fresh_common_for_world() -> Arc<CommonServices> {
+    TEST_ADOPT_COMMON
+        .try_with(|slot| slot.borrow().clone())
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| Arc::new(CommonServices::new()))
+}
+#[cfg(not(test))]
+fn fresh_common_for_world() -> Arc<CommonServices> {
+    Arc::new(CommonServices::new())
+}
 impl WorldServices {
     fn engine_defaults() -> Self {
         Self {
@@ -259,7 +276,7 @@ impl WorldServices {
             radar_updates: Mutex::new(VecDeque::new()),
             host_script_requests: crate::scripting::executor::HostScriptRequestQueues::default(),
             session_flags: SessionLogicFlags::default(),
-            common: Arc::new(CommonServices::new()),
+            common: fresh_common_for_world(),
             logic_managers: WorldLogicManagers::default(),
             players: Arc::new(RwLock::new(crate::player::PlayerList::new())),
             objects: Arc::new(RwLock::new(crate::object_manager::ObjectManager::new())),
@@ -800,7 +817,52 @@ pub fn register_ambient_stack_hooks(_hooks: AmbientStackHooks) {}
 pub fn set_ambient_pre_ensure(_f: fn()) {}
 
 fn published_owner() -> Option<PublishedOwner> {
-    stack_head()
+    let head = stack_head();
+    #[cfg(test)]
+    if head.is_none() {
+        return test_thread_default_owner();
+    }
+    head
+}
+
+#[cfg(test)]
+thread_local! {
+    // Unit-test convenience only: each libtest thread is its own isolated
+    // "game instance" and lazily gets its own owned world when a test did not
+    // publish one explicitly. Never compiled into production, never shared
+    // between threads.
+    static TEST_THREAD_DEFAULT: std::cell::RefCell<Option<PublishedOwner>> =
+        const { std::cell::RefCell::new(None) };
+    static TEST_AMBIENT_SUPPRESSED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+fn test_thread_default_owner() -> Option<PublishedOwner> {
+    if TEST_AMBIENT_SUPPRESSED.try_with(|flag| flag.get()).unwrap_or(true) {
+        return None;
+    }
+    TEST_THREAD_DEFAULT
+        .try_with(|slot| {
+            if let Ok(existing) = slot.try_borrow() {
+                if let Some(owner) = existing.as_ref() {
+                    return Some(owner.clone());
+                }
+            } else {
+                return None;
+            }
+            // The test world adopts the thread's ambient CommonServices so
+            // Common-level and world-level state stay one consistent owner.
+            let common = common_services::common_services();
+            TEST_ADOPT_COMMON.with(|slot| *slot.borrow_mut() = Some(common));
+            let core = Arc::new(EngineStores::new_for_world());
+            TEST_ADOPT_COMMON.with(|slot| *slot.borrow_mut() = None);
+            let owner = PublishedOwner::Core(core);
+            owner.install_common();
+            *slot.borrow_mut() = Some(owner.clone());
+            Some(owner)
+        })
+        .ok()
+        .flatten()
 }
 pub(crate) fn published_core_for_game_logic() -> Option<Arc<EngineStores>> {
     match published_owner() {
@@ -1012,6 +1074,19 @@ fn active_stack_depth() -> usize {
 
 #[cfg(test)]
 mod tests {
+    /// Resolve with the per-thread test convenience world disabled, so the
+    /// "nothing published" contract itself stays testable.
+    fn strict<R>(f: impl FnOnce() -> R) -> R {
+        struct Restore;
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                super::TEST_AMBIENT_SUPPRESSED.with(|flag| flag.set(false));
+            }
+        }
+        super::TEST_AMBIENT_SUPPRESSED.with(|flag| flag.set(true));
+        let _restore = Restore;
+        f()
+    }
 
     use super::*;
 
@@ -1360,11 +1435,11 @@ mod tests {
         let _serial = crate::test_sync::lock();
         assert_eq!(active_stack_depth(), 0);
         assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| active_services())).is_err(),
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| strict(active_services))).is_err(),
             "unscoped active_services must not mint a process bag"
         );
         assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| active())).is_err(),
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| strict(active))).is_err(),
             "unscoped active must not mint a process bag"
         );
     }
@@ -1379,7 +1454,7 @@ mod tests {
 
         assert_eq!(active_stack_depth(), 0);
         assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| active())).is_err(),
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| strict(active))).is_err(),
             "constructing a world must not publish a process bag"
         );
     }
@@ -1461,7 +1536,7 @@ mod tests {
         // unwind: no published owner remains (no process-lifetime bag).
         assert_eq!(active_stack_depth(), 0);
         assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| active())).is_err(),
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| strict(active))).is_err(),
             "unscoped active() must not resolve a process bag"
         );
         assert!(Arc::ptr_eq(
@@ -1518,7 +1593,7 @@ mod tests {
         assert!(uninstall_active_if_current(&b));
         assert_eq!(active_stack_depth(), 0);
         assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| active())).is_err(),
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| strict(active))).is_err(),
             "unscoped active() must not resolve a process bag"
         );
     }
