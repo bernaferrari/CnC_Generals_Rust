@@ -247,11 +247,15 @@ fn prepare_unit_ai_impl(
                 supplies_depleted_voice: data.supplies_depleted_voice.to_string(),
             },
         );
-        Some(SupplyTruckAIUpdate::new(
-            data,
-            object_id,
-            player_index as crate::supply_system::PlayerIndex,
-        ))
+        {
+            let mut ai = SupplyTruckAIUpdate::new(
+                data,
+                object_id,
+                player_index as crate::supply_system::PlayerIndex,
+            );
+            ai.bind_owner(base_object);
+            Some(ai)
+        }
     } else {
         None
     };
@@ -275,11 +279,15 @@ fn prepare_unit_ai_impl(
                 bored_range: data.bored_range,
                 upgraded_supply_boost: data.upgraded_supply_boost.max(0) as u32,
             });
-        Some(WorkerAIUpdate::new(
-            data,
-            object_id,
-            player_index as crate::supply_system::PlayerIndex,
-        ))
+        {
+            let mut ai = WorkerAIUpdate::new(
+                data,
+                object_id,
+                player_index as crate::supply_system::PlayerIndex,
+            );
+            ai.bind_owner(base_object);
+            Some(ai)
+        }
     } else {
         None
     };

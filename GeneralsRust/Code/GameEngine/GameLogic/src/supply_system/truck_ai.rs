@@ -50,6 +50,9 @@ pub struct SupplyTruckAIUpdate {
     audio_system: Option<Arc<dyn AudioSystem>>,
     /// Upgrade system reference (optional)
     upgrade_system: Option<Arc<dyn UpgradeSystem>>,
+    /// C++ getObject(): the exact owning Object, bound at construction by the
+    /// factory. Standalone adapters leave it unbound.
+    owner: Option<std::sync::Weak<RwLock<Object>>>,
 }
 
 impl std::fmt::Debug for SupplyTruckAIUpdate {
@@ -100,7 +103,14 @@ impl SupplyTruckAIUpdate {
             player_index,
             audio_system: None,
             upgrade_system: None,
+            owner: None,
         }
+    }
+
+    /// Bind the exact owning Object (C++ `getObject()`), so Drawable
+    /// notifications never resolve a same-ID foreign Object by registry id.
+    pub fn bind_owner(&mut self, owner: &Arc<RwLock<Object>>) {
+        self.owner = Some(Arc::downgrade(owner));
     }
 
     /// Set audio system for voice events
@@ -118,6 +128,19 @@ impl SupplyTruckAIUpdate {
     }
 
     fn update_drawable_supply_status(&self) {
+        // C++ WorkerAIUpdate.cpp 1005-1015: getObject()->getDrawable().
+        if let Some(owner) = &self.owner {
+            let Some(owner) = owner.upgrade() else {
+                return;
+            };
+            let drawable = owner.read().ok().and_then(|guard| guard.get_drawable());
+            if let Some(drawable) = drawable {
+                if let Ok(mut draw_guard) = drawable.write() {
+                    draw_guard.update_supply_status(self.data.max_boxes, self.number_boxes);
+                }
+            }
+            return;
+        }
         // Wave 298: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
@@ -393,7 +416,7 @@ impl SupplyTruckAIInterface for SupplyTruckAIUpdate {
         dock_id: ObjectID,
     ) -> Result<u32, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 298: empty dual-world → Ok(0).
-        if dual_world_registry_unavailable() {
+        if self.owner.is_none() && dual_world_registry_unavailable() {
             return Ok(0);
         }
 
