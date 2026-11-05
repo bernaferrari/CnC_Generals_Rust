@@ -509,8 +509,9 @@ pub(super) fn ensure_test_troop_crawler_template(game_logic: &mut GameLogic) {
         .set_health(240.0)
         .set_cost(1400, 0)
         // Retail WeaponSet PRIMARY (hq-2qedt.191: object_hit keys on it).
-        // Authored WeaponSet PRIMARY (hq-2qedt.191 / .141: no create-time name peel).
-        .set_primary_weapon_name(crate::game_logic::host_troop_crawler::TROOP_CRAWLER_ASSAULT_WEAPON);
+        .set_primary_weapon_name(crate::game_logic::host_troop_crawler::TROOP_CRAWLER_ASSAULT_WEAPON)
+        // Authored WeaponSet PRIMARY (hq-2qedt.141: no create-time name peel).
+        .set_primary_weapon(crate::game_logic::host_troop_crawler::troop_crawler_assault_weapon());
     crawler.sight_range = 175.0;
     game_logic
         .templates

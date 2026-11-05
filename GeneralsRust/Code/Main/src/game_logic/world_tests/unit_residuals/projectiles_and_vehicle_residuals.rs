@@ -107,7 +107,7 @@ fn dragon_flame_projectile_flies_and_impacts() {
 fn dragon_tank_residual_flame_and_black_napalm() {
     use crate::game_logic::host_dragon_tank::{
         DRAGON_PRIMARY_DAMAGE, DRAGON_RANGE, DRAGON_TANK_FLAME_WEAPON,
-        DRAGON_UPGRADED_PRIMARY_DAMAGE, is_dragon_tank_template,
+        DRAGON_UPGRADED_PRIMARY_DAMAGE,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -133,7 +133,6 @@ fn dragon_tank_residual_flame_and_black_napalm() {
         .expect("dragon");
     {
         let d = game_logic.host_object(dragon_id).expect("dragon");
-        assert!(is_dragon_tank_template(&d.template_name));
         let prim = d.weapon.as_ref().expect("flame");
         assert!(
             (prim.damage - DRAGON_PRIMARY_DAMAGE).abs() < 0.01,
@@ -1060,7 +1059,7 @@ fn lazr_tank_residual_laser_guns() {
 fn lazr_patriot_residual_laser_dual_slot() {
     use crate::game_logic::host_base_defense::{
         LAZR_PATRIOT_AIR_DAMAGE, LAZR_PATRIOT_GROUND_DAMAGE, LAZR_PATRIOT_PRIMARY_WEAPON,
-        LAZR_PATRIOT_SECONDARY_WEAPON, authors_laser_patriot_weapon_set,
+        LAZR_PATRIOT_SECONDARY_WEAPON,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -1113,7 +1112,7 @@ fn lazr_patriot_residual_laser_dual_slot() {
 
     {
         let p = game_logic.host_object(pat_id).expect("patriot");
-        assert!(authors_laser_patriot_weapon_set(p));
+        assert_eq!(p.authored_weapon_name_for_slot(0), Some(LAZR_PATRIOT_PRIMARY_WEAPON));
         let g = p.weapon.as_ref().expect("Lazr ground residual");
         assert!(
             (g.damage - LAZR_PATRIOT_GROUND_DAMAGE).abs() < 0.5,

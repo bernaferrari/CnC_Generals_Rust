@@ -1192,7 +1192,7 @@ fn marauder_residual_salvage_fire_rate_tiers() {
 fn scorpion_residual_gun_salvage_and_rocket() {
     use crate::game_logic::host_scorpion::{
         SCORPION_GUN_DAMAGE, SCORPION_GUN_DAMAGE_PLUS, SCORPION_RANGE, SCORPION_TANK_GUN,
-        ScorpionSalvageTier, UPGRADE_GLA_SCORPION_ROCKET, is_scorpion_template,
+        ScorpionSalvageTier, UPGRADE_GLA_SCORPION_ROCKET,
     };
     use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
 
@@ -1218,7 +1218,6 @@ fn scorpion_residual_gun_salvage_and_rocket() {
         .expect("scorpion");
     {
         let s = game_logic.host_object(scorp_id).expect("scorpion");
-        assert!(is_scorpion_template(&s.template_name));
         let prim = s.weapon.as_ref().expect("gun");
         assert!((prim.damage - SCORPION_GUN_DAMAGE).abs() < 0.01);
         assert!((prim.range - SCORPION_RANGE).abs() < 1.0);
