@@ -697,3 +697,38 @@ mod tests {
         }
     }
 }
+
+/// Copy a map's decoded `BlendTileData` (tile, blend and extra-blend indices
+/// plus blended-tile descriptors) into a presentation height map of the same
+/// grid. C++ `WorldHeightMap` owns these arrays alongside the height bytes.
+#[cfg(feature = "game_client")]
+pub(crate) fn apply_blend_tile_data(
+    heightmap: &mut HeightMap,
+    blend: &super::script_loader::BlendTileData,
+) {
+    if blend.tile_ndxes.len() == heightmap.tile_ndxes.len() {
+        heightmap.tile_ndxes = blend.tile_ndxes.clone();
+    }
+    if blend.blend_tile_ndxes.len() == heightmap.blend_tile_ndxes.len() {
+        heightmap.blend_tile_ndxes = blend.blend_tile_ndxes.clone();
+    }
+    if blend.extra_blend_tile_ndxes.len() == heightmap.extra_blend_tile_ndxes.len() {
+        heightmap.extra_blend_tile_ndxes = blend.extra_blend_tile_ndxes.clone();
+    }
+    if !blend.blended_tiles.is_empty() {
+        let mut tiles = vec![game_client::terrain::textures::BlendTileInfo::new()];
+        tiles.extend(blend.blended_tiles.iter().map(|t| {
+            game_client::terrain::textures::BlendTileInfo {
+                blend_ndx: t.blend_ndx,
+                horiz: t.horiz,
+                vert: t.vert,
+                right_diagonal: t.right_diagonal,
+                left_diagonal: t.left_diagonal,
+                inverted: t.inverted,
+                long_diagonal: t.long_diagonal,
+                custom_blend_edge_class: t.custom_blend_edge_class,
+            }
+        }));
+        heightmap.assign_blended_tiles(tiles);
+    }
+}

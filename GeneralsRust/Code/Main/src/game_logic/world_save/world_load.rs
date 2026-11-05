@@ -1120,36 +1120,7 @@ impl GameLogic {
                             apply_cpp_heightmap_xy_and_border(&mut heightmap, hm.border_size);
                             heightmap.heights = hm.data.iter().map(|h| *h as f32 / 255.0).collect();
                             if let Some(blend) = blend_tile_data.as_ref() {
-                                if blend.tile_ndxes.len() == heightmap.tile_ndxes.len() {
-                                    heightmap.tile_ndxes = blend.tile_ndxes.clone();
-                                }
-                                if blend.blend_tile_ndxes.len() == heightmap.blend_tile_ndxes.len()
-                                {
-                                    heightmap.blend_tile_ndxes = blend.blend_tile_ndxes.clone();
-                                }
-                                if blend.extra_blend_tile_ndxes.len()
-                                    == heightmap.extra_blend_tile_ndxes.len()
-                                {
-                                    heightmap.extra_blend_tile_ndxes =
-                                        blend.extra_blend_tile_ndxes.clone();
-                                }
-                                if !blend.blended_tiles.is_empty() {
-                                    let mut tiles =
-                                        vec![game_client::terrain::textures::BlendTileInfo::new()];
-                                    tiles.extend(blend.blended_tiles.iter().map(|t| {
-                                        game_client::terrain::textures::BlendTileInfo {
-                                            blend_ndx: t.blend_ndx,
-                                            horiz: t.horiz,
-                                            vert: t.vert,
-                                            right_diagonal: t.right_diagonal,
-                                            left_diagonal: t.left_diagonal,
-                                            inverted: t.inverted,
-                                            long_diagonal: t.long_diagonal,
-                                            custom_blend_edge_class: t.custom_blend_edge_class,
-                                        }
-                                    }));
-                                    heightmap.assign_blended_tiles(tiles);
-                                }
+                                super::terrain::apply_blend_tile_data(&mut heightmap, blend);
                             }
 
                             let border = heightmap.border_size.max(0) as u32;

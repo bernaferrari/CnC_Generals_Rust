@@ -51,9 +51,28 @@ Frame stats, 800x600 debug build, steady frozen frame (created per frame):
 | Lone Eagle frame 90 | R5 cache (no sampler cache) | 182 | 269 | 63 | 40 |
 | Lone Eagle frame 90 | R5 + sampler/view cache | 119 | 269 | 0 | 37 |
 
-Known nondeterminism: one 28-pixel spot on the shell map (ship near x 761-799,
-y 452-465) flips between two states across *builds* (never across runs of one
-binary). Most likely a draw order keyed on an address; not yet located.
+Cross-build nondeterminism (the 28-pixel ShellMapMD ship spot): fixed in
+`dbeb197ae`. The frame graph broke sort ties with the mesh `Arc` address and
+grouped decal batches by material-pass address; both now use submission /
+first-use order. Two different builds produce an IDENTICAL Lone Eagle capture.
+
+Picture fixes after the first merge (visible-correctness pass):
+
+| Fix | Commit | Evidence |
+|---|---|---|
+| Terrain drew tile 0 on every cell: native map admission froze the height map before BlendTileData was folded in; shared chunk vertices interpolated UVs across cells; UV ignored the tile's slot in its class grid | `c0a6521dc` | Lone Eagle shows varied authored ground instead of one grey pattern; ShellMapMD sea floor/beach detail |
+| Control bar missing in headless/golden runs (layout + scheme only materialised for windowed hosts) | `d98f99ec0` | full USA control bar in the Lone Eagle golden |
+| White 3x3 lines bottom-right = `W3DCommandBarGridDraw` on `WinUnitSelected`, which C++ hides in `CB_CONTEXT_NONE` | `d98f99ec0` | lines gone with no selection |
+
+Not a bug: the red grid frame and yellow rectangle on the shell menu are the
+authored `MainMenu.wnd:MainMenuRuler` art, faded in by the WindowTransitions
+system after `MainMenuInit` hides it (same as C++).
+
+Open render items: thin terrain seams on some chunk rows (chunk grid is not
+cell-aligned), at most 4 terrain classes bound for the visible set, radar
+minimap black in frozen captures, `THE_RENDER_BRIDGE` global (needs the
+GameLogic scene-submission sink to become per-instance first), R5 shared
+BGLs/dynamic offsets, R6 remaining per-frame buffers, R7-R13.
 
 ---
 

@@ -14,6 +14,15 @@ fn host_slot_script_name(player: &Player) -> String {
 }
 
 impl GameLogic {
+    /// Map `BlendTileData` decoded by the current load and not yet folded into
+    /// `TerrainData` (native map admission runs before that fold).
+    #[cfg(feature = "game_client")]
+    pub(crate) fn pending_map_blend_tile_data(
+        &self,
+    ) -> Option<&super::script_loader::BlendTileData> {
+        self.pending_blend_tile_data.as_ref()
+    }
+
     pub(in super::super) fn sync_legacy_runtime_from_chunky(
         &mut self,
         map_path: &Path,

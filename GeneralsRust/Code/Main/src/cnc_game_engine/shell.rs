@@ -731,8 +731,10 @@ impl CnCGameEngine {
                 // Windowed InGame: materialise ControlBar.wnd into TheWindowManager
                 // only when the ControlBar parent gadget is missing. Leftover
                 // MainMenu/Skirmish window_count must not skip the load.
+                // Headless smoke hosts skip the live bar for speed; a golden
+                // capture presents exactly what a windowed player sees.
                 #[cfg(feature = "game_client")]
-                if !self.runtime_host_headless {
+                if !self.runtime_host_headless || self.golden_capture.is_some() {
                     if crate::gameplay_layout::control_bar_parent_is_live_with_owner(
                         &window_manager_owner,
                     ) {
@@ -786,7 +788,7 @@ impl CnCGameEngine {
         // ControlBarParent on TheWindowManager. Disk-probe Ready/miss must
         // not skip the archive resolver when the live parent is still gone.
         #[cfg(feature = "game_client")]
-        if !self.runtime_host_headless
+        if (!self.runtime_host_headless || self.golden_capture.is_some())
             && !crate::gameplay_layout::control_bar_parent_is_live_with_owner(&window_manager_owner)
         {
             let facts = self.receiving_menu_world_facts();

@@ -1025,15 +1025,22 @@ impl MeshClass {
             return;
         }
 
-        let mut grouped: BTreeMap<usize, Vec<&DecalRecord>> = BTreeMap::new();
+        // Group by material pass in first-use order; ordering by the pass's
+        // address made decal draw order depend on the allocator.
+        let mut grouped: Vec<(&Arc<MaterialPassClass>, Vec<&DecalRecord>)> = Vec::new();
         for record in &self.decal_records {
-            let key = Arc::as_ptr(&record.material_pass) as usize;
-            grouped.entry(key).or_default().push(record);
+            match grouped
+                .iter_mut()
+                .find(|(pass, _)| Arc::ptr_eq(pass, &record.material_pass))
+            {
+                Some((_, records)) => records.push(record),
+                None => grouped.push((&record.material_pass, vec![record])),
+            }
         }
 
         self.decal_meshes.clear();
 
-        for (group_index, records) in grouped.values().enumerate() {
+        for (group_index, (_, records)) in grouped.iter().enumerate() {
             let mut combined_positions: Vec<Vec3> = Vec::new();
             let mut combined_normals: Vec<Vec3> = Vec::new();
             let mut combined_texcoords: Vec<Vec2> = Vec::new();
