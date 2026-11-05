@@ -536,7 +536,8 @@ impl Default for OpenContainModuleData {
             damage_percentage_to_units: 0.0,
             is_burned_death_to_units: true,
             door_open_time: 1,
-            allow_inside_kind_of: 0,
+            // C++ OpenContain.cpp:58 clears then flips the mask: everything is allowed.
+            allow_inside_kind_of: KindOfMaskType::MAX,
             forbid_inside_kind_of: 0,
             weapon_bonus_passed_to_passengers: false,
             allow_allies_inside: true,

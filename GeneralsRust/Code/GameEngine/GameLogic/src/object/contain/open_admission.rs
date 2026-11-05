@@ -35,21 +35,11 @@ impl OpenContain {
     }
 
     fn accepts_kind(&self, obj: &Object) -> bool {
-        // Check kind restrictions
-        let obj_kind = obj.get_kind_of();
-
-        if self.module_data.allow_inside_kind_of != 0
-            && (obj_kind & self.module_data.allow_inside_kind_of) == 0
-        {
-            return false;
-        }
-
-        // Must have none of the forbidden kind bits
-        if (obj_kind & self.module_data.forbid_inside_kind_of) != 0 {
-            return false;
-        }
-
-        true
+        kind_mask_admits(
+            obj.get_kind_of(),
+            self.module_data.allow_inside_kind_of,
+            self.module_data.forbid_inside_kind_of,
+        )
     }
 
     fn accepts_relationship(&self, obj: &Object, owner: &Object) -> bool {
@@ -73,5 +63,42 @@ impl OpenContain {
             ObjectRelationship::Neutral => self.module_data.allow_neutral_inside,
             _ => false,
         }
+    }
+}
+
+/// C++ OpenContain.cpp:862 `isAnyKindOf(allow)` then the forbid test. An empty
+/// allow mask, or an entrant with no kinds, matches nothing; "everything
+/// allowed" is the all-bits default of `OpenContainModuleData`.
+fn kind_mask_admits(
+    obj_kind: crate::common::KindOfMaskType,
+    allow: crate::common::KindOfMaskType,
+    forbid: crate::common::KindOfMaskType,
+) -> bool {
+    (obj_kind & allow) != 0 && (obj_kind & forbid) == 0
+}
+
+#[cfg(test)]
+mod kind_mask_tests {
+    use super::kind_mask_admits;
+    use crate::common::KindOf;
+    use crate::object::contain::open_contain::OpenContainModuleData;
+
+    #[test]
+    fn default_allows_every_kind_but_not_a_kindless_entrant() {
+        let data = OpenContainModuleData::default();
+        let infantry = KindOf::Infantry.cpp_mask();
+        let vehicle = KindOf::Vehicle.cpp_mask();
+        assert!(kind_mask_admits(infantry, data.allow_inside_kind_of, data.forbid_inside_kind_of));
+        assert!(kind_mask_admits(vehicle, data.allow_inside_kind_of, data.forbid_inside_kind_of));
+        assert!(!kind_mask_admits(0, data.allow_inside_kind_of, data.forbid_inside_kind_of));
+    }
+
+    #[test]
+    fn explicit_empty_allow_mask_admits_nothing_and_forbid_still_applies() {
+        let infantry = KindOf::Infantry.cpp_mask();
+        assert!(!kind_mask_admits(infantry, 0, 0));
+        assert!(kind_mask_admits(infantry, infantry, 0));
+        assert!(!kind_mask_admits(infantry, infantry, infantry));
+        assert!(!kind_mask_admits(KindOf::Vehicle.cpp_mask(), infantry, 0));
     }
 }

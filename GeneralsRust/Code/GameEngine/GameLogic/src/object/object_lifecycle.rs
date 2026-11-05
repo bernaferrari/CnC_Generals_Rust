@@ -1009,10 +1009,8 @@ impl Object {
     ) -> crate::object::contain::open_contain::ObjectRelationship {
         use crate::common::Relationship;
         use crate::object::contain::open_contain::ObjectRelationship;
-        if self.get_id() == other.get_id() {
-            return ObjectRelationship::Self_;
-        }
-
+        // C++ Object::getRelationship has no ObjectID shortcut: an object is
+        // an ally of itself through its own team.
         let relationship = self.relationship_to(other);
 
         match relationship {
