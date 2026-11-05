@@ -509,9 +509,9 @@ macro_rules! profile_block {
 #[macro_export]
 macro_rules! profile_range {
     ($session:expr, $name:expr, $code:block) => {{
-        $crate::Profile::start_range(session, &$session, Some($name)).ok();
+        $crate::Profile::start_range(&$session, Some($name)).ok();
         let result = $code;
-        $crate::Profile::stop_range(session, &$session, Some($name)).ok();
+        $crate::Profile::stop_range(&$session, Some($name)).ok();
         result
     }};
 }
@@ -543,7 +543,7 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn test_basic_range_recording(session: &WwDebugSession) {
+    fn test_basic_range_recording() {
         let session = crate::WwDebugSession::new();
         Profile::clear_patterns(&session);
         Profile::add_pattern(&session, "test*", true).unwrap();
@@ -565,7 +565,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pattern_matching(session: &WwDebugSession) {
+    fn test_pattern_matching() {
         let session = crate::WwDebugSession::new();
         Profile::clear_patterns(&session);
 
@@ -581,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn test_high_level_profiling(session: &WwDebugSession) {
+    fn test_high_level_profiling() {
         let session = crate::WwDebugSession::new();
         let high_level = Profile::high_level(&session);
 
@@ -599,7 +599,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cpu_frequency_measurement(session: &WwDebugSession) {
+    fn test_cpu_frequency_measurement() {
         let session = crate::WwDebugSession::new();
         let freq = Profile::get_clock_cycles_per_second(&session).unwrap();
         assert!(freq > 1000000); // Should be at least 1 MHz
@@ -610,13 +610,13 @@ mod tests {
     }
 
     #[test]
-    fn test_macros(session: &WwDebugSession) {
+    fn test_macros() {
         let session = crate::WwDebugSession::new();
         Profile::clear_patterns(&session);
         Profile::add_pattern(&session, "macro*", true).unwrap();
         let start_frame = Profile::get_frame_count(&session);
 
-        let result = profile_range!("macro_test", {
+        let result = profile_range!(session, "macro_test", {
             thread::sleep(Duration::from_millis(1));
             42
         });

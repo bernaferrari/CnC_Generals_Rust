@@ -50,7 +50,6 @@ members = [
     "Code/Libraries/Source/WWVegas/Wwutil",
 
     # WW3D2 crates
-    "Code/Libraries/Source/WWVegas/WW3D2/game",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-core",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-assets",
@@ -62,11 +61,8 @@ members = [
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-particles",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-physics",
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-effects",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-collision",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu",
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat",
-    "Code/Libraries/Source/WWVegas/WW3D2/validation",
 
     # Compression / assets / audio
     "Code/Libraries/Source/Compression",
@@ -396,7 +392,6 @@ wwmath = { path = "Code/Libraries/Source/WWVegas/WWMath", package = "math_utilit
 wwaudio = { path = "Code/Libraries/Source/WWVegas/WWAudio" }
 wwdebug = { path = "Code/Libraries/Source/WWVegas/WWDebug" }
 ww3dcore = { path = "Code/Libraries/Source/WWVegas/WW3DCore" }
-ww3d = { path = "Code/Libraries/Source/WWVegas/WW3D2/game", package = "ww3d-game" }
 ww3d-core = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-core" }
 ww3d-engine = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine" }
 ww3d-assets = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-assets" }
@@ -408,7 +403,6 @@ ww3d-render-2d = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-rende
 ww3d-particles = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-particles" }
 ww3d-animation = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation" }
 ww3d-physics = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-physics" }
-ww3d-effects = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-effects" }
 ww3d-collision = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-collision" }
 ww3d-gpu = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu" }
 generals_compression = { path = "Code/Libraries/Source/Compression" }

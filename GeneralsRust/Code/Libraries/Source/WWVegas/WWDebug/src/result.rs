@@ -921,21 +921,21 @@ mod tests {
         let temp_file = "test_results.csv";
 
         // Create some profile data first
-        Profile::clear_patterns(session);
-        Profile::add_pattern(session, "test*", true).unwrap();
-        Profile::start_range(session, Some("test_csv")).unwrap();
+        Profile::clear_patterns(&session);
+        Profile::add_pattern(&session, "test*", true).unwrap();
+        Profile::start_range(&session, Some("test_csv")).unwrap();
 
-        let high_level = Profile::high_level(session);
+        let high_level = Profile::high_level(&session);
         let id = high_level
             .add_profile("test.csv", "CSV Test", "count", 0, 0)
             .unwrap();
         id.increment(42.0);
 
-        Profile::stop_range(session, Some("test_csv")).unwrap();
+        Profile::stop_range(&session, Some("test_csv")).unwrap();
 
         // Write CSV results
         let writer = CsvResultWriter::new(temp_file);
-        writer.write_results();
+        writer.write_results(&session);
 
         // Check that file was created
         assert!(PathBuf::from(temp_file).exists());
@@ -956,7 +956,7 @@ mod tests {
         let temp_file = "test_results.html";
 
         // Create some profile data
-        let high_level = Profile::high_level(session);
+        let high_level = Profile::high_level(&session);
         let id = high_level
             .add_profile("test.html", "HTML Test", "bytes", 2, 0)
             .unwrap();
@@ -964,7 +964,7 @@ mod tests {
 
         // Write HTML results
         let writer = HtmlResultWriter::new(temp_file);
-        writer.write_results();
+        writer.write_results(&session);
 
         // Check that file was created
         assert!(PathBuf::from(temp_file).exists());
@@ -982,38 +982,39 @@ mod tests {
 
     #[test]
     fn test_console_writer() {
-        // Just test that it doesn't panic
+        let session = crate::WwDebugSession::new();
         let writer = ConsoleResultWriter::new(false);
-        writer.write_results();
+        writer.write_results(&session);
 
         let writer = ConsoleResultWriter::new(true);
-        writer.write_results();
+        writer.write_results(&session);
     }
 
     #[test]
     fn test_result_function_registry() {
+        let session = crate::WwDebugSession::new();
         let functions = ResultFunctionRegistry::get_available_functions();
         assert_eq!(functions.len(), 5);
 
         let file_csv_writer = ResultFunctionRegistry::create_function("file_csv", &[]);
         assert!(file_csv_writer.is_some());
-        assert_eq!(file_csv_writer.unwrap().get_name(), "file_csv");
+        assert_eq!(file_csv_writer.unwrap().get_name(&session), "file_csv");
 
         let file_dot_writer = ResultFunctionRegistry::create_function("file_dot", &[]);
         assert!(file_dot_writer.is_some());
-        assert_eq!(file_dot_writer.unwrap().get_name(), "file_dot");
+        assert_eq!(file_dot_writer.unwrap().get_name(&session), "file_dot");
 
         let csv_writer = ResultFunctionRegistry::create_function("csv_file", &["test.csv"]);
         assert!(csv_writer.is_some());
-        assert_eq!(csv_writer.unwrap().get_name(), "csv_file_writer");
+        assert_eq!(csv_writer.unwrap().get_name(&session), "csv_file_writer");
 
         let html_writer = ResultFunctionRegistry::create_function("html_file", &["test.html"]);
         assert!(html_writer.is_some());
-        assert_eq!(html_writer.unwrap().get_name(), "html_file_writer");
+        assert_eq!(html_writer.unwrap().get_name(&session), "html_file_writer");
 
         let console_writer = ResultFunctionRegistry::create_function("console", &["verbose"]);
         assert!(console_writer.is_some());
-        assert_eq!(console_writer.unwrap().get_name(), "console_writer");
+        assert_eq!(console_writer.unwrap().get_name(&session), "console_writer");
 
         let unknown = ResultFunctionRegistry::create_function("unknown", &[]);
         assert!(unknown.is_none());

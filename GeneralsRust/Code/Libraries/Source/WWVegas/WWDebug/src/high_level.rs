@@ -383,7 +383,7 @@ mod tests {
     }
 
     #[test]
-    fn test_profile_block(session: &crate::WwDebugSession) {
+    fn test_profile_block() {
         let session = crate::WwDebugSession::new();
         {
             let _block = ProfileHighLevel::block(&session, "test_operation").unwrap();

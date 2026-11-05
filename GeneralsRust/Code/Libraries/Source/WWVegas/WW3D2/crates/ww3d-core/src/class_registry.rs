@@ -263,12 +263,6 @@ pub fn is_class_registered(&self, id: u32) -> bool {
 }
 
 #[cfg(test)]
-pub(crate) fn clear_registry_for_test() {
-    { let mut map = registry.registry_by_id.lock().unwrap_or_else(|p| p.into_inner()); map.clear() };
-    { let mut map = registry.registry_by_type.lock().unwrap_or_else(|p| p.into_inner()); map.clear() };
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -278,18 +272,17 @@ mod tests {
     #[test]
     fn registers_and_queries_class() {
         let registry = ClassRegistry::new();
-        clear_registry_for_test();
-        register_class::<Dummy>(0x1234, "DummyClass").expect("registration succeeds");
+        registry.register_class::<Dummy>(0x1234, "DummyClass").expect("registration succeeds");
         assert_eq!(registry.class_name_from_id(0x1234), Some("DummyClass"));
-        assert_eq!(class_id_for_type::<Dummy>(), Some(0x1234));
+        assert_eq!(registry.class_id_for_type::<Dummy>(), Some(0x1234));
         assert!(registry.is_class_registered(0x1234));
     }
 
     #[test]
     fn duplicate_id_is_rejected() {
-        clear_registry_for_test();
-        register_class::<Dummy>(0x2000, "DummyClass").expect("first registration");
-        let err = register_class::<Other>(0x2000, "OtherClass").unwrap_err();
+        let registry = ClassRegistry::new();
+        registry.register_class::<Dummy>(0x2000, "DummyClass").expect("first registration");
+        let err = registry.register_class::<Other>(0x2000, "OtherClass").unwrap_err();
         match err {
             ClassRegistryError::IdAlreadyRegistered { id, existing_name } => {
                 assert_eq!(id, 0x2000);
@@ -301,9 +294,9 @@ mod tests {
 
     #[test]
     fn duplicate_type_is_rejected() {
-        clear_registry_for_test();
-        register_class::<Dummy>(0x2000, "DummyClass").expect("first registration");
-        let err = register_class::<Dummy>(0x2001, "DummyAgain").unwrap_err();
+        let registry = ClassRegistry::new();
+        registry.register_class::<Dummy>(0x2000, "DummyClass").expect("first registration");
+        let err = registry.register_class::<Dummy>(0x2001, "DummyAgain").unwrap_err();
         match err {
             ClassRegistryError::TypeAlreadyRegistered { id, name } => {
                 assert_eq!(id, 0x2000);
@@ -316,7 +309,6 @@ mod tests {
     #[test]
     fn builtin_names_register_without_error() {
         let registry = ClassRegistry::new();
-        clear_registry_for_test();
         registry.register_builtin_class_names();
         assert_eq!(
             registry.class_name_from_id(ClassID::MeshModelClass as u32),

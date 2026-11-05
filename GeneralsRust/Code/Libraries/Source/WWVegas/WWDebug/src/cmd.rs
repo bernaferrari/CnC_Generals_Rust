@@ -544,7 +544,7 @@ mod tests {
     #[test]
     fn test_help_command() {
         let mut output = Vec::new();
-        let result = ProfileCmdInterface::execute(&mut output, "help", CommandMode::Normal, &[]);
+        let result = ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output, "help", CommandMode::Normal, &[]);
 
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -558,7 +558,7 @@ mod tests {
     fn test_help_result_command() {
         let mut output = Vec::new();
         let result =
-            ProfileCmdInterface::execute(&mut output, "help", CommandMode::Normal, &["result"]);
+            ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output, "help", CommandMode::Normal, &["result"]);
 
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -571,7 +571,7 @@ mod tests {
     #[test]
     fn test_result_command_list() {
         let mut output = Vec::new();
-        let result = ProfileCmdInterface::execute(&mut output, "result", CommandMode::Normal, &[]);
+        let result = ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output, "result", CommandMode::Normal, &[]);
 
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -585,8 +585,7 @@ mod tests {
     #[test]
     fn test_result_command_add() {
         let mut output = Vec::new();
-        let result = ProfileCmdInterface::execute(
-            &mut output,
+        let result = ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output,
             "result",
             CommandMode::Normal,
             &["csv_file", "test_output.csv"],
@@ -602,8 +601,7 @@ mod tests {
     #[test]
     fn test_result_command_unknown() {
         let mut output = Vec::new();
-        let result = ProfileCmdInterface::execute(
-            &mut output,
+        let result = ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output,
             "result",
             CommandMode::Normal,
             &["unknown_function"],
@@ -620,7 +618,7 @@ mod tests {
     fn test_add_command() {
         let mut output = Vec::new();
         let result =
-            ProfileCmdInterface::execute(&mut output, "add", CommandMode::Normal, &["+", "test.*"]);
+            ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output, "add", CommandMode::Normal, &["+", "test.*"]);
 
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -629,7 +627,7 @@ mod tests {
     #[test]
     fn test_add_command_insufficient_args() {
         let mut output = Vec::new();
-        let result = ProfileCmdInterface::execute(&mut output, "add", CommandMode::Normal, &["+"]);
+        let result = ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output, "add", CommandMode::Normal, &["+"]);
 
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -641,7 +639,7 @@ mod tests {
     #[test]
     fn test_unknown_command() {
         let mut output = Vec::new();
-        let result = ProfileCmdInterface::execute(&mut output, "unknown", CommandMode::Normal, &[]);
+        let result = ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output, "unknown", CommandMode::Normal, &[]);
 
         assert!(result.is_ok());
         assert!(!result.unwrap()); // Should return false for unknown commands
@@ -650,7 +648,7 @@ mod tests {
     #[test]
     fn test_command_mode_script() {
         let mut output = Vec::new();
-        let result = ProfileCmdInterface::execute(&mut output, "help", CommandMode::Script, &[]);
+        let result = ProfileCmdInterface::execute(&crate::WwDebugSession::new(), &mut output, "help", CommandMode::Script, &[]);
 
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -680,6 +678,7 @@ mod tests {
         let mut output = Vec::new();
         let result = ProfileCommandParser::execute_command_line(
             &mut output,
+            &crate::WwDebugSession::new(),
             "help result",
             CommandMode::Normal,
         );
@@ -694,7 +693,7 @@ mod tests {
 
     #[test]
     fn test_execute_command_to_string() {
-        let result = execute_command_to_string("help", CommandMode::Normal, &[]);
+        let result = execute_command_to_string(&crate::WwDebugSession::new(), "help", CommandMode::Normal, &[]);
         assert!(result.is_ok());
 
         let (handled, output) = result.unwrap();
@@ -705,7 +704,7 @@ mod tests {
     #[test]
     fn test_profile_command_executor_trait() {
         let mut cursor = Cursor::new(Vec::new());
-        let result = cursor.execute_profile_command("help", CommandMode::Normal, &[]);
+        let result = cursor.execute_profile_command(&crate::WwDebugSession::new(), "help", CommandMode::Normal, &[]);
 
         assert!(result.is_ok());
         assert!(result.unwrap());
