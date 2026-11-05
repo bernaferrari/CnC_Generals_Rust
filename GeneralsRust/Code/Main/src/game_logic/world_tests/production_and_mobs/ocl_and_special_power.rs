@@ -577,6 +577,8 @@ fn tunnel_network_oneshot_spawns_two_rpg_world_objects() {
         .players
         .insert(0, crate::game_logic::Player::new(0, Team::GLA, "GLA", true));
     let mut tunnel = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    tunnel.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tunnel
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable)

@@ -2965,6 +2965,9 @@ mod body_initialization_owner_tests;
 #[cfg(test)]
 #[path = "inactive_body_owner_tests.rs"]
 mod inactive_body_owner_tests;
+#[cfg(test)]
+#[path = "authored_detector_tests.rs"]
+mod authored_detector_tests;
 
 impl Object {
     /// Restore the receiving RepairDock module after snapshot identity validation.

@@ -4,6 +4,7 @@
 #![allow(unused_imports, non_snake_case)]
 
 mod ai_authority;
+mod authored_upgrade_modules;
 mod bridge_body_callbacks;
 mod containment_death;
 mod crates_radar_power;

@@ -422,16 +422,6 @@ mod tests {
     }
 
     #[test]
-    fn should_apply_gates() {
-        assert!(should_apply_bunker_buster(true, true, true));
-        assert!(!should_apply_bunker_buster(false, true, true));
-        assert!(!should_apply_bunker_buster(true, false, true));
-        assert!(!should_apply_bunker_buster(true, true, false));
-        assert!(should_apply_kill_garrisoned(true, true));
-        assert!(!should_apply_kill_garrisoned(true, false));
-    }
-
-    #[test]
     fn structure_damage_amplifies_bunkers() {
         let base = 100.0;
         let normal = bunker_buster_structure_damage(base, false, false);

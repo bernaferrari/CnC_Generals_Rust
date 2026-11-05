@@ -196,11 +196,6 @@ pub fn authors_scud_gun(names: [Option<&str>; 2]) -> bool {
     })
 }
 
-/// Whether residual fire should apply SCUD area residual.
-pub fn should_apply_scud_area(is_scud: bool) -> bool {
-    is_scud
-}
-
 /// Whether residual secondary is toxin/anthrax path (spawn poison field).
 ///
 /// Slot 1 = secondary warhead residual. Chem SCUD residual uses primary anthrax

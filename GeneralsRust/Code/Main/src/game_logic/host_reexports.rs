@@ -367,7 +367,7 @@ pub use super::host_bridge_behavior::{
     BRIDGE_SCAFFOLD_TEMPLATE, BRIDGE_SPLAT_DAMAGE, HostBridgeBehaviorRegistry,
     is_bridge_or_tower_template, is_bridge_span_template,
 };
-pub use super::host_cave_system::{HostCaveSystem, MAX_CAVE_CAPACITY, is_cave_template};
+pub use super::host_cave_system::{HostCaveSystem, is_cave_template};
 pub use super::host_rank_ui_residual::{
     honesty_chat_residual_host_pack_wave89, honesty_experience_residual_tables_pack_wave89,
     honesty_hotkey_residual_table_pack_wave89, honesty_options_residual_pack_wave89,
@@ -463,9 +463,9 @@ pub use super::host_terrorist::{
     SUICIDE_DYNAMITE_PACK, SUICIDE_DYNAMITE_PRIMARY_DAMAGE, SUICIDE_DYNAMITE_PRIMARY_DAMAGE_DEMO,
     SUICIDE_DYNAMITE_PRIMARY_DAMAGE_GAMMA, SUICIDE_DYNAMITE_PRIMARY_RADIUS,
     SUICIDE_DYNAMITE_SECONDARY_DAMAGE, SUICIDE_DYNAMITE_SECONDARY_RADIUS, TERRORIST_SUICIDE_WEAPON,
-    TerroristDeathProfile, is_demo_general_template as is_terrorist_demo_general_template,
+    TerroristDeathProfile, 
     is_terrorist_template, should_apply_terrorist_residual, suicide_dynamite_damage_at,
-    suicide_dynamite_damage_at_profile, terrorist_death_profile, terrorist_suicide_weapon,
+    suicide_dynamite_damage_at_profile, terrorist_suicide_weapon,
     terrorist_suicide_weapon_for_profile,
 };
 
@@ -477,7 +477,7 @@ pub use super::host_troop_crawler::{
     troop_crawler_assault_weapon, troop_crawler_detection_range, troop_crawler_spawn_is_detector,
 };
 pub use super::host_tunnel_network::{
-    HostTunnelNetworkRegistry, MAX_TUNNEL_CAPACITY, TUNNEL_FULL_HEAL_FRAMES, TUNNEL_NETWORK_GUN,
+    HostTunnelNetworkRegistry, TUNNEL_FULL_HEAL_FRAMES, TUNNEL_NETWORK_GUN,
     TUNNEL_NETWORK_GUN_DAMAGE, TUNNEL_NETWORK_GUN_DUMMY, TUNNEL_NETWORK_GUN_DUMMY_DAMAGE,
     TUNNEL_NETWORK_GUN_RANGE, is_sneak_attack_tunnel_template, is_tunnel_network_template,
     tunnel_network_gun_dummy_weapon, tunnel_network_gun_weapon, tunnel_network_primary_weapon,

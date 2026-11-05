@@ -1593,8 +1593,7 @@ impl ThingTemplate {
 
     /// Resolve weapon for a newly created combat unit:
     /// 1) explicit host stats, 2) WeaponStore by primary_weapon_name,
-    /// 3) host residual map by template name (`primary_weapon_name_for_unit`),
-    /// 4) kind-based default fallback (fail-open last resort for Attackable kinds).
+    /// 3) kind-based default fallback (fail-open last resort for Attackable kinds).
     pub fn resolve_primary_weapon(&self, frame: u32) -> Option<Weapon> {
         if let Some(w) = &self.primary_weapon {
             return Some(w.clone());
@@ -1614,19 +1613,7 @@ impl ThingTemplate {
             return None;
         }
         // C++ WeaponSet::updateWeaponSet (WeaponSet.cpp:275) arms only the
-        // authored WeaponSet; an unauthored Ranger stays empty, with no name
-        // map or kind-based default (hq-2qedt.192).
-        if crate::game_logic::host_ranger::is_ranger_template(&self.name) {
-            return None;
-        }
-        // Host residual map: templates often omit primary_weapon_name (units.rs /
-        // setup_templates gaps) but have a known retail weapon for the unit name.
-        // Prefer store residual over kind-based Weapon::default().
-        if let Some(wname) = super::weapon_bootstrap::primary_weapon_name_for_unit(&self.name) {
-            if let Some(w) = Self::weapon_from_host_store_at(wname, frame) {
-                return Some(w);
-            }
-        }
+        // authored WeaponSet: no weapon is ever inferred from the template name.
         // C++ dozers carry only MINE_CLEARING_DETAIL (Object.cpp:160-497 arms
         // ThingTemplate WeaponSet data; a Dozer template has no primary gun).
         // The kind-based Weapon::default() last resort must not hand
@@ -1648,7 +1635,6 @@ impl ThingTemplate {
     /// Resolve secondary weapon for a newly created combat unit.
     /// Fail-closed (not full WeaponSet):
     /// 1) explicit host stats, 2) WeaponStore by secondary_weapon_name,
-    /// 3) host residual map by template name (`secondary_weapon_name_for_unit`).
     /// No kind-based `Weapon::default()` fallback — units without SECONDARY stay unarmed there.
     pub fn resolve_secondary_weapon(&self, frame: u32) -> Option<Weapon> {
         if let Some(w) = &self.secondary_weapon {
@@ -1656,12 +1642,6 @@ impl ThingTemplate {
         }
         if let Some(name) = self.secondary_weapon_name.as_deref() {
             if let Some(w) = Self::weapon_from_host_store_at(name, frame) {
-                return Some(w);
-            }
-        }
-        // Host residual map: secondary slot by unit template name when not set.
-        if let Some(wname) = super::weapon_bootstrap::secondary_weapon_name_for_unit(&self.name) {
-            if let Some(w) = Self::weapon_from_host_store_at(wname, frame) {
                 return Some(w);
             }
         }
@@ -1826,10 +1806,7 @@ impl ThingTemplate {
 
     /// Resolve ContinuousFire / AutoReloadWhenIdle for this template's primary.
     pub fn weapon_tracker_bind(&self) -> WeaponTrackerBind {
-        let name = self
-            .primary_weapon_name
-            .as_deref()
-            .or_else(|| super::weapon_bootstrap::primary_weapon_name_for_unit(&self.name));
+        let name = self.primary_weapon_name.as_deref();
         match name {
             Some(name) => Self::weapon_tracker_from_store(name),
             None => WeaponTrackerBind::default(),

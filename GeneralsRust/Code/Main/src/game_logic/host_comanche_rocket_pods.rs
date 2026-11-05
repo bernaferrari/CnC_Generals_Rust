@@ -217,40 +217,6 @@ pub fn carries_comanche_weapon_set(authored_primary: Option<&str>) -> bool {
     authored_primary == Some(COMANCHE_PRIMARY_WEAPON)
 }
 
-/// Whether residual fire should apply Comanche combat residual (any slot).
-pub fn should_apply_comanche_residual(is_comanche: bool) -> bool {
-    is_comanche
-}
-
-/// Whether combat should apply rocket-pod area residual instead of single-target HP.
-///
-/// Host residual: Comanche + upgrade tag + tertiary slot (2).
-/// Retail AutoChooseSources = NONE — only fires when player locks slot / FIRE_WEAPON.
-pub fn should_apply_rocket_pod_area_attack(
-    is_comanche: bool,
-    has_upgrade: bool,
-    fired_slot: u8,
-) -> bool {
-    is_comanche && has_upgrade && fired_slot == 2
-}
-
-/// Whether combat should apply anti-tank dual-radius residual on secondary fire.
-///
-/// Active when the independent secondary slot fires.  Rocket pods no longer
-/// displace this retail anti-tank weapon.
-pub fn should_apply_comanche_antitank_residual(
-    is_comanche: bool,
-    fired_slot: u8,
-    _rocket_pods_active: bool,
-) -> bool {
-    is_comanche && fired_slot == 1
-}
-
-/// Whether combat should apply primary 20mm intended residual.
-pub fn should_apply_comanche_cannon_residual(is_comanche: bool, fired_slot: u8) -> bool {
-    is_comanche && fired_slot == 0
-}
-
 /// Whether residual auto weapon-chooser may pick rocket-pod tertiary.
 /// Always false (retail AutoChooseSources TERTIARY NONE).
 pub fn rocket_pods_auto_choose_allowed() -> bool {

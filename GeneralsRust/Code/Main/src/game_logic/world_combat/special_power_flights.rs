@@ -1601,11 +1601,7 @@ impl GameLogic {
             .objects
             .get(&pid)
             .map(|o| {
-                crate::game_logic::host_radar_stealth_vision_residual::extra_detect_kindof_for_detector(
-                    &o.template_name,
-                    o.extra_detect_kindof,
-                    o.extra_detect_kindof_not,
-                )
+                (o.extra_detect_kindof, o.extra_detect_kindof_not)
             })
             .unwrap_or((0, 0));
         // First DetectionRate scan is immediate (C++ UPDATE_SLEEP_NONE).
@@ -1770,11 +1766,7 @@ impl GameLogic {
             .objects
             .get(&pid)
             .map(|o| {
-                crate::game_logic::host_radar_stealth_vision_residual::extra_detect_kindof_for_detector(
-                    &o.template_name,
-                    o.extra_detect_kindof,
-                    o.extra_detect_kindof_not,
-                )
+                (o.extra_detect_kindof, o.extra_detect_kindof_not)
             })
             .unwrap_or((0, 0));
         // First DetectionRate scan is immediate (C++ UPDATE_SLEEP_NONE).

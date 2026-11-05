@@ -62,10 +62,7 @@ impl GameLogic {
                 }
                 if let Some(gid) = guard_target {
                     let nemesis = self.objects.get(&gid).and_then(|g| {
-                        let tunnel = g.is_tunnel_network_style_container()
-                            || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                                &g.template_name,
-                            );
+                        let tunnel = g.is_tunnel_network_style_container();
                         tunnel.then_some(g.tunnel_system_key())
                     });
                     if let Some(key) = nemesis {

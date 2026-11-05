@@ -168,11 +168,6 @@ pub fn hacker_disable_until_frame(current_frame: u32) -> u32 {
     current_frame.saturating_add(HACKER_DISABLE_EFFECT_DURATION_FRAMES)
 }
 
-/// Whether residual path should apply for this template.
-pub fn should_apply_hacker_disable(template_name: &str) -> bool {
-    is_hacker_template(template_name)
-}
-
 /// Retail CashHack steal amount for residual science tier.
 ///
 /// C++ CashHackSpecialPower::findAmountToSteal walks upgrades highest-first;
@@ -296,19 +291,6 @@ mod tests {
         assert!(!is_legal_hacker_disable_target(
             true, true, false, true, true
         ));
-    }
-
-    #[test]
-    fn unit_names() {
-        assert!(should_apply_hacker_disable("ChinaInfantryHacker"));
-        assert!(should_apply_hacker_disable("Tank_ChinaInfantryHacker"));
-        assert!(should_apply_hacker_disable("Nuke_ChinaInfantryHacker"));
-        assert!(should_apply_hacker_disable("TestHacker"));
-        assert!(!should_apply_hacker_disable("ChinaInfantryBlackLotus"));
-        assert!(!should_apply_hacker_disable("ChinaTankBattleMaster"));
-        assert!(can_activate_hacker_disable_building(true, true));
-        assert!(!can_activate_hacker_disable_building(true, false));
-        assert!(!can_activate_hacker_disable_building(false, true));
     }
 
     #[test]

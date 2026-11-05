@@ -34,6 +34,8 @@ fn tank_hunter_tnt_and_laser_howitzer_special_power_residuals() {
     th.add_kind_of(KindOf::Infantry).set_health(100.0);
     logic.templates.insert("ChinaInfantryTankHunter".into(), th);
     let mut structure = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    structure.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     structure.add_kind_of(KindOf::Structure).set_health(1000.0);
     logic.templates.insert("GLATunnelNetwork".into(), structure);
 
@@ -2114,56 +2116,6 @@ fn host_upgrade_complete_mines_radar_fortified() {
             .unlocked_sciences
             .contains("Upgrade_AmericaRadar")
     );
-}
-
-#[test]
-fn host_upgrade_complete_drone_and_aircraft_armor() {
-    use crate::game_logic::host_mig::{
-        MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH, UPGRADE_CHINA_AIRCRAFT_ARMOR,
-    };
-    use crate::game_logic::host_slave_drones::{
-        SlaveDroneKind, UPGRADE_AMERICA_DRONE_ARMOR, drone_armor_add_max_health,
-    };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let mut logic = GameLogic::new();
-    logic
-        .players
-        .insert(0, Player::new(0, Team::USA, "USA", true));
-    logic
-        .players
-        .insert(1, Player::new(1, Team::China, "China", true));
-
-    let mut battle = ThingTemplate::new("AmericaBattleDrone");
-    battle.add_kind_of(KindOf::Vehicle).set_health(100.0);
-    logic.templates.insert("AmericaBattleDrone".into(), battle);
-    let mut mig = ThingTemplate::new("ChinaJetMIG");
-    // Retail ChinaJetMIG authors NapalmMissileWeapon (hq-2qedt.247 gate).
-    mig.add_kind_of(KindOf::Aircraft)
-        .set_health(160.0)
-        .set_primary_weapon_name(crate::game_logic::host_mig::NAPALM_MISSILE_WEAPON);
-    logic.templates.insert("ChinaJetMIG".into(), mig);
-
-    let did = logic
-        .create_object(
-            "AmericaBattleDrone",
-            Team::USA,
-            glam::Vec3::new(0.0, 0.0, 0.0),
-        )
-        .expect("drone");
-    let before = logic.host_object(did).unwrap().max_health;
-    let n_d = logic.apply_drone_armor_to_team(Team::USA.into(), UPGRADE_AMERICA_DRONE_ARMOR);
-    assert_eq!(n_d, 1);
-    let after = logic.host_object(did).unwrap().max_health;
-    assert!((after - before - drone_armor_add_max_health(SlaveDroneKind::Battle)).abs() < 0.1);
-
-    let mid = logic
-        .create_object("ChinaJetMIG", Team::China, glam::Vec3::new(20.0, 0.0, 0.0))
-        .expect("mig");
-    let mb = logic.host_object(mid).unwrap().max_health;
-    let n_a = logic.apply_aircraft_armor_to_team(Team::China.into(), UPGRADE_CHINA_AIRCRAFT_ARMOR);
-    assert_eq!(n_a, 1);
-    let ma = logic.host_object(mid).unwrap().max_health;
-    assert!((ma - mb - MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH).abs() < 0.1);
 }
 
 #[test]

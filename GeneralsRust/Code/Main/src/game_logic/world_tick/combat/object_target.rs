@@ -496,6 +496,12 @@ impl GameLogic {
                 return CombatShotResult::NoShot;
             }
 
+            // C++ Object::fireCurrentWeapon fires the selected WeaponTemplate;
+            // every authored weapon shares the one shot delivery operation.
+            if self.slot_fires_authored_weapon(attacker_id, slot) {
+                return self.fire_authored_object_shot_with_effects(input, target_id, slot, effects);
+            }
+
             let mut weapon_damage = self
                 .objects
                 .get(&attacker_id)

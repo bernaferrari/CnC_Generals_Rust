@@ -148,15 +148,6 @@ pub fn md_ms_to_frames(ms: u32) -> u32 {
     ((ms as f32) * MD_LOGIC_FPS / 1000.0).round() as u32
 }
 
-/// Whether template is a residual USA Missile Defender infantry.
-///
-/// Fail-closed: name residual. Excludes weapons/projectiles/locomotor tokens.
-/// Whether an authored weapon name is a Missile Defender weapon (primary or laser guided).
-pub fn is_missile_defender_weapon_name(weapon_name: &str) -> bool {
-    weapon_name == MISSILE_DEFENDER_MISSILE_WEAPON
-        || weapon_name == MISSILE_DEFENDER_LASER_GUIDED_WEAPON
-}
-
 pub fn is_missile_defender_template(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
     if n.is_empty() {

@@ -26,11 +26,9 @@ pub fn host_projectile_name_for_unit_slot(
 ) -> String {
     let wname = if slot == 1 {
         secondary_weapon_name
-            .or_else(|| secondary_weapon_name_for_unit(template_name))
             .or(primary_weapon_name)
-            .or_else(|| primary_weapon_name_for_unit(template_name))
     } else {
-        primary_weapon_name.or_else(|| primary_weapon_name_for_unit(template_name))
+        primary_weapon_name
     };
     match wname {
         Some(n) => host_projectile_name_for_weapon_name(n),
@@ -185,11 +183,9 @@ pub fn host_fire_sound_for_unit_slot(
 ) -> String {
     let wname = if slot == 1 {
         secondary_weapon_name
-            .or_else(|| secondary_weapon_name_for_unit(template_name))
             .or(primary_weapon_name)
-            .or_else(|| primary_weapon_name_for_unit(template_name))
     } else {
-        primary_weapon_name.or_else(|| primary_weapon_name_for_unit(template_name))
+        primary_weapon_name
     };
     wname
         .map(host_fire_sound_for_weapon_name)

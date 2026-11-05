@@ -955,11 +955,7 @@ impl GameLogic {
                 }
             }
             let (extra_required, extra_forbidden) =
-                crate::game_logic::host_radar_stealth_vision_residual::extra_detect_kindof_for_detector(
-                    &o.template_name,
-                    o.extra_detect_kindof,
-                    o.extra_detect_kindof_not,
-                );
+                (o.extra_detect_kindof, o.extra_detect_kindof_not);
             let flags = DetFlags {
                 is_sentry: crate::game_logic::host_sentry_drone::is_sentry_drone_template(
                     &o.template_name,

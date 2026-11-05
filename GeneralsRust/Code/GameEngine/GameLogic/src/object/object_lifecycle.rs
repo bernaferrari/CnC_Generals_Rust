@@ -41,7 +41,11 @@ fn release_destroy_container(owner: &mut DeleteOwner<'_>) {
     });
 }
 
-fn notify_deleted_module(module: &mut dyn engine_module::Module, owner: &mut DeleteOwner<'_>) {
+fn notify_deleted_module(
+    module: &mut dyn engine_module::Module,
+    owner: &mut DeleteOwner<'_>,
+    services: Option<&mut (dyn super::ObjectDeletionServices + '_)>,
+) {
     match super::module_upgrade_kind(module) {
         Some(super::UpgradeModuleKindMut::Radar(upgrade)) => {
             owner.with_mut(|object| upgrade.on_delete(object));
@@ -57,7 +61,7 @@ fn notify_deleted_module(module: &mut dyn engine_module::Module, owner: &mut Del
         .as_any_mut()
         .downcast_mut::<crate::object::behavior::battle_plan_update::BattlePlanUpdateModule>(
     ) {
-        owner.with_mut(|object| battle_plan.on_delete_with_owner(object));
+        owner.with_mut(|object| battle_plan.on_delete_with_owner(object, services));
     } else {
         module.on_delete();
     }
@@ -557,7 +561,7 @@ impl Object {
     /// GameLogic owns this canonical handle. Preserve C++ synchronous onDelete
     /// order while allowing each callback to borrow the still-admitted owner.
     pub(crate) fn on_destroy_from_handle(handle: &Arc<RwLock<Object>>) {
-        Self::on_destroy_from_handle_with_radar_services(handle, None);
+        Self::on_destroy_from_handle_with_radar_services(handle, None, None);
     }
 
     pub(crate) fn on_destroy_from_handle_with_radar_services(
@@ -566,6 +570,7 @@ impl Object {
             &crate::player::PlayerList,
             &mut dyn crate::player::RadarEdgeServices,
         )>,
+        mut deletion: Option<&mut (dyn super::ObjectDeletionServices + '_)>,
     ) {
         {
             let Ok(mut object) = handle.write() else {
@@ -621,7 +626,9 @@ impl Object {
                     continue;
                 }
             }
-            entry.with_module(|module| notify_deleted_module(module, &mut owner));
+            entry.with_module(|module| {
+                notify_deleted_module(module, &mut owner, deletion.as_deref_mut())
+            });
         }
         owner.with_mut(|object| object.handle_partition_cell_maintenance());
     }
@@ -661,6 +668,9 @@ impl Object {
                 if let Some(client) = crate::helpers::TheGameClient::get() {
                     client.clear_object_model_draws(object_id);
                 }
+            }
+            ObjectDestroyServiceAction::DestroyObject(child) => {
+                let _ = crate::helpers::TheGameLogic::destroy_object_by_id(child);
             }
         });
     }
@@ -749,6 +759,20 @@ impl Object {
         }
         self.group_id = None;
 
+        // C++ module destructors run here, after team/group cleanup and
+        // before the module list is released.
+        for entry in self.modules.clone() {
+            let worker = entry.with_module(|module| {
+                module
+                    .as_any_mut()
+                    .downcast_mut::<crate::object::behavior::rebuild_hole_behavior::RebuildHoleBehaviorModule>()
+                    .and_then(|hole| hole.behavior_mut().take_worker_for_destructor())
+            });
+            if let Some(worker_id) = worker {
+                service(self.id, ObjectDestroyServiceAction::DestroyObject(worker_id));
+            }
+        }
+
         // C++ deletes modules only after team/group cleanup. Release interface
         // proxies too: each refers to the same module, not an independent state.
         self.ai = None;
@@ -788,7 +812,7 @@ impl Object {
             .with_mut(|object| object.modules.clone())
             .expect("borrowed owner");
         for entry in modules {
-            entry.with_module(|module| notify_deleted_module(module, &mut owner));
+            entry.with_module(|module| notify_deleted_module(module, &mut owner, None));
         }
         // Match C++ Object::onDestroy -> handlePartitionCellMaintenance.
         // This clears partition/shroud/value/threat bookkeeping before the object is fully removed.

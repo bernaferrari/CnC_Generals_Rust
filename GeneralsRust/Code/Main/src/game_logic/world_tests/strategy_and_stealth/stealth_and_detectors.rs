@@ -2471,6 +2471,8 @@ fn camo_netting_destalths_without_black_market() {
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(2, Team::GLA, "GLA", true));
     let mut tunnel = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    tunnel.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     tunnel
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Selectable)

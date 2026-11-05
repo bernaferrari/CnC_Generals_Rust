@@ -930,7 +930,6 @@ impl GameLogic {
     pub fn host_authoritative_occupant_count(&self, id: ObjectId) -> Option<u16> {
         let o = self.host_object(id)?;
         if o.is_tunnel_network_style_container()
-            || crate::game_logic::host_tunnel_network::is_tunnel_network_template(&o.template_name)
         {
             return Some(
                 self.tunnel_network
@@ -961,7 +960,6 @@ impl GameLogic {
             return Vec::new();
         };
         if o.is_tunnel_network_style_container()
-            || crate::game_logic::host_tunnel_network::is_tunnel_network_template(&o.template_name)
         {
             return self
                 .tunnel_network

@@ -397,7 +397,7 @@ pub(crate) struct PendingWeaponFireCommit {
     pub slot: u8,
     pub current_time: f32,
     pub logic_frame: u32,
-    pub target_id: ObjectId,
+    pub target_id: Option<ObjectId>,
     pub possible_next_shot_frame: u32,
     pub fire_weapon_name: Option<String>,
     pub owned_rof: Option<[f32; 3]>,

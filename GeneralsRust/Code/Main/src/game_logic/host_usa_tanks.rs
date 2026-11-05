@@ -303,12 +303,6 @@ pub fn usa_tank_gun_weapon_for_template(template_name: &str) -> Weapon {
 ///
 /// Returns true when health was increased (first apply residual; idempotent via tag).
 
-/// Whether residual fire should apply USA tank gun residual (non-laser).
-pub fn should_apply_usa_tank_gun_residual(template_name: &str) -> bool {
-    (is_crusader_template(template_name) || is_paladin_template(template_name))
-        && !is_laser_general_tank_template(template_name)
-}
-
 /// Splash damage residual at distance (full PrimaryDamage inside radius).
 pub fn usa_tank_gun_splash_damage_at(distance: f32, damage: f32) -> f32 {
     if distance <= USA_TANK_GUN_PRIMARY_RADIUS {

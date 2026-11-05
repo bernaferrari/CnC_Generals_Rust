@@ -852,16 +852,53 @@ impl Object {
     }
 
     /// C++ `StealthDetectorUpdateModuleData` ExtraRequired/ForbiddenKindOf
-    /// from leftover ThingFactory (StealthDetectorUpdate.cpp:53-54, :168).
+    /// (StealthDetectorUpdate.cpp:53-54, :168) from this template's authored
+    /// module; an object without the module keeps its explicit filters.
     pub fn apply_leftover_extra_detect_kindof(&mut self) {
-        let (required, forbidden) =
-            crate::game_logic::host_radar_stealth_vision_residual::extra_detect_kindof_for_detector(
-                &self.template_name,
-                self.extra_detect_kindof,
-                self.extra_detect_kindof_not,
-            );
+        if let Some((required, forbidden)) = self.authored_stealth_detector().map(|data| {
+            (data.extra_detect_kindof, data.extra_detect_kindof_not)
+        }) {
+            self.extra_detect_kindof = required;
+            self.extra_detect_kindof_not = forbidden;
+        }
+    }
+
+    /// The authored `StealthDetectorUpdate` module data, if this template declares one.
+    pub(crate) fn authored_stealth_detector(
+        &self,
+    ) -> Option<&gamelogic::object::behavior::StealthDetectorUpdateModuleData> {
+        self.thing()
+            .template
+            .authored_module_data::<gamelogic::object::behavior::StealthDetectorUpdateModuleData>(
+                "StealthDetectorUpdate",
+            )
+    }
+
+    /// C++ `StealthDetectorUpdate` construction (StealthDetectorUpdate.cpp:53-120):
+    /// any template authoring the module detects, enabled unless
+    /// `InitiallyDisabled`, with its authored DetectionRange (0 = vision range),
+    /// DetectionRate and Extra{Required,Forbidden}KindOf. Returns whether the
+    /// module is authored.
+    pub(crate) fn install_authored_stealth_detector(&mut self) -> bool {
+        let Some((enabled, range, rate, required, forbidden)) =
+            self.authored_stealth_detector().map(|data| {
+                (
+                    !data.initially_disabled,
+                    data.detection_range,
+                    data.update_rate,
+                    data.extra_detect_kindof,
+                    data.extra_detect_kindof_not,
+                )
+            })
+        else {
+            return false;
+        };
+        self.is_detector = enabled;
+        self.detection_range = range.max(0.0);
+        self.detection_rate_frames = rate;
         self.extra_detect_kindof = required;
         self.extra_detect_kindof_not = forbidden;
+        true
     }
 
     /// C++ `StealthDetectorUpdate` ctor: random first wake so detectors do not
@@ -873,11 +910,10 @@ impl Object {
             return;
         }
         if self.detection_rate_frames == 0 {
-            self.detection_rate_frames =
-                crate::game_logic::host_strategy_center::stealth_detector_rate_frames_for_template(
-                    &self.template_name,
-                    self.authors_pathfinder_sniper_weapon(),
-                );
+            // StealthDetectorUpdateModuleData ctor: m_updateRate = 1 unless authored.
+            self.detection_rate_frames = self
+                .authored_stealth_detector()
+                .map_or(1, |data| data.update_rate.max(1));
         }
         self.apply_leftover_extra_detect_kindof();
         self.next_detection_scan_frame =

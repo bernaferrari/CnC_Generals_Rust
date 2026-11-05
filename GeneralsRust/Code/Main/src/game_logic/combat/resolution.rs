@@ -349,6 +349,7 @@ impl CombatSystem {
         };
         DamageEvent::Area {
             position,
+            damage_status_type: projectile.damage_status_type,
             damage: projectile.damage,
             damage_type: projectile.damage_type,
             death_type: projectile.death_type,
@@ -672,13 +673,15 @@ impl CombatSystem {
                     damage_type,
                     death_type,
                     shooter_id,
+                    damage_status_type,
                     ..
                 } => {
                     let context = crate::game_logic::object::DamageHitContext::new(
                         objects.get(shooter_id),
                         None,
                         *damage_type,
-                    );
+                    )
+                    .with_damage_status(*damage_status_type);
                     if let Some(target) = objects.get_mut(target_id) {
                         let before = target.health.current;
                         let destroyed = target.take_damage_with_context(
@@ -716,6 +719,7 @@ impl CombatSystem {
                     damage,
                     damage_type,
                     death_type,
+                    damage_status_type,
                     radius,
                     secondary_damage,
                     secondary_radius,
@@ -740,7 +744,8 @@ impl CombatSystem {
                         objects.get(shooter_id),
                         None,
                         *damage_type,
-                    );
+                    )
+                    .with_damage_status(*damage_status_type);
                     let primary_r = *radius;
                     let secondary_r = (*secondary_radius).max(0.0);
                     let dual = secondary_r > primary_r + 1e-3 && *secondary_damage > 0.0;
@@ -964,6 +969,7 @@ impl CombatSystem {
             .map(|c| c.source_veterancy)
             .unwrap_or(crate::game_logic::VeterancyLevel::Rookie);
         proj.historic_weapon_key = p.historic_weapon_key.clone();
+        proj.damage_status_type = p.damage_status_type;
         proj.historic_bonus_time_frames = p.historic_bonus_time_frames;
         proj.historic_bonus_count = p.historic_bonus_count;
         proj.historic_bonus_radius = p.historic_bonus_radius;
@@ -995,6 +1001,7 @@ impl CombatSystem {
                 damage_type: proj.damage_type,
                 death_type: proj.death_type,
                 shooter_id: proj.shooter_id,
+                damage_status_type: proj.damage_status_type,
             });
         }
         if !proj.detonation_fx_name.is_empty() || !proj.detonation_ocl_name.is_empty() {

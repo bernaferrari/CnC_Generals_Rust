@@ -351,31 +351,11 @@ impl GameLogic {
         // WeaponSet::updateWeaponSet), not a name peel (hq-2qedt.169).
         // Death-profile / demo charge residuals live in host_terrorist.
 
-        // C++ Object::initObject → updateUpgradeModules: PLAYER_UPGRADE
-        // Upgrade_AmericaDroneArmor fires MaxHealthUpgrade on new drones.
-        // Live research only stamps drones alive at complete; inherit here.
-        // Owner-player only — same-faction leak is not C++ getControllingPlayer.
-        if let Some(kind) =
-            crate::game_logic::host_slave_drones::slave_drone_kind_from_template(template_name)
-        {
-            use crate::game_logic::host_slave_drones::{
-                UPGRADE_AMERICA_DRONE_ARMOR, apply_drone_armor_health,
-            };
-            let player_has_armor = owner_player_id
-                .and_then(|pid| players.get(&pid))
-                .is_some_and(|p| p.has_unlocked_upgrade(UPGRADE_AMERICA_DRONE_ARMOR));
-            if player_has_armor
-                && !(allow_upgrades && object.has_upgrade_tag(UPGRADE_AMERICA_DRONE_ARMOR))
-            {
-                object.apply_upgrade_tag(UPGRADE_AMERICA_DRONE_ARMOR);
-                let mut max_h = object.max_health;
-                let mut cur = object.health.current;
-                let mut maximum = object.health.maximum;
-                apply_drone_armor_health(kind, &mut max_h, &mut cur, &mut maximum);
-                object.set_body_max_health(max_h);
-                object.health.maximum = maximum;
-                object.internal_change_health(cur - object.health.current);
-            }
+        // C++ Object::initObject -> updateUpgradeModules: the owning player's
+        // completed upgrades run this template's authored MaxHealthUpgrade
+        // modules (Composite Armor, Drone Armor, Aircraft Armor, ...).
+        if let Some(player) = owner_player_id.and_then(|pid| players.get(&pid)) {
+            object.run_authored_max_health_upgrades(|name| player.has_unlocked_upgrade(name));
         }
     }
 }

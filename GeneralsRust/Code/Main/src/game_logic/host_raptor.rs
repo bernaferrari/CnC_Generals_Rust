@@ -227,11 +227,6 @@ pub fn authors_raptor_missile(names: [Option<&str>; 2], king: Option<bool>) -> b
     })
 }
 
-/// Whether residual fire should apply Raptor residual path.
-pub fn should_apply_raptor_residual(is_raptor: bool) -> bool {
-    is_raptor
-}
-
 /// Laser Missiles PLAYER_UPGRADE residual present on unit / player tags.
 pub fn has_laser_missiles_upgrade(applied_upgrades: &HashSet<String>) -> bool {
     applied_upgrades.iter().any(|u| {

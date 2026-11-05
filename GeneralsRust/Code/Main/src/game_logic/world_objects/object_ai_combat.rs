@@ -605,8 +605,12 @@ impl GameLogic {
         effects: &mut crate::game_logic::ScriptPresentationEffects<'_>,
     ) -> u32 {
         use crate::game_logic::host_upgrades::HostUpgradeKind;
+        // Authored UpgradeMux modules run for every completed upgrade; the
+        // template's module list, not the upgrade or unit name, selects them.
+        let authored = self.apply_authored_max_health_upgrades(recipients, upgrade_name);
         let kind = HostUpgradeKind::from_name(upgrade_name);
-        match kind {
+        authored
+            + match kind {
             HostUpgradeKind::FlashBangGrenade => {
                 self.apply_flashbang_unlock_to_team(recipients, upgrade_name)
             }
@@ -635,9 +639,10 @@ impl GameLogic {
             HostUpgradeKind::CamoNetting => {
                 self.apply_camo_netting_unlock_to_team(recipients, upgrade_name)
             }
-            HostUpgradeKind::CompositeArmor => {
-                self.apply_composite_armor_unlock_to_team(recipients, upgrade_name)
-            }
+            // MaxHealthUpgrade modules (authored_upgrade_modules.rs).
+            HostUpgradeKind::CompositeArmor
+            | HostUpgradeKind::DroneArmor
+            | HostUpgradeKind::AircraftArmor => 0,
             HostUpgradeKind::WorkerShoes => {
                 self.apply_worker_shoes_unlock_to_team(recipients, upgrade_name)
             }
@@ -690,10 +695,6 @@ impl GameLogic {
             }
             HostUpgradeKind::TacticalNukeMig => {
                 self.apply_tactical_nuke_mig_to_team(recipients, upgrade_name)
-            }
-            HostUpgradeKind::DroneArmor => self.apply_drone_armor_to_team(recipients, upgrade_name),
-            HostUpgradeKind::AircraftArmor => {
-                self.apply_aircraft_armor_to_team(recipients, upgrade_name)
             }
             HostUpgradeKind::ChinaMines => {
                 self.apply_player_unlock_upgrade(recipients, upgrade_name, "Upgrade_ChinaMines")

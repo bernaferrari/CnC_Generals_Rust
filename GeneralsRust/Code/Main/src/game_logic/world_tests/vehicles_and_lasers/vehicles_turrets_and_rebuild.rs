@@ -2187,6 +2187,8 @@ fn reconstructing_death_transfers_attackers_back_to_hole() {
         .players
         .insert(1, Player::new(1, Team::USA, "USA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     st.add_kind_of(KindOf::Structure).set_health(1000.0);
     st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     logic.templates.insert("GLATunnelNetwork".into(), st);
@@ -2262,6 +2264,8 @@ fn rebuild_hole_transfers_sticky_bombs_to_reconstruction() {
         .players
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     st.add_kind_of(KindOf::Structure).set_health(1000.0);
     st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     logic.templates.insert("GLATunnelNetwork".into(), st);
@@ -2388,6 +2392,8 @@ fn gla_structure_death_spawns_rebuild_hole_and_reconstructs() {
         .players
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     st.add_kind_of(KindOf::Structure).set_health(1000.0);
     st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     logic.templates.insert("GLATunnelNetwork".into(), st);
@@ -2477,6 +2483,8 @@ fn rebuild_hole_transfers_script_name_and_skips_defeated_player() {
         .players
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     st.add_kind_of(KindOf::Structure).set_health(1000.0);
     st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     logic.templates.insert("GLATunnelNetwork".into(), st);
@@ -2504,6 +2512,8 @@ fn rebuild_hole_transfers_script_name_and_skips_defeated_player() {
     defeated.is_alive = false;
     dead.players.insert(0, defeated);
     let mut st2 = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    st2.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     st2.add_kind_of(KindOf::Structure).set_health(1000.0);
     st2.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     dead.templates.insert("GLATunnelNetwork".into(), st2);
@@ -2623,6 +2633,8 @@ fn rebuild_hole_complete_transfers_script_name() {
         .players
         .insert(0, Player::new(0, Team::GLA, "GLA", true));
     let mut st = ThingTemplate::new("GLATunnelNetwork");
+    // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+    st.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
     st.add_kind_of(KindOf::Structure).set_health(1000.0);
     st.set_rebuild_hole_expose("GLAHoleTunnelNetwork", 0.0);
     logic.templates.insert("GLATunnelNetwork".into(), st);

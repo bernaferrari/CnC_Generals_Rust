@@ -82,9 +82,6 @@ impl crate::game_logic::GameLogic {
                 .registered_values()
                 .filter(|object| {
                     object.is_tunnel_network_style_container()
-                        || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                            &object.template_name,
-                        )
                 })
                 .map(|object| {
                     (

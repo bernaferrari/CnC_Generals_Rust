@@ -21,7 +21,7 @@ fn create_cave(logic: &mut GameLogic, name: &str, pos: Vec3, index: i32) -> Obje
     ensure_cave_template(logic, name);
     let id = logic.create_object(name, Team::Neutral, pos).expect("cave");
     if let Some(obj) = logic.host_object_mut(id) {
-        obj.install_cave_contain_residual(index);
+        obj.install_cave_contain_residual(index, 10);
     }
     logic.cave_system.register_cave(id, index, Team::Neutral);
     id

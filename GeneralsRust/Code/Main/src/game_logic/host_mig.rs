@@ -257,11 +257,6 @@ pub fn authors_mig_missile(names: [Option<&str>; 2], nuke: Option<bool>) -> bool
     })
 }
 
-/// Whether residual fire should apply MiG residual path.
-pub fn should_apply_mig_residual(is_mig: bool) -> bool {
-    is_mig
-}
-
 /// BlackNapalm PLAYER_UPGRADE residual present.
 pub fn has_black_napalm_upgrade(applied_upgrades: &HashSet<String>) -> bool {
     applied_upgrades.iter().any(|u| {

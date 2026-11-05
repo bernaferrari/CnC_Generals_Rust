@@ -168,11 +168,6 @@ pub const INFERNO_FIRE_BURN_AUDIO: &str = "InfernoCannonFire";
 /// Fail-closed: name residual (not full INI WeaponSet / Artillery style matrix).
 /// Excludes projectile shells (`InfernoTankShell`).
 
-/// Whether residual fire should apply Inferno Cannon shell residual.
-pub fn should_apply_inferno_cannon_residual(is_inferno: bool) -> bool {
-    is_inferno
-}
-
 /// Cubic Bezier residual sample for InfernoTankShell DumbProjectileBehavior.
 pub fn inferno_shell_bezier_point(from: Vec3, to: Vec3, t: f32) -> Vec3 {
     let t = t.clamp(0.0, 1.0);
@@ -223,12 +218,6 @@ pub fn is_inferno_cannon_template(template_name: &str) -> bool {
         return false;
     }
     n.contains("infernocannon") || n.contains("inferno_cannon") || n.contains("vehicleinferno")
-}
-
-/// Authored WeaponTemplate identity for the Inferno Cannon shell residual.
-pub fn is_inferno_cannon_weapon_name(weapon_name: &str) -> bool {
-    weapon_name.eq_ignore_ascii_case(INFERNO_CANNON_PRIMARY_WEAPON)
-        || weapon_name.eq_ignore_ascii_case(INFERNO_CANNON_UPGRADED_WEAPON)
 }
 
 /// Whether BlackNapalm upgrade is active on residual Inferno (tag present).

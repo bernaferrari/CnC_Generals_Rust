@@ -635,6 +635,8 @@ mod tests {
             .players
             .insert(0, Player::new(0, Team::GLA, "GLA", true));
         let mut tn = ThingTemplate::new("GLATunnelNetwork");
+        // Retail GLATunnelNetwork authors Body/Contain = TunnelContain.
+        tn.contain_module.kind = crate::game_logic::ContainModuleKind::Tunnel;
         tn.add_kind_of(KindOf::Structure).set_health(1000.0);
         tn.build_cost.supplies = 800;
         logic.templates.insert("GLATunnelNetwork".into(), tn);
