@@ -89,8 +89,14 @@ fn reset_discards_pending_main_audio_without_touching_a_peer() {
     assert_eq!(a.queued_audio_events.len(), 1);
     a.reset();
     assert!(
-        !a.queued_audio_events.iter().any(|e| e.event_type == "StaleCue"),
+        !a.queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "StaleCue"),
         "previous-world request must not survive reset"
     );
-    assert!(b.queued_audio_events.iter().any(|e| e.event_type == "PeerCue"));
+    assert!(
+        b.queued_audio_events
+            .iter()
+            .any(|e| e.event_type == "PeerCue")
+    );
 }
