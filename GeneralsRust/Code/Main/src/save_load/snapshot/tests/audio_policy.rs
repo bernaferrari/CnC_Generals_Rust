@@ -77,3 +77,20 @@ fn malformed_audio_policy_rejects_before_receiver_state_changes() {
         Some(0.25)
     );
 }
+
+/// GameLogic::reset discards the previous world's pending semantic audio while a
+/// peer match keeps its own queue (hq-oqbxl).
+#[test]
+fn reset_discards_pending_main_audio_without_touching_a_peer() {
+    let mut a = GameLogic::new();
+    let mut b = GameLogic::new();
+    a.queue_audio_event(crate::game_logic::AudioEventRequest::new("StaleCue"));
+    b.queue_audio_event(crate::game_logic::AudioEventRequest::new("PeerCue"));
+    assert_eq!(a.queued_audio_events.len(), 1);
+    a.reset();
+    assert!(
+        !a.queued_audio_events.iter().any(|e| e.event_type == "StaleCue"),
+        "previous-world request must not survive reset"
+    );
+    assert!(b.queued_audio_events.iter().any(|e| e.event_type == "PeerCue"));
+}
