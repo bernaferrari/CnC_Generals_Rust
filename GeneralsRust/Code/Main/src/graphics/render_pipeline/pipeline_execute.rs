@@ -572,19 +572,14 @@ impl RenderPipeline {
         let skip_filter_scene = native_receiver.view_filter().filter()
             == game_client::display::view::FilterType::MotionBlur
             && native_receiver.view_filter().skip_render()
-            && self
-                .forward_pass
-                .renderer
-                .engine
-                .as_ref()
-                .map(|eng| eng.lock().surface_size())
-                .is_some_and(|(width, height)| {
-                    self.view_filter_resources.has_scene_capture_for(
-                        width,
-                        height,
-                        graphics_system.color_format(),
-                    )
-                });
+            && {
+                let (width, height) = self.forward_pass.renderer.engine.lock().surface_size();
+                self.view_filter_resources.has_scene_capture_for(
+                    width,
+                    height,
+                    graphics_system.color_format(),
+                )
+            };
         #[cfg(feature = "game_client")]
         if skip_filter_scene {
             // Reusing an image is not a new accepted draw of its ghost objects.

@@ -1,9 +1,31 @@
 //! W3D Advanced Lighting System
 
-use super::renderer::W3DLightData;
+use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use ultraviolet::{Vec3, Vec4};
 use wgpu::{Buffer, Device, Queue};
+
+/// Light data for GPU
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct W3DLightData {
+    /// Light position (world space)
+    pub position: [f32; 3],
+    /// Light type (0=directional, 1=point, 2=spot)
+    pub light_type: u32,
+    /// Light color (RGB) + intensity (A)
+    pub color_intensity: [f32; 4],
+    /// Light direction (for directional/spot)
+    pub direction: [f32; 3],
+    /// Light range
+    pub range: f32,
+    /// Spot light inner/outer cone angles
+    pub spot_angles: [f32; 2],
+    /// Shadow map index (-1 if no shadow)
+    pub shadow_index: i32,
+    /// Padding
+    pub _padding: u32,
+}
 
 /// Light types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

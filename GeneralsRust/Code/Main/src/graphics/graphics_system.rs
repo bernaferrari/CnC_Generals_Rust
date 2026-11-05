@@ -8,39 +8,6 @@ use std::sync::Arc;
 const FALLBACK_CUBE_DIFFUSE: [f32; 4] = [0.58, 0.58, 0.58, 1.0];
 const FALLBACK_CUBE_SHADOW_DIFFUSE: [f32; 4] = [0.46, 0.46, 0.46, 1.0];
 
-/// Material properties uniform - matches shader's MaterialProperties struct
-/// Note: WGSL has strict alignment rules. Vec4 = 16 bytes, vec2 needs 8-byte alignment
-/// Total must be 80 bytes due to alignment padding in WGSL
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct MaterialPropertiesUniform {
-    pub diffuse_color: [f32; 4],   // 16 bytes, offset 0
-    pub specular_color: [f32; 4],  // 16 bytes, offset 16
-    pub emissive_color: [f32; 4],  // 16 bytes, offset 32
-    pub opacity: f32,              // 4 bytes, offset 48
-    pub shininess: f32,            // 4 bytes, offset 52
-    pub _padding1: [f32; 1],       // 4 bytes, offset 56 (alignment padding)
-    pub _padding2: [f32; 1], // 4 bytes, offset 60 (alignment padding to align vec2 to 8-byte boundary)
-    pub stage0_uv_scale: [f32; 2], // 8 bytes, offset 64
-    pub stage1_uv_scale: [f32; 2], // 8 bytes, offset 72
-}
-
-impl Default for MaterialPropertiesUniform {
-    fn default() -> Self {
-        Self {
-            diffuse_color: [0.8, 0.8, 0.8, 1.0],  // Default white diffuse
-            specular_color: [1.0, 1.0, 1.0, 1.0], // Default white specular
-            emissive_color: [0.0, 0.0, 0.0, 1.0], // No emissive by default
-            opacity: 1.0,
-            shininess: 32.0,
-            _padding1: [0.0],
-            _padding2: [0.0],
-            stage0_uv_scale: [1.0, 1.0],
-            stage1_uv_scale: [1.0, 1.0],
-        }
-    }
-}
-
 /// Main graphics subsystem - equivalent to C++ SAGE GraphicsSystem
 pub struct GraphicsSystem {
     device: Arc<wgpu::Device>,
@@ -51,23 +18,8 @@ pub struct GraphicsSystem {
     // Model cache for pre-loaded W3D models - matches C++ ModelCache
     loaded_models: HashMap<String, Arc<W3DModel>>,
 
-    // Global shader resources - matches C++ GlobalShaderResources
+    // Global lighting defaults (CPU state only; no GPU buffer consumes it)
     global_uniforms: GlobalUniforms,
-    uniform_buffer: wgpu::Buffer,
-    uniform_bind_group: wgpu::BindGroup,
-
-    // Material properties uniforms - matches C++ VertexMaterialClass system
-    material_properties: MaterialPropertiesUniform,
-    material_properties_buffer: wgpu::Buffer,
-    material_properties_bind_group: wgpu::BindGroup,
-
-    // Material properties bind group layout
-    material_properties_bind_group_layout: wgpu::BindGroupLayout,
-
-    // Texture bind group layout for materials
-    texture_bind_group_layout: wgpu::BindGroupLayout,
-    // Cache for loaded material textures and their bind groups
-    material_bind_groups: HashMap<String, wgpu::BindGroup>,
 
     // Statistics
     frame_count: u64,
@@ -121,110 +73,6 @@ impl GraphicsSystem {
             _sun_color_padding: 0.0,
         };
 
-        // Create uniform buffer
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Global Uniforms Buffer"),
-            size: std::mem::size_of::<GlobalUniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        // Create uniform bind group layout
-        let uniform_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some("global_uniform_bind_group_layout"),
-            });
-
-        // Create uniform bind group
-        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &uniform_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
-            label: Some("global_uniform_bind_group"),
-        });
-
-        // Create texture bind group layout
-        let mut texture_layout_entries = Vec::with_capacity(MAX_STAGE_TEXTURES * 2);
-        for stage in 0..MAX_STAGE_TEXTURES {
-            let binding_index = (stage * 2) as u32;
-            texture_layout_entries.push(wgpu::BindGroupLayoutEntry {
-                binding: binding_index,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    multisampled: false,
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                },
-                count: None,
-            });
-            texture_layout_entries.push(wgpu::BindGroupLayoutEntry {
-                binding: binding_index + 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: None,
-            });
-        }
-
-        let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &texture_layout_entries,
-                label: Some("texture_bind_group_layout"),
-            });
-
-        // Create material properties buffer - matches C++ VertexMaterialClass uniform
-        let material_properties = MaterialPropertiesUniform::default();
-        let material_properties_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Material Properties Buffer"),
-            size: std::mem::size_of::<MaterialPropertiesUniform>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        // Create material properties bind group layout
-        let material_properties_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some("material_properties_bind_group_layout"),
-            });
-
-        // Create material properties bind group
-        let material_properties_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &material_properties_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: material_properties_buffer.as_entire_binding(),
-            }],
-            label: Some("material_properties_bind_group"),
-        });
-
-        // Upload initial material properties to GPU
-        queue.write_buffer(
-            &material_properties_buffer,
-            0,
-            bytemuck::cast_slice(&[material_properties]),
-        );
-
         let mut loaded_models = HashMap::new();
 
         // Cache a neutral fallback cube for explicit missing-model diagnostics.
@@ -243,14 +91,6 @@ impl GraphicsSystem {
             color_format,
             loaded_models,
             global_uniforms,
-            uniform_buffer,
-            uniform_bind_group,
-            material_properties,
-            material_properties_buffer,
-            material_properties_bind_group,
-            material_properties_bind_group_layout,
-            texture_bind_group_layout,
-            material_bind_groups: HashMap::new(),
             frame_count: 0,
             triangles_rendered: 0,
             draw_calls: 0,
@@ -258,65 +98,15 @@ impl GraphicsSystem {
         })
     }
 
-    /// Update global shader uniforms - equivalent to C++ GraphicsSystem::UpdateGlobalUniforms()
+    /// Retained for the render-pipeline call site; no GPU buffer consumes the
+    /// camera globals, so there is nothing to update.
     pub fn update_global_uniforms(
         &mut self,
-        view_matrix: &Mat4,
-        projection_matrix: &Mat4,
-        camera_position: Vec3,
-        time: f32,
+        _view_matrix: &Mat4,
+        _projection_matrix: &Mat4,
+        _camera_position: Vec3,
+        _time: f32,
     ) {
-        self.global_uniforms.view_matrix = view_matrix.to_cols_array_2d();
-        self.global_uniforms.projection_matrix = projection_matrix.to_cols_array_2d();
-        self.global_uniforms.view_projection =
-            (*projection_matrix * *view_matrix).to_cols_array_2d();
-        self.global_uniforms.camera_position =
-            [camera_position.x, camera_position.y, camera_position.z, 1.0];
-        self.global_uniforms.time = time;
-
-        // Upload to GPU
-        self.queue.write_buffer(
-            &self.uniform_buffer,
-            0,
-            bytemuck::cast_slice(&[self.global_uniforms]),
-        );
-    }
-
-    /// Update material properties - equivalent to C++ VertexMaterialClass::Update()
-    pub fn update_material_properties(&mut self, material: &crate::assets::W3DMaterial) {
-        // Convert material properties to uniform format - matches C++ D3D8 material system
-        self.material_properties.diffuse_color = [
-            material.diffuse_color.x,
-            material.diffuse_color.y,
-            material.diffuse_color.z,
-            1.0,
-        ];
-        self.material_properties.specular_color = [
-            material.specular_color.x,
-            material.specular_color.y,
-            material.specular_color.z,
-            1.0,
-        ];
-        self.material_properties.emissive_color = [
-            material.emissive_color.x,
-            material.emissive_color.y,
-            material.emissive_color.z,
-            1.0,
-        ];
-        self.material_properties.opacity = material.opacity;
-        self.material_properties.shininess = material.shininess;
-
-        // Upload to GPU
-        self.queue.write_buffer(
-            &self.material_properties_buffer,
-            0,
-            bytemuck::cast_slice(&[self.material_properties]),
-        );
-    }
-
-    /// Get material properties bind group
-    pub fn material_properties_bind_group(&self) -> &wgpu::BindGroup {
-        &self.material_properties_bind_group
     }
 
     /// Read the current global lighting defaults used by the renderer.
@@ -353,12 +143,6 @@ impl GraphicsSystem {
                 (self.global_uniforms.sun_color[2] + sky[2]) * 0.5,
             ];
         }
-        // Upload to GPU so the change takes effect immediately.
-        self.queue.write_buffer(
-            &self.uniform_buffer,
-            0,
-            bytemuck::cast_slice(&[self.global_uniforms]),
-        );
     }
 
     /// Cache W3D model - equivalent to C++ ModelCache::CacheModel()
@@ -409,97 +193,6 @@ impl GraphicsSystem {
             first_mesh_texture,
             first_mesh_transform,
         ))
-    }
-
-    /// Get uniform bind group
-    pub fn uniform_bind_group(&self) -> &wgpu::BindGroup {
-        &self.uniform_bind_group
-    }
-
-    /// Get texture bind group layout
-    pub fn texture_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
-        &self.texture_bind_group_layout
-    }
-
-    /// Get material bind group (read-only) - equivalent to C++ MaterialManager::GetMaterialBindGroup()
-    pub fn get_material_bind_group(
-        &self,
-        material: &crate::assets::W3DMaterial,
-    ) -> Option<&wgpu::BindGroup> {
-        let bind_group_key = Self::material_bind_group_key(material);
-
-        self.material_bind_groups.get(&bind_group_key)
-    }
-
-    /// Get or create material bind group (mutable) - equivalent to C++ MaterialManager::GetMaterialBindGroup()
-    pub fn get_or_create_material_bind_group(
-        &mut self,
-        material: &crate::assets::W3DMaterial,
-    ) -> Option<&wgpu::BindGroup> {
-        let bind_group_key = Self::material_bind_group_key(material);
-
-        if !self.material_bind_groups.contains_key(&bind_group_key) {
-            if let Some(bind_group) = self.create_material_bind_group(material, &bind_group_key) {
-                self.material_bind_groups
-                    .insert(bind_group_key.clone(), bind_group);
-            } else {
-                return None;
-            }
-        }
-
-        self.material_bind_groups.get(&bind_group_key)
-    }
-
-    /// Create material bind group - equivalent to C++ MaterialManager::CreateMaterialBindGroup()
-    fn create_material_bind_group(
-        &self,
-        material: &crate::assets::W3DMaterial,
-        key: &str,
-    ) -> Option<wgpu::BindGroup> {
-        let asset_manager_arc = crate::assets::get_asset_manager()?;
-        let asset_manager = asset_manager_arc.lock().unwrap_or_else(|e| e.into_inner());
-
-        // C++ approach: get texture from cache or use default
-        // Textures should already be preloaded before rendering starts
-        let default_texture = asset_manager.get_default_texture();
-
-        let mut stage_textures = Vec::with_capacity(MAX_STAGE_TEXTURES);
-        let mut stage_names = Vec::with_capacity(MAX_STAGE_TEXTURES);
-
-        for stage in 0..MAX_STAGE_TEXTURES {
-            if let Some(name) = Self::stage_texture_name(material, stage) {
-                stage_names.push(name.clone());
-                if let Some(tex) = asset_manager.get_cached_texture(name) {
-                    stage_textures.push(tex);
-                    continue;
-                }
-            }
-            stage_textures.push(default_texture);
-        }
-
-        println!(
-            "   📦 Creating bind group '{}' with stage textures: {:?}",
-            key, stage_names
-        );
-
-        let mut entries = Vec::with_capacity(stage_textures.len() * 2);
-        for (stage_idx, tex) in stage_textures.iter().enumerate() {
-            let binding_index = (stage_idx * 2) as u32;
-            entries.push(wgpu::BindGroupEntry {
-                binding: binding_index,
-                resource: wgpu::BindingResource::TextureView(&tex.view),
-            });
-            entries.push(wgpu::BindGroupEntry {
-                binding: binding_index + 1,
-                resource: wgpu::BindingResource::Sampler(&tex.sampler),
-            });
-        }
-
-        Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &self.texture_bind_group_layout,
-            entries: &entries,
-            label: Some(&format!("material_bind_group_{}", key)),
-        }))
     }
 
     /// Begin frame - equivalent to C++ GraphicsSystem::BeginFrame()
@@ -777,7 +470,7 @@ impl GraphicsSystem {
             triangles_rendered: self.triangles_rendered,
             draw_calls: self.draw_calls,
             models_cached: self.loaded_models.len(),
-            materials_cached: self.material_bind_groups.len(),
+            materials_cached: 0,
         }
     }
 
@@ -815,21 +508,6 @@ impl GraphicsSystem {
                 .and_then(|mapping| mapping.texture_name.as_ref()),
             _ => None,
         }
-    }
-
-    fn material_bind_group_key(material: &crate::assets::W3DMaterial) -> String {
-        let mut parts = Vec::with_capacity(MAX_STAGE_TEXTURES + 1);
-        parts.push(material.name.clone());
-        for stage in 0..MAX_STAGE_TEXTURES {
-            if let Some(name) = Self::stage_texture_name(material, stage) {
-                parts.push(name.clone());
-            } else if let Some(fallback) = &material.texture_name {
-                parts.push(fallback.clone());
-            } else {
-                parts.push("default".to_string());
-            }
-        }
-        parts.join("|")
     }
 
     /// Access the wgpu queue.

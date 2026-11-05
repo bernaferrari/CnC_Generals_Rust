@@ -96,7 +96,6 @@ members = [
     "Code/Tools/ImagePacker",
     "Code/Tools/MapCacheBuilder",
     "Code/Tools/Launcher",
-    "Code/GameEngineDevice",
 
 ]
 

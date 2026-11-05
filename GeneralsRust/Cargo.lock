@@ -4335,14 +4335,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "game_engine_device_archive"
-version = "0.1.0"
-dependencies = [
- "game-client-rust",
- "game_engine_device",
-]
-
-[[package]]
 name = "game_network"
 version = "0.1.0"
 dependencies = [

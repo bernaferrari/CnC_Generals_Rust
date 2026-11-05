@@ -612,17 +612,17 @@ impl ForwardPass {
                     warn!(
                         "ForwardPass::render skipped surface acquisition: {message}; total_owned_submits={} last_frame_submit_count={} frame_is_active={}",
                         {
-                            let eng = self.renderer.engine.as_ref().expect("ww3d");
+                            let eng = &self.renderer.engine;
                             let fs = eng.lock().frame_submit_state();
                             ww3d_engine::total_owned_submits(&fs.lock())
                         },
                         {
-                            let eng = self.renderer.engine.as_ref().expect("ww3d");
+                            let eng = &self.renderer.engine;
                             let fs = eng.lock().frame_submit_state();
                             ww3d_engine::last_frame_submit_count(&fs.lock())
                         },
                         {
-                            let eng = self.renderer.engine.as_ref().expect("ww3d");
+                            let eng = &self.renderer.engine;
                             let fs = eng.lock().frame_submit_state();
                             ww3d_engine::frame_is_active(&fs.lock())
                         }

@@ -462,7 +462,7 @@ pub fn enqueue_occluded_player_color_pass(
     if overlays.is_empty() {
         return;
     }
-    let Some(engine) = pipeline.forward_pass.renderer.engine.clone() else { return; };
+    let engine = pipeline.forward_pass.renderer.engine.clone();
     let Some(renderer) = OcclusionOverlayRenderer::new(&engine) else {
         return;
     };

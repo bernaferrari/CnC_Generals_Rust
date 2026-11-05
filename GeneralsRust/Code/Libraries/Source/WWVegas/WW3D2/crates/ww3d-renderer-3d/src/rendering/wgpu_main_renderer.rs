@@ -1,11 +1,9 @@
 use crate::Renderer;
-use crate::animation_synchronization::AnimationFrameInput;
 use crate::core::error::{Error as RendererError, RendererResult};
 use crate::render_object_system::StaticSortRenderObject;
 use crate::rendering::camera_system::CameraClass;
 use crate::rendering::mesh_system::{self, MeshClass};
 use crate::rendering::shadow_system::shadow_map::ShadowCasterSubmission;
-use crate::rendering::wgpu_renderer::wgpu_wrapper::{self, WgpuWrapper};
 use glam::Vec4;
 use std::any::Any;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -37,7 +35,7 @@ pub fn present_optional_frame<T>(
     finish(renderer)?;
     Ok(true)
 }
-use wgpu::{Device, Queue, Surface, SurfaceConfiguration, TextureFormat};
+use wgpu::{Device, Queue};
 use ww3d_assets::AssetManager;
 use ww3d_core::errors::{W3DError, W3DResult};
 use ww3d_core::ww3d::{FrameStats, RendererBackend, Ww3dContext};
@@ -90,12 +88,9 @@ pub struct MainRendererStats {
     pub vertex_color_passes: u32,
 }
 
-/// Primary high level renderer coordinating frame lifetime and delegating the actual draw work to
-/// the [`WgpuWrapper`] compatibility layer.
+/// Primary high level renderer coordinating frame lifetime over the host-owned
+/// [`ww3d_engine::Engine`] frame (one encoder, one submit per frame).
 pub struct WgpuMainRenderer {
-    /// The legacy DX8-parity backend. Owned outright: C++ kept it as the
-    /// renderer's own member, and no caller needs a shared handle to it.
-    backend: Option<WgpuWrapper>,
     renderer: SharedRendererHandle,
     config: WgpuMainRendererConfig,
     stats: MainRendererStats,
@@ -111,13 +106,11 @@ pub struct WgpuMainRenderer {
     /// Owned renderer-3d session bag (config / texture / id counters).
     pub renderer_3d: Arc<Renderer3dRuntime>,
     /// Host-owned WW3D engine (explicit; no process singleton).
-    /// `None` only for legacy `from_backend` paths that drive `WgpuWrapper` directly.
-    pub engine: Option<SharedEngine>,
+    pub engine: SharedEngine,
     pending_frame: Option<ww3d_engine::RenderFrame>,
     last_surface_presented: bool,
     pre_scene_callbacks: Vec<FrameCallback>,
     post_frame_callbacks: Vec<FrameCallback>,
-    legacy_frame_clock: LegacyFrameClock,
     shadow_caster_submissions: Vec<ShadowCasterSubmission>,
     shadow_caster_count_hint: u32,
 }
@@ -137,45 +130,6 @@ enum FrameCallback {
 }
 type ScopedNativePassHandler<'a> =
     dyn FnMut(ScopedNativePass, &mut ww3d_engine::RenderFrame) -> RendererResult<()> + 'a;
-
-#[derive(Debug)]
-struct LegacyFrameClock {
-    last_instant: Instant,
-    total_time: Duration,
-    frame_counter: u64,
-    initialized: bool,
-}
-
-impl LegacyFrameClock {
-    fn new() -> Self {
-        Self {
-            last_instant: Instant::now(),
-            total_time: Duration::ZERO,
-            frame_counter: 0,
-            initialized: false,
-        }
-    }
-
-    fn advance(&mut self) -> AnimationFrameInput {
-        let now = Instant::now();
-        let delta = if self.initialized {
-            now.duration_since(self.last_instant).as_secs_f32()
-        } else {
-            1.0 / 60.0
-        };
-        self.initialized = true;
-        self.last_instant = now;
-        if delta > 0.0 && delta.is_finite() {
-            self.total_time += Duration::from_secs_f32(delta);
-        }
-        self.frame_counter = self.frame_counter.wrapping_add(1);
-        AnimationFrameInput::new(
-            delta.max(0.0),
-            Some(self.total_time.as_secs_f32()),
-            Some(self.frame_counter),
-        )
-    }
-}
 
 impl WgpuMainRenderer {
     fn renderable_submission_count(submissions: &[ShadowCasterSubmission]) -> u32 {
@@ -197,110 +151,6 @@ impl WgpuMainRenderer {
             .lock()
             .map_err(|_| RendererError::InvalidOperation("renderer mutex poisoned".into()))?;
         renderer_guard.begin_frame()
-    }
-
-    /// Construct the renderer from an existing [`WgpuWrapper`] backend.
-    pub fn from_backend(mut backend: WgpuWrapper, config: WgpuMainRendererConfig) -> Self {
-        let msaa_samples = if config.anti_aliasing { 4 } else { 1 };
-        backend.set_msaa_samples(msaa_samples);
-        let (device, queue, surface_config, surface_handle) = (
-            backend.device(),
-            backend.queue(),
-            backend.surface_config().clone(),
-            backend.surface(),
-        );
-
-        let gpu_device = Arc::new(GpuDevice::from_shared(device, queue));
-        let renderer = Arc::new(Mutex::new(Renderer::new(gpu_device)));
-        {
-            if let Ok(mut guard) = renderer.lock() {
-                guard.mesh_render_manager.set_render_formats(
-                    surface_config.format,
-                    Some(TextureFormat::Depth24PlusStencil8),
-                );
-                let msaa_samples = if config.anti_aliasing { 4 } else { 1 };
-                if let Err(err) = guard.synchronize_swapchain(
-                    surface_handle,
-                    &surface_config,
-                    Some(TextureFormat::Depth24PlusStencil8),
-                    msaa_samples,
-                    false,
-                ) {
-                    eprintln!("Failed to configure render targets during renderer init: {err:?}");
-                }
-                guard.set_camera(CameraClass::new());
-            }
-        }
-
-        let frame_stats_bridge = Arc::new(Mutex::new(FrameStats::default()));
-        let ready_flag = Arc::new(AtomicBool::new(true));
-        let ww3d = Arc::new(Ww3dContext::new());
-        let renderer_3d = Arc::new(Renderer3dRuntime::new());
-        if let Ok(mut guard) = renderer.lock() {
-            guard.set_ww3d(Arc::clone(&ww3d));
-            guard.set_renderer_3d(Arc::clone(&renderer_3d));
-        }
-        let mut registered_with_ww3d = ww3d.register_renderer(WgpuCoreBridge::new(
-            frame_stats_bridge.clone(),
-            ready_flag.clone(),
-            Arc::clone(&renderer),
-            Arc::clone(&renderer_3d),
-        ));
-        if !registered_with_ww3d {
-            ww3d.unregister_renderer();
-            registered_with_ww3d = ww3d.register_renderer(WgpuCoreBridge::new(
-                frame_stats_bridge.clone(),
-                ready_flag.clone(),
-                Arc::clone(&renderer),
-                Arc::clone(&renderer_3d),
-            ));
-        }
-
-        Self {
-            backend: Some(backend),
-            renderer,
-            engine: None,
-            config,
-            stats: MainRendererStats::default(),
-            frame_start: Instant::now(),
-            last_fps_update: Instant::now(),
-            frame_accumulator: Duration::ZERO,
-            frame_counter: 0,
-            frame_stats_bridge,
-            ready_flag,
-            registered_with_ww3d,
-            ww3d,
-            renderer_3d,
-            pending_frame: None,
-            last_surface_presented: false,
-            pre_scene_callbacks: Vec::new(),
-            post_frame_callbacks: Vec::new(),
-            legacy_frame_clock: LegacyFrameClock::new(),
-            shadow_caster_submissions: Vec::new(),
-            shadow_caster_count_hint: 0,
-        }
-    }
-
-    /// Construct the renderer from raw WGPU parts.
-    pub fn new(
-        device: Arc<Device>,
-        queue: Arc<Queue>,
-        surface: Option<Arc<Surface<'static>>>,
-        surface_config: SurfaceConfiguration,
-    ) -> RendererResult<Self> {
-        let backend = wgpu_wrapper::WgpuWrapper::from_parts(
-            device,
-            queue,
-            surface,
-            surface_config,
-            None,
-            None,
-        )?;
-
-        Ok(Self::from_backend(
-            backend,
-            WgpuMainRendererConfig::default(),
-        ))
     }
 
     /// Construct the renderer from an explicit host-owned engine handle.
@@ -343,9 +193,8 @@ impl WgpuMainRenderer {
         }
 
         Ok(Self {
-            backend: None,
             renderer,
-            engine: Some(engine),
+            engine,
             config,
             stats: MainRendererStats::default(),
             frame_start: Instant::now(),
@@ -361,7 +210,6 @@ impl WgpuMainRenderer {
             last_surface_presented: false,
             pre_scene_callbacks: Vec::new(),
             post_frame_callbacks: Vec::new(),
-            legacy_frame_clock: LegacyFrameClock::new(),
             shadow_caster_submissions: Vec::new(),
             shadow_caster_count_hint: 0,
         })
@@ -434,56 +282,28 @@ impl WgpuMainRenderer {
         self.shadow_caster_submissions.clear();
         self.shadow_caster_count_hint = 0;
 
-        let result = (|| {
-            if let Some(engine) = self.engine.clone() {
-                match engine.lock().begin_render() {
-                    Ok(frame) => {
-                        if let Err(err) = Self::prepare_renderer_frame(&self.renderer) {
-                            if let Err(end_err) = engine.lock().end_render(frame) {
-                                eprintln!(
-                                    "Failed to unwind render frame after renderer init error: {end_err:?}"
-                                );
-                            }
-                            return Err(err);
-                        }
-
-                        self.pending_frame = Some(frame);
-                        self.ready_flag.store(true, Ordering::Release);
-                        return Ok(());
-                    }
-                    Err(EngineError::FrameInProgress) => {
-                        return Err(RendererError::InvalidOperation(
-                            "engine frame already active".into(),
-                        ));
-                    }
-                    Err(err) => {
-                        return Err(RendererError::RenderError(err.to_string()));
-                    }
+        let engine = self.engine.clone();
+        let result = match engine.lock().begin_render() {
+            Ok(frame) => match Self::prepare_renderer_frame(&self.renderer) {
+                Ok(()) => {
+                    self.pending_frame = Some(frame);
+                    self.ready_flag.store(true, Ordering::Release);
+                    Ok(())
                 }
-            }
-
-            let backend = self.backend.as_mut().ok_or_else(|| {
-                RendererError::NotInitialized(
-                    "WW3D engine not initialised and no legacy backend configured".into(),
-                )
-            })?;
-
-            backend.begin_scene()?;
-            let clear = self.config.clear_color;
-            backend.clear(true, true, clear.truncate(), clear.w, 1.0, 0);
-
-            if let Err(err) = Self::prepare_renderer_frame(&self.renderer) {
-                if let Err(end_err) = backend.end_scene(false) {
-                    eprintln!(
-                        "Failed to abort legacy backend frame after renderer init error: {end_err:?}"
-                    );
+                Err(err) => {
+                    if let Err(end_err) = engine.lock().end_render(frame) {
+                        log::error!(
+                            "Failed to unwind render frame after renderer init error: {end_err:?}"
+                        );
+                    }
+                    Err(err)
                 }
-                return Err(err);
-            }
-
-            self.ready_flag.store(true, Ordering::Release);
-            Ok(())
-        })();
+            },
+            Err(EngineError::FrameInProgress) => Err(RendererError::InvalidOperation(
+                "engine frame already active".into(),
+            )),
+            Err(err) => Err(RendererError::RenderError(err.to_string())),
+        };
         if result.is_err() {
             self.discard_queued_frame_callbacks();
         }
@@ -593,7 +413,7 @@ impl WgpuMainRenderer {
                     Ok(())
                 });
             let has_window_surface = frame.has_gpu_color_target();
-            let end_result = self.engine.as_ref().expect("engine").lock().end_render(frame)
+            let end_result = self.engine.lock().end_render(frame)
                 .map_err(|err| RendererError::RenderError(err.to_string()));
             let frame_work_result = match (frame_work_result, callback_result) {
                 (Ok(stats), Ok(())) => Ok(stats),
@@ -613,69 +433,9 @@ impl WgpuMainRenderer {
                     )));
                 }
             }
-        } else if self.backend.is_some() {
-            let (stats, shadow_submissions) = {
-                let backend = self.backend.as_mut().expect("backend checked above");
-                let surface_handle = backend.surface();
-                let surface_config = backend.surface_config().clone();
-
-                let mut renderer_guard = self.renderer.lock().map_err(|_| {
-                    RendererError::InvalidOperation("renderer mutex poisoned".into())
-                })?;
-
-                let msaa_samples = if self.config.anti_aliasing { 4 } else { 1 };
-                backend.set_msaa_samples(msaa_samples);
-                renderer_guard.synchronize_swapchain(
-                    surface_handle,
-                    &surface_config,
-                    Some(TextureFormat::Depth24PlusStencil8),
-                    msaa_samples,
-                    false,
-                )?;
-
-                let animation_input = self.legacy_frame_clock.advance();
-                let sync_ms = (animation_input.total_seconds.unwrap_or(0.0).max(0.0) * 1000.0)
-                    .clamp(0.0, u32::MAX as f32) as u32;
-                self.ww3d.sync(sync_ms);
-
-                let (stats, shadow_submissions) = backend.with_render_targets(|targets| {
-                    renderer_guard.render_with_targets(
-                        targets,
-                        Some(clear_color),
-                        None,
-                        Some(animation_input),
-                    )?;
-                    Ok((
-                        renderer_guard.mesh_stats().clone(),
-                        renderer_guard.take_pending_shadow_caster_submissions(),
-                    ))
-                })?;
-                let has_window_surface = backend.active_frame_has_surface();
-                backend.end_scene(true)?;
-                self.last_surface_presented = has_window_surface;
-                (stats, shadow_submissions)
-            };
-            self.sync_shadow_submissions(shadow_submissions);
-
-            if !self.pre_scene_callbacks.is_empty() {
-                log::warn!(
-                    "pre-scene callbacks ignored when running in legacy backend mode ({} callbacks dropped)",
-                    self.pre_scene_callbacks.len()
-                );
-                self.pre_scene_callbacks.clear();
-            }
-            if !self.post_frame_callbacks.is_empty() {
-                log::warn!(
-                    "post-frame callbacks ignored when running in legacy backend mode ({} callbacks dropped)",
-                    self.post_frame_callbacks.len()
-                );
-                self.post_frame_callbacks.clear();
-            }
-
-            stats
         } else {
             return Err(RendererError::NotInitialized(
-                "no active engine frame and legacy backend unavailable".into(),
+                "end_frame called without an active engine frame".into(),
             ));
         };
 
@@ -800,70 +560,18 @@ impl WgpuMainRenderer {
 
     /// Resize the underlying surface/headless target.
     pub fn resize(&mut self, width: u32, height: u32) -> RendererResult<()> {
-        if let Some(engine) = self.engine.clone() {
-            engine.lock().resize(width, height);
-            return Ok(());
-        }
-
-        let backend = self.backend.as_mut().ok_or_else(|| {
-            RendererError::NotInitialized(
-                "WW3D engine not initialised and no legacy backend configured".into(),
-            )
-        })?;
-
-        let msaa_samples = if self.config.anti_aliasing { 4 } else { 1 };
-        backend.resize(width, height)?;
-        backend.set_msaa_samples(msaa_samples);
-        let surface_config = backend.surface_config().clone();
-        let surface_handle = backend.surface();
-
-        if let Ok(mut renderer) = self.renderer.lock() {
-            if let Err(err) = renderer.synchronize_swapchain(
-                surface_handle,
-                &surface_config,
-                Some(TextureFormat::Depth24PlusStencil8),
-                msaa_samples,
-                false,
-            ) {
-                eprintln!("Failed to update render targets after resize: {err:?}");
-            }
-        }
+        self.engine.lock().resize(width, height);
         Ok(())
     }
 
     /// Access the underlying device.
     pub fn device(&self) -> Arc<Device> {
-        if let Some(backend) = &self.backend {
-            backend.device()
-        } else {
-            self.engine
-                .as_ref()
-                .expect("WW3D engine not initialised")
-                .lock()
-                .device()
-        }
+        self.engine.lock().device()
     }
 
     /// Access the underlying queue.
     pub fn queue(&self) -> Arc<Queue> {
-        if let Some(backend) = &self.backend {
-            backend.queue()
-        } else {
-            self.engine
-                .as_ref()
-                .expect("WW3D engine not initialised")
-                .lock()
-                .queue()
-        }
-    }
-
-    /// Access the surface configuration (legacy path only).
-    pub fn surface_config(&self) -> SurfaceConfiguration {
-        if let Some(backend) = &self.backend {
-            backend.surface_config().clone()
-        } else {
-            panic!("surface configuration unavailable when ww3d_engine drives the renderer")
-        }
+        self.engine.lock().queue()
     }
 
     /// Publish the current renderer statistics without presenting a frame.
