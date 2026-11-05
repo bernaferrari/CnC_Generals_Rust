@@ -471,6 +471,7 @@ pub fn enqueue_occluded_player_color_pass(
     pipeline.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::OccludedStencil, move |gpu_frame| {
         let color_view = gpu_frame.color_view_arc();
         let depth_view = gpu_frame.depth_view_arc();
+        gpu_frame.note_render_pass();
         let encoder = gpu_frame.encoder();
         let depth_stencil = depth_view
             .as_ref()

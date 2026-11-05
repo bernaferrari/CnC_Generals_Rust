@@ -20,6 +20,7 @@ pub(super) fn record(
             let terrain_draw_started = Instant::now();
             let depth_view = frame.depth_view_arc();
             let color_view = frame.color_view_arc();
+            frame.note_render_pass();
             let encoder = frame.encoder();
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("main terrain pass"),
@@ -67,6 +68,7 @@ pub(super) fn record(
                 return Ok(());
             };
             let color_view = frame.color_view_arc();
+            frame.note_render_pass();
             let encoder = frame.encoder();
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("main water pass"),

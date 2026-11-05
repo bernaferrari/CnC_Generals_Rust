@@ -63,21 +63,22 @@ impl FramePhase {
     }
 }
 
-/// Recording order of one frame. This is the order the FIFO callback queues
-/// produced before the schedule existed (ground overlays, terrain, meshes,
-/// sorting flush, then post-scene work in submission order); R4 moves it to
-/// the C++ `RTS3DScene::Flush` order.
+/// Recording order of one frame: the C++ `RTS3DScene::Flush` order
+/// (W3DScene.cpp: DoShadows(false), DX8MeshRenderer.Flush, occluded objects
+/// into stencil, DoShadows(true), Render_And_Clear_Static_Sort_Lists,
+/// flushTranslucentObjects, DoParticles + SortingRendererClass::Flush), then
+/// W3DInGameUI's 2D world overlays.
 pub const FRAME_SCHEDULE: [FramePhase; FramePhase::COUNT] = [
-    FramePhase::DecalShadows,
     FramePhase::Terrain,
+    FramePhase::DecalShadows,
     FramePhase::Opaque,
-    FramePhase::Sorted,
-    FramePhase::Overlay2D,
     FramePhase::OccludedStencil,
-    FramePhase::Translucent,
-    FramePhase::Particles,
     FramePhase::StencilShadows,
     FramePhase::StaticSort,
+    FramePhase::Translucent,
+    FramePhase::Sorted,
+    FramePhase::Particles,
+    FramePhase::Overlay2D,
 ];
 
 /// A native scene pass whose owner (Main's frame receiver) is borrowed only
@@ -135,5 +136,13 @@ mod tests {
         let mut slots: Vec<usize> = FRAME_SCHEDULE.iter().map(|phase| phase.slot()).collect();
         slots.sort_unstable();
         assert_eq!(slots, (0..FramePhase::COUNT).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn schedule_follows_rts3dscene_flush_order() {
+        // FramePhase variants are declared in C++ stage order.
+        let mut sorted = FRAME_SCHEDULE;
+        sorted.sort_unstable();
+        assert_eq!(sorted, FRAME_SCHEDULE);
     }
 }

@@ -559,6 +559,33 @@ impl Renderer {
         Ok(())
     }
 
+    /// Apply the camera's (tactical) viewport and matching scissor to `pass`.
+    /// C++ dx8wrapper Set_Viewport is device state shared by every scene draw,
+    /// so each scene pass must reuse the same rect for depth to line up.
+    fn apply_camera_viewport(
+        camera: Option<&rendering::camera_system::CameraClass>,
+        pass: &mut wgpu::RenderPass<'_>,
+        (aw, ah): (u32, u32),
+    ) {
+        let Some(camera) = camera else {
+            return;
+        };
+        if aw == 0 || ah == 0 {
+            return;
+        }
+        let vp = camera.get_viewport();
+        let x0 = vp.min.x * aw as f32;
+        let y0 = vp.min.y * ah as f32;
+        let vw = ((vp.max.x - vp.min.x) * aw as f32).max(1.0);
+        let vh = ((vp.max.y - vp.min.y) * ah as f32).max(1.0);
+        pass.set_viewport(x0, y0, vw, vh, 0.0, 1.0);
+        let sx = (x0 as u32).min(aw - 1);
+        let sy = (y0 as u32).min(ah - 1);
+        let sw = (vw as u32).clamp(1, aw - sx);
+        let sh = (vh as u32).clamp(1, ah - sy);
+        pass.set_scissor_rect(sx, sy, sw, sh);
+    }
+
     /// Record the queued meshes into the provided command encoder and render targets.
     pub fn render_with_targets(
         &mut self,
@@ -674,22 +701,7 @@ impl Renderer {
             // here; rendering full-attachment while the terrain writes a
             // frac-height sub-rect makes every mesh fragment compare against
             // the WRONG ROW of terrain depth (units vanish behind terrain).
-            if let Some(camera) = self.camera.as_ref() {
-                let (aw, ah) = (targets.size.0, targets.size.1);
-                if aw > 0 && ah > 0 {
-                    let vp = camera.get_viewport();
-                    let x0 = vp.min.x * aw as f32;
-                    let y0 = vp.min.y * ah as f32;
-                    let vw = ((vp.max.x - vp.min.x) * aw as f32).max(1.0);
-                    let vh = ((vp.max.y - vp.min.y) * ah as f32).max(1.0);
-                    render_pass.set_viewport(x0, y0, vw, vh, 0.0, 1.0);
-                    let sx = (x0 as u32).min(aw - 1);
-                    let sy = (y0 as u32).min(ah - 1);
-                    let sw = (vw as u32).clamp(1, aw - sx);
-                    let sh = (vh as u32).clamp(1, ah - sy);
-                    render_pass.set_scissor_rect(sx, sy, sw, sh);
-                }
-            }
+            Self::apply_camera_viewport(self.camera.as_ref(), &mut render_pass, targets.size);
 
             mesh_manager.render_pass(
                 &mut render_pass,
@@ -745,18 +757,18 @@ impl Renderer {
     /// Record this renderer's sorted translucent batches (C++
     /// `SortingRendererClass::Flush`) into `frame` with loaded attachments.
     pub fn render_sorted_frame(&mut self, frame: &mut ww3d_engine::RenderFrame) -> RendererResult<()> {
-        let mesh_manager = &mut self.mesh_render_manager;
-        if mesh_manager.sorted_batch_count() == 0 {
+        if self.mesh_render_manager.sorted_batch_count() == 0 {
             return Ok(());
         }
         let color_view = frame.color_view_arc();
         let depth_view = frame.depth_view_arc();
+        let size = frame.size();
         frame.note_render_pass();
         let targets = RenderTargets {
             encoder: frame.encoder(),
             color_view: color_view.as_ref(),
             depth_view: depth_view.as_deref(),
-            size: (0, 0),
+            size,
         };
         {
             let mut sort_pass = targets
@@ -786,7 +798,10 @@ impl Renderer {
                     timestamp_writes: None,
                     multiview_mask: None,
                 });
-            mesh_manager.flush_sorted(&mut sort_pass);
+            // The sorting flush draws through the same tactical viewport as
+            // the mesh flush (it used to cover the full attachment).
+            Self::apply_camera_viewport(self.camera.as_ref(), &mut sort_pass, targets.size);
+            self.mesh_render_manager.flush_sorted(&mut sort_pass);
         }
 
         Ok(())

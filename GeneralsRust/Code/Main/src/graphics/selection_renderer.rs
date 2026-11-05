@@ -1266,6 +1266,7 @@ pub fn enqueue_selection_render(
         pipeline.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::DecalShadows, move |frame| {
             let color_view = frame.color_view_arc();
             let depth_view = frame.depth_view_arc();
+            frame.note_render_pass();
             let encoder = frame.encoder();
 
             let depth_stencil =
@@ -1322,6 +1323,7 @@ pub fn enqueue_selection_render(
         let drag_renderer = Arc::clone(&renderer);
         pipeline.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Overlay2D, move |frame| {
             let color_view = frame.color_view_arc();
+            frame.note_render_pass();
             let encoder = frame.encoder();
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("selection drag rectangle pass"),
