@@ -468,7 +468,7 @@ pub fn enqueue_occluded_player_color_pass(
     };
     let renderer = Arc::new(renderer);
     let view_proj = *projection_matrix * *view_matrix;
-    pipeline.enqueue_post_frame_callback(move |gpu_frame| {
+    pipeline.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::OccludedStencil, move |gpu_frame| {
         let color_view = gpu_frame.color_view_arc();
         let depth_view = gpu_frame.depth_view_arc();
         let encoder = gpu_frame.encoder();

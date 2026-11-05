@@ -109,25 +109,15 @@ pub struct WgpuMainRenderer {
     pub engine: SharedEngine,
     pending_frame: Option<ww3d_engine::RenderFrame>,
     last_surface_presented: bool,
-    pre_scene_callbacks: Vec<FrameCallback>,
-    post_frame_callbacks: Vec<FrameCallback>,
+    /// Work queued for the next frame, recorded in [`FRAME_SCHEDULE`] order.
+    schedule: FrameSchedule,
     shadow_caster_submissions: Vec<ShadowCasterSubmission>,
     shadow_caster_count_hint: u32,
 }
 
-/// A native scene pass whose owner is borrowed only during this frame's execution.
-/// The marker occupies exactly the same ordered slot as an owned callback.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScopedNativePass {
-    TerrainGround,
-    TerrainWater,
-    ClientEffects,
-}
+pub use crate::rendering::frame_schedule::{FRAME_SCHEDULE, FramePhase, ScopedNativePass};
+use crate::rendering::frame_schedule::{FrameSchedule, FrameWork};
 
-enum FrameCallback {
-    Owned(Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>>),
-    ScopedNative(ScopedNativePass),
-}
 type ScopedNativePassHandler<'a> =
     dyn FnMut(ScopedNativePass, &mut ww3d_engine::RenderFrame) -> RendererResult<()> + 'a;
 
@@ -208,8 +198,7 @@ impl WgpuMainRenderer {
             renderer_3d,
             pending_frame: None,
             last_surface_presented: false,
-            pre_scene_callbacks: Vec::new(),
-            post_frame_callbacks: Vec::new(),
+            schedule: FrameSchedule::default(),
             shadow_caster_submissions: Vec::new(),
             shadow_caster_count_hint: 0,
         })
@@ -315,8 +304,7 @@ impl WgpuMainRenderer {
         if self.pending_frame.is_some() {
             return;
         }
-        self.pre_scene_callbacks.clear();
-        self.post_frame_callbacks.clear();
+        self.schedule.clear();
     }
 
     /// Whether this renderer currently owns an acquired engine frame.
@@ -371,47 +359,68 @@ impl WgpuMainRenderer {
         let frame_mesh_stats = if let Some(mut frame) = self.pending_frame.take() {
             let frame_timing = frame.timing;
             self.ww3d.sync(frame_timing.total_time.as_millis() as u32);
-            let frame_work_result: RendererResult<_> = (|| {
-                if skip_scene {
-                    self.pre_scene_callbacks.clear();
-                    self.post_frame_callbacks.clear();
-                    return Ok(Default::default());
-                }
-                let had_pre_scene_callbacks = !self.pre_scene_callbacks.is_empty();
-                if had_pre_scene_callbacks {
-                    self.run_pre_scene_callbacks_with_native(&mut frame, &mut scoped_native)?;
-                }
-
-                let (stats, shadow_submissions) = {
-                    let mut renderer_guard = self.renderer.lock().map_err(|_| {
-                        RendererError::InvalidOperation("renderer mutex poisoned".into())
-                    })?;
-
-                    renderer_guard.render_frame(
-                        &mut frame,
-                        if had_pre_scene_callbacks {
-                            None
-                        } else {
-                            Some(clear_color)
-                        },
-                        None,
-                    )?;
-                    (
-                        renderer_guard.mesh_stats().clone(),
-                        renderer_guard.take_pending_shadow_caster_submissions(),
-                    )
-                };
-                self.sync_shadow_submissions(shadow_submissions);
-                Ok(stats)
-            })();
-            let callback_result = self
-                .run_post_frame_callbacks_with_native(&mut frame, &mut scoped_native)
-                .and_then(|()| {
-                    if let Some(callback) = post_render.as_mut() {
-                        callback(&mut frame)?;
+            let mut schedule = std::mem::take(&mut self.schedule);
+            let mut frame_work_result: RendererResult<_> = Ok(Default::default());
+            let mut callback_result: RendererResult<()> = Ok(());
+            if !skip_scene {
+                // Work before the mesh flush is the frame's foundation: its
+                // first error abandons the rest of that work and the meshes.
+                // Later work only logs its failures so the frame still submits.
+                let mut recorded_before_opaque = false;
+                let mut opaque_reached = false;
+                let mut foundation_failed = false;
+                let mut opaque_failed = false;
+                for phase in FRAME_SCHEDULE {
+                    match phase {
+                        FramePhase::Opaque => {
+                            opaque_reached = true;
+                            if foundation_failed {
+                                continue;
+                            }
+                            let clear = (!recorded_before_opaque).then_some(clear_color);
+                            frame_work_result = self.record_mesh_flush(&mut frame, clear);
+                            opaque_failed = frame_work_result.is_err();
+                        }
+                        FramePhase::Sorted => {
+                            if foundation_failed || opaque_failed {
+                                continue;
+                            }
+                            if let Err(err) = self.record_sorted_flush(&mut frame) {
+                                frame_work_result = Err(err);
+                            }
+                        }
+                        _ if !opaque_reached => {
+                            let work = schedule.take(phase);
+                            if foundation_failed {
+                                continue;
+                            }
+                            recorded_before_opaque |= !work.is_empty();
+                            for item in work {
+                                if let Err(err) =
+                                    Self::run_frame_work(item, &mut frame, &mut scoped_native)
+                                {
+                                    frame_work_result = Err(err);
+                                    foundation_failed = true;
+                                    break;
+                                }
+                            }
+                        }
+                        _ => {
+                            for item in schedule.take(phase) {
+                                if let Err(err) =
+                                    Self::run_frame_work(item, &mut frame, &mut scoped_native)
+                                {
+                                    log::error!("{phase:?} frame work failed: {err:?}");
+                                }
+                            }
+                        }
                     }
-                    Ok(())
-                });
+                }
+            }
+            schedule.clear();
+            if let Some(callback) = post_render.as_mut() {
+                callback_result = callback(&mut frame);
+            }
             let has_window_surface = frame.has_gpu_color_target();
             let end_result = self.engine.lock().end_render(frame)
                 .map_err(|err| RendererError::RenderError(err.to_string()));
@@ -475,44 +484,40 @@ impl WgpuMainRenderer {
         Ok(())
     }
 
-    /// Queue work for this renderer's driving frame. Native callbacks retain
-    /// Send; browser GPU handles follow wgpu's same-thread callback contract.
-    pub fn enqueue_post_frame_callback<F>(&mut self, callback: F)
+    /// Queue work for `phase` of this renderer's next frame. Native callbacks
+    /// retain Send; browser GPU handles follow wgpu's same-thread contract.
+    pub fn enqueue_frame_work<F>(&mut self, phase: FramePhase, work: F)
     where
         F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>
             + wgpu::WasmNotSend
             + 'static,
     {
-        self.post_frame_callbacks
-            .push(FrameCallback::Owned(Box::new(callback)));
+        self.schedule.push(phase, FrameWork::Owned(Box::new(work)));
     }
 
-    pub fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
-    where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>
-            + wgpu::WasmNotSend
-            + 'static,
-    {
-        self.pre_scene_callbacks
-            .push(FrameCallback::Owned(Box::new(callback)));
+    /// Queue a native pass recorded by the frame's borrowed receiver at `phase`.
+    pub fn enqueue_scoped_native_pass(&mut self, phase: FramePhase, pass: ScopedNativePass) {
+        self.schedule.push(phase, FrameWork::ScopedNative(pass));
     }
 
-    pub fn enqueue_scoped_pre_scene_pass(&mut self, pass: ScopedNativePass) {
-        self.pre_scene_callbacks
-            .push(FrameCallback::ScopedNative(pass));
+    /// Work items queued for `phase` of the next frame.
+    pub fn queued_frame_work(&self, phase: FramePhase) -> usize {
+        self.schedule.queued(phase)
     }
-    pub fn enqueue_scoped_post_frame_pass(&mut self, pass: ScopedNativePass) {
-        self.post_frame_callbacks
-            .push(FrameCallback::ScopedNative(pass));
+
+    /// Whether any work is queued for the next frame.
+    pub fn has_queued_frame_work(&self) -> bool {
+        !self.schedule.is_empty()
     }
-    fn run_one_callback(
-        callback: FrameCallback,
+
+    fn run_frame_work(
+        work: FrameWork,
         frame: &mut ww3d_engine::RenderFrame,
         scoped_native: &mut Option<&mut ScopedNativePassHandler<'_>>,
     ) -> RendererResult<()> {
-        match callback {
-            FrameCallback::Owned(callback) => callback(frame),
-            FrameCallback::ScopedNative(pass) => match scoped_native.as_deref_mut() {
+        match work {
+            FrameWork::Owned(work) => work(frame),
+            FrameWork::ScopedNative(pass) => match scoped_native.as_deref_mut() {
                 Some(receiver) => receiver(pass, frame),
                 None => Err(RendererError::InvalidOperation(
                     "native scene pass has no receiving frame owner".into(),
@@ -520,42 +525,33 @@ impl WgpuMainRenderer {
             },
         }
     }
-    fn run_pre_scene_callbacks_with_native(
+
+    /// `FramePhase::Opaque`: the W3D mesh flush.
+    fn record_mesh_flush(
         &mut self,
         frame: &mut ww3d_engine::RenderFrame,
-        scoped_native: &mut Option<&mut ScopedNativePassHandler<'_>>,
-    ) -> RendererResult<()> {
-        let callbacks = std::mem::take(&mut self.pre_scene_callbacks);
-        for callback in callbacks {
-            Self::run_one_callback(callback, frame, scoped_native)?;
-        }
-        Ok(())
+        clear: Option<wgpu::Color>,
+    ) -> RendererResult<crate::rendering::mesh_system::MeshRenderStats> {
+        let (stats, shadow_submissions) = {
+            let mut renderer = self.renderer.lock().map_err(|_| {
+                RendererError::InvalidOperation("renderer mutex poisoned".into())
+            })?;
+            renderer.render_frame(frame, clear, None)?;
+            (
+                renderer.mesh_stats().clone(),
+                renderer.take_pending_shadow_caster_submissions(),
+            )
+        };
+        self.sync_shadow_submissions(shadow_submissions);
+        Ok(stats)
     }
-    fn run_post_frame_callbacks_with_native(
-        &mut self,
-        frame: &mut ww3d_engine::RenderFrame,
-        scoped_native: &mut Option<&mut ScopedNativePassHandler<'_>>,
-    ) -> RendererResult<()> {
-        let callbacks = std::mem::take(&mut self.post_frame_callbacks);
-        for callback in callbacks {
-            if let Err(err) = Self::run_one_callback(callback, frame, scoped_native) {
-                log::error!("post-frame callback failed: {err:?}");
-            }
-        }
-        Ok(())
-    }
-    // Existing callback tests and standalone users retain the no-native path.
-    fn run_pre_scene_callbacks(
-        &mut self,
-        frame: &mut ww3d_engine::RenderFrame,
-    ) -> RendererResult<()> {
-        self.run_pre_scene_callbacks_with_native(frame, &mut None)
-    }
-    fn run_post_frame_callbacks(
-        &mut self,
-        frame: &mut ww3d_engine::RenderFrame,
-    ) -> RendererResult<()> {
-        self.run_post_frame_callbacks_with_native(frame, &mut None)
+
+    /// `FramePhase::Sorted`: the sorting-renderer flush.
+    fn record_sorted_flush(&mut self, frame: &mut ww3d_engine::RenderFrame) -> RendererResult<()> {
+        let mut renderer = self.renderer.lock().map_err(|_| {
+            RendererError::InvalidOperation("renderer mutex poisoned".into())
+        })?;
+        renderer.render_sorted_frame(frame)
     }
 
     /// Resize the underlying surface/headless target.

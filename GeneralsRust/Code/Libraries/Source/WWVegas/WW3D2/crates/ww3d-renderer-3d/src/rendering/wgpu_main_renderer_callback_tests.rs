@@ -48,7 +48,7 @@ fn callbacks_run_once_in_order_on_the_driving_thread_even_after_errors() {
     let driver = std::thread::current().id();
     for index in 0..2 {
         let pre_calls = calls.clone();
-        renderer.enqueue_pre_scene_callback(move |_| {
+        renderer.enqueue_frame_work(FramePhase::Terrain, move |_| {
             pre_calls
                 .lock()
                 .unwrap()
@@ -56,7 +56,7 @@ fn callbacks_run_once_in_order_on_the_driving_thread_even_after_errors() {
             Ok(())
         });
         let post_calls = calls.clone();
-        renderer.enqueue_post_frame_callback(move |_| {
+        renderer.enqueue_frame_work(FramePhase::Overlay2D, move |_| {
             post_calls
                 .lock()
                 .unwrap()
@@ -91,7 +91,7 @@ fn callbacks_run_once_in_order_on_the_driving_thread_even_after_errors() {
         "callbacks are consumed once"
     );
     let calls_after_error = calls.clone();
-    renderer.enqueue_pre_scene_callback(move |_| {
+    renderer.enqueue_frame_work(FramePhase::Terrain, move |_| {
         calls_after_error
             .lock()
             .unwrap()
@@ -100,10 +100,11 @@ fn callbacks_run_once_in_order_on_the_driving_thread_even_after_errors() {
             "expected pre-scene failure".into(),
         ))
     });
-    renderer
-        .enqueue_pre_scene_callback(|_| panic!("pre-scene failure must stop later pre callbacks"));
+    renderer.enqueue_frame_work(FramePhase::Terrain, |_| {
+        panic!("pre-scene failure must stop later pre callbacks")
+    });
     let calls_after_error = calls.clone();
-    renderer.enqueue_post_frame_callback(move |_| {
+    renderer.enqueue_frame_work(FramePhase::Overlay2D, move |_| {
         calls_after_error.lock().unwrap().push((
             "post after error",
             0,

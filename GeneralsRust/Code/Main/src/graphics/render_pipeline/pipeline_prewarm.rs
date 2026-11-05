@@ -530,7 +530,8 @@ impl RenderPipeline {
         // backbuffer. Clear BLACK like C++ Begin_Render, not fog peach.
         let clear_color = self.terrain_clear_color();
         let (vp_x, vp_y, vp_w, vp_h) = self.tactical_viewport.pixel_rect();
-        self.forward_pass.renderer.enqueue_scoped_pre_scene_pass(
+        self.forward_pass.renderer.enqueue_scoped_native_pass(
+            ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Terrain,
             ww3d_renderer_3d::rendering::wgpu_main_renderer::ScopedNativePass::TerrainGround,
         );
 

@@ -144,12 +144,12 @@ fn failed_collection_discards_only_its_frame_work_before_retry() {
     let stale = Arc::new(AtomicUsize::new(0));
     let peer_calls = Arc::new(AtomicUsize::new(0));
     let stale_capture = stale.clone();
-    owner.enqueue_post_frame_callback(move |_| {
+    owner.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Overlay2D, move |_| {
         stale_capture.fetch_add(1, Ordering::SeqCst);
         Ok(())
     });
     let peer_capture = peer_calls.clone();
-    peer.enqueue_post_frame_callback(move |_| {
+    peer.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Overlay2D, move |_| {
         peer_capture.fetch_add(1, Ordering::SeqCst);
         Ok(())
     });
@@ -166,7 +166,7 @@ fn failed_collection_discards_only_its_frame_work_before_retry() {
     execute(&mut peer, &mut graphics, &mut Receiver::default()).unwrap();
     let fresh = Arc::new(AtomicUsize::new(0));
     let fresh_capture = fresh.clone();
-    owner.enqueue_post_frame_callback(move |_| {
+    owner.enqueue_frame_work(ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::Overlay2D, move |_| {
         fresh_capture.fetch_add(1, Ordering::SeqCst);
         Ok(())
     });

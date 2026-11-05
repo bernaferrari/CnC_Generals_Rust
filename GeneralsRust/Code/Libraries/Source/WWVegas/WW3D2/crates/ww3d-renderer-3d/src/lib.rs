@@ -700,7 +700,65 @@ impl Renderer {
             )
         };
         render_result?;
-        if mesh_manager.sorted_batch_count() > 0 {
+
+        for render_obj in non_mesh_static.drain(..) {
+            render_obj.render(info)?;
+        }
+        if let Some(r3d) = self.renderer_3d.as_ref() { rendering::mesh_system::StaticSortManager::flush_static_sort_list(r3d); }
+        Ok(())
+    }
+
+    /// Render the queued meshes using the engine frame lifecycle.
+    pub fn render_frame(
+        &mut self,
+        frame: &mut ww3d_engine::RenderFrame,
+        clear_color: Option<wgpu::Color>,
+        render_info: Option<&RendererRenderInfoClass>,
+    ) -> RendererResult<()> {
+        let color_view = frame.color_view_arc();
+        let depth_view = frame.depth_view_arc();
+        let depth_ref = depth_view.as_deref();
+        let timing = frame.timing;
+        let animation_input = AnimationFrameInput::new(
+            timing.delta_seconds(),
+            Some(timing.total_seconds()),
+            Some(timing.frame_number),
+        );
+        let size = frame.size();
+        let result = self.render_with_targets(
+            RenderTargets {
+                encoder: frame.encoder(),
+                color_view: color_view.as_ref(),
+                depth_view: depth_ref,
+                size,
+            },
+            clear_color,
+            render_info,
+            Some(animation_input),
+        );
+        for _ in 0..=self.mesh_render_manager.last_cascade_passes() {
+            frame.note_render_pass();
+        }
+        result
+    }
+
+    /// Record this renderer's sorted translucent batches (C++
+    /// `SortingRendererClass::Flush`) into `frame` with loaded attachments.
+    pub fn render_sorted_frame(&mut self, frame: &mut ww3d_engine::RenderFrame) -> RendererResult<()> {
+        let mesh_manager = &mut self.mesh_render_manager;
+        if mesh_manager.sorted_batch_count() == 0 {
+            return Ok(());
+        }
+        let color_view = frame.color_view_arc();
+        let depth_view = frame.depth_view_arc();
+        frame.note_render_pass();
+        let targets = RenderTargets {
+            encoder: frame.encoder(),
+            color_view: color_view.as_ref(),
+            depth_view: depth_view.as_deref(),
+            size: (0, 0),
+        };
+        {
             let mut sort_pass = targets
                 .encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -731,41 +789,7 @@ impl Renderer {
             mesh_manager.flush_sorted(&mut sort_pass);
         }
 
-        for render_obj in non_mesh_static.drain(..) {
-            render_obj.render(info)?;
-        }
-        if let Some(r3d) = self.renderer_3d.as_ref() { rendering::mesh_system::StaticSortManager::flush_static_sort_list(r3d); }
         Ok(())
-    }
-
-    /// Render the queued meshes using the engine frame lifecycle.
-    pub fn render_frame(
-        &mut self,
-        frame: &mut ww3d_engine::RenderFrame,
-        clear_color: Option<wgpu::Color>,
-        render_info: Option<&RendererRenderInfoClass>,
-    ) -> RendererResult<()> {
-        let color_view = frame.color_view_arc();
-        let depth_view = frame.depth_view_arc();
-        let depth_ref = depth_view.as_deref();
-        let timing = frame.timing;
-        let animation_input = AnimationFrameInput::new(
-            timing.delta_seconds(),
-            Some(timing.total_seconds()),
-            Some(timing.frame_number),
-        );
-        let size = frame.size();
-        self.render_with_targets(
-            RenderTargets {
-                encoder: frame.encoder(),
-                color_view: color_view.as_ref(),
-                depth_view: depth_ref,
-                size,
-            },
-            clear_color,
-            render_info,
-            Some(animation_input),
-        )
     }
 
     /// Handle post-render cleanup tasks

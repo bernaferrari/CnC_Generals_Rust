@@ -533,7 +533,9 @@ impl RenderPipeline {
                 device: graphics_system.device_arc(),
             };
             let shadow_viewport_px = self.tactical_viewport_pixel_size();
-            self.enqueue_post_frame_callback(move |gpu_frame| {
+            self.enqueue_frame_work(
+                ww3d_renderer_3d::rendering::wgpu_main_renderer::FramePhase::StencilShadows,
+                move |gpu_frame| {
                 let Some(depth_view) = gpu_frame.depth_view_arc() else {
                     return Ok(());
                 };
@@ -551,7 +553,8 @@ impl RenderPipeline {
                     shadow_viewport_px,
                 );
                 Ok(())
-            });
+                },
+            );
 
             // C++ W3DScene order: water (static sort level 2) renders after the
             // shadow passes and before translucent objects / post filters

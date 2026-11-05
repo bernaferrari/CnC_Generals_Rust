@@ -305,6 +305,8 @@ pub struct MeshRenderManager {
     cascade_light_bgl: Option<wgpu::BindGroupLayout>,
     cascade_model_bgl: Option<wgpu::BindGroupLayout>,
     last_cascade_casters_drawn: u32,
+    /// Depth passes the live cascade recorded this frame (frame stats).
+    last_cascade_passes: u32,
 
     /// Frozen presentation texture installed for the current frame. The
     /// dedicated rigid/skinned draw pipeline is intentionally separate work;
@@ -382,6 +384,7 @@ impl MeshRenderManager {
             cascade_light_bgl: None,
             cascade_model_bgl: None,
             last_cascade_casters_drawn: 0,
+            last_cascade_passes: 0,
 
             projected_shroud: None,
         }
@@ -603,6 +606,7 @@ impl MeshRenderManager {
         casters: &[Arc<MeshClass>],
     ) {
         self.last_cascade_casters_drawn = 0;
+        self.last_cascade_passes = 0;
         self.ensure_cascade_depth_pipeline();
         let light_direction = live_cascade_light_direction(render_info);
         self.live_csm.update(
@@ -686,6 +690,7 @@ impl MeshRenderManager {
             model_groups.push((prepared, buffer, bind_group));
         }
 
+        self.last_cascade_passes = u32::try_from(self.live_csm.layer_views.len()).unwrap_or(u32::MAX);
         for (layer, view) in self.live_csm.layer_views.iter().enumerate() {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("live_csm_first_light_depth"),
@@ -722,6 +727,10 @@ impl MeshRenderManager {
             }
         }
         self.last_cascade_casters_drawn = model_groups.len() as u32;
+    }
+
+    pub fn last_cascade_passes(&self) -> u32 {
+        self.last_cascade_passes
     }
 
     pub fn last_cascade_casters_drawn(&self) -> u32 {
