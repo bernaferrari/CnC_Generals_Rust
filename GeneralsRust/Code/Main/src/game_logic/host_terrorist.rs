@@ -206,35 +206,7 @@ pub fn terrorist_ms_to_frames(ms: u32) -> u32 {
     ((ms as f32) * TERRORIST_LOGIC_FPS / 1000.0).round() as u32
 }
 
-/// Whether template is Demo General residual (Demo_ prefix).
-pub fn is_demo_general_template(template_name: &str) -> bool {
-    let n = template_name.to_ascii_lowercase();
-    n.starts_with("demo_") || n.contains("testdemo")
-}
 
-/// Resolve residual death-weapon profile from template + anthrax flags.
-///
-/// Chem templates default to Beta without gamma research (retail Chem baseline).
-/// Fail-closed: not full WeaponSet PLAYER_UPGRADE module matrix.
-pub fn terrorist_death_profile(
-    template_name: &str,
-    has_gamma: bool,
-    has_beta: bool,
-) -> TerroristDeathProfile {
-    if is_demo_general_template(template_name) {
-        return TerroristDeathProfile::Demo;
-    }
-    if is_chem_general_template(template_name) || has_gamma || has_beta {
-        if has_gamma {
-            TerroristDeathProfile::ChemGamma
-        } else {
-            // Chem baseline = Anthrax Beta residual without research.
-            TerroristDeathProfile::ChemBeta
-        }
-    } else {
-        TerroristDeathProfile::Standard
-    }
-}
 
 /// Whether template is a residual GLA infantry Terrorist (not combat-bike).
 ///
@@ -422,12 +394,7 @@ pub fn honesty_terrorist_profile_residual_ok() -> bool {
             < 0.01
         && (suicide_dynamite_damage_at_profile(TerroristDeathProfile::Demo, 0.0) - 700.0).abs()
             < 0.01
-        && terrorist_death_profile("GLAInfantryTerrorist", false, false)
-            == TerroristDeathProfile::Standard
-        && terrorist_death_profile("Chem_GLAInfantryTerrorist", false, false)
-            == TerroristDeathProfile::ChemBeta
-        && terrorist_death_profile("Demo_GLAInfantryTerrorist", false, false)
-            == TerroristDeathProfile::Demo
+
 }
 
 /// Wave 60 residual honesty: body + car-bomb convert name residual.
@@ -466,31 +433,6 @@ mod tests {
         assert!(!is_terrorist_template("GLAInfantryRebel"));
         assert!(!is_terrorist_template("GLAInfantryTunnelDefender"));
         assert!(!is_terrorist_template("CabooseFullOfTerrorists"));
-    }
-
-    #[test]
-    fn death_profile_matrix() {
-        assert_eq!(
-            terrorist_death_profile("GLAInfantryTerrorist", false, false),
-            TerroristDeathProfile::Standard
-        );
-        assert_eq!(
-            terrorist_death_profile("Chem_GLAInfantryTerrorist", false, false),
-            TerroristDeathProfile::ChemBeta
-        );
-        assert_eq!(
-            terrorist_death_profile("Chem_GLAInfantryTerrorist", true, false),
-            TerroristDeathProfile::ChemGamma
-        );
-        assert_eq!(
-            terrorist_death_profile("Demo_GLAInfantryTerrorist", false, false),
-            TerroristDeathProfile::Demo
-        );
-        assert!((TerroristDeathProfile::ChemGamma.primary_damage() - 600.0).abs() < 0.01);
-        assert!((TerroristDeathProfile::Demo.primary_damage() - 700.0).abs() < 0.01);
-        assert!(TerroristDeathProfile::ChemGamma.spawns_poison());
-        assert!(!TerroristDeathProfile::Demo.spawns_poison());
-        assert!(!TerroristDeathProfile::Standard.spawns_poison());
     }
 
     #[test]

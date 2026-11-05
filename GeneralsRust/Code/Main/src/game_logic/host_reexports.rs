@@ -463,9 +463,9 @@ pub use super::host_terrorist::{
     SUICIDE_DYNAMITE_PACK, SUICIDE_DYNAMITE_PRIMARY_DAMAGE, SUICIDE_DYNAMITE_PRIMARY_DAMAGE_DEMO,
     SUICIDE_DYNAMITE_PRIMARY_DAMAGE_GAMMA, SUICIDE_DYNAMITE_PRIMARY_RADIUS,
     SUICIDE_DYNAMITE_SECONDARY_DAMAGE, SUICIDE_DYNAMITE_SECONDARY_RADIUS, TERRORIST_SUICIDE_WEAPON,
-    TerroristDeathProfile, is_demo_general_template as is_terrorist_demo_general_template,
+    TerroristDeathProfile, 
     is_terrorist_template, should_apply_terrorist_residual, suicide_dynamite_damage_at,
-    suicide_dynamite_damage_at_profile, terrorist_death_profile, terrorist_suicide_weapon,
+    suicide_dynamite_damage_at_profile, terrorist_suicide_weapon,
     terrorist_suicide_weapon_for_profile,
 };
 
