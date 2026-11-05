@@ -225,6 +225,11 @@ impl CnCGameEngine {
     }
 
     pub(super) fn show_owned_control_bar(&mut self, immediate: bool) {
+        // C++ ControlBar::init/reset end in switchToContext(CB_CONTEXT_NONE):
+        // with nothing selected every right-HUD context parent (command grid,
+        // production queue, beacon, ...) starts hidden. Re-evaluate the
+        // context so a freshly shown bar does not paint empty queue slots.
+        self.control_bar.mark_ui_dirty();
         let receiving_callback_observation = self.receiving_control_bar_callback_observation();
         let game_ending = self.game_logic.owned_script_game_ending();
         self.control_bar.set_receiving_upgrade_definitions(

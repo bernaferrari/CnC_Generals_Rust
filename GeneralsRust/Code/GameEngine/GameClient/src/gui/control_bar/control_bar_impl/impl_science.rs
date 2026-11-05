@@ -68,6 +68,11 @@ fn reveal_ingame_command_window(receiving_manager: &mut crate::gui::window_manag
 /// CP_COMMAND (CommandWindow) and CP_BUILD_QUEUE (ProductionQueueWindow).
 /// Retail shows no command grid until a real context owns it.
 fn apply_none_context_hide(receiving_manager: &mut crate::gui::window_manager::WindowManager) {
+    // switchToContext starts with setPortraitByObject(NULL) ->
+    // setPortraitByImage(NULL): the unit-selected parent (its
+    // W3DCommandBarGridDraw lines) hides with no selection (ControlBar.cpp
+    // :2549-2554).
+    leftover_hide_window("ControlBar.wnd:WinUnitSelected", true, receiving_manager);
     leftover_hide_window("ControlBar.wnd:CommandWindow", true, receiving_manager);
     leftover_hide_window(
         "ControlBar.wnd:ProductionQueueWindow",
