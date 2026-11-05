@@ -356,6 +356,7 @@ impl GameLogic {
         // modules (Composite Armor, Drone Armor, Aircraft Armor, ...).
         if let Some(player) = owner_player_id.and_then(|pid| players.get(&pid)) {
             object.run_authored_max_health_upgrades(|name| player.has_unlocked_upgrade(name));
+            object.apply_authored_flag_upgrades(|name| player.has_unlocked_upgrade(name));
         }
     }
 }

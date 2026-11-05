@@ -205,19 +205,6 @@ pub fn unpause_power_for_upgrade(upgrade: &str) -> Option<SpecialPowerType> {
     None
 }
 
-/// Whether this upgrade is a WeaponBonusUpgrade residual TriggeredBy peel.
-pub fn is_weapon_bonus_upgrade(upgrade: &str) -> bool {
-    let n = upgrade.to_ascii_lowercase();
-    n.contains("apbullets")
-        || n.contains("aprockets")
-        || n.contains("uraniumshells")
-        || n.contains("lasermissiles")
-        || n.contains("chainguns")
-        || n.contains("camouflage")
-        || n.contains("compositearmor")
-        || n.contains("wguranium")
-}
-
 /// Powers that retail StartsPaused=Yes and need UnpauseSpecialPowerUpgrade.
 pub fn power_starts_paused(power: &SpecialPowerType) -> bool {
     matches!(
@@ -320,41 +307,6 @@ pub fn tokens_from_kindof(k: KindOf) -> Vec<&'static str> {
 // ---------------------------------------------------------------------------
 // WeaponSetUpgrade / ArmorUpgrade / LocomotorSetUpgrade residuals
 // ---------------------------------------------------------------------------
-
-/// C++ `WeaponSetUpgrade::upgradeImplementation` → `setWeaponSetFlag(WEAPONSET_PLAYER_UPGRADE)`.
-pub fn is_weapon_set_upgrade(upgrade: &str) -> bool {
-    let n = upgrade.to_ascii_lowercase();
-    // Retail WeaponSetUpgrade TriggeredBy peels (non-exhaustive playability set).
-    n.contains("flashbang")
-        || n.contains("sentrydronegun")
-        || n.contains("scorpionrocket")
-        || n.contains("comancherocket")
-        || n.contains("rocketpods")
-        || n.contains("blacknapalm")
-        || n.contains("tacticalnukemig")
-        || n.contains("buggyammo")
-        || n.contains("armthemob")
-        || n.contains("anthrax")
-        || n.contains("autoloader")
-        || n.contains("quadcannonsnipe")
-        || n.contains("suicidebomb")
-        // AdvancedTraining also has WeaponSetUpgrade on some units
-        || n.contains("advancedtraining")
-}
-
-/// C++ `ArmorUpgrade::upgradeImplementation` → `setArmorSetFlag(ARMORSET_PLAYER_UPGRADE)`.
-pub fn is_armor_upgrade(upgrade: &str) -> bool {
-    let n = upgrade.to_ascii_lowercase();
-    n.contains("chemicalsuits")
-        || n.contains("compositearmor")
-        || n.contains("countermeasures")
-        || n.contains("fortifiedstructure")
-        || n.contains("chinasmines")
-        || n.contains("chinaempmines")
-        || (n.contains("mines") && n.contains("china"))
-        // AdvancedTraining also ArmorUpgrade on some USA units
-        || n.contains("advancedtraining")
-}
 
 /// Chemical suits unique terrain decal residual.
 pub fn is_chemical_suits_upgrade(upgrade: &str) -> bool {
@@ -1362,48 +1314,8 @@ mod tests {
     }
 
     #[test]
-    fn weapon_bonus_upgrade_peels() {
-        assert!(is_weapon_bonus_upgrade("Upgrade_GLAAPBullets"));
-        assert!(is_weapon_bonus_upgrade("Upgrade_ChinaUraniumShells"));
-        assert!(!is_weapon_bonus_upgrade("Upgrade_Nothing"));
-    }
-
-    #[test]
     fn player_upgrade_bit_is_stable() {
         assert_eq!(player_upgrade_weapon_bonus_bit(), 5);
-    }
-
-    #[test]
-    fn weapon_set_upgrade_peels() {
-        assert!(is_weapon_set_upgrade(
-            "Upgrade_AmericaRangerFlashBangGrenade"
-        ));
-        assert!(is_weapon_set_upgrade("Upgrade_GLAScorpionRocket"));
-        assert!(!is_weapon_set_upgrade("Upgrade_CostReduction"));
-    }
-
-    #[test]
-    fn armor_and_locomotor_peels() {
-        assert!(is_armor_upgrade("Upgrade_AmericaChemicalSuits"));
-        assert!(is_chemical_suits_upgrade("Upgrade_AmericaChemicalSuits"));
-        assert!(is_locomotor_set_upgrade("Upgrade_GLAWorkerShoes"));
-        assert!(is_locomotor_set_upgrade("Upgrade_ChinaNuclearTanks"));
-        assert!(!is_locomotor_set_upgrade("Upgrade_Veterancy_HEROIC"));
-        assert!(!is_locomotor_set_upgrade(
-            "Tank_Upgrade_ChinaTankAutoLoader"
-        ));
-        assert!(!should_apply_locomotor_set_upgrade(
-            "ChinaTankBattleMaster",
-            "Upgrade_Veterancy_HEROIC"
-        ));
-        assert!(!should_apply_locomotor_set_upgrade(
-            "ChinaTankOverlord",
-            "Tank_Upgrade_ChinaTankAutoLoader"
-        ));
-        assert_eq!(
-            locomotor_upgrade_speed("Upgrade_GLAWorkerShoes", "GLAInfantryWorker"),
-            Some(30.0)
-        );
     }
 
     /// C++ `LocomotorSetUpgrade.cpp:30` + `AIUpdate.cpp:784-803` swaps the

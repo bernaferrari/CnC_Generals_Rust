@@ -88,7 +88,112 @@ impl AuthoredMaxHealthUpgrade {
     }
 }
 
+/// C++ `UpgradeMuxData` trigger fields of one authored upgrade module
+/// (`TriggeredBy`, `ConflictsWith`, `RequiresAllTriggers`).
+fn upgrade_mux_triggers(
+    module: &crate::assets::ini_parser::BehaviorModuleDefinition,
+    has: &impl Fn(&str) -> bool,
+) -> bool {
+    let tokens = |key: &str| -> Vec<String> {
+        module
+            .attribute(key)
+            .map(|v| v.split_whitespace().map(str::to_owned).collect())
+            .unwrap_or_default()
+    };
+    let triggers = tokens("TriggeredBy");
+    if triggers.is_empty() || tokens("ConflictsWith").iter().any(|name| has(name)) {
+        return false;
+    }
+    let requires_all = module
+        .attribute("RequiresAllTriggers")
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("yes") || v.trim() == "1");
+    if requires_all {
+        triggers.iter().all(|name| has(name))
+    } else {
+        triggers.iter().any(|name| has(name))
+    }
+}
+
+/// The flag-setting upgrade modules an object's template authors that are
+/// triggered by its current upgrade mask (C++ `upgradeImplementation` of
+/// WeaponSetUpgrade, ArmorUpgrade, WeaponBonusUpgrade, CommandSetUpgrade).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct AuthoredFlagUpgrades {
+    /// WeaponSetUpgrade -> `setWeaponSetFlag(WEAPONSET_PLAYER_UPGRADE)`.
+    pub weapon_set: bool,
+    /// ArmorUpgrade -> `setArmorSetFlag(ARMORSET_PLAYER_UPGRADE)`.
+    pub armor_set: bool,
+    /// WeaponBonusUpgrade -> `setWeaponBonusCondition(WEAPONBONUSCONDITION_PLAYER_UPGRADE)`.
+    pub weapon_bonus: bool,
+    /// CommandSetUpgrade -> `setCommandSetStringOverride(CommandSet)`.
+    pub command_set: Option<String>,
+}
+
+impl AuthoredFlagUpgrades {
+    /// Evaluate `template`'s authored modules against `has(upgrade)`.
+    pub(crate) fn triggered(template: &ThingTemplate, has: impl Fn(&str) -> bool) -> Self {
+        let mut out = Self::default();
+        let Some(definition) = template.receiving_object_definition.as_deref() else {
+            return out;
+        };
+        for module in &definition.behavior_modules {
+            let class = module.class_name.as_str();
+            let is = |name: &str| class.eq_ignore_ascii_case(name);
+            if !(is("WeaponSetUpgrade")
+                || is("ArmorUpgrade")
+                || is("WeaponBonusUpgrade")
+                || is("CommandSetUpgrade"))
+                || !upgrade_mux_triggers(module, &has)
+            {
+                continue;
+            }
+            if is("WeaponSetUpgrade") {
+                out.weapon_set = true;
+            } else if is("ArmorUpgrade") {
+                out.armor_set = true;
+            } else if is("WeaponBonusUpgrade") {
+                out.weapon_bonus = true;
+            } else {
+                // CommandSetUpgrade.cpp: TriggerAlt selects CommandSetAlt.
+                let alt = module
+                    .attribute("TriggerAlt")
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty() && has(name))
+                    .and_then(|_| module.attribute("CommandSetAlt"));
+                if let Some(set) = alt.or_else(|| module.attribute("CommandSet")) {
+                    out.command_set = Some(set.trim().to_owned());
+                }
+            }
+        }
+        out
+    }
+}
+
 impl Object {
+    /// Apply the authored flag upgrades triggered by this object's mask plus
+    /// `extra` (C++ Object::updateUpgradeModules). Flags only ever turn on
+    /// here; removal follows UpgradeMux::removeUpgrade paths.
+    pub(crate) fn apply_authored_flag_upgrades(
+        &mut self,
+        extra: impl Fn(&str) -> bool,
+    ) -> AuthoredFlagUpgrades {
+        let applied = AuthoredFlagUpgrades::triggered(&self.thing().template, |name| {
+            extra(name) || self.has_upgrade_tag(name)
+        });
+        if applied.weapon_set {
+            let _ = self.set_weapon_set_flag(0, true);
+        }
+        if applied.armor_set {
+            self.set_armor_set_player_upgrade(true);
+        }
+        if applied.weapon_bonus {
+            self.set_weapon_bonus_player_upgrade(true);
+        }
+        if let Some(set) = applied.command_set.clone() {
+            self.set_command_set_override(Some(set));
+        }
+        applied
+    }
     /// Run this Object's authored `MaxHealthUpgrade` modules whose trigger is
     /// satisfied (`is_completed(upgrade)`), each at most once. Returns whether
     /// any module executed. Used both at upgrade completion and by
@@ -203,5 +308,62 @@ mod tests {
         assert!(object.run_authored_max_health_upgrades(|n| n == "Upgrade_TestPlating"));
         // SAME_CURRENTHEALTH: maximum grows, current stays.
         assert_eq!((object.health.maximum, object.health.current), (250.0, 200.0));
+    }
+}
+
+#[cfg(test)]
+mod flag_tests {
+    use super::AuthoredFlagUpgrades;
+    use crate::game_logic::{GameLogic, Team};
+
+    fn world(name: &str, modules: &str) -> (GameLogic, crate::game_logic::ObjectId) {
+        let mut world = GameLogic::new();
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "receiving-flag-upgrades.ini".into(),
+                    format!(
+                        "Object {name}\nKindOf = VEHICLE SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n{modules}End\n"
+                    ),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        let id = world.create_object(name, Team::USA, glam::Vec3::ZERO).unwrap();
+        (world, id)
+    }
+
+    const MODULES: &str = "Behavior = WeaponSetUpgrade WsTag\nTriggeredBy = Upgrade_TestGun\nEnd\n\
+        Behavior = ArmorUpgrade ArTag\nTriggeredBy = Upgrade_TestPlate\nConflictsWith = Upgrade_TestBlock\nEnd\n\
+        Behavior = WeaponBonusUpgrade WbTag\nTriggeredBy = Upgrade_TestA Upgrade_TestB\nRequiresAllTriggers = Yes\nEnd\n\
+        Behavior = CommandSetUpgrade CsTag\nTriggeredBy = Upgrade_TestGun\nCommandSet = TestUpgradedSet\nEnd\n";
+
+    #[test]
+    fn authored_modules_set_flags_only_when_their_mux_triggers() {
+        let (mut world, id) = world("PlainBuggy", MODULES);
+        let object = world.host_object_mut(id).unwrap();
+        let none = object.apply_authored_flag_upgrades(|n| n == "Upgrade_Unrelated");
+        assert_eq!(none, AuthoredFlagUpgrades::default());
+        let gun = object.apply_authored_flag_upgrades(|n| n == "Upgrade_TestGun");
+        assert!(gun.weapon_set && !gun.armor_set && !gun.weapon_bonus);
+        assert_eq!(gun.command_set.as_deref(), Some("TestUpgradedSet"));
+        assert!(object.weapon_set_player_upgrade);
+        // ConflictsWith blocks; RequiresAllTriggers needs both.
+        let blocked = object
+            .apply_authored_flag_upgrades(|n| n == "Upgrade_TestPlate" || n == "Upgrade_TestBlock");
+        assert!(!blocked.armor_set);
+        assert!(!object.apply_authored_flag_upgrades(|n| n == "Upgrade_TestA").weapon_bonus);
+        assert!(object
+            .apply_authored_flag_upgrades(|n| n == "Upgrade_TestA" || n == "Upgrade_TestB")
+            .weapon_bonus);
+    }
+
+    #[test]
+    fn unit_named_template_without_modules_gets_no_flags() {
+        let (mut world, id) = world("AmericaVehicleHumvee", "");
+        let object = world.host_object_mut(id).unwrap();
+        let flags = object.apply_authored_flag_upgrades(|n| n == "Upgrade_AmericaTOWMissile");
+        assert_eq!(flags, AuthoredFlagUpgrades::default());
+        assert!(!object.weapon_set_player_upgrade);
     }
 }
