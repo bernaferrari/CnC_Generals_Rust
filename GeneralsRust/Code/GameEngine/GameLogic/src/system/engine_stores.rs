@@ -728,25 +728,45 @@ thread_local! {
         const { std::cell::RefCell::new(Vec::new()) };
 }
 
+/// Current published owner, or `None` when the stack is unavailable.
+///
+/// Drop glue for owned objects can run while this thread-local is being torn
+/// down or while the stack itself is mutably borrowed (popping the last owner
+/// drops its world). Both cases must read as "nothing published" instead of
+/// panicking inside a destructor.
 fn stack_head() -> Option<PublishedOwner> {
-    SCOPED_ACTIVE.with(|stack| stack.borrow().last().cloned())
+    SCOPED_ACTIVE
+        .try_with(|stack| stack.try_borrow().ok().and_then(|s| s.last().cloned()))
+        .ok()
+        .flatten()
 }
 fn stack_push(owner: PublishedOwner) {
     SCOPED_ACTIVE.with(|stack| stack.borrow_mut().push(owner));
 }
 fn stack_pop_if_head(owner: &PublishedOwner) -> bool {
-    SCOPED_ACTIVE.with(|stack| {
+    // Take the popped owner out of the borrow so its drop (which may tear down
+    // a whole world) runs after the stack borrow is released.
+    let popped = SCOPED_ACTIVE.with(|stack| {
         let mut active = stack.borrow_mut();
         if active.last().is_some_and(|head| head.same(owner)) {
-            active.pop();
-            true
+            active.pop()
         } else {
-            false
+            None
         }
-    })
+    });
+    popped.is_some()
 }
 fn stack_retain_not(owner: &PublishedOwner) {
-    SCOPED_ACTIVE.with(|stack| stack.borrow_mut().retain(|entry| !entry.same(owner)));
+    // Removed owners are dropped after the borrow ends (see `stack_pop_if_head`).
+    let removed: Vec<PublishedOwner> = SCOPED_ACTIVE.with(|stack| {
+        let mut active = stack.borrow_mut();
+        let (removed, kept) = std::mem::take(&mut *active)
+            .into_iter()
+            .partition(|entry| entry.same(owner));
+        *active = kept;
+        removed
+    });
+    drop(removed);
 }
 fn stack_prior_core_ai_data() -> Option<Arc<RwLock<AIDataStore>>> {
     SCOPED_ACTIVE.with(|stack| {
