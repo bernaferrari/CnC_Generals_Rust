@@ -2101,39 +2101,42 @@ mod tests {
 
     #[test]
     fn chinook_helix_seed_binds_slide_into_place_time() {
-        let _ = ensure_chinook_helix_slide_into_place(&mut get_locomotor_store_mut());
-        for name in [CHINOOK_LOCOMOTOR, HELIX_LOCOMOTOR] {
-            let binding = resolve_host_locomotor_binding(name)
-                .unwrap_or_else(|| panic!("{name} must resolve"));
-            assert!(
-                (binding.ultra_accurate_slide_factor - 3.0).abs() < 1e-6,
-                "{name} SlideIntoPlaceTime 100 msec → 3 frames, got {}",
-                binding.ultra_accurate_slide_factor
-            );
-            assert_eq!(
-                binding.appearance,
-                crate::game_logic::LocomotorAppearance::Hover,
-                "{name} retail appearance is HOVER"
-            );
-        }
+        let common = std::sync::Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, || {
+            let _ = ensure_chinook_helix_slide_into_place(&mut get_locomotor_store_mut());
+            for name in [CHINOOK_LOCOMOTOR, HELIX_LOCOMOTOR] {
+                let binding = resolve_host_locomotor_binding(name)
+                    .unwrap_or_else(|| panic!("{name} must resolve"));
+                assert!(
+                    (binding.ultra_accurate_slide_factor - 3.0).abs() < 1e-6,
+                    "{name} SlideIntoPlaceTime 100 msec → 3 frames, got {}",
+                    binding.ultra_accurate_slide_factor
+                );
+                assert_eq!(
+                    binding.appearance,
+                    crate::game_logic::LocomotorAppearance::Hover,
+                    "{name} retail appearance is HOVER"
+                );
+            }
 
-        let mut logic = crate::game_logic::GameLogic::new();
-        let mut chinook = ThingTemplate::new("AmericaVehicleChinook");
-        chinook
-            .add_kind_of(KindOf::Aircraft)
-            .set_locomotor_name(CHINOOK_LOCOMOTOR);
-        logic
-            .templates
-            .insert("AmericaVehicleChinook".to_string(), chinook);
-        let id = logic
-            .create_object("AmericaVehicleChinook", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-            .expect("create Chinook");
-        let obj = logic.objects.get(&id).expect("chinook");
-        assert!(
-            (obj.ultra_accurate_slide_factor - 3.0).abs() < 1e-6,
-            "create_object must stamp Chinook slide factor, got {}",
-            obj.ultra_accurate_slide_factor
-        );
+            let mut logic = crate::game_logic::GameLogic::new();
+            let mut chinook = ThingTemplate::new("AmericaVehicleChinook");
+            chinook
+                .add_kind_of(KindOf::Aircraft)
+                .set_locomotor_name(CHINOOK_LOCOMOTOR);
+            logic
+                .templates
+                .insert("AmericaVehicleChinook".to_string(), chinook);
+            let id = logic
+                .create_object("AmericaVehicleChinook", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+                .expect("create Chinook");
+            let obj = logic.objects.get(&id).expect("chinook");
+            assert!(
+                (obj.ultra_accurate_slide_factor - 3.0).abs() < 1e-6,
+                "create_object must stamp Chinook slide factor, got {}",
+                obj.ultra_accurate_slide_factor
+            );
+        });
     }
 
     #[test]

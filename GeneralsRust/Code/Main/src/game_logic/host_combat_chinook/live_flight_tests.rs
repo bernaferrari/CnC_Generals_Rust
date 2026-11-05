@@ -14,7 +14,9 @@ use glam::Vec3;
 fn isolated(test: &str, run: impl FnOnce()) {
     const CHILD: &str = "GENERALS_CHINOOK_FLIGHT_CHILD";
     if std::env::var(CHILD).ok().as_deref() == Some(test) {
-        run();
+        // The child owns its process; bind one CommonServices for the run.
+        let common = std::sync::Arc::new(game_engine::common::common_services::CommonServices::new());
+        game_engine::common::common_services::with_common_services(&common, run);
         return;
     }
     let module = module_path!().split_once("::").unwrap().1;
