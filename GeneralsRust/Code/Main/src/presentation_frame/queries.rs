@@ -1251,9 +1251,7 @@ impl PresentationFrame {
                     && !o.sold
                     && !o.disabled
                     && (Self::object_has_kind(o, KindOf::Worker)
-                        || o.template_name.contains("Dozer")
-                        || o.template_name.contains("Worker")
-                        || o.template_name.contains("Construction"))
+                        || Self::object_has_kind(o, KindOf::Dozer))
             })
             .collect()
     }

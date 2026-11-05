@@ -1020,9 +1020,11 @@ impl GameLogic {
                         && obj.is_constructed()
                         && obj.is_alive() =>
                 {
-                    let is_production_building = obj.template_name.contains("Barracks")
-                        || obj.template_name.contains("WarFactory")
-                        || obj.template_name.contains("ArmsDealer");
+                    // C++ production factories are KINDOF_FS_FACTORY kinds /
+                    // WarFactory/Barracks FS flags — not name peels.
+                    let is_production_building = obj.is_kind_of(KindOf::FSBarracks)
+                        || obj.is_kind_of(KindOf::FSWarFactory)
+                        || obj.is_kind_of(KindOf::FSAirfield);
                     (obj.team, is_production_building)
                 }
                 _ => continue,
