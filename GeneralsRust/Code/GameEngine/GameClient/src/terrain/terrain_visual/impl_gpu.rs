@@ -228,10 +228,18 @@ impl TerrainVisualImpl {
                         None => continue,
                     };
 
-                let mut gpu_vertices = chunk_vertices;
+                // C++ HeightMapRenderObjClass fills four vertices per cell, so
+                // each cell carries its own tile UVs and texture class. The
+                // shared-vertex grid interpolated UVs across neighbouring
+                // cells (mirrored quarters, one tile repeated everywhere).
+                let (mut gpu_vertices, chunk_indices, chunk_base_colors, cell_centers) =
+                    expand_cells_to_unique_vertices(
+                        chunk_vertices,
+                        chunk_indices,
+                        chunk_base_colors,
+                    );
                 let mut vertex_weights = Vec::with_capacity(gpu_vertices.len());
-
-                for vertex in &gpu_vertices {
+                for (vertex, center) in gpu_vertices.iter().zip(&cell_centers) {
                     let position =
                         Vec3::new(vertex.position[0], vertex.position[1], vertex.position[2]);
                     let normal_vec =
@@ -255,8 +263,8 @@ impl TerrainVisualImpl {
                     // slots. tile 0 is a valid class — do not treat it as empty.
                     // Prefer blend_tile_ndxes when the map wired them.
                     let tile_sample = self.height_map.as_ref().map(|hm| {
-                        let packed = hm.get_packed_terrain_tile_at_world(position.x, position.z);
-                        let (ix, iy) = height_map_cell_at_world(hm, position.x, position.z);
+                        let packed = hm.get_packed_terrain_tile_at_world(center[0], center[1]);
+                        let (ix, iy) = height_map_cell_at_world(hm, center[0], center[1]);
                         let blend_i = hm.get_blend_tile_index(ix, iy);
                         let blend = if blend_i != 0 {
                             hm.blended_tiles.get(blend_i as usize)
@@ -416,8 +424,12 @@ impl TerrainVisualImpl {
                     vertex.blend_indices = packed_indices;
                     vertex.blend_weights = packed_weights;
                     if let Some(hm) = self.height_map.as_ref() {
-                        vertex.tex_coords =
-                            hm.cell_uv_at_world(vertex.position[0], vertex.position[2]);
+                        vertex.tex_coords = cell_class_uv(
+                            hm,
+                            &self.source_tile_classes,
+                            cell_centers[vert_index],
+                            [vertex.position[0], vertex.position[2]],
+                        );
                     }
                     // C++ vbMirror / getStaticDiffuse, then doTheDynamicLight.
                     // Leftover chunk.vertices may already be pulse-lit; start
@@ -2712,6 +2724,87 @@ fn texture_matches_class_name(texture: &TerrainTexture, class_name: &str) -> boo
         .file_stem()
         .and_then(|stem| stem.to_str())
         .is_some_and(|stem| stem.eq_ignore_ascii_case(class))
+}
+
+/// Expand the shared-vertex cell grid (`p0 p1 p2 / p0 p2 p3` per cell) into
+/// four vertices per cell. Returns the cell centre (world x/z) per vertex.
+fn expand_cells_to_unique_vertices(
+    vertices: Vec<TerrainVertex>,
+    indices: Vec<u32>,
+    colors: Vec<[f32; 4]>,
+) -> (Vec<TerrainVertex>, Vec<u32>, Vec<[f32; 4]>, Vec<[f32; 2]>) {
+    let is_cell_list = indices.len() % 6 == 0
+        && indices
+            .chunks_exact(6)
+            .all(|q| q[3] == q[0] && q[4] == q[2]);
+    if !is_cell_list {
+        let centers = vertices
+            .iter()
+            .map(|v| [v.position[0], v.position[2]])
+            .collect();
+        return (vertices, indices, colors, centers);
+    }
+    let cells = indices.len() / 6;
+    let mut out_vertices = Vec::with_capacity(cells * 4);
+    let mut out_colors = Vec::with_capacity(cells * 4);
+    let mut centers = Vec::with_capacity(cells * 4);
+    let mut out_indices = Vec::with_capacity(indices.len());
+    for quad in indices.chunks_exact(6) {
+        let corners = [quad[0], quad[1], quad[2], quad[5]];
+        let Some(corner_vertices) = corners
+            .iter()
+            .map(|&i| vertices.get(i as usize).copied())
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        let center = corner_vertices.iter().fold([0.0f32; 2], |acc, v| {
+            [acc[0] + v.position[0] * 0.25, acc[1] + v.position[2] * 0.25]
+        });
+        let base = u32::try_from(out_vertices.len()).unwrap_or(u32::MAX);
+        for (&i, vertex) in corners.iter().zip(corner_vertices) {
+            out_colors.push(colors.get(i as usize).copied().unwrap_or(vertex.color));
+            out_vertices.push(vertex);
+            centers.push(center);
+        }
+        out_indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
+    (out_vertices, out_indices, out_colors, centers)
+}
+
+/// UV of a cell vertex in its texture class's source image: the cell's
+/// quarter of its 64-px tile (`getUVForNdx`), offset to that tile's place in
+/// the class grid (`readTiles`: tile = firstTile + column + row * width).
+fn cell_class_uv(
+    hm: &crate::terrain::height_map::HeightMap,
+    classes: &[TerrainSourceTileClass],
+    center: [f32; 2],
+    position: [f32; 2],
+) -> [f32; 2] {
+    let (ix, iy, _, _) = hm.cell_grid_at_world(center[0], center[1]);
+    let scale = if hm.scale.abs() > f32::EPSILON {
+        hm.scale
+    } else {
+        gamelogic::common::types::MAP_XY_FACTOR
+    };
+    // Quads that straddle a cell line keep extrapolating the centre cell's
+    // UV (chunk grids are not cell-aligned) instead of folding at the edge.
+    let fx = (position[0] / scale + hm.border_size as f32 - ix as f32).clamp(-0.5, 1.5);
+    let fy = (position[1] / scale + hm.border_size as f32 - iy as f32).clamp(-0.5, 1.5);
+    let (uv, stretched) = hm.cell_uv_with_stretch(ix, iy, fx, fy);
+    if stretched {
+        return uv;
+    }
+    let packed = hm.get_packed_terrain_tile_at_world(center[0], center[1]);
+    let Some(class) = texture_class_index_from_ndx(packed, classes).and_then(|i| classes.get(i))
+    else {
+        return uv;
+    };
+    let width = class.width.max(1);
+    let tile = (i32::try_from(packed).unwrap_or(0) - class.first_tile).max(0);
+    let (column, row) = ((tile % width) as f32, (tile / width).min(width - 1) as f32);
+    let width = width as f32;
+    [(uv[0] + column) / width, (uv[1] + row) / width]
 }
 
 fn bound_texture_id_for_source_tile(

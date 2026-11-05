@@ -987,6 +987,18 @@ impl HeightMap {
     /// the DO_OLD_UV v-remap from `get_uv_for_tile_index`.
     pub fn cell_uv_at_world(&self, world_x: f32, world_z: f32) -> [f32; 2] {
         let (ix, iy, fx, fy) = self.cell_grid_at_world(world_x, world_z);
+        self.cell_uv(ix, iy, fx, fy)
+    }
+
+    /// UV inside cell `(ix, iy)` (grid coordinates including the border) at
+    /// fractional position `(fx, fy)`, relative to the cell's 64-px source
+    /// tile (see [`Self::cell_uv_at_world`]).
+    pub fn cell_uv(&self, ix: i32, iy: i32, fx: f32, fy: f32) -> [f32; 2] {
+        self.cell_uv_with_stretch(ix, iy, fx, fy).0
+    }
+
+    /// [`Self::cell_uv`] plus whether the cell uses stretched cliff UVs.
+    pub fn cell_uv_with_stretch(&self, ix: i32, iy: i32, fx: f32, fy: f32) -> ([f32; 2], bool) {
         let uv = self.get_uv_data(ix - self.draw_origin_x, iy - self.draw_origin_y, false);
         // Bilinear the four corner UVs (C++ interpolates the corner U/V
         // across the cell's two triangles; a single bilinear matches that
@@ -999,7 +1011,7 @@ impl HeightMap {
             + uv.v[1] * fx * (1.0 - fy)
             + uv.v[2] * fx * fy
             + uv.v[3] * (1.0 - fx) * fy;
-        [uu, vv]
+        ([uu, vv], uv.stretched)
     }
 
     /// C++ `updateShorelineTiles` over the full map.

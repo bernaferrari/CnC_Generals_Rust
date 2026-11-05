@@ -10,6 +10,7 @@
 //! freeze rules. Retail assets come from `GENERALS_ASSETS_DIR` /
 //! `GENERALS_RETAIL_DIR`; without them the harness skips (exit 0).
 //! `golden_capture --diff a.png b.png` only compares two existing captures.
+//! `GENERALS_GOLDEN_KEEP_LOGS=1` keeps the child's stderr/status directory.
 //! Exit codes: 0 pass/skip, 1 capture failed, 2 image differs, 3 usage.
 
 use std::path::{Path, PathBuf};
@@ -248,7 +249,11 @@ fn main() {
         started.elapsed(),
         std::fs::read_to_string(&stats).unwrap_or_default().trim()
     );
-    let _ = std::fs::remove_dir_all(&work);
+    if std::env::var_os("GENERALS_GOLDEN_KEEP_LOGS").is_some() {
+        println!("golden_capture: child logs kept in {}", work.display());
+    } else {
+        let _ = std::fs::remove_dir_all(&work);
+    }
 
     if let Some(reference) = args.compare {
         report_compare(&reference, &args.out);

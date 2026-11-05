@@ -497,7 +497,18 @@ fn prepare_native_map_visual(
         .terrain()
         .read()
         .map_err(|_| "receiving map terrain poisoned")?;
-    let frozen = world.try_terrain_heightmap_snapshot_with_terrain_logic(&terrain)?;
+    let mut frozen = world.try_terrain_heightmap_snapshot_with_terrain_logic(&terrain)?;
+    // Native admission precedes the TerrainData fold of this map's
+    // BlendTileData, so the snapshot has no tile indices yet; C++
+    // WorldHeightMap carries them with the heights. Without this every cell
+    // drew tile 0.
+    if let (Some(heightmap), Some(blend)) =
+        (frozen.as_mut(), world.pending_map_blend_tile_data())
+    {
+        if heightmap.tile_ndxes.iter().all(|tile| *tile == 0) {
+            crate::game_logic::terrain::apply_blend_tile_data(heightmap, blend);
+        }
+    }
     let samples = terrain.has_height_map().then(|| {
         let (width, height) = terrain.logic_height_map_extents();
         (width, height, terrain.logic_height_map_border_size())
