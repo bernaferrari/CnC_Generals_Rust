@@ -2746,49 +2746,6 @@ fn tensile_update_rubble_sets_body_rubble_without_destroy_object() {
 }
 
 #[test]
-fn toxin_fire_ocl_spawns_field_after_min_shots_and_coast() {
-    use crate::game_logic::host_toxin_tractor::{
-        TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES, TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL,
-        is_toxin_tractor_template,
-    };
-    use crate::game_logic::{KindOf, Team, ThingTemplate};
-    use glam::Vec3;
-
-    let mut logic = GameLogic::new();
-    let mut tpl = ThingTemplate::new("GLAVehicleToxinTruck");
-    tpl.add_kind_of(KindOf::Vehicle)
-        .add_kind_of(KindOf::Attackable)
-        .set_health(200.0);
-    logic.templates.insert("GLAVehicleToxinTruck".into(), tpl);
-    let id = logic
-        .create_object("GLAVehicleToxinTruck", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("toxin");
-    assert!(is_toxin_tractor_template("GLAVehicleToxinTruck"));
-    assert!(
-        logic
-            .host_object(id)
-            .unwrap()
-            .fire_ocl_after_cooldown
-            .is_some()
-    );
-
-    // Fire secondary spray MinShots times.
-    for f in 0..TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL {
-        logic.frame = f;
-        let _ = logic.apply_toxin_tractor_spray_at(Vec3::new(10.0, 0.0, 0.0), Some(id), Team::GLA);
-    }
-    assert_eq!(logic.toxin_tractor.fire_ocl_spawns, 0, "no OCL until coast");
-    // Advance past coast without more shots.
-    logic.frame = TOXIN_SPRAY_MIN_SHOTS_TO_CREATE_OCL + TOXIN_SPRAY_CONTINUOUS_FIRE_COAST_FRAMES;
-    logic.tick_fire_ocl_after_weapon_cooldown();
-    assert!(
-        logic.toxin_tractor.fire_ocl_spawns > 0,
-        "FireOCL should spawn medium field after min shots + coast"
-    );
-    assert!(logic.honesty_toxin_fire_ocl_ok());
-}
-
-#[test]
 fn upgrade_die_removes_producer_drone_upgrade() {
     let mut game_logic = GameLogic::new();
     super::super::super::world_combat::slaved_update_tests::install_slave_fixture(

@@ -831,11 +831,6 @@ pub fn is_bridge_span_template(name: &str) -> bool {
         || n.eq_ignore_ascii_case("bridge")
 }
 
-pub fn is_bridge_tower_template(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    n.contains("bridgetower") || n.contains("bridge_tower")
-}
-
 fn point_in_quad(x: f32, z: f32, corners: &[Vec3; 4]) -> bool {
     let mut inside = false;
     let mut j = 3;

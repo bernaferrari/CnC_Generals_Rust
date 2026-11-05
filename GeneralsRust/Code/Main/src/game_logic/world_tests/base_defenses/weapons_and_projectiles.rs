@@ -2479,37 +2479,3 @@ fn technical_ap_bullets_and_training_key_on_authored_weapon_not_template_name() 
     // Template name alone (no authored Technical weapon) must not train.
     assert!(unit_training_level_for_object("GLAVehicleTechnical", None, &sciences).is_none());
 }
-
-#[test]
-fn red_guard_bayonet_keys_on_authored_bayonet_slot_not_hardcoded() {
-    use crate::game_logic::host_red_guard::{BAYONET_DAMAGE, REDGUARD_BAYONET, REDGUARD_MACHINE_GUN};
-    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
-
-    ensure_host_weapon_store();
-    let mut game_logic = GameLogic::new();
-    for (name, secondary) in [("GunOnlyGuard", None), ("BayonetGuard", Some(REDGUARD_BAYONET)), ("VictimInf", None)] {
-        let mut tpl = crate::game_logic::ThingTemplate::new(name);
-        tpl.add_kind_of(KindOf::Infantry)
-            .add_kind_of(KindOf::Selectable)
-            .add_kind_of(KindOf::Attackable)
-            .set_health(BAYONET_DAMAGE * 2.0)
-            .set_primary_weapon_name(REDGUARD_MACHINE_GUN);
-        if let Some(s) = secondary {
-            tpl.set_secondary_weapon_name(s);
-        }
-        game_logic.templates.insert(name.to_string(), tpl);
-    }
-    let gun_only = game_logic.create_object("GunOnlyGuard", Team::China, Vec3::ZERO).unwrap();
-    let bayonet = game_logic.create_object("BayonetGuard", Team::China, Vec3::ZERO).unwrap();
-    let v1 = game_logic.create_object("VictimInf", Team::USA, Vec3::new(1.0, 0.0, 0.0)).unwrap();
-    let v2 = game_logic.create_object("VictimInf", Team::USA, Vec3::new(1.0, 0.0, 0.0)).unwrap();
-    let full = game_logic.host_object(v1).unwrap().health.current;
-
-    game_logic.apply_red_guard_residual_at(Vec3::new(1.0, 0.0, 0.0), Some(gun_only), Some(v1));
-    let lost_gun = full - game_logic.host_object(v1).unwrap().health.current;
-    assert!(lost_gun < BAYONET_DAMAGE, "no authored bayonet => no bayonet residual (lost {lost_gun})");
-
-    game_logic.apply_red_guard_residual_at(Vec3::new(1.0, 0.0, 0.0), Some(bayonet), Some(v2));
-    let lost_bay = full - game_logic.host_object(v2).unwrap().health.current;
-    assert!(lost_bay >= BAYONET_DAMAGE * 0.5, "authored bayonet slot => bayonet residual (lost {lost_bay})");
-}

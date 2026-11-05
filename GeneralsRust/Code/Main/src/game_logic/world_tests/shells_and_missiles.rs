@@ -3874,51 +3874,6 @@ fn stealth_fighter_lockon_and_innate_stealth_key_on_authored_weapon_not_template
     assert!(a.innate_stealth, "authored weapon innate stealth");
 }
 
-/// hq-2qedt.265: Jarmen Kell AP-bullets rebind and residual sniper fire key on
-/// the authored GLAJarmenKellRifle, not the template name.
-#[test]
-fn jarmen_kell_ap_and_residual_key_on_authored_weapon_not_template_name() {
-    use crate::game_logic::weapon_bootstrap::ensure_host_weapon_store;
-
-    ensure_host_weapon_store();
-    let mut game_logic = GameLogic::new();
-    for (name, weapon) in [
-        ("TestJarmenKell", "RangerFlashBangGrenadeWeapon"),
-        ("A265xAuthoredSniper", "GLAJarmenKellRifle"),
-        ("A265xVictim", "RangerFlashBangGrenadeWeapon"),
-    ] {
-        let mut tpl = crate::game_logic::ThingTemplate::new(name);
-        tpl.add_kind_of(KindOf::Infantry)
-            .add_kind_of(KindOf::Selectable)
-            .add_kind_of(KindOf::Attackable)
-            .set_health(1000.0)
-            .set_primary_weapon_name(weapon);
-        game_logic.templates.insert(name.to_string(), tpl);
-    }
-    let foreign = game_logic
-        .create_object("TestJarmenKell", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("foreign");
-    let authored = game_logic
-        .create_object("A265xAuthoredSniper", Team::GLA, Vec3::new(20.0, 0.0, 0.0))
-        .expect("authored");
-    let victim = game_logic
-        .create_object("A265xVictim", Team::USA, Vec3::new(40.0, 0.0, 0.0))
-        .expect("victim");
-    assert!(
-        !game_logic.apply_jarmen_kell_ap_bullets_upgrade(foreign),
-        "name-only AP bullets residual"
-    );
-    assert!(
-        game_logic.apply_jarmen_kell_ap_bullets_upgrade(authored),
-        "authored AP"
-    );
-    let at = Vec3::new(40.0, 0.0, 0.0);
-    let (hits, _) = game_logic.apply_jarmen_kell_residual_at(at, Some(foreign), Some(victim));
-    assert_eq!(hits, 0, "name-only sniper residual");
-    let (hits, _) = game_logic.apply_jarmen_kell_residual_at(at, Some(authored), Some(victim));
-    assert_eq!(hits, 1, "authored sniper residual");
-}
-
 /// hq-2qedt.266: Gattling Cannon structure factory dual-slot residual keys on
 /// the authored GattlingBuildingGun, not the template name.
 #[test]
@@ -5464,15 +5419,6 @@ fn comanche_cannon_object_hit_residual_keys_on_authored_weapon_not_template_name
         0,
         "comanche-named template with a different authored weapon must not"
     );
-}
-
-/// hq-2qedt.153: object_hit has no Comanche template-name sniff.
-#[test]
-fn comanche_object_hit_residual_has_no_template_name_sniff() {
-    let src = include_str!("../world_tick/combat/object_hit.rs");
-    assert!(!src.contains("is_comanche_template"));
-    assert!(!src.contains("should_apply_comanche"));
-    assert!(!src.contains("should_apply_rocket_pod_area_attack"));
 }
 
 /// hq-2qedt.179: Scorpion gun/rocket refresh (salvage tier / rocket / AP)

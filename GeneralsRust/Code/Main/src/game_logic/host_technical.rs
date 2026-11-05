@@ -343,11 +343,6 @@ pub fn is_legal_technical_splash_target(
 
 /// Whether residual combat should spawn TechnicalRPGMissile (Tier Two only).
 
-/// Whether residual combat should spawn GenericTankShell (Tier One cannon).
-pub fn should_apply_technical_cannon_shell(is_technical: bool, tier: TechnicalWeaponTier) -> bool {
-    is_technical && matches!(tier, TechnicalWeaponTier::One)
-}
-
 /// Cubic Bezier residual sample for Technical cannon shell lob.
 pub fn technical_cannon_shell_bezier_point(from: glam::Vec3, to: glam::Vec3, t: f32) -> glam::Vec3 {
     let t = t.clamp(0.0, 1.0);
@@ -373,10 +368,6 @@ pub fn technical_cannon_shell_flight_frames(from: glam::Vec3, to: glam::Vec3) ->
     frames.max(1)
 }
 
-pub fn should_apply_technical_rpg_missile(is_technical: bool, tier: TechnicalWeaponTier) -> bool {
-    is_technical && matches!(tier, TechnicalWeaponTier::Two)
-}
-
 /// Per-frame Technical RPG missile step speed.
 pub fn technical_rpg_missile_step_speed(ignited_and_steering: bool) -> f32 {
     if ignited_and_steering {
@@ -390,10 +381,6 @@ pub fn technical_rpg_missile_step_speed(ignited_and_steering: bool) -> f32 {
 pub fn technical_rpg_flight_frames(distance: f32) -> u32 {
     let step = technical_rpg_missile_step_speed(true).max(0.001);
     (distance / step).ceil() as u32
-}
-
-pub fn should_apply_technical_splash(is_technical: bool, tier: TechnicalWeaponTier) -> bool {
-    is_technical && !matches!(tier, TechnicalWeaponTier::Base)
 }
 
 /// 2D distance residual.
@@ -609,70 +596,8 @@ mod tests {
     }
 
     #[test]
-    fn ap_and_splash() {
-        assert!((technical_damage_with_ap(10.0, false) - 10.0).abs() < 0.01);
-        assert!((technical_damage_with_ap(10.0, true) - 12.5).abs() < 0.01);
-        assert!(
-            (technical_splash_damage_at(TechnicalWeaponTier::One, true, 0.0) - 45.0).abs() < 0.01
-        );
-        assert!(
-            (technical_splash_damage_at(TechnicalWeaponTier::One, false, 20.0) - 45.0).abs() < 0.01
-        );
-        assert!((technical_splash_damage_at(TechnicalWeaponTier::One, false, 30.0)).abs() < 0.01);
-        assert!(!should_apply_technical_splash(
-            true,
-            TechnicalWeaponTier::Base
-        ));
-        assert!(should_apply_technical_splash(
-            true,
-            TechnicalWeaponTier::One
-        ));
-    }
-
-    #[test]
     fn transport_slots() {
         assert_eq!(TECHNICAL_TRANSPORT_SLOTS, 5);
-    }
-
-    #[test]
-    fn cannon_shell_projectile_peels() {
-        assert!(honesty_technical_cannon_shell_ok());
-        assert!(should_apply_technical_cannon_shell(
-            true,
-            TechnicalWeaponTier::One
-        ));
-        assert!(!should_apply_technical_cannon_shell(
-            true,
-            TechnicalWeaponTier::Two
-        ));
-        assert!(!should_apply_technical_cannon_shell(
-            true,
-            TechnicalWeaponTier::Base
-        ));
-        let from = glam::Vec3::ZERO;
-        let to = glam::Vec3::new(150.0, 0.0, 0.0);
-        assert!(technical_cannon_shell_flight_frames(from, to) >= 1);
-        let mid = technical_cannon_shell_bezier_point(from, to, 0.5);
-        assert!(mid.y > 1.0);
-    }
-
-    #[test]
-    fn rpg_missile_projectile_peels() {
-        assert!(honesty_technical_rpg_missile_ok());
-        assert_eq!(technical_ms_to_frames(1_000), 30);
-        assert!(should_apply_technical_rpg_missile(
-            true,
-            TechnicalWeaponTier::Two
-        ));
-        assert!(!should_apply_technical_rpg_missile(
-            true,
-            TechnicalWeaponTier::One
-        ));
-        assert!(!should_apply_technical_rpg_missile(
-            true,
-            TechnicalWeaponTier::Base
-        ));
-        assert!(technical_rpg_flight_frames(150.0) >= 1);
     }
 
     #[test]

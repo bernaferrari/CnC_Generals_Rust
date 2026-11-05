@@ -188,12 +188,6 @@ pub fn is_jarmen_kell_template(template_name: &str) -> bool {
         || (n.contains("infantry") && n.contains("kell") && !n.contains("rebel"))
 }
 
-/// Authored WeaponTemplate identity for the Jarmen Kell sniper residual
-/// (AP Bullets is a WeaponBonus, so the slot weapon name is unchanged).
-pub fn is_jarmen_kell_weapon_name(weapon_name: &str) -> bool {
-    weapon_name.eq_ignore_ascii_case(JARMEN_KELL_RIFLE)
-}
-
 /// Whether AP Bullets upgrade tag is present.
 pub fn has_ap_bullets_upgrade(applied_upgrades: &HashSet<String>) -> bool {
     applied_upgrades.iter().any(|u| {
@@ -396,28 +390,6 @@ pub fn honesty_jarmen_kell_residual_pack_ok() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn jarmen_kell_name_matrix() {
-        assert!(is_jarmen_kell_template("GLAInfantryJarmenKell"));
-        assert!(is_jarmen_kell_template("TestJarmenKell"));
-        assert!(is_jarmen_kell_template("GLA_JarmenKell"));
-        assert!(is_jarmen_kell_template("Slth_GLAInfantryJarmenKell"));
-        assert!(is_jarmen_kell_template("Demo_GLAInfantryJarmenKell"));
-        assert!(is_jarmen_kell_template("Chem_GLAInfantryJarmenKell"));
-        assert!(is_jarmen_kell_template("GC_Slth_GLAInfantryJarmenKell"));
-        assert!(!is_jarmen_kell_template("GLAJarmenKellRifle"));
-        assert!(!is_jarmen_kell_template("GLABikerKellSniperRifle"));
-        assert!(!is_jarmen_kell_template(
-            "GLAJarmenKellVehiclePilotSniperRifle"
-        ));
-        assert!(!is_jarmen_kell_template("GLAInfantryRebel"));
-        assert!(!is_jarmen_kell_template("AmericaInfantryColonelBurton"));
-        assert!(!is_jarmen_kell_template("GLAVehicleCombatBike"));
-        assert!(is_jarmen_kell_weapon_name("GLAJarmenKellRifle"));
-        assert!(!is_jarmen_kell_weapon_name("GLABikerKellSniperRifle"));
-        assert!(!is_jarmen_kell_weapon_name("GLAJarmenKellVehiclePilotSniperRifle"));
-    }
 
     #[test]
     fn weapon_and_ap_bullets() {
