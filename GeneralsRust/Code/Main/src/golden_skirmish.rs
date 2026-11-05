@@ -349,7 +349,7 @@ fn usa_base_position(logic: &GameLogic) -> Vec3 {
         .find(|o| {
             o.team == Team::USA
                 && o.is_alive()
-                && (o.is_kind_of(KindOf::CommandCenter) || o.template_name.contains("Command"))
+                && o.is_kind_of(KindOf::CommandCenter)
         })
         .map(|o| o.get_position())
         .or_else(|| {
@@ -767,13 +767,11 @@ fn resolve_map_gather_target(logic: &mut GameLogic, base: Vec3) -> (Option<Objec
 }
 
 fn is_barracks_object(o: &crate::game_logic::object::Object) -> bool {
+    // C++ FS_BARRACKS / KindOf — retail name helper is not a C++ factory gate.
     o.team == Team::USA
         && o.is_alive()
         && o.is_constructed()
-        && (is_retail_barracks_name(&o.template_name)
-            || o.template_name == "Barracks"
-            || o.template_name.contains("Barracks")
-            || o.is_kind_of(KindOf::FSBarracks))
+        && o.is_kind_of(KindOf::FSBarracks)
 }
 
 /// Ensure USA retail templates are buildable on the host slice:
@@ -1305,8 +1303,7 @@ fn fight_enemies_with_rangers(
                     .min_by(|a, b| {
                         let rank = |o: &crate::game_logic::Object| {
                             let structure = o.is_kind_of(KindOf::Structure)
-                                || o.is_kind_of(KindOf::CommandCenter)
-                                || o.template_name.contains("Command");
+                                || o.is_kind_of(KindOf::CommandCenter);
                             let dist = horiz_distance(o.get_position(), centroid);
                             (!structure, dist) // structures first (false < true)
                         };
@@ -2061,9 +2058,7 @@ fn run_map_world_skirmish(
         constructed = run_until(logic, 300, |g| {
             g.host_objects().registered_values().any(|o| {
                 is_barracks_object(o)
-                    && (o.template_name == *bname
-                        || o.template_name.contains("Barracks")
-                        || o.is_kind_of(KindOf::FSBarracks))
+                    && (o.template_name == *bname || o.is_kind_of(KindOf::FSBarracks))
             })
         })?;
         if constructed {
