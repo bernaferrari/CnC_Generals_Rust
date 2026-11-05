@@ -237,8 +237,12 @@ fn lazr_patriot_assist_equivalent_family_residual() {
         let b = game_logic.host_object(lazr_b).unwrap();
         let s = game_logic.host_object(stock).unwrap();
         assert_eq!(a.authored_weapon_name_for_slot(0), Some(LAZR_PATRIOT_PRIMARY_WEAPON));
-        assert!(patriots_are_assist_equivalent(&a.template_name, &b.template_name));
-        assert!(!patriots_are_assist_equivalent(&a.template_name, &s.template_name));
+        assert!(patriots_are_assist_equivalent(
+            &a.template_name, a.authored_weapon_name_for_slot(0),
+            &b.template_name, b.authored_weapon_name_for_slot(0)));
+        assert!(!patriots_are_assist_equivalent(
+            &a.template_name, a.authored_weapon_name_for_slot(0),
+            &s.template_name, s.authored_weapon_name_for_slot(0)));
     }
 
     let enemy_id = game_logic

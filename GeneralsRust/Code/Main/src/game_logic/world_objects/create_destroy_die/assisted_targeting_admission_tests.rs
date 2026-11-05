@@ -65,7 +65,7 @@ fn pending_assist_clip_comes_from_bound_module_not_retail_four() {
     let id = w.create_object_for_player("AmericaPatriotBattery", 0, Vec3::ZERO).unwrap();
     let assist = w.host_object(id).unwrap().assisted_targeting.expect("bound");
     let pending = crate::game_logic::host_base_defense::PendingPatriotAssist::new(
-        id, id, id, 1, "AmericaPatriotBattery", assist,
+        id, id, id, 1, "AmericaPatriotBattery", assist, false,
     );
     assert_eq!(pending.shots_remaining, 2);
     assert_eq!(pending.weapon_slot, 1);
@@ -94,7 +94,7 @@ fn pending_assist_locks_authored_slot_and_attacks_with_clip() {
     w.frame = 1;
     w.pending_patriot_assists.push(
         crate::game_logic::host_base_defense::PendingPatriotAssist::new(
-            id, victim, id, 1, "AmericaPatriotBattery", assist,
+            id, victim, id, 1, "AmericaPatriotBattery", assist, false,
         ),
     );
     w.update_pending_patriot_assists();
@@ -156,7 +156,7 @@ fn pending_assist_issues_attack_even_when_victim_beyond_assist_weapon_range() {
     w.frame = 1;
     w.pending_patriot_assists.push(
         crate::game_logic::host_base_defense::PendingPatriotAssist::new(
-            id, victim, id, 1, "AmericaPatriotBattery", assist,
+            id, victim, id, 1, "AmericaPatriotBattery", assist, false,
         ),
     );
     w.update_pending_patriot_assists();
