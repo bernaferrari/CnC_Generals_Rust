@@ -408,39 +408,6 @@ impl GameLogic {
         n
     }
 
-    /// Apply BoobyTrap residual unlock tag on GLA Rebel infantry.
-    pub(in super::super) fn apply_booby_trap_unlock_to_team(
-        &mut self,
-        recipients: UpgradeRecipients,
-        upgrade_name: &str,
-    ) -> u32 {
-        use crate::game_logic::host_booby_trap::{
-            UPGRADE_GLA_REBEL_BOOBY_TRAP, is_booby_trap_planter_template,
-        };
-
-        let mut affected = 0u32;
-        for obj in self.objects.registered_values_mut() {
-            if !recipients.matches_object(obj) || !obj.is_alive() {
-                continue;
-            }
-            if !is_booby_trap_planter_template(&obj.template_name) {
-                continue;
-            }
-            if obj.has_upgrade_tag(UPGRADE_GLA_REBEL_BOOBY_TRAP)
-                || obj.has_upgrade_tag(upgrade_name)
-            {
-                continue;
-            }
-            obj.apply_upgrade_tag(upgrade_name);
-            obj.apply_upgrade_tag(UPGRADE_GLA_REBEL_BOOBY_TRAP);
-            affected = affected.saturating_add(1);
-        }
-        if affected > 0 {
-            self.booby_trap.record_upgrade_applied(affected);
-        }
-        affected
-    }
-
     /// C++ `WeaponSetUpgrade` + `updateWeaponSet` for Sentry PLAYER_UPGRADE.
     /// Bind PRIMARY `SentryDroneGun`, stamp the retail tag, set flag 0.
     pub(in super::super) fn equip_sentry_drone_gun(obj: &mut Object) {

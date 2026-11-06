@@ -476,9 +476,6 @@ impl<'a> CommandExecutor<'a> {
                 .game_logic
                 .host_object(unit_id)
                 .map(|unit| {
-                    use crate::game_logic::host_booby_trap::{
-                        has_booby_trap_upgrade, is_booby_trap_planter_template,
-                    };
                     use gamelogic::common::Relationship;
                     // C++ ActionManager.cpp:1610-1618 — STRUCTURE && (NEUTRAL || ALLIES).
                     let rel = match (unit.owner_player_id, target_owner) {
@@ -488,8 +485,7 @@ impl<'a> CommandExecutor<'a> {
                     unit.is_alive()
                         && unit.can_move()
                         && matches!(rel, Relationship::Neutral | Relationship::Allies)
-                        && is_booby_trap_planter_template(&unit.template_name)
-                        && has_booby_trap_upgrade(&unit.applied_upgrades)
+                        && self.game_logic.object_may_plant_booby_trap(unit_id)
                 })
                 .unwrap_or(false);
             if !can_issue {

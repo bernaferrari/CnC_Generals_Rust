@@ -1215,9 +1215,6 @@ impl GameLogic {
                 // C++ triggerAbilityEffect SPECIAL_BOOBY_TRAP:
                 // checkAndDetonateBoobyTrap first; cancel if either dies;
                 // refuse a second plant while BOOBY_TRAPPED remains.
-                use crate::game_logic::host_booby_trap::{
-                    has_booby_trap_upgrade, is_booby_trap_planter_template,
-                };
                 if self.leftover_probe_booby_at_target_with_effects(
                     object_id,
                     special_target_id,
@@ -1248,9 +1245,8 @@ impl GameLogic {
                 let (can_plant, ready) = self
                     .objects
                     .get(&object_id)
-                    .map(|o| {
-                        let planter_ok = is_booby_trap_planter_template(&o.template_name)
-                            && has_booby_trap_upgrade(&o.applied_upgrades);
+                    .map(|_| {
+                        let planter_ok = self.object_may_plant_booby_trap(object_id);
                         let ready = self.booby_trap.plant_ready(object_id, self.frame);
                         (planter_ok, ready)
                     })

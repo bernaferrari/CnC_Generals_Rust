@@ -292,6 +292,47 @@ impl Object {
     }
 }
 
+/// Whether the template authors a `SpecialAbilityUpdate` for the named
+/// special power and an `UnpauseSpecialPowerUpgrade` for it that `has`
+/// triggers (the StartsPaused ability is usable only after the upgrade).
+pub(crate) fn authors_unpaused_ability(
+    template: &ThingTemplate,
+    power_template: &str,
+    has: impl Fn(&str) -> bool,
+) -> bool {
+    let Some(definition) = template.receiving_object_definition.as_deref() else {
+        return false;
+    };
+    let names_power = |module: &crate::assets::ini_parser::BehaviorModuleDefinition| {
+        module
+            .attribute("SpecialPowerTemplate")
+            .is_some_and(|name| name.trim().eq_ignore_ascii_case(power_template))
+    };
+    definition.behavior_modules.iter().any(|module| {
+        module.class_name.eq_ignore_ascii_case("SpecialAbilityUpdate") && names_power(module)
+    }) && definition.behavior_modules.iter().any(|module| {
+        module
+            .class_name
+            .eq_ignore_ascii_case("UnpauseSpecialPowerUpgrade")
+            && names_power(module)
+            && upgrade_mux_triggers(module, &has)
+    })
+}
+
+impl GameLogic {
+    /// Booby Trap planting (SpecialAbilityBoobyTrap): the Object's authored
+    /// modules plus the upgrades it or its controlling Player completed.
+    pub(crate) fn object_may_plant_booby_trap(&self, id: ObjectId) -> bool {
+        let Some(object) = self.objects.get(&id) else {
+            return false;
+        };
+        let owner = object.owner_player_id.and_then(|pid| self.players.get(&pid));
+        authors_unpaused_ability(&object.thing().template, "SpecialAbilityBoobyTrap", |name| {
+            object.has_upgrade_tag(name) || owner.is_some_and(|p| p.has_unlocked_upgrade(name))
+        })
+    }
+}
+
 impl Object {
     /// Run this Object's authored `PowerPlantUpgrade` modules whose UpgradeMux
     /// triggers `has` satisfies (PowerPlantUpgrade.cpp `upgradeImplementation`),
@@ -621,5 +662,36 @@ mod replay_tests {
         };
         assert!(paused(plain), "the constructor pause stays without the upgrade");
         assert!(!paused(upgraded), "the completed upgrade lifts the pause on a new unit");
+    }
+
+    /// SpecialAbilityBoobyTrap is usable only by an Object whose authored
+    /// modules carry the ability and an UnpauseSpecialPowerUpgrade the
+    /// controlling Player's completed upgrade triggers; the name selects nothing.
+    #[test]
+    fn booby_trap_planting_follows_authored_modules_not_the_name() {
+        let mut world = GameLogic::new();
+        let mut owner = Player::new(0, Team::GLA, "Owner", true);
+        owner.add_completed_upgrade("Upgrade_TestBoobyTrap");
+        world.players.insert(0, owner);
+        world.players.insert(1, Player::new(1, Team::GLA, "Other", false));
+        world
+            .admit_receiving_module_content(
+                crate::assets::ReceivingObjectContent::from_sources([(
+                    "receiving-booby-trap.ini".into(),
+                    "Object PlainPlanter\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\n\
+                     Behavior = SpecialAbilityUpdate AbilityTag\nSpecialPowerTemplate = SpecialAbilityBoobyTrap\nEnd\n\
+                     Behavior = UnpauseSpecialPowerUpgrade UnpauseTag\nSpecialPowerTemplate = SpecialAbilityBoobyTrap\nTriggeredBy = Upgrade_TestBoobyTrap\nEnd\nEnd\n\
+                     Object GLAInfantryRebel\nKindOf = INFANTRY SELECTABLE\nBody = ActiveBody BodyTag\nMaxHealth = 100\nInitialHealth = 100\nEnd\nEnd\n"
+                        .into(),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        let upgraded = world.create_object_for_player("PlainPlanter", 0, glam::Vec3::ZERO).unwrap();
+        let plain = world.create_object_for_player("PlainPlanter", 1, glam::Vec3::X).unwrap();
+        let named = world.create_object_for_player("GLAInfantryRebel", 0, glam::Vec3::Y).unwrap();
+        assert!(world.object_may_plant_booby_trap(upgraded));
+        assert!(!world.object_may_plant_booby_trap(plain));
+        assert!(!world.object_may_plant_booby_trap(named), "the retail name authors nothing");
     }
 }

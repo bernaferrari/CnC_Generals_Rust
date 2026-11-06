@@ -628,9 +628,6 @@ impl GameLogic {
             // LocomotorSetUpgrade (object_upgrade_callbacks.rs) and
             // WorkerAIUpdate::getUpgradedSupplyBoost own Worker Shoes.
             HostUpgradeKind::WorkerShoes => 0,
-            HostUpgradeKind::BoobyTrap => {
-                self.apply_booby_trap_unlock_to_team(recipients, upgrade_name)
-            }
             HostUpgradeKind::SuicideBomb => {
                 self.apply_demo_suicide_bomb_unlock_to_team(recipients, upgrade_name)
             }
