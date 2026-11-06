@@ -89,9 +89,6 @@ pub(super) mod host_dam_die;
 #[path = "host_defection_helper.rs"]
 pub mod host_defection_helper;
 
-#[path = "host_demo_suicide_bomb.rs"]
-pub mod host_demo_suicide_bomb;
-
 #[path = "host_deploy_style.rs"]
 pub(super) mod host_deploy_style;
 
