@@ -5,6 +5,10 @@
 //! WW3D headless init, and drives Menu → Start through the same control file
 //! path GPUI uses.
 //!
+//! Retail gates pass a per-run [`SmokeOptions`] snapshot. Asset overrides are
+//! installed on the spawned host only, and screenshot destinations remain
+//! owned by the invoking run; parallel runs do not rewrite process variables.
+//!
 //! Honesty:
 //! - `playable_claim` is the five-flag retail formula (`window_visible` &&
 //!   `wnd_widget_tree_nav` && `live_frame_ok` && InGame && gameplay). Headless
@@ -42,6 +46,32 @@ pub const LONE_EAGLE_CANDIDATES: &[&str] = &[
     "Lone Eagle",
 ];
 
+/// Per-run asset and capture configuration, passed to the smoke child only.
+#[derive(Clone, Debug, Default)]
+pub struct SmokeOptions {
+    pub assets_dir: Option<PathBuf>,
+    pub screenshot_path: Option<PathBuf>,
+}
+
+impl SmokeOptions {
+    /// Snapshot the caller's inherited settings without changing the process environment.
+    pub fn from_environment() -> Self {
+        Self {
+            assets_dir: std::env::var_os("GENERALS_ASSETS_DIR").map(PathBuf::from),
+            screenshot_path: std::env::var_os("GENERALS_PRESENT_SCREENSHOT").map(PathBuf::from),
+        }
+    }
+
+    /// Use the discovered retail installation only when no asset override exists.
+    pub fn for_retail(retail: &Path) -> Self {
+        let mut options = Self::from_environment();
+        if options.assets_dir.is_none() {
+            options.assets_dir = Some(retail.to_path_buf());
+        }
+        options
+    }
+}
+
 /// Run the executable smoke with a timeout budget.
 ///
 /// `use_new_game_path`: when true, drive Start via `queue_new_game` (Menu drain).
@@ -52,6 +82,7 @@ pub fn run_executable_smoke(timeout: Duration, use_new_game_path: bool) -> Execu
         use_new_game_path,
         ExecutableSmokeLaunch::HeadlessHost,
         SmokeDriver::Automated,
+        &SmokeOptions::from_environment(),
     )
 }
 
@@ -71,6 +102,7 @@ pub fn run_windowed_acceptance_smoke(
         use_new_game_path,
         ExecutableSmokeLaunch::Windowed,
         SmokeDriver::ManualObserver,
+        &SmokeOptions::from_environment(),
     )
 }
 
@@ -85,12 +117,13 @@ pub fn run_windowed_acceptance_smoke(
 ///
 /// This is the P0 hq-x1j4u.9.1 gate: real event loop + retail assets + live
 /// shell WND. It does not continue into skirmish/InGame.
-pub fn run_boot_to_shell_menu(timeout: Duration) -> ExecutableSmokeResult {
+pub fn run_boot_to_shell_menu(timeout: Duration, options: &SmokeOptions) -> ExecutableSmokeResult {
     run_executable_smoke_with_launch_and_driver(
         timeout,
         false,
         ExecutableSmokeLaunch::HeadlessHost,
         SmokeDriver::MenuOnly,
+        options,
     )
 }
 
@@ -98,12 +131,13 @@ pub fn run_boot_to_shell_menu(timeout: Duration) -> ExecutableSmokeResult {
 ///
 /// P0 hq-x1j4u.9.2 gate. Skips the gameplay command chain so debug builds are not
 /// held in the post-load update hot path longer than needed for the latch.
-pub fn run_load_retail_skirmish_map(timeout: Duration) -> ExecutableSmokeResult {
+pub fn run_load_retail_skirmish_map(timeout: Duration, options: &SmokeOptions) -> ExecutableSmokeResult {
     run_executable_smoke_with_launch_and_driver(
         timeout,
         true, // NewGame / skirmish menu drain path
         ExecutableSmokeLaunch::HeadlessHost,
         SmokeDriver::MapLoadOnly,
+        options,
     )
 }
 
@@ -111,24 +145,26 @@ pub fn run_load_retail_skirmish_map(timeout: Duration) -> ExecutableSmokeResult 
 ///
 /// P0 hq-x1j4u.9.3 gate. Stops after the three order residuals latch (does not
 /// walk the full retail command ladder).
-pub fn run_issue_player_orders(timeout: Duration) -> ExecutableSmokeResult {
+pub fn run_issue_player_orders(timeout: Duration, options: &SmokeOptions) -> ExecutableSmokeResult {
     run_executable_smoke_with_launch_and_driver(
         timeout,
         true,
         ExecutableSmokeLaunch::HeadlessHost,
         SmokeDriver::OrdersOnly,
+        options,
     )
 }
 
 /// Retail skirmish with concurrent human move orders and AI activity residual.
 ///
 /// P0 hq-x1j4u.9.5 gate.
-pub fn run_ai_opponent_skirmish(timeout: Duration) -> ExecutableSmokeResult {
+pub fn run_ai_opponent_skirmish(timeout: Duration, options: &SmokeOptions) -> ExecutableSmokeResult {
     run_executable_smoke_with_launch_and_driver(
         timeout,
         true,
         ExecutableSmokeLaunch::HeadlessHost,
         SmokeDriver::AiActivity,
+        options,
     )
 }
 
@@ -136,12 +172,13 @@ pub fn run_ai_opponent_skirmish(timeout: Duration) -> ExecutableSmokeResult {
 ///
 /// P0 hq-x1j4u.9.7 gate. Uses production-host quicksave/quickload so load goes
 /// through the same staged-candidate path as the UI load.
-pub fn run_retail_skirmish_save_load(timeout: Duration) -> ExecutableSmokeResult {
+pub fn run_retail_skirmish_save_load(timeout: Duration, options: &SmokeOptions) -> ExecutableSmokeResult {
     run_executable_smoke_with_launch_and_driver(
         timeout,
         true,
         ExecutableSmokeLaunch::HeadlessHost,
         SmokeDriver::SaveLoadOnly,
+        options,
     )
 }
 
@@ -149,12 +186,13 @@ pub fn run_retail_skirmish_save_load(timeout: Duration) -> ExecutableSmokeResult
 ///
 /// P0 hq-x1j4u.9.6 gate. Uses `-runtime_host=windowed`. Saves a screenshot under
 /// `GeneralsRust/artifacts/` (or `GENERALS_PRESENT_SCREENSHOT`) when capture works.
-pub fn run_present_skirmish_frame(timeout: Duration) -> ExecutableSmokeResult {
+pub fn run_present_skirmish_frame(timeout: Duration, options: &SmokeOptions) -> ExecutableSmokeResult {
     run_executable_smoke_with_launch_and_driver(
         timeout,
         true,
         ExecutableSmokeLaunch::Windowed,
         SmokeDriver::PresentFrameOnly,
+        options,
     )
 }
 
@@ -167,6 +205,7 @@ pub fn run_executable_smoke_windowed(
         use_new_game_path,
         ExecutableSmokeLaunch::Windowed,
         SmokeDriver::Automated,
+        &SmokeOptions::from_environment(),
     )
 }
 
@@ -175,9 +214,10 @@ fn run_executable_smoke_with_launch_and_driver(
     use_new_game_path: bool,
     launch: ExecutableSmokeLaunch,
     driver: SmokeDriver,
+    options: &SmokeOptions,
 ) -> ExecutableSmokeResult {
     // Retry one early boot failure after this invocation's child is cleaned up.
-    let first = run_executable_smoke_once(timeout, use_new_game_path, launch, driver);
+    let first = run_executable_smoke_once(timeout, use_new_game_path, launch, driver, options);
     let retryable = matches!(
         first.status.as_str(),
         "process_exited" | "timeout" | "no_menu"
@@ -187,7 +227,7 @@ fn run_executable_smoke_with_launch_and_driver(
         return first;
     }
     std::thread::sleep(Duration::from_millis(1500));
-    let second = run_executable_smoke_once(timeout, use_new_game_path, launch, driver);
+    let second = run_executable_smoke_once(timeout, use_new_game_path, launch, driver, options);
     if second.executable_host_ok || second.reached_menu || second.reached_ingame {
         let mut out = second;
         out.detail = format!(

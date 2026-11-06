@@ -3,7 +3,7 @@
 //! Writes `GeneralsRust/docs/lone_eagle_perf_baseline.md` and prints a summary.
 //! Optional macOS `sample` capture lands beside the docs file when available.
 
-use generals_main::executable_smoke::lone_eagle_map_on_disk;
+use generals_main::executable_smoke::{lone_eagle_map_on_disk, SmokeOptions};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
@@ -139,6 +139,7 @@ fn run_mode(
     timeout: Duration,
     map: &str,
     docs_dir: &Path,
+    options: &SmokeOptions,
 ) -> Result<BenchNumbers, String> {
     let exe = find_generals_exe().ok_or_else(|| "generals binary missing".to_string())?;
     let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -167,7 +168,13 @@ fn run_mode(
         "-runtime_host=windowed"
     };
 
-    let mut child: Child = Command::new(&exe)
+    let mut command = Command::new(&exe);
+    if let Some(assets_dir) = &options.assets_dir {
+        command.env("GENERALS_ASSETS_DIR", assets_dir);
+    } else {
+        command.env_remove("GENERALS_ASSETS_DIR");
+    }
+    let mut child: Child = command
         .current_dir(&workspace)
         .arg(runtime_host_arg)
         .arg("-runtime_host_private_profile=1")
@@ -498,13 +505,8 @@ fn main() {
         eprintln!("lone_eagle_bench: SKIP retail missing");
         std::process::exit(0);
     };
-    if std::env::var_os("GENERALS_ASSETS_DIR").is_none() {
-        // SAFETY: set in main() before any benchmark thread or child process is spawned, so nothing reads the environment concurrently.
-        unsafe {
-            std::env::set_var("GENERALS_ASSETS_DIR", &retail);
-        }
-    }
-    if !lone_eagle_map_on_disk() {
+    let options = SmokeOptions::for_retail(&retail);
+    if !lone_eagle_map_on_disk(&options) {
         eprintln!("lone_eagle_bench: SKIP Lone Eagle missing");
         std::process::exit(0);
     }
@@ -533,6 +535,7 @@ fn main() {
         timeout,
         &map,
         &docs_dir,
+        &options,
     ) {
         Ok(r) => {
             eprintln!(
@@ -561,6 +564,7 @@ fn main() {
         timeout,
         &map,
         &docs_dir,
+        &options,
     ) {
         Ok(r) => {
             eprintln!(

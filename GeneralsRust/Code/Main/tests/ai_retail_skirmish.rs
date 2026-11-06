@@ -12,10 +12,10 @@ const GATE: &str = "ai_retail_skirmish";
 
 #[test]
 fn production_host_ai_runs_with_human_orders_on_retail_map() {
-    if !retail_gate::require_lone_eagle(GATE) {
+    let Some(options) = retail_gate::require_lone_eagle(GATE) else {
         return;
-    }
-    let r = run_ai_opponent_skirmish(retail_gate::timeout("AI_RETAIL_SKIRMISH_TIMEOUT_SECS", 900));
+    };
+    let r = run_ai_opponent_skirmish(retail_gate::timeout("AI_RETAIL_SKIRMISH_TIMEOUT_SECS", 900), &options);
     if !retail_gate::ran(GATE, &r) {
         return;
     }

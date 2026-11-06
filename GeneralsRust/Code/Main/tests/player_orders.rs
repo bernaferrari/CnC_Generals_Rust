@@ -12,10 +12,10 @@ const GATE: &str = "player_orders";
 
 #[test]
 fn production_host_issues_select_move_attack_orders() {
-    if !retail_gate::require_lone_eagle(GATE) {
+    let Some(options) = retail_gate::require_lone_eagle(GATE) else {
         return;
-    }
-    let r = run_issue_player_orders(retail_gate::timeout("PLAYER_ORDERS_TIMEOUT_SECS", 720));
+    };
+    let r = run_issue_player_orders(retail_gate::timeout("PLAYER_ORDERS_TIMEOUT_SECS", 720), &options);
     if !retail_gate::ran(GATE, &r) {
         return;
     }

@@ -7,7 +7,7 @@
 //! retail assets.
 #![allow(dead_code)]
 
-use generals_main::executable_smoke::{ExecutableSmokeResult, lone_eagle_map_on_disk};
+use generals_main::executable_smoke::{ExecutableSmokeResult, SmokeOptions, lone_eagle_map_on_disk};
 use std::path::{Path, PathBuf};
 
 /// Explicit opt-out: unset / `0` / `false` means a missing precondition fails.
@@ -74,31 +74,23 @@ fn retail_root() -> Option<PathBuf> {
     .map(|c| c.canonicalize().unwrap_or(c))
 }
 
-/// Resolve retail data and publish `GENERALS_ASSETS_DIR` for the smoke runner.
-/// Returns false only when the explicit opt-out skips the gate.
-pub fn require_retail(gate: &str) -> bool {
+/// Resolve retail data into configuration owned by this smoke run.
+pub fn require_retail(gate: &str) -> Option<SmokeOptions> {
     let Some(retail) = retail_root() else {
-        return missing(gate, "retail assets not found");
+        missing(gate, "retail assets not found");
+        return None;
     };
-    if std::env::var_os("GENERALS_ASSETS_DIR").is_none() {
-        // SAFETY: set before the smoke runner spawns any thread or child; each
-        // gate binary runs a single test.
-        unsafe {
-            std::env::set_var("GENERALS_ASSETS_DIR", &retail);
-        }
-    }
-    true
+    Some(SmokeOptions::for_retail(&retail))
 }
 
 /// [`require_retail`] plus the retail Lone Eagle map the skirmish gates load.
-pub fn require_lone_eagle(gate: &str) -> bool {
-    if !require_retail(gate) {
-        return false;
+pub fn require_lone_eagle(gate: &str) -> Option<SmokeOptions> {
+    let options = require_retail(gate)?;
+    if !lone_eagle_map_on_disk(&options) {
+        missing(gate, "Lone Eagle.map not found");
+        return None;
     }
-    if !lone_eagle_map_on_disk() {
-        return missing(gate, "Lone Eagle.map not found");
-    }
-    true
+    Some(options)
 }
 
 /// The runner reports `binary_missing` when no `generals` executable resolved.

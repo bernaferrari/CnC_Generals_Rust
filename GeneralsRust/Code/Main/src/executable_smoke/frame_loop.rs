@@ -8,6 +8,7 @@
 /// locals; every field starts at its original zero value via `Default`.
 #[derive(Default)]
 struct SmokeRunState {
+    screenshot_path: Option<PathBuf>,
     gameplay_step: u8,
     saw_select_ok: bool,
     saw_move_ok: bool,
@@ -199,6 +200,7 @@ fn run_executable_smoke_once(
     use_new_game_path: bool,
     launch: ExecutableSmokeLaunch,
     driver: SmokeDriver,
+    options: &SmokeOptions,
 ) -> ExecutableSmokeResult {
     let mut result = ExecutableSmokeResult {
         playable_claim: false,
@@ -208,7 +210,7 @@ fn run_executable_smoke_once(
     };
 
     // Lifecycle: initialization / asset bootstrap.
-    let Some(boot) = bootstrap_smoke_child(launch, &mut result) else {
+    let Some(boot) = bootstrap_smoke_child(launch, options, &mut result) else {
         return result;
     };
     let SmokeBootstrap {
@@ -221,6 +223,7 @@ fn run_executable_smoke_once(
 
     let started = Instant::now();
     let mut st = SmokeRunState {
+        screenshot_path: options.screenshot_path.clone(),
         boot_shell_menu_goal: matches!(driver, SmokeDriver::MenuOnly),
         map_load_goal: matches!(driver, SmokeDriver::MapLoadOnly),
         orders_goal: matches!(driver, SmokeDriver::OrdersOnly),

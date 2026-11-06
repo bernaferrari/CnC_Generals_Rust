@@ -4,7 +4,7 @@
 //! Point assets with GENERALS_ASSETS_DIR / GENERALS_RETAIL_DIR, or keep
 //! `windows_game/` beside the repo root (symlink is fine).
 
-use generals_main::executable_smoke::{format_executable_smoke_report, run_boot_to_shell_menu};
+use generals_main::executable_smoke::{format_executable_smoke_report, run_boot_to_shell_menu, SmokeOptions};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -71,20 +71,14 @@ fn main() {
         );
         std::process::exit(0);
     };
-    // Prefer GENERALS_ASSETS_DIR for the production asset probe path.
-    if std::env::var_os("GENERALS_ASSETS_DIR").is_none() {
-        // SAFETY: single-threaded gate process before spawning the child.
-        unsafe {
-            std::env::set_var("GENERALS_ASSETS_DIR", &retail);
-        }
-    }
+    let options = SmokeOptions::for_retail(&retail);
     eprintln!(
         "boot_shell_menu_gate: retail={} timeout={}s",
         retail.display(),
         timeout_secs
     );
 
-    let r = run_boot_to_shell_menu(Duration::from_secs(timeout_secs));
+    let r = run_boot_to_shell_menu(Duration::from_secs(timeout_secs), &options);
     println!("{}", format_executable_smoke_report(&r));
 
     if r.status == "binary_missing" {

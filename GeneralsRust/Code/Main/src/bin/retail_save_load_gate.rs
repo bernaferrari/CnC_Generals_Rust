@@ -1,6 +1,6 @@
 //! Gate: retail Lone Eagle save/load round-trip + post-load orders (hq-x1j4u.9.7).
 use generals_main::executable_smoke::{
-    format_executable_smoke_report, lone_eagle_map_on_disk, run_retail_skirmish_save_load,
+    format_executable_smoke_report, lone_eagle_map_on_disk, run_retail_skirmish_save_load, SmokeOptions,
 };
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -40,13 +40,8 @@ fn main() {
         eprintln!("retail_save_load_gate: SKIP retail missing");
         std::process::exit(0);
     };
-    if std::env::var_os("GENERALS_ASSETS_DIR").is_none() {
-        // SAFETY: set at the start of main(), before this gate process spawns any thread or child, so nothing can read the environment concurrently.
-        unsafe {
-            std::env::set_var("GENERALS_ASSETS_DIR", &retail);
-        }
-    }
-    if !lone_eagle_map_on_disk() {
+    let options = SmokeOptions::for_retail(&retail);
+    if !lone_eagle_map_on_disk(&options) {
         eprintln!("retail_save_load_gate: SKIP Lone Eagle missing");
         std::process::exit(0);
     }
@@ -55,7 +50,7 @@ fn main() {
         retail.display(),
         timeout
     );
-    let r = run_retail_skirmish_save_load(Duration::from_secs(timeout));
+    let r = run_retail_skirmish_save_load(Duration::from_secs(timeout), &options);
     println!("{}", format_executable_smoke_report(&r));
     if r.status == "binary_missing" {
         eprintln!("retail_save_load_gate: SKIP binary_missing — {}", r.detail);

@@ -1,19 +1,16 @@
-//! Centralized environment mutation for the Rust 2024 edition.
+//! Legacy environment mutation used by test and `host-residuals` cohorts.
 //!
-//! `std::env::set_var`/`remove_var` are `unsafe` in edition 2024 because env
-//! mutation is process-global and not synchronized. In this port env vars are
-//! `GENERALS_*` configuration toggles read only through the env caches at
-//! defined boundaries; test access is serialized by `authority_env_lock`
-//! (gameworld_shadow tests harness) and the repo-standard `--test-threads=1`.
-//! All mutation funnels through these wrappers so the safety argument lives in
-//! exactly one place.
+//! These wrappers are unsound on platforms where a concurrent environment
+//! read can race mutation. A test lock or a single libtest thread does not
+//! exclude native readers. Remaining callers require migration to owned
+//! configuration or child-process environment before these APIs can be removed.
 
 pub(crate) fn set_var<K: AsRef<std::ffi::OsStr>, V: AsRef<std::ffi::OsStr>>(key: K, value: V) {
-    // SAFETY: env mutation is serialized per the module docs above.
+    // This legacy call does not establish std::env::set_var's safety requirements.
     unsafe { std::env::set_var(key, value) }
 }
 
 pub(crate) fn remove_var<K: AsRef<std::ffi::OsStr>>(key: K) {
-    // SAFETY: env mutation is serialized per the module docs above.
+    // This legacy call does not establish std::env::remove_var's safety requirements.
     unsafe { std::env::remove_var(key) }
 }

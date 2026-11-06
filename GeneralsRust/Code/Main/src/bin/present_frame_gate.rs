@@ -1,6 +1,6 @@
 //! Gate: windowed Lone Eagle present sit-through (hq-x1j4u.9.6).
 use generals_main::executable_smoke::{
-    format_executable_smoke_report, lone_eagle_map_on_disk, run_present_skirmish_frame,
+    format_executable_smoke_report, lone_eagle_map_on_disk, run_present_skirmish_frame, SmokeOptions,
 };
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -40,13 +40,8 @@ fn main() {
         eprintln!("present_frame_gate: SKIP retail missing");
         std::process::exit(0);
     };
-    if std::env::var_os("GENERALS_ASSETS_DIR").is_none() {
-        // SAFETY: set at the start of main(), before this gate process spawns any thread or child, so nothing can read the environment concurrently.
-        unsafe {
-            std::env::set_var("GENERALS_ASSETS_DIR", &retail);
-        }
-    }
-    if !lone_eagle_map_on_disk() {
+    let mut options = SmokeOptions::for_retail(&retail);
+    if !lone_eagle_map_on_disk(&options) {
         eprintln!("present_frame_gate: SKIP Lone Eagle missing");
         std::process::exit(0);
     }
@@ -55,21 +50,16 @@ fn main() {
     if let Some(parent) = shot.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if std::env::var_os("GENERALS_PRESENT_SCREENSHOT").is_none() {
-        // SAFETY: set at the start of main(), before this gate process spawns any thread or child, so nothing can read the environment concurrently.
-        unsafe {
-            std::env::set_var("GENERALS_PRESENT_SCREENSHOT", &shot);
-        }
+    if options.screenshot_path.is_none() {
+        options.screenshot_path = Some(shot);
     }
     eprintln!(
         "present_frame_gate: retail={} timeout={}s screenshot={}",
         retail.display(),
         timeout,
-        std::env::var_os("GENERALS_PRESENT_SCREENSHOT")
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default()
+        options.screenshot_path.as_ref().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
     );
-    let r = run_present_skirmish_frame(Duration::from_secs(timeout));
+    let r = run_present_skirmish_frame(Duration::from_secs(timeout), &options);
     println!("{}", format_executable_smoke_report(&r));
     if r.status == "binary_missing" {
         eprintln!("present_frame_gate: SKIP binary_missing — {}", r.detail);

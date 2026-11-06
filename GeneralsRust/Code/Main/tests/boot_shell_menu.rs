@@ -12,10 +12,10 @@ const GATE: &str = "boot_shell_menu";
 
 #[test]
 fn production_host_boots_to_main_menu_wnd() {
-    if !retail_gate::require_retail(GATE) {
+    let Some(options) = retail_gate::require_retail(GATE) else {
         return;
-    }
-    let r = run_boot_to_shell_menu(retail_gate::timeout("BOOT_SHELL_MENU_TIMEOUT_SECS", 180));
+    };
+    let r = run_boot_to_shell_menu(retail_gate::timeout("BOOT_SHELL_MENU_TIMEOUT_SECS", 180), &options);
     if !retail_gate::ran(GATE, &r) {
         return;
     }

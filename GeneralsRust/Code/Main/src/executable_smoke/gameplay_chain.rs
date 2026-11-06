@@ -2677,9 +2677,8 @@ fn smoke_drive_present_frame_chain(
             .parent()
             .map(|p| p.join("frame.png"))
             .unwrap_or_else(|| PathBuf::from("frame.png"));
-        // Worktree-relative artifacts/ (gitignored). Prefer GENERALS_PRESENT_SCREENSHOT.
-        let dest = std::env::var_os("GENERALS_PRESENT_SCREENSHOT")
-            .map(PathBuf::from)
+        // Worktree-relative artifacts/ (gitignored), unless this run overrides it.
+        let dest = st.screenshot_path.clone()
             .unwrap_or_else(|| {
                 PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                     .join("../../artifacts/present_frame_lone_eagle.png")

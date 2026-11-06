@@ -12,13 +12,13 @@ const GATE: &str = "retail_skirmish_map";
 
 #[test]
 fn production_host_loads_retail_map_into_skirmish() {
-    if !retail_gate::require_lone_eagle(GATE) {
+    let Some(options) = retail_gate::require_lone_eagle(GATE) else {
         return;
-    }
-    let r = run_load_retail_skirmish_map(retail_gate::timeout(
-        "RETAIL_SKIRMISH_MAP_TIMEOUT_SECS",
-        600,
-    ));
+    };
+    let r = run_load_retail_skirmish_map(
+        retail_gate::timeout("RETAIL_SKIRMISH_MAP_TIMEOUT_SECS", 600),
+        &options,
+    );
     if !retail_gate::ran(GATE, &r) {
         return;
     }

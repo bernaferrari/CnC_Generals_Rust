@@ -1,6 +1,6 @@
 //! Gate: retail skirmish select → move → attack (hq-x1j4u.9.3).
 use generals_main::executable_smoke::{
-    format_executable_smoke_report, lone_eagle_map_on_disk, run_issue_player_orders,
+    format_executable_smoke_report, lone_eagle_map_on_disk, run_issue_player_orders, SmokeOptions,
 };
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -33,16 +33,13 @@ fn main() {
         eprintln!("player_orders_gate: SKIP retail missing");
         std::process::exit(0);
     };
-    if std::env::var_os("GENERALS_ASSETS_DIR").is_none() {
-        // SAFETY: set at the start of main(), before this gate process spawns any thread or child, so nothing can read the environment concurrently.
-        unsafe { std::env::set_var("GENERALS_ASSETS_DIR", &retail); }
-    }
-    if !lone_eagle_map_on_disk() {
+    let options = SmokeOptions::for_retail(&retail);
+    if !lone_eagle_map_on_disk(&options) {
         eprintln!("player_orders_gate: SKIP Lone Eagle missing");
         std::process::exit(0);
     }
     eprintln!("player_orders_gate: retail={} timeout={}s", retail.display(), timeout);
-    let r = run_issue_player_orders(Duration::from_secs(timeout));
+    let r = run_issue_player_orders(Duration::from_secs(timeout), &options);
     println!("{}", format_executable_smoke_report(&r));
     if r.status == "binary_missing" {
         eprintln!("player_orders_gate: SKIP binary_missing — {}", r.detail);

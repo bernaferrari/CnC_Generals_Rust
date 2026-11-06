@@ -1068,34 +1068,39 @@ pub fn get_big_archive_file_reader() -> Option<Arc<BigArchiveFileReader>> {
 mod tests {
     use super::*;
     use std::io::Write;
-    use std::sync::{Mutex as StdMutex, OnceLock as StdOnceLock};
-
-    fn env_lock() -> &'static StdMutex<()> {
-        static LOCK: StdOnceLock<StdMutex<()>> = StdOnceLock::new();
-        LOCK.get_or_init(|| StdMutex::new(()))
-    }
-
-    struct EnvVarGuard {
-        key: &'static str,
-        previous: Option<String>,
-    }
-
-    impl EnvVarGuard {
-        fn set(key: &'static str, value: &Path) -> Self {
-            let previous = std::env::var(key).ok();
-            crate::env_compat::set_var(key, value);
-            Self { key, previous }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn install_env_child(test: &str, key: &str) -> Option<PathBuf> {
+        const CHILD: &str = "GENERALS_ARCHIVE_ENV_CHILD";
+        let module = module_path!()
+            .strip_prefix("generals_main::")
+            .unwrap_or(module_path!());
+        let exact = format!("{module}::{test}");
+        if std::env::var(CHILD).ok().as_deref() == Some(exact.as_str()) {
+            return Some(PathBuf::from(std::env::var_os(key).expect("child install path")));
         }
-    }
-
-    impl Drop for EnvVarGuard {
-        fn drop(&mut self) {
-            if let Some(previous) = &self.previous {
-                crate::env_compat::set_var(self.key, previous);
-            } else {
-                crate::env_compat::remove_var(self.key);
-            }
-        }
+        let directory = tempfile::tempdir().unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &exact, "--nocapture"])
+            .env(CHILD, &exact)
+            .env_remove("GENERALS_ASSETS_DIR")
+            .env_remove("GENERALS_INSTALL_PATH")
+            .env_remove("GENERALS_BASE_DIR")
+            .env_remove("GENERALS_BASE_INSTALL_PATH")
+            .env(key, directory.path())
+            .output()
+            .expect("start archive test child");
+        assert!(
+            output.status.success(),
+            "archive test child failed: stdout={}\nstderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("1 passed; 0 failed"),
+            "archive test child did not run exactly one test: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        None
     }
 
     fn create_single_file_big(path: &Path, virtual_path: &str, data: &[u8]) -> std::io::Result<()> {
@@ -1411,18 +1416,78 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn parallel_child_installs_keep_archive_precedence_isolated() {
+        const CHILD: &str = "GENERALS_ARCHIVE_PARALLEL_CHILD";
+        const ENTRY: &str = "Data/INI/ParallelEnvIsolation.ini";
+        if let Ok(case) = std::env::var(CHILD) {
+            let expected: &[u8] = match case.as_str() {
+                "first" => b"first asset",
+                "second" => b"second asset",
+                other => panic!("unexpected archive case {other}"),
+            };
+            let mut files = ArchiveFileSystem::new();
+            futures::executor::block_on(files.init()).unwrap();
+            let data = futures::executor::block_on(files.open_file(ENTRY)).unwrap();
+            assert_eq!(data, expected);
+            return;
+        }
+
+        let temp = tempfile::tempdir().unwrap();
+        let module = module_path!()
+            .strip_prefix("generals_main::")
+            .unwrap_or(module_path!());
+        let exact = format!("{module}::parallel_child_installs_keep_archive_precedence_isolated");
+        let mut children = Vec::new();
+        for (case, content) in [("first", &b"first asset"[..]), ("second", &b"second asset"[..])] {
+            let assets = temp.path().join(case).join("assets");
+            let install = temp.path().join(case).join("install");
+            std::fs::create_dir_all(&assets).unwrap();
+            std::fs::create_dir_all(&install).unwrap();
+            create_single_file_big(&assets.join("INIZH.big"), ENTRY, content).unwrap();
+            create_single_file_big(&install.join("INIZH.big"), ENTRY, b"lower priority").unwrap();
+            let child = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", &exact, "--nocapture"])
+                .env(CHILD, case)
+                .env("GENERALS_ASSETS_DIR", assets)
+                .env("GENERALS_INSTALL_PATH", install)
+                .env_remove("GENERALS_BASE_DIR")
+                .env_remove("GENERALS_BASE_INSTALL_PATH")
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            children.push(child);
+        }
+        for child in children {
+            let output = child.wait_with_output().unwrap();
+            assert!(
+                output.status.success(),
+                "parallel archive child failed: stdout={}\nstderr={}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stdout).contains("1 passed; 0 failed"),
+                "parallel archive child did not run the requested test"
+            );
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn init_discovers_direct_install_path_from_env() {
-        let _guard = env_lock().lock().unwrap();
-        let temp_dir = tempfile::tempdir().unwrap();
-        let archive_path = temp_dir.path().join("INIZH.big");
+        let Some(temp_dir) = install_env_child("init_discovers_direct_install_path_from_env", "GENERALS_INSTALL_PATH") else {
+            return;
+        };
+        let archive_path = temp_dir.join("INIZH.big");
         create_single_file_big(
             &archive_path,
             "Data/INI/EnvInstall.ini",
             b"env install data",
         )
         .unwrap();
-        let _env = EnvVarGuard::set("GENERALS_INSTALL_PATH", temp_dir.path());
 
         let mut archive_system = ArchiveFileSystem::new();
         futures::executor::block_on(archive_system.init()).unwrap();
@@ -1475,11 +1540,12 @@ mod tests {
         assert_eq!(resolved, actual_archive);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn base_generals_search_includes_steam_windows_game_and_env() {
-        let _guard = env_lock().lock().unwrap();
-        let temp_dir = tempfile::tempdir().unwrap();
-        let _env = EnvVarGuard::set("GENERALS_BASE_DIR", temp_dir.path());
+        let Some(temp_dir) = install_env_child("base_generals_search_includes_steam_windows_game_and_env", "GENERALS_BASE_DIR") else {
+            return;
+        };
 
         let candidates = base_generals_search_candidates();
         let rendered: Vec<String> = candidates
@@ -1516,7 +1582,6 @@ mod tests {
             "windows_game sibling Generals install must be probed"
         );
         let base = temp_dir
-            .path()
             .to_string_lossy()
             .replace('\\', "/")
             .to_ascii_lowercase();
@@ -1538,23 +1603,24 @@ mod tests {
         assert!(base_generals_dirs_in_downloads(temp.path()).contains(&base));
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn init_mounts_base_generals_w3d_from_generals_base_dir() {
-        let _guard = env_lock().lock().unwrap();
-        let temp_dir = tempfile::tempdir().unwrap();
+        let Some(temp_dir) = install_env_child("init_mounts_base_generals_w3d_from_generals_base_dir", "GENERALS_BASE_DIR") else {
+            return;
+        };
         create_single_file_big(
-            &temp_dir.path().join("W3D.big"),
+            &temp_dir.join("W3D.big"),
             "Art/W3D/BaseUnit.w3d",
             b"w3d",
         )
         .unwrap();
         create_single_file_big(
-            &temp_dir.path().join("W3DEnglish.big"),
+            &temp_dir.join("W3DEnglish.big"),
             "Art/W3D/BaseUnitEN.w3d",
             b"w3den",
         )
         .unwrap();
-        let _env = EnvVarGuard::set("GENERALS_BASE_DIR", temp_dir.path());
 
         let mut archive_system = ArchiveFileSystem::new();
         futures::executor::block_on(archive_system.init()).unwrap();

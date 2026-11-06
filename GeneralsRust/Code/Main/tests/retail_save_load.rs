@@ -13,10 +13,10 @@ const GATE: &str = "retail_save_load";
 
 #[test]
 fn production_host_saves_and_loads_retail_skirmish() {
-    if !retail_gate::require_lone_eagle(GATE) {
+    let Some(options) = retail_gate::require_lone_eagle(GATE) else {
         return;
-    }
-    let r = run_retail_skirmish_save_load(retail_gate::timeout("RETAIL_SAVE_LOAD_TIMEOUT_SECS", 900));
+    };
+    let r = run_retail_skirmish_save_load(retail_gate::timeout("RETAIL_SAVE_LOAD_TIMEOUT_SECS", 900), &options);
     if !retail_gate::ran(GATE, &r) {
         return;
     }

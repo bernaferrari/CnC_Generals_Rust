@@ -295,7 +295,7 @@ pub fn is_non_shell_map(map: &str) -> bool {
 /// Uses the same Lone Eagle candidates / search walk as executable smoke, plus
 /// MapsZH extract directories and `MapsZH.big`.
 pub fn windows_game_assets_present() -> bool {
-    if lone_eagle_map_on_disk() {
+    if lone_eagle_map_on_disk(&crate::executable_smoke::SmokeOptions::from_environment()) {
         return true;
     }
     windows_game_assets_present_in(&default_asset_search_roots())

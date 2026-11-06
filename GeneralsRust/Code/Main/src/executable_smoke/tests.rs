@@ -87,6 +87,55 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn parallel_smoke_children_resolve_their_own_retail_map() {
+        const CHILD: &str = "GENERALS_SMOKE_ASSET_ISOLATION_CASE";
+        if let Ok(case) = std::env::var(CHILD) {
+            let expected: &[u8] = match case.as_str() {
+                "first" => b"first map",
+                "second" => b"second map",
+                other => panic!("unexpected smoke case {other}"),
+            };
+            let options = SmokeOptions::from_environment();
+            let map = resolve_lone_eagle_map(options.assets_dir.as_deref());
+            assert_eq!(fs::read(map).unwrap(), expected);
+            return;
+        }
+
+        let tmp = tempfile::tempdir().unwrap();
+        let module = module_path!().strip_prefix("generals_main::").unwrap_or(module_path!());
+        let exact = format!("{module}::parallel_smoke_children_resolve_their_own_retail_map");
+        let mut children = Vec::new();
+        for (case, contents) in [("first", &b"first map"[..]), ("second", &b"second map"[..])] {
+            let assets = tmp.path().join(case);
+            let map = assets.join("Maps/Lone Eagle/Lone Eagle.map");
+            fs::create_dir_all(map.parent().unwrap()).unwrap();
+            fs::write(map, contents).unwrap();
+            let options = SmokeOptions { assets_dir: Some(assets), screenshot_path: None };
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            configure_smoke_child_assets(&mut command, &options);
+            children.push(command.args(["--exact", &exact, "--nocapture"])
+                .env(CHILD, case)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn().unwrap());
+        }
+        for child in children {
+            let output = child.wait_with_output().unwrap();
+            assert!(
+                output.status.success(),
+                "smoke child failed: stdout={}\nstderr={}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(
+                String::from_utf8_lossy(&output.stdout).contains("1 passed; 0 failed"),
+                "smoke child did not run the requested test"
+            );
+        }
+    }
+
     #[test]
     fn failed_smoke_keeps_bounded_child_error_and_shell_state() {
         let dir = tempfile::tempdir().unwrap();

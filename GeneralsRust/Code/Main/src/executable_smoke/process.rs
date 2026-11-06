@@ -23,6 +23,14 @@ impl Drop for SmokeChild {
     }
 }
 
+fn configure_smoke_child_assets(command: &mut Command, options: &SmokeOptions) {
+    if let Some(assets_dir) = &options.assets_dir {
+        command.env("GENERALS_ASSETS_DIR", assets_dir);
+    } else {
+        command.env_remove("GENERALS_ASSETS_DIR");
+    }
+}
+
 pub(crate) fn resolve_runtime_exe() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("GENERALS_RUNTIME_EXE") {
         let pb = PathBuf::from(p);
@@ -102,9 +110,8 @@ pub(crate) fn resolve_runtime_exe_from_candidates(
     None
 }
 
-fn resolve_lone_eagle_map() -> String {
-    if let Some(path) = std::env::var_os("GENERALS_ASSETS_DIR")
-        .and_then(|root| retail_map::lone_eagle_from_assets_root(Path::new(&root)))
+fn resolve_lone_eagle_map(assets_dir: Option<&Path>) -> String {
+    if let Some(path) = assets_dir.and_then(retail_map::lone_eagle_from_assets_root)
     {
         return path.to_string_lossy().into_owned();
     }
@@ -146,8 +153,8 @@ fn resolve_lone_eagle_map() -> String {
 /// True when a Lone Eagle `.map` file exists on one of the smoke search paths.
 ///
 /// The bare `"Lone Eagle"` fallback name (no file on disk) is **not** a hit.
-pub fn lone_eagle_map_on_disk() -> bool {
-    let resolved = resolve_lone_eagle_map();
+pub fn lone_eagle_map_on_disk(options: &SmokeOptions) -> bool {
+    let resolved = resolve_lone_eagle_map(options.assets_dir.as_deref());
     Path::new(&resolved).is_file()
 }
 

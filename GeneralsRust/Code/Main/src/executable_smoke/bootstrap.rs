@@ -17,6 +17,7 @@ struct SmokeBootstrap {
 /// Resolve binary/assets and spawn the production `generals` child.
 fn bootstrap_smoke_child(
     launch: ExecutableSmokeLaunch,
+    options: &SmokeOptions,
     result: &mut ExecutableSmokeResult,
 ) -> Option<SmokeBootstrap> {
     let Some(exe) = resolve_runtime_exe() else {
@@ -66,7 +67,7 @@ fn bootstrap_smoke_child(
     let _ = fs::write(&control_path, b"");
     let _ = fs::write(&status_path, b"");
 
-    let map = resolve_lone_eagle_map();
+    let map = resolve_lone_eagle_map(options.assets_dir.as_deref());
     result.map_seen = map.clone();
     // Prefer -flag=value so option parsing cannot steal the next token
     // (matches GPUI bridge / verified boot path).
@@ -85,7 +86,9 @@ fn bootstrap_smoke_child(
         ExecutableSmokeLaunch::HeadlessHost => "-runtime_host=headless",
         ExecutableSmokeLaunch::Windowed => "-runtime_host=windowed",
     };
-    let mut child = match Command::new(&exe)
+    let mut command = Command::new(&exe);
+    configure_smoke_child_assets(&mut command, options);
+    let mut child = match command
         .current_dir(&workspace_cwd)
         .arg(runtime_host_arg)
         .arg("-runtime_host_private_profile=1")
