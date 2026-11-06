@@ -1618,38 +1618,15 @@ impl MeshRenderManager {
 
         let device = self.gpu_device.wgpu_device();
         let queue = self.gpu_device.queue();
-        let gpu_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(&format!("MeshManager Pass Texture {}", texture.get_name())),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu_format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &gpu_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
+        // Full mip chain (C++ DDS chains / D3DX mips; renderer plan R7).
+        let gpu_texture = ww3d_gpu::mips::create_rgba8_texture_with_mips(
+            device,
+            queue,
+            &format!("MeshManager Pass Texture {}", texture.get_name()),
+            wgpu_format,
+            width,
+            height,
             &pixels[..expected],
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(width * 4),
-                rows_per_image: Some(height),
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
         );
         let view = Arc::new(gpu_texture.create_view(&wgpu::TextureViewDescriptor::default()));
 

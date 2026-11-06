@@ -24,6 +24,7 @@
 pub const SCENE_DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24PlusStencil8;
 
 pub mod adapter;
+pub mod mips;
 pub mod blend_modes;
 pub mod buffer;
 pub mod caps;
