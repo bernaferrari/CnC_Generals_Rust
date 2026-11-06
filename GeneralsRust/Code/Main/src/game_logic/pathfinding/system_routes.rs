@@ -302,18 +302,14 @@ impl PathfindingSystem {
         unit_radius: f32,
         ground_source: &PathfindingGround<'_>,
     ) -> bool {
-        let crusher_level = if is_crusher {
-            self.seeker_crusher_level.max(1)
-        } else {
-            0
-        };
+        let crusher_level = if is_crusher { 1 } else { 0 };
         self.grid.adjust_to_possible_destination_ex(
             start,
             dest,
             surfaces,
             is_crusher,
             unit_radius,
-            self.seeker_player,
+            None,
             crusher_level,
             ground_source,
         )

@@ -710,27 +710,32 @@ impl AIPlayer {
                         } else {
                             self.repair_dozer_origin
                         };
-                        if let Some((start, ai)) = OBJECT_REGISTRY
-                            .with_object(dozer_id, |dg| {
-                                dg.get_ai_update_interface()
-                                    .map(|ai| (*dg.get_position(), ai))
-                            })
-                            .flatten()
-                        {
-                            // Adjust destination onto a reachable cell with dozer loco set.
-                            if let Some(loco_set) = ai.get_locomotor_set_clone() {
-                                let ai_store = the_ai();
-                                if let Ok(ai_sys) = ai_store.read() {
-                                    if let Some(pf_arc) = ai_sys.pathfinder() {
-                                        if let Ok(pf) = pf_arc.read() {
-                                            let surfaces = loco_set.get_valid_surfaces();
-                                            let _ = pf.adjust_to_possible_destination(
-                                                &start, &mut pos, surfaces, false, 0.0,
-                                            );
+                        if let Some(ai) = OBJECT_REGISTRY
+                            .with_object(dozer_id, |dozer| {
+                                let ai = dozer.get_ai_update_interface()?;
+                                if let Ok(ai_guard) = ai.lock() {
+                                    if let Some(loco_set) = ai_guard.get_locomotor_set_clone() {
+                                        let ai_store = the_ai();
+                                        if let Ok(ai_sys) = ai_store.read() {
+                                            if let Some(pf_arc) = ai_sys.pathfinder() {
+                                                if let Ok(pf) = pf_arc.read() {
+                                                    let _ = pf.adjust_possible_destination_for_object(
+                                                        dozer,
+                                                        &loco_set,
+                                                        ai_guard.get_ignored_obstacle_id(),
+                                                        ai_guard.is_aircraft_that_adjusts_destination(),
+                                                        &mut pos,
+                                                        None,
+                                                    );
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                            }
+                                Some(ai)
+                            })
+                            .flatten()
+                        {
                             ai.ai_move_to_position(&pos, false, CommandSourceType::FromAi);
                         }
                         return Ok(());

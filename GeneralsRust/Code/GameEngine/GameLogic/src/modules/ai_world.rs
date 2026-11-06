@@ -72,6 +72,8 @@ pub trait AiWorld {
         &self,
         _owner: &Object,
         _locomotors: &crate::locomotor::LocomotorSet,
+        _ignored_obstacle: ObjectID,
+        _aircraft_goal_only: bool,
         _position: &mut Coord3D,
     ) -> Result<bool, String> {
         Err("supplied AI world has no exit destination owner".into())

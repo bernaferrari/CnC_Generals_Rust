@@ -75,6 +75,39 @@ fn boarded_with_modules(target_ai: bool, physics: bool) -> NativeMatch {
     );
     game
 }
+
+#[test]
+fn exit_destination_observes_the_borrowed_actor_and_policy_in_each_world() {
+    use crate::ai::pathfind_astar::{GridCoord, PathfindCellType};
+    let mut first = NativeMatch::new(150.0);
+    let mut second = NativeMatch::new(150.0);
+    let first_actor = first.source.clone();
+    let second_actor = second.source.clone();
+    let id = first_actor.read().unwrap().get_id();
+    assert_eq!(id, second_actor.read().unwrap().get_id());
+    let goal = Coord3D::new(85.0, 85.0, 0.0);
+    for game in [&mut first, &mut second] {
+        let grid = game.pathfinder.pathfinding_system_mut();
+        let cell = GridCoord::new(8, 8);
+        grid.pathfinder.set_cell_type(cell, PathfindCellType::Obstacle);
+        grid.pathfinder.set_cell_obstacle_id(cell, 99, false, false);
+        grid.update_aircraft_goal(&goal, id, 0, true);
+    }
+    let query = |game: &mut NativeMatch, actor: &Arc<RwLock<Object>>, ignored, aircraft| {
+        let loco = actor.read().unwrap().get_ai_update_interface().unwrap()
+            .lock().unwrap().get_locomotor_set_clone().unwrap();
+        let actor = actor.read().unwrap();
+        let mut dest = goal;
+        game.operate(40, |world| {
+            assert!(world.adjust_exit_destination(&actor, &loco, ignored, aircraft, &mut dest).unwrap());
+        });
+        dest
+    };
+    assert_eq!(query(&mut first, &first_actor, 99, false), goal);
+    assert_ne!(query(&mut second, &second_actor, crate::common::INVALID_ID, false), goal);
+    assert_eq!(query(&mut second, &second_actor, crate::common::INVALID_ID, true), goal);
+    assert_eq!(query(&mut first, &first_actor, 99, false), goal);
+}
 #[test]
 fn owned_regular_exit_releases_ai_before_removal_then_completes_same_phase() {
     let mut game = boarded();

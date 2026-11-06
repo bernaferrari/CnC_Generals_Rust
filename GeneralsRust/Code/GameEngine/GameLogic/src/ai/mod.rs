@@ -2235,19 +2235,48 @@ impl Pathfinder {
         &self,
         object: &Object,
         locomotors: &crate::locomotor::LocomotorSet,
+        ignored_obstacle: ObjectID,
+        aircraft_goal_only: bool,
         destination: &mut Coord3D,
         observations: &pathfind_complete::PathfindObservations<'_>,
     ) -> bool {
-        self.inner.adjust_to_possible_destination_with_observations(
-            object.get_position(),
-            destination,
-            locomotors.get_valid_surfaces(),
-            object.get_crusher_level() > 0,
-            object
-                .get_geometry_info()
-                .get_bounding_circle_radius()
-                .max(0.0),
+        self.adjust_possible_destination_for_object(
+            object, locomotors, ignored_obstacle, aircraft_goal_only, destination,
             Some(observations),
+        )
+    }
+
+    pub(crate) fn adjust_possible_destination_for_object(
+        &self,
+        object: &Object,
+        locomotors: &crate::locomotor::LocomotorSet,
+        ignored_obstacle: ObjectID,
+        aircraft_goal_only: bool,
+        destination: &mut Coord3D,
+        observations: Option<&pathfind_complete::PathfindObservations<'_>>,
+    ) -> bool {
+        let surfaces = locomotors.get_valid_surfaces();
+        let is_crusher = object.get_crusher_level() > 0;
+        let unit_radius = object.get_geometry_info().get_bounding_circle_radius().max(0.0);
+        let owner = pathfind_complete::AdjustmentOwner {
+            source: object,
+            request: pathfind_complete::PathRequest {
+                object_id: object.get_id(),
+                from: *object.get_position(),
+                to: *destination,
+                surfaces,
+                is_crusher,
+                unit_radius,
+                allow_partial: false,
+                move_allies: false,
+                ignore_obstacle_id: Some(ignored_obstacle).filter(|id| *id != INVALID_ID),
+                is_human: false,
+            },
+            aircraft_goal_only,
+        };
+        self.inner.adjust_to_possible_destination_with_observations(
+            object.get_position(), destination, surfaces, is_crusher, unit_radius,
+            observations, Some(&owner),
         )
     }
 

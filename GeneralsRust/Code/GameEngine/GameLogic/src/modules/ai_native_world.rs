@@ -324,6 +324,8 @@ impl AiWorld for BorrowedAiWorld<'_> {
         &self,
         owner: &Object,
         locomotors: &crate::locomotor::LocomotorSet,
+        ignored_obstacle: ObjectID,
+        aircraft_goal_only: bool,
         position: &mut Coord3D,
     ) -> Result<bool, String> {
         let observations = crate::ai::pathfind_complete::PathfindObservations {
@@ -331,10 +333,14 @@ impl AiWorld for BorrowedAiWorld<'_> {
             players: self.players,
             terrain: self.services.terrain,
         };
-        Ok(self
-            .services
-            .pathfinder
-            .adjust_exit_destination_with_observations(owner, locomotors, position, &observations))
+        Ok(self.services.pathfinder.adjust_exit_destination_with_observations(
+            owner,
+            locomotors,
+            ignored_obstacle,
+            aircraft_goal_only,
+            position,
+            &observations,
+        ))
     }
 
     fn idle_goal_position(

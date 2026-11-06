@@ -20,6 +20,43 @@ fn register_test_object(
 }
 
 #[test]
+fn possible_destination_uses_each_borrowed_receiver_on_every_footprint_check() {
+    // AIPathfind.cpp:4900-4956 and 5562-5610: each check observes obj's AI.
+    let factory = crate::object::object_factory::ObjectFactory::new();
+    let players = crate::player::PlayerList::new();
+    let terrain = crate::terrain::TerrainLogic::new();
+    let observations = PathfindObservations { factory: &factory, players: &players, terrain: &terrain };
+    let object = crate::object::Object::new_test(100, 100.0);
+    let mut world = PathfindingSystem::new(16, 16);
+    world.new_map();
+    let goal = GridCoord::new(5, 5).to_world(0.0);
+    let start = GridCoord::new(2, 2).to_world(0.0);
+    let cell = GridCoord::new(5, 5);
+    world.pathfinder.set_cell_type(cell, PathfindCellType::Obstacle);
+    world.pathfinder.set_cell_obstacle_id(cell, 99, false, false);
+    world.update_aircraft_goal(&goal, 100, 0, true);
+    let request = PathRequest {
+        object_id: 100, from: start, to: goal, surfaces: SURFACE_GROUND,
+        is_crusher: false, unit_radius: 0.0, allow_partial: false,
+        move_allies: false, ignore_obstacle_id: Some(99), is_human: false,
+    };
+    let ignored = AdjustmentOwner { source: &object, request: request.clone(), aircraft_goal_only: false };
+    let aircraft = AdjustmentOwner { source: &object, request: request.clone(), aircraft_goal_only: true };
+    let ground = AdjustmentOwner {
+        source: &object, request: PathRequest { ignore_obstacle_id: None, ..request },
+        aircraft_goal_only: false,
+    };
+    for (owner, keep) in [(&ignored, true), (&aircraft, true), (&ground, false), (&aircraft, true)] {
+        let mut destination = goal;
+        assert!(world.adjust_to_possible_destination_with_observations(
+            &start, &mut destination, SURFACE_GROUND, false, 0.0,
+            Some(&observations), Some(owner),
+        ));
+        assert_eq!(destination == goal, keep);
+    }
+}
+
+#[test]
 fn dozer_hack_steps_non_enemy_obstacle_not_enemy() {
     // C++ AIPathfind.cpp:6207-6226 examineNeighboringCells dozerHack:
     // KINDOF_DOZER + CELL_OBSTACLE + obstacle exists && !ENEMIES.

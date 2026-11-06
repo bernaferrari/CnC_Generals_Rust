@@ -1056,21 +1056,18 @@ impl DozerAIUpdate {
                     let mut end_pos = self
                         .get_dock_point(self.task_owner.current, DozerDockPoint::End)
                         .unwrap_or(*owner_guard.get_position());
-                    let start = *owner_guard.get_position();
-                    let is_crusher = owner_guard.get_crusher_level() > 0;
-                    let radius = owner_guard.get_geometry_info().get_bounding_circle_radius();
                     if let Some(loco_set) = ai_guard.get_locomotor_set_clone() {
-                        let surfaces = loco_set.get_valid_surfaces();
                         let ai_store = crate::ai::the_ai();
                         if let Ok(ai_sys) = ai_store.read() {
                             if let Some(pf_arc) = ai_sys.pathfinder() {
                                 if let Ok(pf) = pf_arc.read() {
-                                    let _ = pf.adjust_to_possible_destination(
-                                        &start,
+                                    let _ = pf.adjust_possible_destination_for_object(
+                                        &owner_guard,
+                                        &loco_set,
+                                        ai_guard.get_ignored_obstacle_id(),
+                                        ai_guard.is_aircraft_that_adjusts_destination(),
                                         &mut end_pos,
-                                        surfaces,
-                                        is_crusher,
-                                        radius,
+                                        None,
                                     );
                                 }
                             }

@@ -1807,12 +1807,12 @@ impl PathfindingGrid {
         ground_source: &PathfindingGround<'_>,
     ) -> bool {
         let receiver = PossibleDestinationReceiver {
-            seeker_id: self.query_seeker_id,
-            ignore_id: self.query_ignore_unit_id,
-            aircraft: self.query_check_for_aircraft,
+            seeker_id: 0,
+            ignore_id: 0,
+            aircraft: false,
             player: seeker_player,
             crusher_level,
-            source_layer: self.query_layer_enum(),
+            source_layer: PathfindLayerEnum::Ground,
         };
         self.adjust_to_possible_destination_with_receiver(
             start,

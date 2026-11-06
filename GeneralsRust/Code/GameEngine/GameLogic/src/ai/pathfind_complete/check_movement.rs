@@ -732,12 +732,7 @@ impl PathfindingSystem {
         unit_radius: f32,
     ) -> bool {
         self.adjust_to_possible_destination_with_observations(
-            start,
-            dest,
-            surfaces,
-            is_crusher,
-            unit_radius,
-            None,
+            start, dest, surfaces, is_crusher, unit_radius, None, None,
         )
     }
 
@@ -749,199 +744,104 @@ impl PathfindingSystem {
         is_crusher: bool,
         unit_radius: f32,
         observations: Option<&PathfindObservations<'_>>,
+        owner: Option<&AdjustmentOwner<'_>>,
     ) -> bool {
-        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
-        // C++: if (!center) adjustDest += PATHFIND_CELL_SIZE_F/2 before worldToCell.
-        let mut adjust_dest = *dest;
-        if !center_in_cell {
-            adjust_dest.x += PATHFIND_CELL_SIZE_F * 0.5;
-            adjust_dest.y += PATHFIND_CELL_SIZE_F * 0.5;
+        let (radius, center) = Self::compute_radius_and_center(unit_radius);
+        let mut adjusted = *dest;
+        if !center {
+            adjusted.x += PATHFIND_CELL_SIZE_F * 0.5;
+            adjusted.y += PATHFIND_CELL_SIZE_F * 0.5;
         }
-        let goal_cell = GridCoord::from_world(&adjust_dest);
-        // C++ worldToCell returns true when outside bounds → fail.
-        if !self.is_valid_coord(goal_cell) {
+        let goal = GridCoord::from_world(&adjusted);
+        if !self.is_valid_coord(goal) {
             return false;
         }
-        let destination_layer = self.get_layer_for_coord(goal_cell);
-
-        let start_cell = GridCoord::from_world(start);
-        let same_zone = {
-            let zones = &self.zones;
-            zones.are_connected(start_cell, goal_cell, surfaces, is_crusher)
+        // The destination layer is selected once, before the spiral (5510-5617).
+        let layer = observations.map_or_else(
+            || self.get_layer_for_coord(goal),
+            |world| PathfindLayerEnum::from_u32(world.terrain.get_layer_for_destination(dest) as u32),
+        );
+        let start_layer = owner.map_or(PathfindLayerEnum::Ground, |owner| {
+            PathfindLayerEnum::from_u32(owner.source.get_layer() as u32)
+        });
+        let raw_start = GridCoord::from_world(start);
+        let start_cell = GridCoord::new(
+            raw_start.x.clamp(0, self.width.saturating_sub(1) as i32),
+            raw_start.y.clamp(0, self.height.saturating_sub(1) as i32),
+        );
+        let Some((start_type, start_zone)) = self.cell_type_and_zone(start_layer, start_cell) else {
+            return false;
         };
-
-        if same_zone {
-            if self.is_destination_valid_with_observations(
-                goal_cell,
-                destination_layer,
-                surfaces,
-                is_crusher,
-                radius,
-                center_in_cell,
-                None,
-                observations,
-            ) {
-                // C++ returns true without rewriting dest when seed is already valid.
-                return true;
-            }
+        let Some((_, goal_zone)) = self.cell_type_and_zone(layer, goal) else {
+            return false;
+        };
+        let starting_in_obstacle = start_type == PathfindCellType::Obstacle;
+        let mut from_zone = self.zones.get_effective_zone(surfaces, is_crusher, start_zone);
+        if starting_in_obstacle {
+            from_zone = self.zones.get_effective_terrain_zone(from_zone);
+            from_zone = self.zones.get_effective_zone(surfaces, is_crusher, from_zone);
+        }
+        let valid = |cell| match owner {
+            Some(owner) => self.check_destination_with_source(
+                &owner.request, cell, layer, radius, center,
+                Some(owner.aircraft_goal_only), observations, Some(owner.source),
+            ),
+            None => self.is_destination_valid_with_observations(
+                cell, layer, surfaces, is_crusher, radius, center, None, observations,
+            ),
+        };
+        if from_zone == self.zones.get_effective_zone(surfaces, is_crusher, goal_zone)
+            && valid(goal)
+        {
+            return true;
         }
 
-        // Spiral search
-        const MAX_CELLS_TO_TRY: i32 = 400;
-        let mut limit = MAX_CELLS_TO_TRY;
-        let mut i = goal_cell.x;
-        let mut j = goal_cell.y;
-        let mut delta = 1;
-
+        let try_candidate = |x, y, dest: &mut Coord3D| {
+            let cell = GridCoord::new(x, y);
+            let Some((cell_type, zone)) = self.cell_type_and_zone(layer, cell) else {
+                return false;
+            };
+            if matches!(cell_type, PathfindCellType::Impassable | PathfindCellType::Obstacle | PathfindCellType::BridgeImpassable) {
+                return false;
+            }
+            let mut zone = self.zones.get_effective_zone(surfaces, is_crusher, zone);
+            if starting_in_obstacle {
+                zone = self.zones.get_effective_terrain_zone(zone);
+            }
+            if from_zone != zone {
+                return false;
+            }
+            // checkForPossible writes the candidate before checkDestination.
+            self.adjust_coord_to_cell_with_observations(x, y, center, dest, layer, observations);
+            valid(cell)
+        };
+        let mut limit = 400;
+        let (mut i, mut j, mut delta) = (goal.x, goal.y, 1);
         while limit > 0 {
             for _ in 0..delta {
                 i += 1;
                 limit -= 1;
-                if self.try_zone_adjust_with_observations(
-                    i,
-                    j,
-                    start_cell,
-                    surfaces,
-                    is_crusher,
-                    radius,
-                    center_in_cell,
-                    dest,
-                    observations,
-                ) {
-                    return true;
-                }
+                if try_candidate(i, j, dest) { return true; }
             }
             for _ in 0..delta {
                 j += 1;
                 limit -= 1;
-                if self.try_zone_adjust_with_observations(
-                    i,
-                    j,
-                    start_cell,
-                    surfaces,
-                    is_crusher,
-                    radius,
-                    center_in_cell,
-                    dest,
-                    observations,
-                ) {
-                    return true;
-                }
+                if try_candidate(i, j, dest) { return true; }
             }
             delta += 1;
             for _ in 0..delta {
                 i -= 1;
                 limit -= 1;
-                if self.try_zone_adjust_with_observations(
-                    i,
-                    j,
-                    start_cell,
-                    surfaces,
-                    is_crusher,
-                    radius,
-                    center_in_cell,
-                    dest,
-                    observations,
-                ) {
-                    return true;
-                }
+                if try_candidate(i, j, dest) { return true; }
             }
             for _ in 0..delta {
                 j -= 1;
                 limit -= 1;
-                if self.try_zone_adjust_with_observations(
-                    i,
-                    j,
-                    start_cell,
-                    surfaces,
-                    is_crusher,
-                    radius,
-                    center_in_cell,
-                    dest,
-                    observations,
-                ) {
-                    return true;
-                }
+                if try_candidate(i, j, dest) { return true; }
             }
             delta += 1;
         }
-
         false
-    }
-
-    /// C++ checkForPossible + checkDestination for adjustToPossibleDestination spiral.
-    pub(crate) fn try_zone_adjust(
-        &self,
-        cx: i32,
-        cy: i32,
-        start_cell: GridCoord,
-        surfaces: LocomotorSurfaceTypeMask,
-        is_crusher: bool,
-        radius: i32,
-        center_in_cell: bool,
-        dest: &mut Coord3D,
-    ) -> bool {
-        self.try_zone_adjust_with_observations(
-            cx,
-            cy,
-            start_cell,
-            surfaces,
-            is_crusher,
-            radius,
-            center_in_cell,
-            dest,
-            None,
-        )
-    }
-
-    fn try_zone_adjust_with_observations(
-        &self,
-        cx: i32,
-        cy: i32,
-        start_cell: GridCoord,
-        surfaces: LocomotorSurfaceTypeMask,
-        is_crusher: bool,
-        radius: i32,
-        center_in_cell: bool,
-        dest: &mut Coord3D,
-        observations: Option<&PathfindObservations<'_>>,
-    ) -> bool {
-        let coord = GridCoord::new(cx, cy);
-        if !self.is_valid_coord(coord) {
-            return false;
-        }
-        let layer = self.get_layer_for_coord(coord);
-
-        let connected = {
-            let zones = &self.zones;
-            zones.are_connected(start_cell, coord, surfaces, is_crusher)
-        };
-        if !connected {
-            return false;
-        }
-
-        if !self.is_destination_valid_with_observations(
-            coord,
-            layer,
-            surfaces,
-            is_crusher,
-            radius,
-            center_in_cell,
-            None,
-            observations,
-        ) {
-            return false;
-        }
-
-        self.adjust_coord_to_cell_with_observations(
-            cx,
-            cy,
-            center_in_cell,
-            dest,
-            layer,
-            observations,
-        );
-        true
     }
 
     /// C++ `Pathfinder::checkForTarget` (AIPathfind.cpp:5409-5421).

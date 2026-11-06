@@ -150,7 +150,13 @@ impl UnitAIUpdate {
         {
             let owner = self.runtime.native_owner().ok_or("exit actor absent")?;
             let object = owner.read().map_err(|_| "exit actor poisoned")?;
-            world.adjust_exit_destination(&object, &self.runtime.data.locomotor_set, &mut end)?;
+            world.adjust_exit_destination(
+                &object,
+                &self.runtime.data.locomotor_set,
+                self.runtime.data.ignore_obstacle_id,
+                self.runtime.data.is_aircraft_that_adjusts_destination(),
+                &mut end,
+            )?;
         }
         // Hurry records its first node before destination adjustment; ordinary
         // exit duplicates the adjusted node (OpenContain.cpp997/1122).
