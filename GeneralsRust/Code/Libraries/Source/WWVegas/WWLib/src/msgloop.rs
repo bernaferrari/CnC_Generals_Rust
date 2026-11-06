@@ -49,10 +49,7 @@ pub fn windows_message_handler(runtime: &crate::process_state::WwLibRuntime) {
 
         {
             let handler_guard = runtime.message_intercept_handler.lock().unwrap();
-            if let Some(handler_bits) = *handler_guard {
-                // SAFETY: handler installed via set_message_intercept_handler as fn pointer.
-                let handler: fn(&mut MSG) -> bool =
-                    unsafe { std::mem::transmute(handler_bits) };
+            if let Some(handler) = *handler_guard {
                 processed = handler(&mut msg);
             }
         }

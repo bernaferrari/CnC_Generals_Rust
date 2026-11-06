@@ -1161,9 +1161,7 @@ fn propaganda_tower_name_residual_helix_propaganda_heals() {
 
 #[test]
 fn heal_pad_seeking_healing_residual_recovers_infantry_hp() {
-    let _env_guard = host_state_residual_test_env_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _env_guard = host_state_residual_test_env_lock();
 
     // Host-state residual honesty without shadow writeback: authority
     // channels default off on the fresh GameLogic context.

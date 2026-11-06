@@ -54,23 +54,23 @@ fn shroud_runtime_active(
 }
 
 /// Serialize remaining legacy fixtures which still mutate engine singletons.
+/// Returns the held guard; it is released on drop.
 #[cfg(test)]
-pub fn shroud_test_isolation_lock() -> &'static std::sync::Mutex<()> {
+pub fn shroud_test_isolation_lock() -> parking_lot::ArcMutexGuard<parking_lot::RawMutex, ()> {
     // Prefer the active MainServices lock; fall back to a test-only module
     // mutex when tests have not yet installed MainServices.
     if let Some(services) = crate::main_services::try_main_services() {
-        let lock = &services.fow_test_lock;
-        return unsafe { std::mem::transmute(lock) };
+        return std::sync::Arc::clone(&services.fow_test_lock).lock_arc();
     }
-    shroud_test_lock_fallback::mutex()
+    shroud_test_lock_fallback::mutex().lock_arc()
 }
 
 #[cfg(test)]
 mod shroud_test_lock_fallback {
-    use std::sync::Mutex;
-    static FALLBACK: Mutex<()> = Mutex::new(());
-    pub(super) fn mutex() -> &'static Mutex<()> {
-        &FALLBACK
+    use std::sync::{Arc, OnceLock};
+    static FALLBACK: OnceLock<Arc<parking_lot::Mutex<()>>> = OnceLock::new();
+    pub(super) fn mutex() -> &'static Arc<parking_lot::Mutex<()>> {
+        FALLBACK.get_or_init(|| Arc::new(parking_lot::Mutex::new(())))
     }
 }
 

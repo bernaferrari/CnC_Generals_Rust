@@ -15,7 +15,7 @@ pub struct WwDebugSession {
     pub command: CommandInterfaceState,
     pub debug: Mutex<Debug>,
     pub handlers: Mutex<DebugHandlers>,
-    pub memory_stats: MemoryStats,
+    pub memory_stats: std::sync::Arc<MemoryStats>,
     pub lock: Mutex<()>,
 }
 
@@ -32,7 +32,7 @@ impl WwDebugSession {
             command: CommandInterfaceState::new_session(),
             debug: Mutex::new(Debug::new_session()),
             handlers: Mutex::new(DebugHandlers::new()),
-            memory_stats: MemoryStats::new(),
+            memory_stats: std::sync::Arc::new(MemoryStats::new()),
             lock: Mutex::new(()),
         }
     }

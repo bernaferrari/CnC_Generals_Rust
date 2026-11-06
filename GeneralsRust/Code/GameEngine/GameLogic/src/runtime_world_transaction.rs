@@ -28,11 +28,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 /// The host normally owns this lock implicitly through its game thread; the
 /// explicit mutex also makes test/worker misuse serialize rather than swap two
 /// candidate worlds through the same wrappers.
-/// RAII lock for host staging. Keeps the world's `Arc<Mutex<()>>` alive so the
-/// guard can be stored without a process-wide `'static` mutex.
+/// RAII lock for host staging. The guard owns an `Arc` to the world's
+/// transaction mutex, so no process-wide `'static` mutex is needed.
 pub struct WorldRuntimeTransactionLock {
-    _arc: Arc<Mutex<()>>,
-    guard: Option<MutexGuard<'static, ()>>,
+    _guard: parking_lot::ArcMutexGuard<parking_lot::RawMutex, ()>,
 }
 
 impl WorldRuntimeTransactionLock {
@@ -40,38 +39,21 @@ impl WorldRuntimeTransactionLock {
         let arc = Arc::clone(
             crate::system::engine_stores::active_services().runtime_transaction_lock(),
         );
-        let guard = arc.lock().unwrap_or_else(|e| e.into_inner());
-        // SAFETY: `_arc` is stored in the same struct and outlives `guard`.
-        let guard: MutexGuard<'static, ()> = unsafe { std::mem::transmute(guard) };
-        Self {
-            _arc: arc,
-            guard: Some(guard),
-        }
+        Self { _guard: arc.lock_arc() }
     }
 
     pub fn try_acquire() -> Option<Self> {
         let arc = Arc::clone(
             crate::system::engine_stores::active_services().runtime_transaction_lock(),
         );
-        let guard = arc.try_lock().ok()?;
-        let guard: MutexGuard<'static, ()> = unsafe { std::mem::transmute(guard) };
-        Some(Self {
-            _arc: arc,
-            guard: Some(guard),
-        })
+        Some(Self { _guard: arc.try_lock_arc()? })
     }
 
     pub fn is_free() -> bool {
         crate::system::engine_stores::active_services()
             .runtime_transaction_lock()
             .try_lock()
-            .is_ok()
-    }
-}
-
-impl Drop for WorldRuntimeTransactionLock {
-    fn drop(&mut self) {
-        self.guard.take();
+            .is_some()
     }
 }
 

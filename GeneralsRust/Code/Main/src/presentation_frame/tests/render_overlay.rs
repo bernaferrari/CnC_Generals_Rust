@@ -849,9 +849,7 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
     use gamelogic::system::shroud_manager::get_shroud_manager;
 
-    let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock()
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock();
     let mut logic = GameLogic::new();
     apply_skirmish_config(
         &mut logic,

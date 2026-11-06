@@ -597,7 +597,7 @@ where
     let owned: Vec<String> = sciences.into_iter().map(|s| s.to_string()).collect();
     let ocl_name = peel_for_special_power(AMBUSH_SPECIAL_POWER_TEMPLATE)
         .map(|peel| {
-            find_ocl_name(peel, |s| owned.iter().any(|u| u.eq_ignore_ascii_case(s))).to_string()
+            find_ocl_name(&peel, |s| owned.iter().any(|u| u.eq_ignore_ascii_case(s))).to_string()
         })
         .unwrap_or_else(|| AMBUSH_OCL_AMBUSH1.to_string());
     if let Some(create) = create_object_for_ocl(&ocl_name) {

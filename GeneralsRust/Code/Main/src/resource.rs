@@ -430,7 +430,7 @@ impl Default for AssetManager {
 }
 
 /// Initialize global asset manager
-pub fn init_asset_manager() -> &'static AssetManager {
+pub fn init_asset_manager() -> std::sync::Arc<AssetManager> {
     let services = crate::main_services::main_services();
     let mut guard = services
         .resource_asset_manager
@@ -450,23 +450,17 @@ pub fn init_asset_manager() -> &'static AssetManager {
         );
         *guard = Some(std::sync::Arc::new(manager));
     }
-    let arc = guard.as_ref().expect("resource asset manager").clone();
-    let ptr = arc.as_ref() as *const AssetManager;
-    std::mem::forget(arc);
-    unsafe { &*ptr }
+    std::sync::Arc::clone(guard.as_ref().expect("resource asset manager"))
 }
 
 /// Get global asset manager
-pub fn get_asset_manager() -> Option<&'static AssetManager> {
+pub fn get_asset_manager() -> Option<std::sync::Arc<AssetManager>> {
     let services = crate::main_services::main_services();
     let guard = services
         .resource_asset_manager
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let arc = guard.as_ref()?.clone();
-    let ptr = arc.as_ref() as *const AssetManager;
-    std::mem::forget(arc);
-    Some(unsafe { &*ptr })
+    guard.as_ref().cloned()
 }
 
 /// Windows resource management functions

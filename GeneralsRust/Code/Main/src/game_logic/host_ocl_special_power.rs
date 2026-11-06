@@ -298,7 +298,7 @@ pub fn is_chem_anthrax_bomb_ocl_source(name: &str) -> bool {
 }
 
 /// Leftover findOCL + Chem_GLACommandCenter default OCL.
-pub fn resolve_anthrax_bomb_ocl<'a, I>(source_template: &str, names: I) -> &'static str
+pub fn resolve_anthrax_bomb_ocl<'a, I>(source_template: &str, names: I) -> String
 where
     I: IntoIterator<Item = &'a str>,
 {
@@ -306,15 +306,16 @@ where
     if is_chem_anthrax_bomb_ocl_source(source_template)
         || owned.iter().copied().any(is_chem_anthrax_bomb_ocl_source)
     {
-        return ANTHRAX_BOMB_GAMMA_OCL;
+        return ANTHRAX_BOMB_GAMMA_OCL.to_string();
     }
     if let Some(peel) = peel_for_special_power(ANTHRAX_BOMB_SPECIAL_POWER) {
-        return find_ocl_name(peel, |s| owned.iter().any(|n| n.eq_ignore_ascii_case(s)));
+        return find_ocl_name(&peel, |s| owned.iter().any(|n| n.eq_ignore_ascii_case(s)))
+            .to_string();
     }
-    ANTHRAX_BOMB_OCL
+    ANTHRAX_BOMB_OCL.to_string()
 }
 
-pub fn peel_for_special_power(power_template: &str) -> Option<&'static OclSpecialPowerPeel> {
+pub fn peel_for_special_power(power_template: &str) -> Option<OclSpecialPowerPeel> {
     let services = crate::main_services::main_services();
     let mut slot = services
         .ocl_special_power_peels
@@ -334,9 +335,7 @@ pub fn peel_for_special_power(power_template: &str) -> Option<&'static OclSpecia
             || p.special_power_template.to_ascii_lowercase().contains(&key)
             || key.contains(&p.special_power_template.to_ascii_lowercase())
     })?;
-    let ptr = &arc[idx] as *const OclSpecialPowerPeel;
-    std::mem::forget(arc);
-    Some(unsafe { &*ptr })
+    Some(arc[idx].clone())
 }
 
 /// Creation + target coordinates for ObjectCreationList::create residual.
@@ -483,7 +482,7 @@ pub fn plan_ocl_special_power_at_location(
     is_clear_cell: Option<&dyn Fn(Vec3) -> bool>,
 ) -> Option<OclSpecialPowerSpawnPlan> {
     let peel = peel_for_special_power(power_template)?;
-    let ocl = find_ocl_name(peel, player_has_science).to_string();
+    let ocl = find_ocl_name(&peel, player_has_science).to_string();
     let target_coord =
         adjust_ocl_target_to_passable(target_pos, peel.adjust_position_to_passable, is_clear_cell);
     let creation = compute_creation_coord(
@@ -894,7 +893,7 @@ pub fn honesty_ocl_special_power_residual_ok() -> bool {
             .is_some_and(|d| d.payload == "AnthraxBombGamma" && d.transport == "GLAJetCargoPlane")
         && deliver_payload_for_ocl(ANTHRAX_BOMB_OCL).is_some_and(|d| d.payload == "AnthraxBomb")
         && peel_for_special_power("SuperweaponNapalmStrike").is_some_and(|p| {
-            find_ocl_name(p, |_| false)
+            find_ocl_name(&p, |_| false)
                 == crate::game_logic::special_power_strikes::NAPALM_STRIKE_OCL
         })
         && deliver_payload_for_ocl("SUPERWEAPON_NapalmStrike").is_some_and(|d| {

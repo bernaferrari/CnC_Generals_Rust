@@ -160,7 +160,7 @@ impl ProfileMemory {
 pub struct ProfileMemoryBlock {
     ptr: *mut u8,
     size: usize,
-    stats: *const MemoryStats,
+    stats: std::sync::Arc<MemoryStats>,
 }
 
 impl ProfileMemoryBlock {
@@ -170,7 +170,7 @@ impl ProfileMemoryBlock {
         Ok(Self {
             ptr,
             size,
-            stats: &session.memory_stats as *const MemoryStats,
+            stats: std::sync::Arc::clone(&session.memory_stats),
         })
     }
 
@@ -213,9 +213,7 @@ impl ProfileMemoryBlock {
 
     /// Resize the memory block
     pub fn resize(&mut self, new_size: usize) -> ProfileResult<()> {
-        // SAFETY: stats pointer is valid for the session that allocated this block.
-        let stats = unsafe { &*self.stats };
-        let new_ptr = ProfileMemory::realloc_with_stats(stats, self.ptr, self.size, new_size)?;
+        let new_ptr = ProfileMemory::realloc_with_stats(&self.stats, self.ptr, self.size, new_size)?;
         self.ptr = new_ptr;
         self.size = new_size;
         Ok(())
@@ -232,9 +230,7 @@ impl ProfileMemoryBlock {
 
 impl Drop for ProfileMemoryBlock {
     fn drop(&mut self) {
-        // SAFETY: stats pointer is valid for the session that allocated this block.
-        let stats = unsafe { &*self.stats };
-        ProfileMemory::free_with_stats(stats, self.ptr, self.size);
+        ProfileMemory::free_with_stats(&self.stats, self.ptr, self.size);
     }
 }
 
@@ -243,7 +239,7 @@ pub struct ProfileArray<T> {
     ptr: *mut T,
     len: usize,
     capacity: usize,
-    stats: *const MemoryStats,
+    stats: Option<std::sync::Arc<MemoryStats>>,
 }
 
 impl<T> ProfileArray<T> {
@@ -253,7 +249,7 @@ impl<T> ProfileArray<T> {
             ptr: std::ptr::null_mut(),
             len: 0,
             capacity: 0,
-            stats: std::ptr::null(),
+            stats: None,
         }
     }
 
@@ -279,7 +275,7 @@ impl<T> ProfileArray<T> {
             ptr,
             len: 0,
             capacity,
-            stats: &session.memory_stats as *const MemoryStats,
+            stats: Some(std::sync::Arc::clone(&session.memory_stats)),
         })
     }
 
@@ -333,9 +329,13 @@ impl<T> ProfileArray<T> {
             let old_size = Layout::array::<T>(self.capacity)
                 .map(|l| l.size())
                 .unwrap_or(0);
-            (unsafe { &*self.stats }).record_deallocation(old_size);
+            if let Some(stats) = &self.stats {
+                stats.record_deallocation(old_size);
+            }
         }
-        (unsafe { &*self.stats }).record_allocation(new_layout.size());
+        if let Some(stats) = &self.stats {
+            stats.record_allocation(new_layout.size());
+        }
 
         self.ptr = new_ptr;
         self.capacity = new_capacity;
@@ -429,7 +429,9 @@ impl<T> ProfileArray<T> {
             unsafe {
                 alloc::dealloc(self.ptr as *mut u8, layout);
             }
-            (unsafe { &*self.stats }).record_deallocation(layout.size());
+            if let Some(stats) = &self.stats {
+                stats.record_deallocation(layout.size());
+            }
         }
 
         self.ptr = std::ptr::null_mut();

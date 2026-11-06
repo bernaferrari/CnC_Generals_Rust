@@ -6,11 +6,11 @@ pub use TerrainVisualImpl as TerrainVisualSystem;
 /// Published live-client terrain visual Arc (C++ `TheTerrainVisual` pointer).
 /// Each GameClient owns its Arc; only the registered live client is published.
 static PUBLISHED_TERRAIN_VISUAL: std::sync::Mutex<
-    Option<std::sync::Arc<std::sync::Mutex<Option<TerrainVisualImpl>>>>,
+    Option<std::sync::Arc<parking_lot::Mutex<Option<TerrainVisualImpl>>>>,
 > = std::sync::Mutex::new(None);
 
 pub(crate) fn publish_terrain_visual(
-    visual: std::sync::Arc<std::sync::Mutex<Option<TerrainVisualImpl>>>,
+    visual: std::sync::Arc<parking_lot::Mutex<Option<TerrainVisualImpl>>>,
 ) {
     *PUBLISHED_TERRAIN_VISUAL
         .lock()
@@ -18,7 +18,7 @@ pub(crate) fn publish_terrain_visual(
 }
 
 pub(crate) fn unpublish_terrain_visual(
-    visual: &std::sync::Arc<std::sync::Mutex<Option<TerrainVisualImpl>>>,
+    visual: &std::sync::Arc<parking_lot::Mutex<Option<TerrainVisualImpl>>>,
 ) {
     let mut slot = PUBLISHED_TERRAIN_VISUAL
         .lock()
@@ -32,7 +32,7 @@ pub(crate) fn unpublish_terrain_visual(
 }
 
 fn published_terrain_visual() -> Option<
-    std::sync::Arc<std::sync::Mutex<Option<TerrainVisualImpl>>>,
+    std::sync::Arc<parking_lot::Mutex<Option<TerrainVisualImpl>>>,
 > {
     PUBLISHED_TERRAIN_VISUAL
         .lock()
@@ -44,32 +44,26 @@ fn published_terrain_visual() -> Option<
 pub fn with_terrain_visual_mut<R>(f: impl FnOnce(&mut Option<TerrainVisualImpl>) -> R) -> Option<R> {
     let mut f = Some(f);
     if let Some(result) = crate::core::game_client::with_live_game_client_mut(|client| {
-        let mut guard = client
-            .terrain_visual_gpu
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut guard = client.terrain_visual_gpu.lock();
         f.take().expect("terrain visual")(&mut guard)
     }) {
         return Some(result);
     }
     let arc = published_terrain_visual()?;
-    let mut guard = arc.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = arc.lock();
     Some(f.take().expect("terrain visual")(&mut guard))
 }
 
 /// Initialize terrain visual on the live GameClient (C++ GameClient constructs TheTerrainVisual).
 pub fn init_terrain_visual() -> TerrainResult<()> {
     let inited = crate::core::game_client::with_live_game_client_mut(|client| {
-        let mut guard = client
-            .terrain_visual_gpu
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut guard = client.terrain_visual_gpu.lock();
         *guard = Some(TerrainVisualImpl::new());
         publish_terrain_visual(std::sync::Arc::clone(&client.terrain_visual_gpu));
     });
     if inited.is_none() {
         // Headless/tests without a live client: publish a dedicated Arc.
-        let arc = std::sync::Arc::new(std::sync::Mutex::new(Some(TerrainVisualImpl::new())));
+        let arc = std::sync::Arc::new(parking_lot::Mutex::new(Some(TerrainVisualImpl::new())));
         publish_terrain_visual(arc);
     }
     register_logic_height_hooks();
@@ -92,7 +86,7 @@ pub(crate) fn shutdown_terrain_visual() {
 /// Prefer [`with_terrain_visual_mut`].
 #[deprecated(note = "use with_terrain_visual_mut / GameClient.terrain_visual_gpu")]
 pub fn the_terrain_visual_published(
-) -> Option<std::sync::Arc<std::sync::Mutex<Option<TerrainVisualImpl>>>> {
+) -> Option<std::sync::Arc<parking_lot::Mutex<Option<TerrainVisualImpl>>>> {
     published_terrain_visual()
 }
 
@@ -256,8 +250,7 @@ pub fn rebuild_tank_tracks() {
 
 /// Guard that keeps the published Arc alive while the inner mutex is locked.
 pub struct TerrainVisualGuard {
-    _arc: std::sync::Arc<std::sync::Mutex<Option<TerrainVisualImpl>>>,
-    guard: std::sync::MutexGuard<'static, Option<TerrainVisualImpl>>,
+    guard: parking_lot::ArcMutexGuard<parking_lot::RawMutex, Option<TerrainVisualImpl>>,
 }
 
 impl std::ops::Deref for TerrainVisualGuard {
@@ -280,14 +273,8 @@ pub fn get_terrain_visual() -> Result<TerrainVisualGuard, TerrainError> {
             "no published terrain visual (need live GameClient or init_terrain_visual)".into(),
         )
     })?;
-    // SAFETY: `guard` borrows from `arc`; we keep `arc` in the same struct so the
-    // mutex outlives the guard. Extending the lifetime is the owning-guard pattern.
-    let guard = arc.lock().map_err(|_| {
-        TerrainError::InitializationError("Failed to lock terrain visual mutex".to_string())
-    })?;
-    let guard: std::sync::MutexGuard<'static, Option<TerrainVisualImpl>> =
-        unsafe { std::mem::transmute(guard) };
-    Ok(TerrainVisualGuard { _arc: arc, guard })
+    let guard = arc.lock_arc();
+    Ok(TerrainVisualGuard { guard })
 }
 
 /// Bind leftover TheRadar land/bridge paint to GameClient TerrainVisual + leftover TerrainLogic.

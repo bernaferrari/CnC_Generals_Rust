@@ -1463,9 +1463,7 @@ fn special_power_uses_single_source_object() {
 
     // SpySatellite residual inits the process-global shroud grid; drop it so
     // later tests see the fail-open uninitialized-grid path.
-    let _shroud_isolation = crate::fow_rendering::shroud_test_isolation_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _shroud_isolation = crate::fow_rendering::shroud_test_isolation_lock();
     let mut logic = GameLogic::new();
 
     // Caster still owns the module entry after cast routing.
@@ -1692,9 +1690,7 @@ fn special_power_at_location_wrapper() {
 
     // SpySatellite residual inits the process-global shroud grid; drop it so
     // later tests see the fail-open uninitialized-grid path.
-    let _shroud_isolation = crate::fow_rendering::shroud_test_isolation_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _shroud_isolation = crate::fow_rendering::shroud_test_isolation_lock();
     let mut logic = GameLogic::new();
     let mut tpl = ThingTemplate::new("SP_L");
     tpl.add_kind_of(KindOf::Structure);

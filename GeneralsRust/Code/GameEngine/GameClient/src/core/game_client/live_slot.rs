@@ -604,10 +604,10 @@ assert_eq!(live_game_client_frame(), Some(41));
             &a.terrain_visual_gpu,
             &b.terrain_visual_gpu
         ));
-        *a.terrain_visual_gpu.lock().unwrap() =
+        *a.terrain_visual_gpu.lock() =
             Some(crate::terrain::terrain_visual::TerrainVisualSystem::new());
-        assert!(a.terrain_visual_gpu.lock().unwrap().is_some());
-        assert!(b.terrain_visual_gpu.lock().unwrap().is_none());
+        assert!(a.terrain_visual_gpu.lock().is_some());
+        assert!(b.terrain_visual_gpu.lock().is_none());
         register_live_game_client(&mut a);
         {
             let guard =
@@ -622,16 +622,16 @@ assert_eq!(live_game_client_frame(), Some(41));
             *guard = Some(crate::terrain::terrain_visual::TerrainVisualSystem::new());
         }
         assert!(
-            a.terrain_visual_gpu.lock().unwrap().is_some(),
+            a.terrain_visual_gpu.lock().is_some(),
             "a keeps its own visual after b becomes live"
         );
-        assert!(b.terrain_visual_gpu.lock().unwrap().is_some());
+        assert!(b.terrain_visual_gpu.lock().is_some());
         assert!(clear_live_game_client(&mut b));
         crate::terrain::terrain_visual::unpublish_terrain_visual(&b.terrain_visual_gpu);
         // After clear, free-function peels must not observe a foreign client's Arc.
         assert!(
-            a.terrain_visual_gpu.lock().unwrap().is_some()
-                && b.terrain_visual_gpu.lock().unwrap().is_some()
+            a.terrain_visual_gpu.lock().is_some()
+                && b.terrain_visual_gpu.lock().is_some()
         );
     }
 

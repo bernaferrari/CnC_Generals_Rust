@@ -10,10 +10,9 @@ use super::*;
 
 /// Serialize tests that mutate process-global GameEngine UI state
 /// (TheInGameUI store, radar force-on, in-game chat type, window manager).
-fn hud_feedback_chain_lock() -> &'static std::sync::Mutex<()> {
+fn hud_feedback_chain_lock() -> parking_lot::ArcMutexGuard<parking_lot::RawMutex, ()> {
     let services = crate::main_services::main_services();
-    let lock = &services.hud_feedback_chain_lock;
-    unsafe { std::mem::transmute(lock) }
+    services.hud_feedback_chain_lock.lock_arc()
 }
 
 const SW_POWER_NAME: &str = "SWHudChainScudStorm";
@@ -150,9 +149,7 @@ fn superweapon_object_produces_counting_down_strip_entry_that_hits_ready() {
 /// (VictoryConditions.cpp:200-215).
 #[test]
 fn defeat_message_routes_localized_to_hud_and_local_defeat_forces_radar_and_chat() {
-    let _guard = hud_feedback_chain_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _guard = hud_feedback_chain_lock();
 
     let mut client = game_client::core::game_client::GameClient::new().expect("GameClient::new");
     client.set_in_game_ui_subsystem(game_client::core::subsystems::InGameUISubsystem::default());
@@ -204,9 +201,7 @@ fn defeat_message_routes_localized_to_hud_and_local_defeat_forces_radar_and_chat
 /// (C++ ControlBarUnderConstruction.cpp:24-41, ControlBar.cpp:2271).
 #[test]
 fn under_construction_selection_writes_localized_percent_label() {
-    let _guard = hud_feedback_chain_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _guard = hud_feedback_chain_lock();
     let owner = game_client::gui::window_manager::WindowManagerOwner::new();
 
     install_named_window(&owner, "ControlBar.wnd:UnderConstructionDesc", 80, 24);
@@ -263,9 +258,7 @@ fn under_construction_selection_writes_localized_percent_label() {
 /// runs whenever the displayed second changes).
 #[test]
 fn ocl_countdown_object_reveals_timer_window_with_ticking_seconds() {
-    let _guard = hud_feedback_chain_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _guard = hud_feedback_chain_lock();
     let owner = game_client::gui::window_manager::WindowManagerOwner::new();
 
     install_named_window(&owner, "ControlBar.wnd:OCLTimerWindow", 120, 40);

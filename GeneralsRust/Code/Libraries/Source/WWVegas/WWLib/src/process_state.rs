@@ -22,6 +22,12 @@ impl ArgvStorage {
     }
 }
 
+/// Message-loop intercept hook (windows `MSG` payload; opaque elsewhere).
+#[cfg(target_os = "windows")]
+pub type MessageInterceptHandler = fn(&mut windows::Win32::UI::WindowsAndMessaging::MSG) -> bool;
+#[cfg(not(target_os = "windows"))]
+pub type MessageInterceptHandler = fn(&mut ()) -> bool;
+
 pub struct WwLibRuntime {
     pub registry_locked: Arc<AtomicBool>,
     pub argv: Arc<Mutex<ArgvStorage>>,
@@ -37,7 +43,7 @@ pub struct WwLibRuntime {
     /// HWND / HACCEL stored as isize for cross-platform session state.
     pub modeless_dialogs: Mutex<Vec<isize>>,
     pub accelerators: Mutex<Vec<(isize, isize)>>,
-    pub message_intercept_handler: Mutex<Option<usize>>,
+    pub message_intercept_handler: Mutex<Option<MessageInterceptHandler>>,
 }
 
 impl Default for WwLibRuntime {

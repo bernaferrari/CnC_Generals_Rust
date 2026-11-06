@@ -3,9 +3,7 @@ use super::*;
 
 #[test]
 fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
-    let _env_guard = host_state_residual_test_env_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _env_guard = host_state_residual_test_env_lock();
     // Authority channels default off on the fresh GameLogic context —
     // host-state residual honesty without shadow writeback.
 
@@ -227,9 +225,7 @@ fn pilot_find_vehicle_ai_auto_scan_min_health_residual() {
 
 #[test]
 fn pilot_find_vehicle_base_center_fallback_residual() {
-    let _env_guard = host_state_residual_test_env_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _env_guard = host_state_residual_test_env_lock();
     // Authority channels default off on the fresh GameLogic context —
     // host-state residual honesty without shadow writeback.
 
@@ -386,9 +382,7 @@ fn pilot_find_vehicle_base_center_fallback_residual() {
 
 #[test]
 fn pilot_auto_find_healing_hospital_path_residual() {
-    let _env_guard = host_state_residual_test_env_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _env_guard = host_state_residual_test_env_lock();
 
     // Authority channels default off on the fresh GameLogic context —
     // host-state residual honesty without shadow writeback.
@@ -564,9 +558,7 @@ fn pilot_auto_find_healing_hospital_path_residual() {
 
 #[test]
 fn usa_infantry_auto_find_healing_hospital_path_residual() {
-    let _env_guard = host_state_residual_test_env_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _env_guard = host_state_residual_test_env_lock();
 
     // Authority channels default off on the fresh GameLogic context —
     // host-state residual honesty without shadow writeback.
@@ -875,9 +867,7 @@ fn eject_pilot_air_ocl_parachute_residual() {
 
 #[test]
 fn pilot_find_vehicle_same_player_partition_filter_residual() {
-    let _env_guard = host_state_residual_test_env_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _env_guard = host_state_residual_test_env_lock();
     // Authority channels default off on the fresh GameLogic context —
     // host-state residual honesty without shadow writeback.
 

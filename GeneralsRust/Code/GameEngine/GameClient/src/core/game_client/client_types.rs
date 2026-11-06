@@ -101,7 +101,7 @@ pub struct GameClient {
     pub(crate) terrain_texture_caches: crate::terrain::textures::TerrainTextureCaches,
     /// C++ `TheTerrainVisual` GPU impl — owned per receiving client (was process lazy_static).
     pub(crate) terrain_visual_gpu: std::sync::Arc<
-        std::sync::Mutex<Option<crate::terrain::terrain_visual::TerrainVisualImpl>>,
+        parking_lot::Mutex<Option<crate::terrain::terrain_visual::TerrainVisualImpl>>,
     >,
     fx_next_id: std::sync::atomic::AtomicU64,
     render_bridge_next_line_id: std::sync::atomic::AtomicU64,

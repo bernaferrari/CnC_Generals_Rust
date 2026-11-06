@@ -534,7 +534,7 @@ impl GameLogic {
             let from_ocl = peel_for_special_power("SuperweaponDaisyCutter")
                 .map(|peel| {
                     let ocl =
-                        find_ocl_name(peel, |s| unlocked.iter().any(|u| u.eq_ignore_ascii_case(s)));
+                        find_ocl_name(&peel, |s| unlocked.iter().any(|u| u.eq_ignore_ascii_case(s)));
                     DaisyFlightPayloadTier::from_ocl_name(ocl)
                 })
                 .unwrap_or(tier);
@@ -793,8 +793,8 @@ impl GameLogic {
         // C++ Chem_GLACommandCenter default OCL=SUPERWEAPON_AnthraxBombGamma.
         // Leftover findOCL + Chem identity; never hardcode Base.
         let ocl = resolve_anthrax_bomb_ocl(&source_template, names.iter().map(|s| s.as_str()));
-        let mut tier = AnthraxBombPayloadTier::from_ocl(ocl);
-        if let Some(deliver) = deliver_payload_for_ocl(ocl) {
+        let mut tier = AnthraxBombPayloadTier::from_ocl(&ocl);
+        if let Some(deliver) = deliver_payload_for_ocl(&ocl) {
             tier = AnthraxBombPayloadTier::from_ocl(&deliver.ocl_name);
             if deliver
                 .payload

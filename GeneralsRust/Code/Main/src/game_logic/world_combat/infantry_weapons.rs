@@ -1703,7 +1703,7 @@ impl GameLogic {
         let used_upgrade = peel_for_special_power(power_template)
             .map(|p| {
                 let resolved =
-                    find_ocl_name(p, |s| unlocked.iter().any(|u| u.eq_ignore_ascii_case(s)));
+                    find_ocl_name(&p, |s| unlocked.iter().any(|u| u.eq_ignore_ascii_case(s)));
                 resolved != p.default_ocl
             })
             .unwrap_or(false);

@@ -170,7 +170,7 @@ pub struct WorldServices {
     staging_deferred_team_effects:
         Mutex<Vec<crate::team::TeamFactoryDeferredEffects>>,
     /// Serializes host staging that still touches process-wide wrappers.
-    runtime_transaction_lock: Arc<Mutex<()>>,
+    runtime_transaction_lock: Arc<parking_lot::Mutex<()>>,
 }
 #[cfg(any(test, feature = "test-ambient-services"))]
 thread_local! {
@@ -262,7 +262,7 @@ impl WorldServices {
             w3d_ghost_snapshot_capture_source_hook: RwLock::new(None),
             staging_depth: AtomicU32::new(0),
             staging_deferred_team_effects: Mutex::new(Vec::new()),
-            runtime_transaction_lock: Arc::new(Mutex::new(())),
+            runtime_transaction_lock: Arc::new(parking_lot::Mutex::new(())),
         }
     }
     /// Snapshot engine content; fresh mutable per-world services. Inert.
@@ -340,7 +340,7 @@ impl WorldServices {
             w3d_ghost_snapshot_capture_source_hook: RwLock::new(None),
             staging_depth: AtomicU32::new(0),
             staging_deferred_team_effects: Mutex::new(Vec::new()),
-            runtime_transaction_lock: Arc::new(Mutex::new(())),
+            runtime_transaction_lock: Arc::new(parking_lot::Mutex::new(())),
         }
     }
     pub fn terrain(&self) -> &Arc<RwLock<crate::terrain::TerrainLogic>> {
@@ -501,7 +501,7 @@ impl WorldServices {
     ) -> &Mutex<Vec<crate::team::TeamFactoryDeferredEffects>> {
         &self.staging_deferred_team_effects
     }
-    pub(crate) fn runtime_transaction_lock(&self) -> &Arc<Mutex<()>> {
+    pub(crate) fn runtime_transaction_lock(&self) -> &Arc<parking_lot::Mutex<()>> {
         &self.runtime_transaction_lock
     }
     pub(crate) fn selection(&self) -> &Arc<RwLock<crate::commands::selection::SelectionManager>> {

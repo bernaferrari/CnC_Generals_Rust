@@ -59,7 +59,7 @@ pub struct MainServices {
     pub copy_protection_enabled: AtomicBool,
     pub copy_protection: Mutex<Option<Arc<Mutex<CopyProtection>>>>,
     pub debug_system: Mutex<Option<Arc<DebugSystem>>>,
-    pub fow_test_lock: Mutex<()>,
+    pub fow_test_lock: Arc<parking_lot::Mutex<()>>,
     pub resource_asset_manager: Mutex<Option<Arc<ResourceAssetManager>>>,
     pub host_destroy_log: Mutex<Vec<HostDestroyEvent>>,
     pub host_fire_intent_log: Mutex<Vec<HostFireIntentEvent>>,
@@ -68,8 +68,8 @@ pub struct MainServices {
     pub next_live_popup_generation: AtomicUsize,
     pub debug_camera_move_logs: AtomicUsize,
     pub debug_camera_move_to_logs: AtomicUsize,
-    pub host_state_residual_test_env_lock: Mutex<()>,
-    pub hud_feedback_chain_lock: Mutex<()>,
+    pub host_state_residual_test_env_lock: Arc<parking_lot::Mutex<()>>,
+    pub hud_feedback_chain_lock: Arc<parking_lot::Mutex<()>>,
     pub ocl_special_power_peels: Mutex<Option<Arc<Vec<crate::game_logic::host_ocl_special_power::OclSpecialPowerPeel>>>>,
 }
 
@@ -108,7 +108,7 @@ impl MainServices {
             copy_protection_enabled: AtomicBool::new(false),
             copy_protection: Mutex::new(None),
             debug_system: Mutex::new(None),
-            fow_test_lock: Mutex::new(()),
+            fow_test_lock: Arc::new(parking_lot::Mutex::new(())),
             resource_asset_manager: Mutex::new(None),  // Option<Arc<ResourceAssetManager>>
             host_destroy_log: Mutex::new(Vec::new()),
             host_fire_intent_log: Mutex::new(Vec::new()),
@@ -117,8 +117,8 @@ impl MainServices {
             next_live_popup_generation: AtomicUsize::new(1),
             debug_camera_move_logs: AtomicUsize::new(0),
             debug_camera_move_to_logs: AtomicUsize::new(0),
-            host_state_residual_test_env_lock: Mutex::new(()),
-            hud_feedback_chain_lock: Mutex::new(()),
+            host_state_residual_test_env_lock: Arc::new(parking_lot::Mutex::new(())),
+            hud_feedback_chain_lock: Arc::new(parking_lot::Mutex::new(())),
             ocl_special_power_peels: Mutex::new(None),
         }
     }

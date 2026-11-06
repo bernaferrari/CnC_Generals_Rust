@@ -1497,9 +1497,7 @@ mod tests {
         // C++ SelectionXlat.cpp:181-189 / 679-693 — a point click may select
         // a lone enemy, civilian (NEUTRAL), or allied drawable. Drag stays local-only.
         use crate::game_logic::{GameLogic, Player};
-        let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock();
         {
             let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
             let mut shroud = shroud_manager.lock().expect("shroud");
@@ -1666,9 +1664,7 @@ mod tests {
         // C++ SelectionInfo.cpp:352-371 / leftover selection_xlat.rs:426-429.
         use crate::game_logic::{GameLogic, Player};
         use crate::pick_ray::pick_object_id_along_camera_ray;
-        let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock();
         {
             let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
             let mut shroud = shroud_manager.lock().expect("shroud");

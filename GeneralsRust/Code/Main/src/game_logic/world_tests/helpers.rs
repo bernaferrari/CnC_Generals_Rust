@@ -13,10 +13,9 @@ pub(super) fn admit_retail_production_energy_rules(logic: &mut GameLogic) {
 
 // Child module of game_logic.rs via `#[path]`.
 
-pub(super) fn host_state_residual_test_env_lock() -> &'static std::sync::Mutex<()> {
+pub(super) fn host_state_residual_test_env_lock() -> parking_lot::ArcMutexGuard<parking_lot::RawMutex, ()> {
     let services = crate::main_services::main_services();
-    let lock = &services.host_state_residual_test_env_lock;
-    unsafe { std::mem::transmute(lock) }
+    services.host_state_residual_test_env_lock.lock_arc()
 }
 
 /// Install a tall ridge through the pathfinding-grid mid X cells so

@@ -415,16 +415,6 @@ impl SaveLoadManager {
 /// Global save/load manager instance
 use std::sync::{Arc, Mutex, OnceLock};
 
-// THREAD: process-wide save directory owner, shared with the save/load UI.
-fn save_load_manager_slot() -> std::sync::MutexGuard<'static, Option<Arc<Mutex<SaveLoadManager>>>> {
-    let services = crate::main_services::main_services();
-    let guard = services
-        .save_load_manager
-        .lock()
-        .unwrap_or_else(|p| p.into_inner());
-    unsafe { std::mem::transmute(guard) }
-}
-
 /// Initialize the global save/load system
 pub fn init_save_load_system() -> SaveLoadResult<()> {
     let services = crate::main_services::main_services();

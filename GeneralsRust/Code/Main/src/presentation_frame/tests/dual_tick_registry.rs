@@ -481,9 +481,7 @@ fn presentation_build_includes_unit_render_fields_and_positions() {
 
 #[test]
 fn presentation_fow_matches_bridge_at_build_and_stays_frozen() {
-    let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock();
 
     use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility};
     use gamelogic::system::shroud_manager::get_shroud_manager;
@@ -577,9 +575,7 @@ fn presentation_fow_matches_bridge_at_build_and_stays_frozen() {
 
 #[test]
 fn presentation_fow_shell_bypass_forces_fully_visible() {
-    let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock();
 
     use crate::fow_rendering::ObjectVisibility;
     use crate::game_logic::GameMode;
@@ -648,9 +644,7 @@ fn world_env_height_grid_is_self_consistent() {
 
 #[test]
 fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
-    let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _shroud_test_guard = crate::fow_rendering::shroud_test_isolation_lock();
 
     use crate::fow_rendering::{FOWRenderingBridge, PresentationFowGrid};
     use gamelogic::system::shroud_manager::get_shroud_manager;
