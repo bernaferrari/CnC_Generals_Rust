@@ -618,6 +618,10 @@ impl PresentationFrame {
                 topple_dir_x: obj.presentation_topple_dir().0,
                 topple_dir_y: obj.presentation_topple_dir().1,
                 shadows_enabled: obj.presentation_shadows_enabled(),
+                shadow_type_bits: crate::game_logic::host_battlemaster::leftover_template_shadow_type(
+                    &obj.template_name,
+                    obj.thing().template.shadow_type,
+                ),
                 terrain_decal_type: obj.terrain_decal_type,
                 terrain_decal_size: obj.terrain_decal_size,
                 terrain_decal_opacity: obj.terrain_decal_opacity,

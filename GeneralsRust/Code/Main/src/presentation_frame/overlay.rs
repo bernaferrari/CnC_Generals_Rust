@@ -1457,6 +1457,7 @@ impl PresentationFrame {
             topple_dir_x: 1.0,
             topple_dir_y: 0.0,
             shadows_enabled: true,
+            shadow_type_bits: 0,
             terrain_decal_type: 8,
             terrain_decal_size: 0.0,
             terrain_decal_opacity: 0.0,
@@ -2330,6 +2331,14 @@ impl PresentationFrame {
             let shadows = obj.presentation_shadows_enabled();
             if ro.shadows_enabled != shadows {
                 ro.shadows_enabled = shadows;
+                dirty = true;
+            }
+            let shadow_bits = crate::game_logic::host_battlemaster::leftover_template_shadow_type(
+                &obj.template_name,
+                obj.thing().template.shadow_type,
+            );
+            if ro.shadow_type_bits != shadow_bits {
+                ro.shadow_type_bits = shadow_bits;
                 dirty = true;
             }
             if ro.terrain_decal_type != obj.terrain_decal_type

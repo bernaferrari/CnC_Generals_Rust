@@ -299,6 +299,10 @@ pub struct MeshRenderManager {
     decal_queue: Vec<Arc<MeshClass>>,
     fvf_containers: Vec<Arc<DX8FVFCategoryContainer>>,
     live_csm: crate::rendering::shadow_system::live_cascade_shadow::LiveCascadeShadowMap,
+    /// Stencil shadow volumes for SHADOW_VOLUME casters (created on first use).
+    shadow_volumes: Option<super::shadow_volume::ShadowVolumeRenderer>,
+    /// Silhouette quads drawn by the last shadow pass (frame stats).
+    last_shadow_volume_quads: u32,
 
     /// Frozen presentation texture installed for the current frame. The
     /// dedicated rigid/skinned draw pipeline is intentionally separate work;
@@ -374,6 +378,8 @@ impl MeshRenderManager {
             decal_queue: Vec::new(),
             fvf_containers: Vec::new(),
             live_csm,
+            shadow_volumes: None,
+            last_shadow_volume_quads: 0,
 
             projected_shroud: None,
         }
@@ -604,10 +610,37 @@ impl MeshRenderManager {
         render_info: &RenderInfoClass,
         arena: &mut FrameUniformArena,
     ) -> W3dResult<()> {
+        self.render_pass_with_shadow_volumes(
+            render_pass,
+            opaque_meshes,
+            &[],
+            blended_meshes,
+            render_info,
+            arena,
+        )
+    }
+
+    /// Opaque meshes, then the stencil shadow volumes of `shadow_casters`
+    /// (C++ `DoShadows` stencil slot), then blended meshes. The pass's depth
+    /// attachment must carry a stencil aspect cleared to zero when casters
+    /// are given.
+    pub fn render_pass_with_shadow_volumes(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        opaque_meshes: &[Arc<MeshClass>],
+        shadow_casters: &[Arc<MeshClass>],
+        blended_meshes: &[Arc<MeshClass>],
+        render_info: &RenderInfoClass,
+        arena: &mut FrameUniformArena,
+    ) -> W3dResult<()> {
         let mut pass_resources = RenderPassResources::default();
+        self.last_shadow_volume_quads = 0;
         let result = (|| {
             for mesh in opaque_meshes {
                 self.render_mesh(mesh, render_info, render_pass, arena, &mut pass_resources)?;
+            }
+            if !shadow_casters.is_empty() && self.stencil_available() {
+                self.record_shadow_volumes(render_pass, shadow_casters, render_info);
             }
             for mesh in blended_meshes {
                 self.render_mesh(mesh, render_info, render_pass, arena, &mut pass_resources)?;
@@ -618,6 +651,41 @@ impl MeshRenderManager {
         // per page) before anyone can submit the recorded pass.
         arena.flush(self.gpu_device.as_ref());
         result
+    }
+
+    /// Whether the scene depth format has the stencil the shadow pass needs.
+    pub fn stencil_available(&self) -> bool {
+        self.depth_format
+            .is_some_and(|format| format.has_stencil_aspect())
+    }
+
+    /// Silhouette quads drawn by the last shadow pass.
+    pub fn last_shadow_volume_quads(&self) -> u32 {
+        self.last_shadow_volume_quads
+    }
+
+    fn record_shadow_volumes(
+        &mut self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+        casters: &[Arc<MeshClass>],
+        render_info: &RenderInfoClass,
+    ) {
+        let Some(depth_format) = self.depth_format else {
+            return;
+        };
+        let device = self.gpu_device.wgpu_device();
+        let color_format = self.color_format;
+        let volumes = self.shadow_volumes.get_or_insert_with(|| {
+            super::shadow_volume::ShadowVolumeRenderer::new(device, color_format, depth_format)
+        });
+        self.last_shadow_volume_quads = volumes.record(
+            device,
+            self.gpu_device.queue(),
+            render_pass,
+            casters,
+            render_info.camera.get_cached_view_projection_matrix(),
+            sun_direction(render_info),
+        );
     }
 
     /// Select the lighting environment owned by this MeshClass when one has
@@ -2575,4 +2643,21 @@ mod bind_cache_reuse_tests {
         assert_eq!(second.misses, 2, "{second:?}");
         assert_eq!(second.hits, 3 * lookups_per_draw - 2);
     }
+}
+
+/// Direction the first enabled directional light travels (C++ volumetric
+/// shadows use `TheGlobalData->m_terrainLightPos[0]`, the sun).
+fn sun_direction(render_info: &RenderInfoClass) -> glam::Vec3 {
+    render_info
+        .lighting
+        .as_ref()
+        .and_then(|environment| {
+            environment.lights.iter().find(|light| {
+                light.enabled
+                    && light.light_type == crate::rendering::lighting_system::LightType::Directional
+                    && light.direction.length_squared() > 1e-6
+            })
+        })
+        .map(|light| light.direction)
+        .unwrap_or(glam::Vec3::new(0.35, -0.85, 0.35))
 }

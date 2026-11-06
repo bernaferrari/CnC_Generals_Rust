@@ -637,6 +637,9 @@ pub struct RenderItem {
     pub status_tint: [f32; 3],
     /// C++ `m_hexColor` / player indicator color applied to HOUSECOLOR / ZHC.
     pub house_color: [f32; 4],
+    /// The object's template has `Shadow = SHADOW_VOLUME` and shadows are on:
+    /// its meshes are stencil shadow-volume casters (C++ W3DVolumetricShadow).
+    pub casts_volume_shadow: bool,
 }
 
 impl RenderItem {
@@ -694,6 +697,7 @@ impl RenderItem {
             poison_tinted: false,
             status_tint: [0.0; 3],
             house_color: [0.0; 4],
+            casts_volume_shadow: false,
         }
     }
 

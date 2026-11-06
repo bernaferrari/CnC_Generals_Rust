@@ -748,7 +748,9 @@ impl ForwardPass {
                             continue;
                         }
                         // Queue mesh for rendering
-                        if let Err(e) = renderer.queue_mesh(mesh) {
+                        if let Err(e) =
+                            renderer.queue_mesh_with_shadow(mesh, item.casts_volume_shadow)
+                        {
                             error!("Failed to queue mesh for item {}: {e:?}", item.object_id);
                             error_count += 1;
                             // Continue processing other items instead of failing entire frame

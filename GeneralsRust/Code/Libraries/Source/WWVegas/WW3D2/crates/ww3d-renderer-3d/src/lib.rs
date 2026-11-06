@@ -653,6 +653,7 @@ impl Renderer {
         // frame (W3DShadowManager). The former live cascade (4 depth passes
         // and a PCF term in opaque.wgsl) is gone (renderer plan R9 / G8).
 
+        let stencil = mesh_manager.stencil_available();
         let load_op = clear_color
             .map(wgpu::LoadOp::Clear)
             .unwrap_or(wgpu::LoadOp::Load);
@@ -682,7 +683,11 @@ impl Renderer {
                                 },
                                 store: wgpu::StoreOp::Store,
                             }),
-                            stencil_ops: None,
+                            // The shadow-volume counts live only in this pass.
+                            stencil_ops: stencil.then_some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(0),
+                                store: wgpu::StoreOp::Discard,
+                            }),
                         }
                     }),
                     occlusion_query_set: None,
@@ -700,9 +705,10 @@ impl Renderer {
             // the WRONG ROW of terrain depth (units vanish behind terrain).
             Self::apply_camera_viewport(self.camera.as_ref(), &mut render_pass, targets.size);
 
-            mesh_manager.render_pass(
+            mesh_manager.render_pass_with_shadow_volumes(
                 &mut render_pass,
                 &prepared.opaque,
+                &prepared.shadow_casters,
                 &blended_and_decals,
                 info,
                 arena,
@@ -833,6 +839,16 @@ impl Renderer {
         &mut self,
         mesh: std::sync::Arc<rendering::mesh_system::MeshClass>,
     ) -> RendererResult<()> {
+        self.queue_mesh_with_shadow(mesh, false)
+    }
+
+    /// Queue a mesh; `casts_volume_shadow` also makes it a stencil shadow
+    /// volume caster (its object's template has `Shadow = SHADOW_VOLUME`).
+    pub fn queue_mesh_with_shadow(
+        &mut self,
+        mesh: std::sync::Arc<rendering::mesh_system::MeshClass>,
+        casts_volume_shadow: bool,
+    ) -> RendererResult<()> {
         if let Some(model) = &mesh.model {
             self.register_mesh(model.clone())?;
         }
@@ -841,23 +857,10 @@ impl Renderer {
         } else {
             FrameGraphQueue::Opaque
         };
-        let shadows_enabled_for_frame = self
-            .light_environment
-            .as_ref()
-            .map(|env| {
-                env.lights
-                    .iter()
-                    .any(|light| light.enabled && light.casts_shadows)
-            })
-            .unwrap_or(false);
-
-        let should_queue_shadow = shadows_enabled_for_frame
-            && mesh
-                .model
-                .as_ref()
-                .map(|model| model.index_count > 0 || model.vertex_count > 0)
-                .unwrap_or(false)
-            && !mesh.is_decal_instance;
+        let should_queue_shadow = casts_volume_shadow
+            && !mesh.is_decal_instance
+            && !mesh.is_alpha()
+            && mesh.model.as_ref().is_some_and(|model| !model.triangles.is_empty());
 
         self.frame_graph.node_mut(FrameGraphPass::Main).submit_mesh(
             mesh.clone(),
